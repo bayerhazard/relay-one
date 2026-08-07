@@ -190,14 +190,14 @@ Alle bestehenden Funktionen bleiben, nur Transport ändert sich (`invoke` → `f
 | Archiv | `GET /api/v1/archive/delete-queue`, `POST /api/v1/archive/delete-queue/{id}/retry` |
 | CardDAV | `/api/v1/carddav/*` (unverändert) |
 
-**Auth**: Intern über Olares-Entrance (authLevel internal) — die REST-API ist nur im Cluster-Netz erreichbar.
+**Auth**: Intern über Olares-Entrance (authLevel internal) — die REST-API ist nur im Cluster-Netz erreichbar. Zusätzlich `X-Relay-Key`-Pflicht für Nicht-Browser-Clients (F6, §12).
 
 ---
 
 ## 7. Frontend-Änderungen (minimal)
 
 - `src/lib/services/tauri.ts` → `relayApi.ts`: identische Funktionensignaturen, Implementierung `fetch('/api/v1/...')`.
-- Neu in den Einstellungen: Sync-Modus je Account (`mirror`/`archive`), Ordner-Typ (Provider/lokal-only), Delete-Queue-Review-Liste. **Kein `provider_retention_days`-Feld** (gibt es nicht mehr, Entscheidung F2).
+- Neu in den Einstellungen: Sync-Modus je Account (`mirror`/`archive`), Papierkorb-Aufbewahrung (Default 30 Tage, F7), Ordner-Typ (Provider/lokal-only), Delete-Queue-Review-Liste. **Kein `provider_retention_days`-Feld** (gibt es nicht mehr, Entscheidung F2).
 - Mailbox-UI: Lokal-only Ordner mit eigenem Icon (kein Provider-Sync-Icon).
 - Anhänge öffnen: `<input type=file>` statt `open_file_picker`; Downloads via `window.open('/api/v1/messages/{id}/attachment/...')`.
 
@@ -321,10 +321,14 @@ image:
 | F3 | Lokal-only Ordner vorgeben? | **Nein** — der Benutzer legt lokale Ordner vollständig selbst an, keine Vorgaben/Starter-Sets |
 | F4 | Desktop-DB-Import wann? | **P3, optional** — wird möglicherweise gar nicht benötigt |
 | F5 | Datenpfad | **ALLES unter `/data/Relay`** (Mail-DB index.db, KI-DB ai.db, Cache, EML-Archiv, Config) — ein Stamm für das normale Olares-Backup |
+| F6 | API-Sperre innerhalb Olares | **Ja — `X-Relay-Key`-Header** (aus K8s-Secret) für alle Server-zu-Server-Aufrufe; Pflicht für Nicht-Browser-Clients, Browser erhält ihn über den Web-Einstieg |
+| F7 | Papierkorb-Aufbewahrung lokal | **Konfigurierbar, Default 30 Tage** (Einstellung pro Account) |
 
 ---
 
-## 12. Noch offen
+## 12. API-Sperre (F6)
 
-1. **API-Sperre innerhalb Olares**: REST-API ist nur im Cluster-Netz erreichbar (authLevel internal), aber andere Apps im Netz könnten theoretisch zugreifen. Vorschlag: `X-Relay-Key`-Header (aus K8s-Secret) für Server-zu-Server-Aufrufe.
-2. Papierkorb-Aufbewahrung lokal: 30 Tage fest oder konfigurierbar?
+- `X-Relay-Key`: zufälliger Wert, vom Chart erzeugt, als K8s-Secret (`relay-api-key`) an den Server gemountet.
+- Jeder REST-Request **außerhalb des Browser-Kontexts** muss den Header tragen; ohne gültigen Key → `401`.
+- Die SvelteKit-Web-App setzt den Header nicht selbst — sie ist über den Entrance mit `authLevel: internal` abgesichert; der Key ist der Schutz gegen andere Apps/Workloads im Cluster-Netz, die die ClusterIP direkt ansprechen.
+- Rotation: `kubectl`/Chart-Helm-Update erneuert den Key (Server liest ihn bei Start; Restart nötig).
