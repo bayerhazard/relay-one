@@ -1,0 +1,51 @@
+olaresManifest.version: '0.12.0'
+olaresManifest.type: app
+apiVersion: 'v3'
+metadata:
+  name: relayapp
+  appid: relayapp
+  title: AImighty Relay One
+  description: Selbst gehosteter E-Mail-Client — IMAP/SMTP mit KI-Unterstützung.
+  icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
+  version: 26.08.1
+  categories:
+    - Utilities
+entrances:
+  - name: relayapp
+    port: 3000
+    host: relayapp
+    title: AImighty Relay One
+    icon: https://app.cdn.olares.com/appstore/default/defaulticon.webp
+    openMethod: window
+    authLevel: internal
+spec:
+  versionName: 26.08.1
+  fullDescription: |
+    **AImighty Relay One** — dein selbst gehosteter E-Mail-Client.
+    IMAP/SMTP-Anbindung mit lokalem Cache und KI-Assistenz (Antworten, Zusammenfassungen, Prioritäten, Tonfall).
+  developer: bayerhazard
+  website: https://github.com/bayerhazard/relay-one
+  sourceCode: https://github.com/bayerhazard/relay-one
+  locale:
+    - de
+  supportArch:
+    - amd64
+    - arm64
+  requiredCpu: 0.5
+  limitedCpu: 4
+  requiredMemory: 1Gi
+  limitedMemory: 8Gi
+  requiredDisk: 10Gi
+  limitedDisk: 200Gi
+  runAsUser: true
+permission:
+  appData: true
+envs: []
+options:
+  apiTimeout: 0
+  dependencies:
+    - name: olares
+      version: '>=1.12.6-0'
+      type: system
+workloadReplicas:
+  relayapp: 1

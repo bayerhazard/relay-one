@@ -95,6 +95,15 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state((*state).clone());
 
+    // Serve the static web build (SPA) from RELAY_WEB_DIR if present.
+    // Anything not under /api is served from disk with an index.html
+    // fallback for client-side routes.
+    let web_dir = std::env::var("RELAY_WEB_DIR").unwrap_or_else(|_| "/opt/relay/web".to_string());
+    let fallback = std::path::PathBuf::from(&web_dir).join("index.html");
+    let static_app = tower_http::services::ServeDir::new(&web_dir)
+        .not_found_service(tower_http::services::ServeFile::new(fallback));
+    let app = app.fallback_service(static_app);
+
     let bind_addr = std::env::var("RELAY_BIND")
         .unwrap_or_else(|_| "0.0.0.0:3000".to_string());
     let listener = tokio::net::TcpListener::bind(&bind_addr)

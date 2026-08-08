@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: relayapp
+spec:
+  selector:
+    app: relayapp
+  ports:
+    - port: 3000
+      targetPort: http
+      name: http

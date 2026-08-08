@@ -1,0 +1,12 @@
+workloads:
+  relayapp:
+    replicaCount: 1
+
+image:
+  repository: ghcr.io/bayerhazard/relay-one
+  tag: 26.08.1
+  pullPolicy: IfNotPresent
+
+storage:
+  mountPath: /data/Relay
+  size: 100Gi
