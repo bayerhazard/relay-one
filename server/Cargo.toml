@@ -25,7 +25,7 @@ lettre = { version = "0.11", default-features = false, features = [
 imap = { version = "3.0.0-alpha.15", default-features = false, features = ["rustls-tls"] }
 imap-proto = "0.16"
 mail-parser = "0.9"
-reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "multipart", "rustls-tls", "http2"] }
 quick-xml = "0.37"
 async-stream = "0.3"
 futures = "0.3"
@@ -41,6 +41,8 @@ rand = "0.8"
 digest_auth = "0.3"
 strsim = "0.11"
 bytes = "1"
+p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pem"] }
+hkdf = "0.12"
 
 [dev-dependencies]
 tempfile = "3"

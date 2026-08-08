@@ -7,6 +7,7 @@ pub mod accounts;
 pub mod ai;
 pub mod health;
 pub mod messages;
+pub mod push;
 pub mod send;
 pub mod settings;
 
@@ -62,6 +63,10 @@ pub fn router() -> Router<AppState> {
         .route("/ai/tone-profile", post(ai::get_tone_profile))
         .route("/ai/suggest-recipient", post(ai::ai_suggest_recipient))
         .route("/ai/suggest-subject", post(ai::ai_suggest_subject))
+        // Web Push
+        .route("/push/vapid", get(push::vapid_key))
+        .route("/push/subscribe", post(push::subscribe))
+        .route("/push/unsubscribe", post(push::unsubscribe))
 }
 
 /// Shared error type: turns a `String` error into `500 {"error": "…"}`.

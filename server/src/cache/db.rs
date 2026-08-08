@@ -177,6 +177,17 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             cached_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_ma_message ON message_attachments(message_id);
+
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL DEFAULT 0,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(endpoint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_push_account ON push_subscriptions(account_id);
         ",
     )?;
 

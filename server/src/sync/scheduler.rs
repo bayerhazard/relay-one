@@ -716,6 +716,26 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
                     let _ = state.events.emit("new-messages", (task.account_id, folder_name, messages.len()));
                 }
 
+                // Web Push: notify installed PWAs even when the app is closed.
+                // Only for INBOX — other folders are fetched on demand anyway.
+                if !messages.is_empty() && is_inbox {
+                    let account_id = task.account_id as i64;
+                    let count = messages.len();
+                    let sender = messages.first().map(|m| m.envelope.from.clone());
+                    let body = match sender {
+                        Some(s) if !s.is_empty() => format!("{} neue E-Mail(s) von {}", count, s),
+                        _ => format!("{} neue E-Mail(s)", count),
+                    };
+                    let state_push = state.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            crate::push::notify_account(&state_push, account_id, "Neue E-Mail", &body).await
+                        {
+                            tracing::warn!("WebPush fehlgeschlagen (account {}): {}", account_id, e);
+                        }
+                    });
+                }
+
                 // Enqueue AI summary only for messages that don't already have one
                 if !is_spam {
                     for msg in &messages {

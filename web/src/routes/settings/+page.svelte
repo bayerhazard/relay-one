@@ -9,6 +9,7 @@ import {
     getVoiceSettings, saveVoiceSettings,
     resetCircuitBreaker,
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache,
+    setupPush, teardownPush, pushEnabled,
   } from "$lib/services/tauri";
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
@@ -47,6 +48,9 @@ import {
   let moveToTrash = $state(true);
   let autoDownloadImages = $state(true);
   let fetchLimit = $state(50);
+  let notificationsEnabled = $state(false);
+  let notificationsError = $state<string | null>(null);
+  let notificationsBusy = $state(false);
 
   // ─── CardDAV ─────────────────────────────────
   let carddavUrl = $state("https://");
@@ -121,6 +125,11 @@ import {
       }
     } catch (e) { console.warn("Voice settings load failed", e); }
 
+    // Load push notification state
+    try {
+      notificationsEnabled = await pushEnabled();
+    } catch (e) { console.warn("Push state load failed", e); }
+
     // Load Cache stats
     loadCacheStats();
   });
@@ -192,6 +201,39 @@ import {
   function handleAutoDownloadImagesToggle() {
     autoDownloadImages = !autoDownloadImages;
     try { localStorage.setItem("relay_auto_download_images", String(autoDownloadImages)); } catch {}
+  }
+
+  async function handleNotificationsToggle() {
+    if (notificationsBusy) return;
+    notificationsBusy = true;
+    notificationsError = null;
+    try {
+      if (notificationsEnabled) {
+        await teardownPush();
+        notificationsEnabled = false;
+      } else {
+        let accountId = 1;
+        try {
+          const acctList = await listAccounts();
+          accountId = acctList?.[0]?.id ?? 1;
+        } catch { /* default to 1 */ }
+        const result = await setupPush(accountId, () => {
+          notificationsError = "Berechtigung verweigert. Erlaube Benachrichtigungen in den Systemeinstellungen deines Browsers oder Geräts.";
+        });
+        if (result === "registered" || result === "granted") {
+          notificationsEnabled = true;
+        } else if (result === "denied") {
+          notificationsEnabled = false;
+        } else {
+          notificationsError = "Push-Benachrichtigungen werden von diesem Browser/Gerät nicht unterstützt. iOS: installiere Relay als Web-App über 'Zum Home-Bildschirm' (iOS 16.4+).";
+          notificationsEnabled = false;
+        }
+      }
+    } catch (e) {
+      notificationsError = String(e);
+    } finally {
+      notificationsBusy = false;
+    }
   }
 
 async function handleSaveCardDav() {
@@ -595,6 +637,23 @@ async function handleSaveCardDav() {
                   <span class="switch-desc">Wenn deaktiviert, werden externe Bilder in E-Mails zunächst als Platzhalter angezeigt. Klicke auf einen Platzhalter, um das Bild zu laden.</span>
                 </span>
               </label>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Custom Switch for Push Notifications -->
+            <div class="switch-row">
+              <label class="switch-container">
+                <input type="checkbox" checked={notificationsEnabled} onchange={handleNotificationsToggle} disabled={notificationsBusy} />
+                <span class="switch-slider"></span>
+                <span class="switch-label-group">
+                  <span class="switch-title">Push-Benachrichtigungen</span>
+                  <span class="switch-desc">Erhalte eine Benachrichtigung, sobald neue E-Mails eintreffen — auch wenn die App geschlossen ist. iOS: installiere Relay über 'Zum Home-Bildschirm' (iOS 16.4+).</span>
+                </span>
+              </label>
+              {#if notificationsError}
+                <p class="text-xs text-red-500 mt-2">{notificationsError}</p>
+              {/if}
             </div>
           </div>
         </section>

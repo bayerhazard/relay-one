@@ -614,3 +614,136 @@ export function openEventStream(onEvent: (event: string, payload: unknown) => vo
 }
 
 // (end of API wrappers)
+
+// ─── Web Push (Notifications) ────────────────────────────────
+// VAPID-keyed push: works even when the app is closed (PWA installed to
+// home screen on iOS 16.4+ / macOS 13+).
+
+export interface VapidInfo {
+  publicKey: string;
+  subject: string;
+}
+
+export async function getVapidInfo(): Promise<VapidInfo | null> {
+  try {
+    const res = await fetch(`${API_BASE}/push/vapid`);
+    if (!res.ok) return null;
+    const d = await res.json();
+    return { publicKey: d.public_key ?? "", subject: d.subject ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+export async function subscribePush(
+  subscription: PushSubscription,
+  accountId: number,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/push/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: subscription.endpoint,
+        p256dh: b64urlToBase64(arrayBufferToB64(subscription.getKey("p256dh"))),
+        auth: b64urlToBase64(arrayBufferToB64(subscription.getKey("auth"))),
+        account_id: accountId,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function unsubscribePush(endpoint: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/push/unsubscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Register the service worker and request push permission. */
+export async function setupPush(
+  accountId: number,
+  onDenied?: () => void,
+): Promise<"granted" | "denied" | "unsupported" | "registered"> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return "unsupported";
+  }
+  try {
+    const reg = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL ?? ""}sw.js`);
+    const vapid = await getVapidInfo();
+    if (!vapid) return "unsupported";
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        onDenied?.();
+        return "denied";
+      }
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapid.publicKey) as unknown as BufferSource,
+      });
+    }
+    const ok = await subscribePush(sub, accountId);
+    return ok ? "registered" : "unsupported";
+  } catch {
+    return "unsupported";
+  }
+}
+
+export async function teardownPush(): Promise<void> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (sub) {
+      await unsubscribePush(sub.endpoint);
+      await sub.unsubscribe();
+    }
+  } catch { /* ignore */ }
+}
+
+export async function pushEnabled(): Promise<boolean> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return false;
+  }
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    return !!sub;
+  } catch {
+    return false;
+  }
+}
+
+// ─── base64 helpers (server stores standard base64) ──────────
+function arrayBufferToB64(buf: ArrayBuffer | null): string {
+  if (!buf) return "";
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function b64urlToBase64(b64: string): string {
+  return b64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64.length % 4)) % 4);
+}
+
+function urlBase64ToUint8Array(base64: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const base64Url = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64Url);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
