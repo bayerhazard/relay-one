@@ -17,9 +17,16 @@ spec:
       enableServiceLinks: false
       initContainers:
         - name: relay-data-chown
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["chown", "-R", "1000:1000", "{{ .Values.storage.mountPath }}"]
+          image: "beclab/aboveos-busybox:1.37.0"
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          args:
+            - |
+              mkdir -p {{ .Values.storage.mountPath }}
+              chown -R 1000:1000 {{ .Values.storage.mountPath }}
+              chmod -R 770 {{ .Values.storage.mountPath }}
+          securityContext:
+            runAsUser: 0
           volumeMounts:
             - name: relay-data
               mountPath: {{ .Values.storage.mountPath }}
