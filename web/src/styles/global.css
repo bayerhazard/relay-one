@@ -1,0 +1,119 @@
+/* ============================================================
+   Relay — Design-System (AImighty)
+   Farbsystem extrahiert aus dem AImighty-Hero:
+   - Hell: Hanseatenblau trägt die Fläche, Blau-Tiefe für Akzente
+   - Dunkel: Hanseatenblau-Dunkel als Fläche, Gold trägt das Signal
+   Typo: Geist / Geist Mono (selbst gehostet, OFL)
+   ============================================================ */
+
+/* --- Geist / Geist Mono (lokal, font-display:swap) --- */
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('./fonts/Geist-Regular.woff2') format('woff2')}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('./fonts/Geist-Medium.woff2') format('woff2')}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('./fonts/Geist-SemiBold.woff2') format('woff2')}
+@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url('./fonts/Geist-Bold.woff2') format('woff2')}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url('./fonts/GeistMono-Regular.woff2') format('woff2')}
+
+/* ============================================================
+   Helles Theme (Default) — Hanseatenblau
+   ============================================================ */
+:root {
+  /* Brand-Rampe (OKLCH 250°) */
+  --b-100:#051729; --b-150:#0a2238; --b-200:#142e47;
+  --b-300:#294766; --b-400:#3f6082; --b-500:#6683a2;
+  --b-600:#8ca1b7; --b-700:#b2bfcd; --b-800:#d3dae1; --b-900:#ebeff3;
+  --gold:#c9a45c; --gold-hell:#d5b371; --gold-tief:#b28b42;
+
+  /* App-Flächen */
+  --color-sidebar: #f4f7fa;
+  --color-list: #ffffff;
+  --color-preview: #ffffff;
+  --color-border: var(--b-800);
+  --color-accent: var(--b-150);
+  --color-accent-hover: var(--b-200);
+  --color-text: var(--b-150);
+  --color-text-secondary: var(--b-500);
+  --color-danger: #c0403a;
+  --color-warning: #a06a1f;
+  --color-success: #2e7d5b;
+  --color-unread: var(--b-400);
+  --color-active-wash: var(--b-900);
+  --color-unread-wash: rgba(63, 96, 130, 0.10);
+
+  /* Layout / Geometrie */
+  --radius-s: 3px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --fokus-ring: 2px solid var(--color-accent);
+  --fokus-offset: 3px;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   Dunkles Theme (Einstellungen → Erscheinungsbild)
+   Hanseatenblau-Dunkel + Gold-Akzent
+   ============================================================ */
+:root.theme-dark {
+  --color-sidebar: var(--b-100);
+  --color-list: var(--b-150);
+  --color-preview: var(--b-150);
+  --color-border: var(--b-300);
+  --color-accent: var(--gold);
+  --color-accent-hover: var(--gold-hell);
+  --color-text: var(--b-800);
+  --color-text-secondary: var(--b-500);
+  --color-danger: #e0605a;
+  --color-warning: #e0a04a;
+  --color-success: #4caf80;
+  --color-unread: var(--gold);
+  --color-active-wash: rgba(201, 164, 92, 0.10);
+  --color-unread-wash: rgba(201, 164, 92, 0.07);
+
+  --fokus-ring: 2px solid var(--color-accent);
+
+  color-scheme: dark;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: "Geist", "Geist Sans", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  color: var(--color-text);
+  background: var(--color-preview);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color .25s ease, color .25s ease;
+}
+
+/* Mono-Text (UIDs, Meta, technische Werte) */
+.mono, code, kbd {
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+input,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+:focus-visible {
+  outline: var(--fokus-ring);
+  outline-offset: var(--fokus-offset);
+}
