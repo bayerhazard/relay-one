@@ -15,6 +15,14 @@ spec:
         app: relay
     spec:
       enableServiceLinks: false
+      initContainers:
+        - name: relay-data-chown
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["chown", "-R", "1000:1000", "{{ .Values.storage.mountPath }}"]
+          volumeMounts:
+            - name: relay-data
+              mountPath: {{ .Values.storage.mountPath }}
       containers:
         - name: relay
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
