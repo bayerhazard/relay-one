@@ -101,7 +101,7 @@
     <div class="splash-card">
       {#if splashStep === "intro"}
         <div class="splash-intro">
-          <h1>Willkommen bei AImighty Relay</h1>
+          <h1>Willkommen bei Relay</h1>
           <p class="splash-subtitle">Der intelligente, lokale E-Mail-Client.</p>
           
           <div class="feature-grid">

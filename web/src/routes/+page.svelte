@@ -1853,7 +1853,7 @@ let sentFolderName = $state<string | null>(null);
             </div>
           </div>
           
-          <span class="version">AImighty Relay 2.1</span>
+          <span class="version">Relay 2.1</span>
         </div>
       </div>
     </aside>

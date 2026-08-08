@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: relayapp
+  name: relay
 spec:
-  replicas: {{ .Values.workloads.relayapp.replicaCount }}
+  replicas: {{ .Values.workloads.relay.replicaCount }}
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: relayapp
+      app: relay
   template:
     metadata:
       labels:
-        app: relayapp
+        app: relay
     spec:
       enableServiceLinks: false
       containers:
-        - name: relayapp
+        - name: relay
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
@@ -55,15 +55,16 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: {{ .Values.workloads.relayapp.requiredCpu | default "500m" }}
-              memory: {{ .Values.workloads.relayapp.requiredMemory | default "1Gi" }}
+              cpu: {{ .Values.workloads.relay.requiredCpu | default "500m" }}
+              memory: {{ .Values.workloads.relay.requiredMemory | default "1Gi" }}
             limits:
-              cpu: {{ .Values.workloads.relayapp.limitedCpu | default "4" }}
-              memory: {{ .Values.workloads.relayapp.limitedMemory | default "8Gi" }}
+              cpu: {{ .Values.workloads.relay.limitedCpu | default "4" }}
+              memory: {{ .Values.workloads.relay.limitedMemory | default "8Gi" }}
           securityContext:
             allowPrivilegeEscalation: false
       volumes:
         - name: relay-data
           hostPath:
-            path: {{ .Values.userspace.appData }}/relayapp
+            # Userverzeichnis: <userspace>/Data/relay — Mail-DB (index.db) + KI-Daten
+            path: {{ .Values.userspace.appData }}/relay
             type: DirectoryOrCreate

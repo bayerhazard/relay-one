@@ -75,7 +75,7 @@ describe("Splash Screen Integration in +page.svelte", () => {
     render(Page);
 
     await waitFor(() => {
-      expect(screen.getByText("Willkommen bei AImighty Relay")).toBeTruthy();
+      expect(screen.getByText("Willkommen bei Relay")).toBeTruthy();
     });
 
     expect(screen.getByText("Der intelligente, lokale E-Mail-Client.")).toBeTruthy();
@@ -107,10 +107,10 @@ describe("Splash Screen Integration in +page.svelte", () => {
 
     await waitFor(() => {
       // The app-container has the sidebar version info
-      expect(screen.getByText("AImighty Relay 2.1")).toBeTruthy();
+      expect(screen.getByText("Relay 2.1")).toBeTruthy();
     });
 
     // Splash screen header should NOT be present
-    expect(screen.queryByText("Willkommen bei AImighty Relay")).toBeNull();
+    expect(screen.queryByText("Willkommen bei Relay")).toBeNull();
   });
 });
