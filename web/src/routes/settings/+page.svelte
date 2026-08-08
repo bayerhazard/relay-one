@@ -676,10 +676,10 @@ async function handleSaveCardDav() {
                 <input id="imap-port" type="number" bind:value={imapPort} class="form-control" />
               </div>
               <div class="form-group justify-self-center">
-                <label class="checkbox-container">
-                  <input type="checkbox" bind:checked={imapSsl} />
-                  <span class="checkbox-checkmark"></span>
-                  <span class="checkbox-label">SSL</span>
+                <label class="toggle-label">
+                  <input type="checkbox" class="toggle" bind:checked={imapSsl} />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-text">SSL</span>
                 </label>
               </div>
             </div>
@@ -695,10 +695,10 @@ async function handleSaveCardDav() {
                 <input id="smtp-port" type="number" bind:value={smtpPort} class="form-control" />
               </div>
               <div class="form-group justify-self-center">
-                <label class="checkbox-container">
-                  <input type="checkbox" bind:checked={smtpTls} />
-                  <span class="checkbox-checkmark"></span>
-                  <span class="checkbox-label">TLS</span>
+                <label class="toggle-label">
+                  <input type="checkbox" class="toggle" bind:checked={smtpTls} />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-text">TLS</span>
                 </label>
               </div>
             </div>
@@ -735,7 +735,7 @@ async function handleSaveCardDav() {
               </div>
               <div class="form-group">
                 <label for="sender-mail">Absender-E-Mail-Adresse</label>
-                <input id="sender-mail" type="email" bind:value={senderMail} placeholder="name@provider.com" class="form-control" />
+                <input id="sender-mail" type="text" inputmode="email" bind:value={senderMail} placeholder="name@provider.com" class="form-control" />
               </div>
             </div>
 
@@ -1620,68 +1620,56 @@ async function handleSaveCardDav() {
     margin: 0;
   }
 
-  /* Custom Checkbox */
-  .checkbox-container {
+  /* Toggle Switch (SSL/TLS) */
+  .toggle-label {
     display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
-    position: relative;
     user-select: none;
     padding: 4px 8px;
   }
-
-  .checkbox-container input {
+  .toggle-label .toggle {
     position: absolute;
     opacity: 0;
-    cursor: pointer;
-    height: 0;
-    width: 0;
+    pointer-events: none;
   }
-
-  .checkbox-checkmark {
-    height: 18px;
-    width: 18px;
-    background-color: var(--color-list);
-    border: 1.5px solid var(--color-border);
-    border-radius: 4px;
-    transition: all 0.15s ease;
+  .toggle-label .toggle-track {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--color-border);
+    transition: background 0.2s ease;
+    flex-shrink: 0;
     display: inline-block;
   }
-
-  .checkbox-container:hover input ~ .checkbox-checkmark {
-    border-color: var(--color-text-secondary);
-  }
-
-  .checkbox-container input:checked ~ .checkbox-checkmark {
-    background-color: var(--color-accent);
-    border-color: var(--color-accent);
-  }
-
-  .checkbox-checkmark:after {
+  .toggle-label .toggle-track::after {
     content: "";
     position: absolute;
-    display: none;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
   }
-
-  .checkbox-container input:checked ~ .checkbox-checkmark:after {
-    display: block;
+  .toggle-label .toggle:checked + .toggle-track {
+    background: var(--color-accent);
   }
-
-  .checkbox-container .checkbox-checkmark:after {
-    left: 14px;
-    top: 9px;
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
+  .toggle-label .toggle:checked + .toggle-track::after {
+    transform: translateX(14px);
   }
-
-  .checkbox-label {
+  .toggle-label .toggle:focus-visible + .toggle-track {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  .toggle-text {
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--color-text);
+    line-height: 1;
   }
 
   /* ─── ALERTS / ALERTMESSAGES ─── */

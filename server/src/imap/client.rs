@@ -31,6 +31,7 @@ pub struct ImapClient {
     username: String,
     password: String,
     use_ssl: bool,
+    insecure: bool,
     session: Arc<Mutex<Option<imap::Session<Connection>>>>,
     connected: Arc<Mutex<bool>>,
     operation_timeout: Duration,
@@ -46,12 +47,24 @@ impl ImapClient {
         password: String,
         use_ssl: bool,
     ) -> Self {
+        Self::new_with_options(host, port, username, password, use_ssl, false)
+    }
+
+    pub fn new_with_options(
+        host: String,
+        port: u16,
+        username: String,
+        password: String,
+        use_ssl: bool,
+        insecure: bool,
+    ) -> Self {
         Self {
             host,
             port,
             username,
             password,
             use_ssl,
+            insecure,
             session: Arc::new(Mutex::new(None)),
             connected: Arc::new(Mutex::new(false)),
             operation_timeout: Duration::from_secs(60),
@@ -74,12 +87,18 @@ impl ImapClient {
         let username = self.username.clone();
         let password = self.password.clone();
         let use_ssl = self.use_ssl;
+        let insecure = self.insecure;
 
         let join_handle = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
-            tracing::info!("IMAP: Verbinde zu {}:{} (SSL: {}) ...", host, port, use_ssl);
+            tracing::info!("IMAP: Verbinde zu {}:{} (SSL: {}, insecure: {}) ...", host, port, use_ssl, insecure);
             let client = if use_ssl {
-                ClientBuilder::new(&host, port)
-                    .mode(ConnectionMode::Tls)
+                let mut builder = ClientBuilder::new(&host, port)
+                    .mode(ConnectionMode::Tls);
+                if insecure {
+                    tracing::warn!("IMAP: Zertifikatsprüfung übersprungen für {}", host);
+                    builder = builder.danger_skip_tls_verify(true);
+                }
+                builder
                     .connect()
                     .map_err(|e| AppError::imap(format!("IMAP SSL connect fehlgeschlagen: {}", e), "ssl_connect"))?
             } else {

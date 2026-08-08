@@ -36,6 +36,7 @@ pub struct ConnectAccountRequest {
     pub imap_host: String,
     pub imap_port: u16,
     pub imap_ssl: bool,
+    pub imap_insecure: Option<bool>,
     pub smtp_host: String,
     pub smtp_port: u16,
     pub smtp_tls: bool,
@@ -52,18 +53,28 @@ pub async fn connect_account(
     State(state): State<AppState>,
     Json(req): Json<ConnectAccountRequest>,
 ) -> ApiResult<AccountInfo> {
+    tracing::info!(
+        "connect_account body: name={:?} imap_host={:?} imap_port={} imap_ssl={} smtp_host={:?} smtp_port={} smtp_tls={} imap_username={:?} imap_password_len={} smtp_username={:?} smtp_password_len={} sender_name={:?} sender_email={:?}",
+        req.name, req.imap_host, req.imap_port, req.imap_ssl,
+        req.smtp_host, req.smtp_port, req.smtp_tls,
+        req.imap_username, req.imap_password.len(),
+        req.smtp_username, req.smtp_password.len(),
+        req.sender_name, req.sender_email,
+    );
     validate_account_input(
         &req.name, &req.imap_host, req.imap_port, &req.smtp_host, req.smtp_port,
         &req.imap_username, &req.sender_email,
     )?;
 
     // Step 1: Validate IMAP
-    let imap_client = Arc::new(ImapClient::new(
+    let imap_insecure = req.imap_insecure.unwrap_or(false);
+    let imap_client = Arc::new(ImapClient::new_with_options(
         req.imap_host.clone(),
         req.imap_port,
         req.imap_username.clone(),
         req.imap_password.clone(),
         req.imap_ssl,
+        imap_insecure,
     ));
     imap_client
         .connect()

@@ -13,7 +13,7 @@
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import { mailbox, type Message } from "$lib/stores/mailbox";
-  import { accounts } from "$lib/stores/accounts";
+  import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, sendMessage,
     listAccounts, fetchFromImap, listImapFolders,
@@ -1088,7 +1088,14 @@ let sentFolderName = $state<string | null>(null);
   }
 
   onMount(async () => {
-    let accts = await listAccounts();
+    let accts: AccountInfo[] = [];
+    try {
+      accts = await listAccounts();
+    } catch (e: unknown) {
+      // Keine Kontenliste verfügbar (z.B. Backend nicht erreichbar) → trotzdem
+      // den Splash (Konto-Einrichtung) zeigen statt einer leeren App.
+      console.error("[init] listAccounts fehlgeschlagen:", e);
+    }
     accounts.setAccounts(accts);
     if (accts.length > 0) {
       // Poll until at least one account is connected (max 15s)

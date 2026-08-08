@@ -5,8 +5,21 @@ import type { AISettings } from "$lib/stores/settings";
 // ─── API Base ──────────────────────────────────────────────
 // Relative base so the app works behind the Olares entrance and in dev
 // (vite proxy /api → localhost:3000). No Tauri dependency.
+// We derive the base from the current location at runtime: in the Olares
+// preview the app is served under /__preview/<port>/, so API calls must keep
+// that prefix (the reverse proxy routes it to the dev server, which proxies
+// /api to the backend). Fall back to import.meta.env.BASE_URL for the built
+// app (Olares entrance), then to a plain /api/v1.
 
-const API_BASE = "/api/v1";
+function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    const m = window.location.pathname.match(/^(\/__preview\/\d+)/);
+    if (m) return `${m[1]}/api/v1`;
+  }
+  return `${import.meta.env.BASE_URL ?? ""}api/v1`;
+}
+
+const API_BASE = resolveApiBase();
 
 // ─── API Error Helper ──────────────────────────────────────
 
@@ -57,7 +70,7 @@ export async function saveSettings(
   apiKey: string,
   model: string
 ): Promise<void> {
-  return post("/settings", { url, apiKey, model },
+  return post("/settings", { url, api_key: apiKey, model },
     "Die KI-Einstellungen konnten nicht gespeichert werden.");
 }
 
@@ -89,11 +102,16 @@ export async function connectAccount(
   smtpUsername: string,
   smtpPassword: string,
   senderName: string,
-  senderEmail: string
+  senderEmail: string,
+  imapInsecure = false,
 ): Promise<AccountInfo> {
   return post("/accounts", {
-    name, imapHost, imapPort, imapSsl, smtpHost, smtpPort, smtpTls,
-    imapUsername, imapPassword, smtpUsername, smtpPassword, senderName, senderEmail,
+    name,
+    imap_host: imapHost, imap_port: imapPort, imap_ssl: imapSsl, imap_insecure: imapInsecure,
+    smtp_host: smtpHost, smtp_port: smtpPort, smtp_tls: smtpTls,
+    imap_username: imapUsername, imap_password: imapPassword,
+    smtp_username: smtpUsername, smtp_password: smtpPassword,
+    sender_name: senderName, sender_email: senderEmail,
   }, "Das Konto konnte nicht verbunden werden.");
 }
 
@@ -131,7 +149,7 @@ export async function renameFolder(
   oldName: string,
   newName: string
 ): Promise<void> {
-  return post("/folders/rename", { accountId, oldName, newName },
+  return post("/folders/rename", { account_id: accountId, old_name: oldName, new_name: newName },
     "Der Ordner konnte nicht umbenannt werden.");
 }
 
@@ -241,7 +259,7 @@ export async function markAsRead(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/read`, { accountId },
+  return post(`/messages/${uid}/read`, { account_id: accountId },
     "Die Nachricht konnte nicht als gelesen markiert werden.");
 }
 
@@ -249,7 +267,7 @@ export async function markAsUnseen(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/unread`, { accountId },
+  return post(`/messages/${uid}/unread`, { account_id: accountId },
     "Die Nachricht konnte nicht als ungelesen markiert werden.");
 }
 
@@ -267,7 +285,7 @@ export async function deleteMessageCmd(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/delete`, { accountId },
+  return post(`/messages/${uid}/delete`, { account_id: accountId },
     "Die Nachricht konnte nicht gelöscht werden.");
 }
 
@@ -280,8 +298,8 @@ export async function moveMessageCmd(
   rawTargetFolder?: string,
 ): Promise<void> {
   return post(`/messages/${uid}/move`, {
-    accountId, sourceFolder, targetFolder,
-    rawSourceFolder: rawSourceFolder || "", rawTargetFolder: rawTargetFolder || "",
+    account_id: accountId, source_folder: sourceFolder, target_folder: targetFolder,
+    raw_source_folder: rawSourceFolder || "", raw_target_folder: rawTargetFolder || "",
   }, "Die Nachricht konnte nicht verschoben werden.");
 }
 
@@ -318,15 +336,17 @@ export async function sendMessage(
   aiDraft?: string
 ): Promise<{ message_id: string; sent_copy_saved: boolean }> {
   return post("/send", {
-    accountId, to, cc, bcc, subject, bodyText, bodyHtml, inReplyTo, references,
-    recipientEmail,
+    account_id: accountId, to, cc, bcc, subject,
+    body_text: bodyText, body_html: bodyHtml,
+    in_reply_to: inReplyTo, references,
+    recipient_email: recipientEmail,
     attachments: attachments?.map(a => ({
       filename: a.filename,
       content: a.content,
       content_type: a.contentType,
       size: Math.ceil(a.content.length * 0.75),
     })),
-    aiDraft,
+    ai_draft: aiDraft,
   }, "Die Nachricht konnte nicht gesendet werden.");
 }
 
@@ -378,19 +398,20 @@ export async function aiGenerateReply(
   recipientName?: string,
 ): Promise<string> {
   return post("/ai/reply", {
-    accountId,
-    mailChain: mailChain.map(m => m.text),
-    userInput, recipientEmail, tone, senderName, subject, recipientName,
+    account_id: accountId,
+    mail_chain: mailChain.map(m => m.text),
+    user_input: userInput, recipient_email: recipientEmail, tone,
+    sender_name: senderName, subject, recipient_name: recipientName,
   }, "Die KI-Antwort konnte nicht generiert werden.");
 }
 
 export async function aiSummarize(body: string, accountId: number, uid: number): Promise<string> {
-  return post("/ai/summarize", { body, accountId, uid },
+  return post("/ai/summarize", { body, account_id: accountId, uid },
     "Die Zusammenfassung konnte nicht erstellt werden.");
 }
 
 export async function triggerFolderSummaries(accountId: number, folder: string): Promise<number> {
-  return post("/ai/folder-summaries", { accountId, folder },
+  return post("/ai/folder-summaries", { account_id: accountId, folder },
     "Die KI-Zusammenfassungen konnten nicht angestoßen werden.");
 }
 
@@ -407,7 +428,9 @@ export async function aiDraftFromBullets(
   senderName?: string,
 ): Promise<string> {
   return post("/ai/draft", {
-    bullets, toneFreundlich, toneProfessionell, toneLaenge, senderName,
+    bullets,
+    tone_freundlich: toneFreundlich, tone_professionell: toneProfessionell, tone_laenge: toneLaenge,
+    sender_name: senderName,
   }, "Der KI-Entwurf konnte nicht erstellt werden.");
 }
 
@@ -447,7 +470,8 @@ export async function aiGenerateMail(
   originalMessage?: string,
 ): Promise<string> {
   return post("/ai/generate-mail", {
-    accountId, to, subject, userInput, senderName, seriousness, textLength, originalMessage,
+    account_id: accountId, to, subject, user_input: userInput, sender_name: senderName,
+    seriousness, text_length: textLength, original_message: originalMessage,
   }, "Der KI-Mailtext konnte nicht generiert werden.");
 }
 
@@ -455,7 +479,7 @@ export async function getToneProfile(
   accountId: number,
   email: string,
 ): Promise<{ formality_score: number; friendliness_score: number; sample_count: number } | null> {
-  return post("/ai/tone-profile", { accountId, email },
+  return post("/ai/tone-profile", { account_id: accountId, email },
     "Das Ton-Profil konnte nicht geladen werden.");
 }
 
@@ -465,7 +489,7 @@ export async function aiSuggestRecipient(
   userInput: string,
   originalMessage?: string,
 ): Promise<string> {
-  return post("/ai/suggest-recipient", { to, subject, userInput, originalMessage },
+  return post("/ai/suggest-recipient", { to, subject, user_input: userInput, original_message: originalMessage },
     "Die Empfängeradresse konnte nicht ermittelt werden.");
 }
 
@@ -475,7 +499,7 @@ export async function aiSuggestSubject(
   userInput: string,
   originalMessage?: string,
 ): Promise<string> {
-  return post("/ai/suggest-subject", { to, subject, userInput, originalMessage },
+  return post("/ai/suggest-subject", { to, subject, user_input: userInput, original_message: originalMessage },
     "Der Betreff konnte nicht ermittelt werden.");
 }
 

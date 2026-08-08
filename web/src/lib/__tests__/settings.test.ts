@@ -167,7 +167,7 @@ describe("settings.save()", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: "https://llm.example.com/v1",
-          apiKey: "sk-test",
+          api_key: "sk-test",
           model: "gpt-4",
         }),
       })
@@ -239,7 +239,7 @@ describe("settings.syncToBackend()", () => {
       expect.objectContaining({
         body: JSON.stringify({
           url: "https://local-llm.com/v1",
-          apiKey: "local-key",
+          api_key: "local-key",
           model: "local-model",
         }),
       })

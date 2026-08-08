@@ -13,6 +13,9 @@ const config = {
       precompress: true,
       strict: true,
     }),
+    paths: {
+      base: process.env.RELAY_BASE_PATH ?? "",
+    },
     alias: {
       $lib: "src/lib",
     },

@@ -13,6 +13,7 @@
     let splashImapHost = $state("");
     let splashImapPort = $state(993);
     let splashImapSsl = $state(true);
+    let splashImapInsecure = $state(false);
     let splashSmtpHost = $state("");
     let splashSmtpPort = $state(587);
     let splashSmtpTls = $state(true);
@@ -57,6 +58,7 @@
           smtpPass,
           splashSenderName,
           splashSenderMail,
+          splashImapInsecure,
         );
         splashCreatedAccount = acct;
         splashStep = "setup_llm";
@@ -149,7 +151,7 @@
             </div>
             <div class="form-group">
               <label for="splash-sender-mail">Absender-E-Mail</label>
-              <input id="splash-sender-mail" type="email" bind:value={splashSenderMail} placeholder="max@gmx.de" />
+              <input id="splash-sender-mail" type="text" inputmode="email" bind:value={splashSenderMail} placeholder="max@gmx.de" />
             </div>
 
             <div class="form-group">
@@ -160,10 +162,19 @@
               <label for="splash-imap-port">IMAP-Port / SSL</label>
               <div class="port-ssl-row">
                 <input id="splash-imap-port" type="number" bind:value={splashImapPort} />
-                <label class="check-label">
-                  <input type="checkbox" bind:checked={splashImapSsl} /> SSL
+                <label class="toggle-label">
+                  <input type="checkbox" class="toggle" bind:checked={splashImapSsl} />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-text">SSL</span>
                 </label>
               </div>
+            </div>
+            <div class="form-group span-2">
+              <label class="toggle-label">
+                <input type="checkbox" class="toggle" bind:checked={splashImapInsecure} />
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-text">Ungültiges IMAP-Zertifikat erlauben (lokale Server)</span>
+              </label>
             </div>
 
             <div class="form-group">
@@ -174,15 +185,17 @@
               <label for="splash-smtp-port">SMTP-Port / TLS</label>
               <div class="port-ssl-row">
                 <input id="splash-smtp-port" type="number" bind:value={splashSmtpPort} />
-                <label class="check-label">
-                  <input type="checkbox" bind:checked={splashSmtpTls} /> TLS
+                <label class="toggle-label">
+                  <input type="checkbox" class="toggle" bind:checked={splashSmtpTls} />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-text">TLS</span>
                 </label>
               </div>
             </div>
 
             <div class="form-group span-2">
               <button type="button" class="btn-link" onclick={() => (splashAdvancedMail = !splashAdvancedMail)}>
-                {splashAdvancedMail ? "&#x25B2; Erweiterte SMTP-Zugangsdaten ausblenden" : "&#x25BC; Erweiterte SMTP-Zugangsdaten"}
+                {splashAdvancedMail ? "▲ Erweiterte SMTP-Zugangsdaten ausblenden" : "▼ Erweiterte SMTP-Zugangsdaten"}
               </button>
             </div>
             {#if splashAdvancedMail}
@@ -218,7 +231,7 @@
           <div class="splash-form">
             <div class="form-group span-2">
               <label for="splash-ai-url">API-URL</label>
-              <input id="splash-ai-url" type="url" bind:value={splashAiUrl} placeholder="https://llm.aimighty.de/v1" />
+              <input id="splash-ai-url" type="text" inputmode="url" bind:value={splashAiUrl} placeholder="https://llm.aimighty.de/v1" />
             </div>
             <div class="form-group">
               <label for="splash-ai-key">API-Key</label>
@@ -397,7 +410,7 @@
     width: 75px;
     flex-shrink: 0;
   }
-  .check-label {
+  .toggle-label {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -408,43 +421,45 @@
     user-select: none;
     height: 100%;
   }
-  .check-label input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    background: var(--color-list);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.1s ease-in-out;
+  .toggle-label .toggle {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .toggle-label .toggle-track {
     position: relative;
-    outline: none;
-    margin: 0;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--color-border);
+    transition: background 0.2s ease;
+    flex-shrink: 0;
   }
-  .check-label input[type="checkbox"]:checked {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-  }
-  .check-label input[type="checkbox"]:checked::after {
+  .toggle-label .toggle-track::after {
     content: "";
     position: absolute;
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
     top: 2px;
-    left: 5px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
   }
-  .check-label input[type="checkbox"]:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  .toggle-label .toggle:checked + .toggle-track {
+    background: var(--color-accent);
   }
-  .splash-form .form-group label:not(.check-label) {
+  .toggle-label .toggle:checked + .toggle-track::after {
+    transform: translateX(14px);
+  }
+  .toggle-label .toggle:focus-visible + .toggle-track {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  .toggle-text {
+    line-height: 1;
+  }
+  .splash-form .form-group label:not(.check-label):not(.toggle-label) {
     display: block;
     font-size: 0.6875rem;
     font-weight: 600;
