@@ -3,13 +3,21 @@ use rusqlite::{params, Connection};
 /// Current settings schema version.
 /// Increment this when making backward-compatible schema changes.
 /// Migration functions must be added for each version increment.
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 3;
 
 /// Key used to store the settings version in the settings table.
 const SETTINGS_VERSION_KEY: &str = "settings_version";
 
 /// Key for the move_to_trash setting (default: "true").
 const MOVE_TO_TRASH_KEY: &str = "move_to_trash";
+
+/// Key for the cache retention window in days (default: "0" = archive mode,
+/// no automatic pruning of locally cached mail).
+pub const RETENTION_DAYS_KEY: &str = "retention_days";
+
+/// Key for the server-side removal sync (default: "false" = archive mode,
+/// local copies are never deleted because the provider deleted the mail).
+pub const REMOVAL_CHECK_KEY: &str = "removal_check_enabled";
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), rusqlite::Error> {
     conn.execute(
@@ -41,6 +49,19 @@ pub fn set_move_to_trash(conn: &Connection, enabled: bool) -> Result<(), rusqlit
     set_setting(conn, MOVE_TO_TRASH_KEY, if enabled { "true" } else { "false" })
 }
 
+/// Retention window in days for the local message cache. `0` means archive
+/// mode: local copies are never pruned automatically.
+pub fn get_retention_days(conn: &Connection) -> Result<u32, rusqlite::Error> {
+    let val = get_setting(conn, RETENTION_DAYS_KEY)?;
+    Ok(val.and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+/// Whether server-side deletions are mirrored locally (default off).
+pub fn get_removal_check_enabled(conn: &Connection) -> Result<bool, rusqlite::Error> {
+    let val = get_setting(conn, REMOVAL_CHECK_KEY)?;
+    Ok(val.as_deref() == Some("true"))
+}
+
 #[allow(dead_code)]
 pub fn get_all_settings(conn: &Connection) -> Result<Vec<(String, String)>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
@@ -69,6 +90,7 @@ pub fn migrate_settings(conn: &Connection) -> Result<(), rusqlite::Error> {
         match version {
             0 => migrate_v0_to_v1(conn)?,
             1 => migrate_v1_to_v2(conn)?,
+            2 => migrate_v2_to_v3(conn)?,
             _ => {
                 // Future migrations: add arms here as SETTINGS_VERSION is bumped.
                 // Each arm should be additive — never delete or rename existing keys.
@@ -102,6 +124,22 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Only set default if not already explicitly configured
     if get_setting(conn, MOVE_TO_TRASH_KEY)?.is_none() {
         set_setting(conn, MOVE_TO_TRASH_KEY, "true")?;
+    }
+    Ok(())
+}
+
+/// Migration from v2 to v3: archive mode by default.
+/// retention_days=0 disables automatic pruning of the local mail cache;
+/// removal_check_enabled=false stops mirroring provider-side deletions.
+fn migrate_v2_to_v3(conn: &Connection) -> Result<(), rusqlite::Error> {
+    tracing::info!(
+        "Migrating settings from v2 to v3: archive mode (retention_days=0, removal_check_enabled=false)"
+    );
+    if get_setting(conn, RETENTION_DAYS_KEY)?.is_none() {
+        set_setting(conn, RETENTION_DAYS_KEY, "0")?;
+    }
+    if get_setting(conn, REMOVAL_CHECK_KEY)?.is_none() {
+        set_setting(conn, REMOVAL_CHECK_KEY, "false")?;
     }
     Ok(())
 }
@@ -279,5 +317,58 @@ mod tests {
         assert_eq!(get_setting(&conn, "ai_url").unwrap(), Some("https://v1.local/v1".into()));
         // Version bumped to current
         assert_eq!(get_setting(&conn, SETTINGS_VERSION_KEY).unwrap(), Some(SETTINGS_VERSION.to_string()));
+    }
+
+    // ─── archive-mode settings (v3) tests ───────────────────────
+
+    #[test]
+    fn test_retention_days_default_zero_after_migration() {
+        let conn = setup_db();
+        migrate_settings(&conn).unwrap();
+        assert_eq!(get_retention_days(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_retention_days_explicit_value() {
+        let conn = setup_db();
+        migrate_settings(&conn).unwrap();
+        set_setting(&conn, RETENTION_DAYS_KEY, "90").unwrap();
+        assert_eq!(get_retention_days(&conn).unwrap(), 90);
+        set_setting(&conn, RETENTION_DAYS_KEY, "0").unwrap();
+        assert_eq!(get_retention_days(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_removal_check_default_disabled() {
+        let conn = setup_db();
+        migrate_settings(&conn).unwrap();
+        assert!(!get_removal_check_enabled(&conn).unwrap());
+    }
+
+    #[test]
+    fn test_removal_check_explicit_enable() {
+        let conn = setup_db();
+        migrate_settings(&conn).unwrap();
+        set_setting(&conn, REMOVAL_CHECK_KEY, "true").unwrap();
+        assert!(get_removal_check_enabled(&conn).unwrap());
+        set_setting(&conn, REMOVAL_CHECK_KEY, "false").unwrap();
+        assert!(!get_removal_check_enabled(&conn).unwrap());
+    }
+
+    #[test]
+    fn test_migrate_v2_to_v3_sets_archive_defaults() {
+        let conn = setup_db();
+        // Simulate v2 state: version=2, move_to_trash set, no archive keys
+        set_setting(&conn, SETTINGS_VERSION_KEY, "2").unwrap();
+        set_setting(&conn, MOVE_TO_TRASH_KEY, "false").unwrap();
+        set_setting(&conn, "ai_url", "https://v2.local/v1").unwrap();
+
+        migrate_settings(&conn).unwrap();
+
+        assert_eq!(get_retention_days(&conn).unwrap(), 0);
+        assert!(!get_removal_check_enabled(&conn).unwrap());
+        // Existing settings preserved
+        assert!(!get_move_to_trash(&conn).unwrap());
+        assert_eq!(get_setting(&conn, "ai_url").unwrap(), Some("https://v2.local/v1".into()));
     }
 }

@@ -15,7 +15,10 @@ const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 
 /// How often the local message cache is pruned to bound disk growth.
 const RETENTION_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60); // 6h
-/// Cached messages older than this (by local cache time) become prune-eligible.
+/// Legacy default (pre-v3): cached messages older than this become
+/// prune-eligible. Overridden by the `retention_days` setting — 0 disables
+/// pruning entirely (archive mode).
+#[allow(dead_code)]
 const RETENTION_DAYS: u32 = 90;
 /// Always keep at least this many newest messages per account, regardless of age.
 const RETENTION_KEEP_MINIMUM: u32 = 200;
@@ -102,11 +105,30 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
 /// Prune runs under the cache_db mutex (fast DELETE). VACUUM runs outside the
 /// mutex using a separate connection — VACUUM cannot run inside a transaction
 /// and would otherwise block all UI operations for seconds.
+///
+/// Controlled by the `retention_days` setting (default 0 = archive mode):
+/// 0 disables pruning entirely — local mail is never deleted automatically.
 fn run_retention(state: &AppState) {
+    let retention_days = {
+        let db_guard = state.cache_db.lock();
+        let Some(conn) = db_guard.as_ref() else { return; };
+        match crate::cache::settings::get_retention_days(conn) {
+            Ok(days) => days,
+            Err(e) => {
+                tracing::warn!("Cache-Retention: Settings unlesbar: {}", e);
+                return;
+            }
+        }
+    };
+    if retention_days == 0 {
+        tracing::debug!("Cache-Retention: deaktiviert (retention_days=0, Archiv-Modus)");
+        return;
+    }
+
     let pruned = {
         let db_guard = state.cache_db.lock();
         let Some(conn) = db_guard.as_ref() else { return; };
-        match crate::cache::messages::prune_old_messages(conn, RETENTION_DAYS, RETENTION_KEEP_MINIMUM) {
+        match crate::cache::messages::prune_old_messages(conn, retention_days, RETENTION_KEEP_MINIMUM) {
             Ok(0) => 0,
             Ok(n) => {
                 tracing::info!("Cache-Retention: {} alte Nachrichten entfernt", n);
@@ -138,8 +160,7 @@ fn run_retention(state: &AppState) {
 
 /// Refresh IMAP \Seen flags for all cached messages to detect read/unread
 /// changes made from other clients (phone, webmail, …).
-async fn run_flag_refresh(state: &AppState) {
-    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
+async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
         let guard = state.imap_clients.read();
         guard.iter().map(|(k, v)| (*k, v.clone())).collect()
     };
@@ -262,6 +283,24 @@ async fn run_flag_refresh(state: &AppState) {
 /// Scan all IMAP folders for each account and remove local messages whose
 /// UIDs no longer exist on the server (deleted from another client).
 async fn run_removal_check(state: &AppState) {
+    // Archive mode: local copies are never deleted because the provider
+    // deleted the mail. Only run when explicitly enabled (default off).
+    let enabled = {
+        let db_guard = state.cache_db.lock();
+        let Some(conn) = db_guard.as_ref() else { return; };
+        match crate::cache::settings::get_removal_check_enabled(conn) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("removal_check: Settings unlesbar: {}", e);
+                return;
+            }
+        }
+    };
+    if !enabled {
+        tracing::debug!("removal_check: deaktiviert (Archiv-Modus)");
+        return;
+    }
+
     let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
         let guard = state.imap_clients.read();
         guard.iter().map(|(k, v)| (*k, v.clone())).collect()

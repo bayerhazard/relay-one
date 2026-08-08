@@ -2,5 +2,5 @@ apiVersion: v2
 name: relayapp
 description: AImighty Relay One — self-hosted email client (IMAP/SMTP, AI-assisted)
 type: application
-version: 26.08.1
-appVersion: "26.08.1"
+version: 26.08.2
+appVersion: "26.08.2"
