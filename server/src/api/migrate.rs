@@ -28,6 +28,10 @@ pub struct CopyFolderRequest {
     pub source_account_id: u32,
     pub target_account_id: u32,
     pub folder: String,
+    /// Optional: stop after this many messages in this call (chunked copy
+    /// keeps each request below the gateway timeout; the next call continues).
+    #[serde(default)]
+    pub batch_limit: Option<usize>,
 }
 
 #[derive(serde::Serialize)]
@@ -45,6 +49,13 @@ pub struct FolderReport {
     pub folder: String,
     pub copied: usize,
     pub failed: usize,
+    /// false while chunked copying is still in progress (more messages remain).
+    #[serde(default = "default_true")]
+    pub batch_done: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// `POST /api/v1/migrate/copy-account`
@@ -88,11 +99,12 @@ pub async fn copy_folder_endpoint(
     State(state): State<AppState>,
     Json(req): Json<CopyFolderRequest>,
 ) -> ApiResult<FolderReport> {
-    let report = copy_folder(
+    let report = copy_folder_limited(
         &state,
         req.source_account_id as i64,
         req.target_account_id as i64,
         &req.folder,
+        req.batch_limit,
     )
     .await?;
     Ok(Json(report))
@@ -103,6 +115,16 @@ async fn copy_folder(
     source: i64,
     target: i64,
     folder_name: &str,
+) -> Result<FolderReport, ApiError> {
+    copy_folder_limited(state, source, target, folder_name, None).await
+}
+
+async fn copy_folder_limited(
+    state: &AppState,
+    source: i64,
+    target: i64,
+    folder_name: &str,
+    batch_limit: Option<usize>,
 ) -> Result<FolderReport, ApiError> {
     // Create the LOCAL target folder (idempotent).
     with_db(state, |conn| {
@@ -123,7 +145,7 @@ async fn copy_folder(
         }
         if let Err(e) = client.select_folder(folder_name).await {
             tracing::warn!("migrate: Ordner '{}' am IMAP nicht wählbar (lokal-only?): {}", folder_name, e);
-            return Ok(FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0 });
+            return Ok(FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0, batch_done: true });
         }
         client.fetch_all_uids().await.map_err(|e| ApiError(e.to_string()))?
     };
@@ -135,7 +157,7 @@ async fn copy_folder(
     })?;
     let cached: std::collections::HashSet<i64> = cached_uids.into_iter().collect();
 
-    let mut report = FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0 };
+    let mut report = FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0, batch_done: true };
 
     for uid in &imap_uids {
         let uid_i64 = *uid as i64;
@@ -146,6 +168,16 @@ async fn copy_folder(
                 report.failed += 1;
             }
         }
+        // Chunked mode: stop after batch_limit successfully copied messages.
+        if let Some(limit) = batch_limit {
+            if report.copied >= limit {
+                report.batch_done = false;
+                break;
+            }
+        }
+    }
+    if batch_limit.is_some() {
+        report.batch_done = report.copied as usize >= imap_uids.len();
     }
 
     Ok(report)
