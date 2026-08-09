@@ -479,3 +479,85 @@ async fn copy_one_message(
 
     Ok(())
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MigrationStatus {
+    pub running: bool,
+    pub done: bool,
+    pub folders_total: usize,
+    pub folders_done: usize,
+    pub messages_copied: usize,
+    pub messages_failed: usize,
+    pub current_folder: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+impl Default for MigrationStatus {
+    fn default() -> Self {
+        Self {
+            running: false,
+            done: false,
+            folders_total: 0,
+            folders_done: 0,
+            messages_copied: 0,
+            messages_failed: 0,
+            current_folder: String::new(),
+            started_at: None,
+            finished_at: None,
+        }
+    }
+}
+
+/// `POST /api/v1/migrate/db-count` — count the source DB rows (diagnostics).
+/// Decides whether a DB-based migration (no IMAP) is complete.
+#[derive(Deserialize)]
+pub struct DbCountRequest {
+    pub account_id: u32,
+}
+
+pub async fn db_count(
+    State(state): State<AppState>,
+    Json(req): Json<DbCountRequest>,
+) -> ApiResult<serde_json::Value> {
+    let (total, with_raw, folders) = with_db(&state, |conn| {
+        let total: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_id = ?1",
+                rusqlite::params![req.account_id as i64],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let with_raw: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND raw_path IS NOT NULL AND raw_path != ''",
+                rusqlite::params![req.account_id as i64],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let mut stmt = conn
+            .prepare(
+                "SELECT f.name, COUNT(m.id) FROM folders f
+                 LEFT JOIN messages m ON m.folder_id = f.id AND m.account_id = ?1
+                 WHERE f.account_id = ?1 GROUP BY f.id ORDER BY f.name",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![req.account_id as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut folders = Vec::new();
+        for r in rows {
+            folders.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok::<_, String>((total, with_raw, folders))
+    })?;
+    Ok(Json(serde_json::json!({
+        "account_id": req.account_id,
+        "total_messages": total,
+        "with_raw_eml": with_raw,
+        "without_raw_eml": total - with_raw,
+        "folders": folders.iter().map(|(n, c)| serde_json::json!({"folder": n, "count": c})).collect::<Vec<_>>(),
+    })))
+}

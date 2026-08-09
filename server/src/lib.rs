@@ -49,6 +49,8 @@ pub struct AppState {
     pub events: events::EventBus,
     /// Data root for ALL user data (EML archive, attachments, DBs).
     pub data_root: std::path::PathBuf,
+    /// Background migration status (started via /migrate/start).
+    pub migration: Arc<parking_lot::RwLock<Option<crate::api::migrate::MigrationStatus>>>,
 }
 
 impl AppState {
@@ -70,6 +72,7 @@ impl AppState {
             data_root: std::env::var("RELAY_DATA_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| std::path::PathBuf::from("/data/Relay")),
+            migration: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
