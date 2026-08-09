@@ -1,6 +1,6 @@
 //! Message endpoints: folders, fetch, search, body, read-state, delete, move.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
 use axum::Json;
 use base64::Engine as _;
 use serde::Deserialize;
@@ -59,6 +59,21 @@ pub struct FetchMessagesQuery {
     pub offset: Option<u32>,
 }
 
+/// Query for single-message endpoints (uid + account in the query string).
+#[derive(Deserialize)]
+pub struct MessageUidQuery {
+    pub account_id: u32,
+    pub uid: u32,
+}
+
+/// Query for attachment content (uid + att_id + account in the query string).
+#[derive(Deserialize)]
+pub struct AttachmentContentQuery {
+    pub account_id: u32,
+    pub uid: u32,
+    pub att_id: u32,
+}
+
 #[derive(Deserialize)]
 pub struct SearchQuery {
     pub account_id: u32,
@@ -68,49 +83,96 @@ pub struct SearchQuery {
 
 // ─── Endpoints ─────────────────────────────────────────────────
 
+/// Query for folder listing — only account_id is required (no `query` field).
+#[derive(Deserialize)]
+pub struct FolderQuery {
+    pub account_id: u32,
+}
+
 /// `GET /api/v1/folders?account_id=…`
 /// Returns IMAP folders (live) + local-only folders (from cache).
 pub async fn list_imap_folders(
     State(state): State<AppState>,
-    Query(q): Query<SearchQuery>,
+    Query(q): Query<FolderQuery>,
 ) -> ApiResult<Vec<serde_json::Value>> {
-    let client = state
-        .imap_clients
-        .read()
-        .get(&q.account_id)
-        .cloned()
-        .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?;
-    if !client.is_connected().await {
-        client.connect().await.map_err(|e| ApiError(e.to_string()))?;
-    }
-    let folders = client
-        .list_folders_detailed()
-        .await
-        .map_err(|e| ApiError(e.to_string()))?;
-    let mut json: Vec<serde_json::Value> = folders
-        .iter()
-        .map(|f| {
-            serde_json::json!({
-                "name": f.name, "raw_name": f.raw_name, "delimiter": f.delimiter, "tag": f.tag, "attributes": f.attributes,
-                "local_only": false,
-            })
-        })
-        .collect();
+    // IMAP folders (live) — if the client is disconnected or the fetch fails,
+    // fall back to the locally cached folder list instead of erroring. This
+    // keeps the sidebar populated even while the account shows "Getrennt".
+    // IMAP folders (live). The client is cloned out of the shared map and the
+    // fetch runs in a helper so no non-Send TLS state crosses await points
+    // inside this handler.
+    let json_imap = fetch_imap_folder_list(&state, q.account_id).await;
+    let mut json: Vec<serde_json::Value> = json_imap;
 
-    // Append local-only folders from the cache.
+    // Local folders (from cache) — includes local-only folders AND every
+    // folder that ever appeared in a sync, so the tree stays usable offline.
     let locals = with_db(&state, |conn| {
         cache::messages::list_all_folders(conn, q.account_id as i64).map_err(|e| e.to_string())
     })
     .unwrap_or_default();
-    for (name, _local) in locals {
+    for (name, local) in locals {
         if !json.iter().any(|f| f["name"] == name) {
             json.push(serde_json::json!({
                 "name": name, "raw_name": "", "delimiter": "", "tag": "", "attributes": [],
-                "local_only": true,
+                "local_only": local,
             }));
         }
     }
     Ok(Json(json))
+}
+
+/// Fetch the live IMAP folder list for an account. Runs in a helper so the
+/// client (with its TLS session) is fully owned here; never errors — on any
+/// failure an empty list is returned and the cached folders still show.
+async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_json::Value> {
+    let Some(client) = state.imap_clients.read().get(&account_id).cloned() else {
+        return Vec::new();
+    };
+    if !client.is_connected().await {
+        let _ = client.connect().await;
+    }
+    if !client.is_connected().await {
+        return Vec::new();
+    }
+
+    // Extended mode (archive): only INBOX + the provider SPAM folder are
+    // shown — the user works exclusively with local folders. Mirror mode
+    // shows the full IMAP tree.
+    let extended = with_db(state, |conn| {
+        Ok(conn
+            .query_row(
+                "SELECT sync_mode FROM accounts WHERE id = ?1",
+                rusqlite::params![account_id as i64],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|m| m == "archive")
+            .unwrap_or(false))
+    })
+    .unwrap_or(false);
+
+    match client.list_folders_detailed().await {
+        Ok(folders) => folders
+            .iter()
+            .filter(|f| {
+                if !extended {
+                    return true;
+                }
+                // Extended: INBOX + spam-like folders only.
+                let lower = f.name.to_lowercase();
+                lower == "inbox"
+                    || ["spam", "junk", "spamverdacht", "junk e-mail", "junkemail", "bulk"]
+                        .iter()
+                        .any(|s| lower.contains(s))
+            })
+            .map(|f| {
+                serde_json::json!({
+                    "name": f.name, "raw_name": f.raw_name, "delimiter": f.delimiter, "tag": f.tag, "attributes": f.attributes,
+                    "local_only": false,
+                })
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// `POST /api/v1/folders` — create a local-only folder.
@@ -177,9 +239,9 @@ pub async fn search_messages(
 /// `GET /api/v1/messages/{uid}/body?account_id=…`
 pub async fn fetch_message_body(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Query(q): Query<FetchMessagesQuery>,
+    Query(q): Query<MessageUidQuery>,
 ) -> ApiResult<serde_json::Value> {
+    let uid = q.uid;
     // Fast path: cached body with folder info.
     let cached_with_folder = with_db(&state, |conn| {
         cache::messages::fetch_message_body_with_folder(conn, q.account_id as i64, uid as i64)
@@ -251,6 +313,7 @@ pub async fn fetch_message_body(
 #[derive(Deserialize)]
 pub struct MoveMessageRequest {
     pub account_id: u32,
+    pub uid: u32,
     pub source_folder: String,
     pub target_folder: String,
     #[serde(default)]
@@ -262,9 +325,9 @@ pub struct MoveMessageRequest {
 /// `POST /api/v1/messages/{uid}/move`
 pub async fn move_message(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
     Json(req): Json<MoveMessageRequest>,
 ) -> ApiResult<()> {
+    let uid = req.uid;
     let account_id_i64 = req.account_id as i64;
     let uid_i64 = uid as i64;
 
@@ -454,9 +517,9 @@ pub async fn rename_folder(
 /// `GET /api/v1/messages/{uid}/raw?account_id=…`
 pub async fn fetch_raw_message(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Query(q): Query<FetchMessagesQuery>,
+    Query(q): Query<MessageUidQuery>,
 ) -> ApiResult<String> {
+    let uid = q.uid;
     let client = state
         .imap_clients
         .read()
@@ -473,9 +536,9 @@ pub async fn fetch_raw_message(
 /// `GET /api/v1/messages/{uid}/attachments?account_id=…`
 pub async fn fetch_attachments(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Query(q): Query<FetchMessagesQuery>,
+    Query(q): Query<MessageUidQuery>,
 ) -> ApiResult<Vec<crate::cache::attachments::CachedAttachment>> {
+    let uid = q.uid;
     let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
     let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
 
@@ -499,9 +562,10 @@ pub async fn fetch_attachments(
 /// `attachments/<sha256>` (Concept §3.1 / 4J), and returns base64.
 pub async fn fetch_attachment_content(
     State(state): State<AppState>,
-    Path((uid, att_id)): Path<(u32, u32)>,
-    Query(q): Query<FetchMessagesQuery>,
+    Query(q): Query<AttachmentContentQuery>,
 ) -> ApiResult<serde_json::Value> {
+    let uid = q.uid;
+    let att_id = q.att_id;
     // 1. Look up the message + attachment metadata.
     let filename = {
         let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
@@ -577,9 +641,9 @@ pub async fn fetch_attachment_content(
 /// `POST /api/v1/messages/{uid}/read` body: `{"account_id": N}`
 pub async fn mark_as_read(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Json(req): Json<AccountIdRequest>,
+    Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
+    let uid = req.uid;
     with_db(&state, |conn| {
         cache::messages::mark_as_read(conn, req.account_id as i64, uid as i64)
             .map_err(|e| e.to_string())
@@ -597,9 +661,9 @@ pub async fn mark_as_read(
 /// `POST /api/v1/messages/{uid}/unread` body: `{"account_id": N}`
 pub async fn mark_as_unseen(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Json(req): Json<AccountIdRequest>,
+    Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
+    let uid = req.uid;
     {
         let db_guard = get_db(&state).map_err(ApiError)?;
         if let Some(conn) = db_guard.as_ref() {
@@ -620,12 +684,130 @@ pub async fn mark_as_unseen(
     Ok(Json(()))
 }
 
+/// `POST /api/v1/messages/flag` — toggle the \Flagged (star) flag.
+#[derive(Deserialize)]
+pub struct FlagRequest {
+    pub account_id: u32,
+    pub uid: u32,
+    pub folder_name: String,
+    pub flagged: bool,
+}
+
+pub async fn flag_message(
+    State(state): State<AppState>,
+    Json(req): Json<FlagRequest>,
+) -> ApiResult<()> {
+    with_db(&state, |conn| {
+        conn.execute(
+            "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
+            rusqlite::params![req.flagged as i32, req.account_id as i64, req.uid as i64],
+        )
+        .map_err(|e| e.to_string())
+    })?;
+    // IMAP flag sync runs in a helper so the TLS session never crosses await
+    // points inside this handler.
+    let account_id = req.account_id;
+    let uid = req.uid;
+    let flagged = req.flagged;
+    set_imap_flag(&state, account_id, uid, flagged).await;
+    Ok(Json(()))
+}
+
+async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: bool) {
+    let Some(client) = state.imap_clients.read().get(&account_id).cloned() else {
+        return;
+    };
+    if client.is_connected().await {
+        let _ = client.toggle_flagged(uid, flagged).await;
+    }
+}
+
+/// `POST /api/v1/messages/move-cross-account` — move a message between two
+/// accounts (fetch raw from source, append to target, delete source copy).
+#[derive(Deserialize)]
+pub struct MoveCrossAccountRequest {
+    pub account_id: u32,
+    pub uid: u32,
+    pub source_folder: String,
+    pub target_account_id: u32,
+    pub target_folder: String,
+}
+
+pub async fn move_cross_account(
+    State(state): State<AppState>,
+    Json(req): Json<MoveCrossAccountRequest>,
+) -> ApiResult<()> {
+    // 1. Fetch raw from the source account.
+    let raw = {
+        let client = state
+            .imap_clients
+            .read()
+            .get(&req.account_id)
+            .cloned()
+            .ok_or(ApiError("Quell-IMAP-Client nicht gefunden".into()))?;
+        if !client.is_connected().await {
+            client.connect().await.map_err(|e| ApiError(e.to_string()))?;
+        }
+        client.fetch_raw_message_in_folder(req.uid, Some(req.source_folder.clone()))
+            .await
+            .map_err(|e| ApiError(e.to_string()))?
+    };
+
+    // 2. Append to the target account's folder.
+    {
+        let client = state
+            .imap_clients
+            .read()
+            .get(&req.target_account_id)
+            .cloned()
+            .ok_or(ApiError("Ziel-IMAP-Client nicht gefunden".into()))?;
+        if !client.is_connected().await {
+            client.connect().await.map_err(|e| ApiError(e.to_string()))?;
+        }
+        client.append_message(&req.target_folder, raw.as_bytes(), None)
+            .await
+            .map_err(|e| ApiError(format!("Append zum Ziel fehlgeschlagen: {}", e)))?;
+    }
+
+    // 3. Delete the source copy (hard).
+    {
+        let client = state
+            .imap_clients
+            .read()
+            .get(&req.account_id)
+            .cloned()
+            .ok_or(ApiError("Quell-IMAP-Client nicht gefunden".into()))?;
+        let _ = client.hard_delete_message(req.uid, &req.source_folder).await;
+    }
+
+    // 4. Update local cache: move the row to the target account's folder.
+    with_db(&state, |conn| {
+        let folder_id: i64 = conn
+            .query_row(
+                "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                rusqlite::params![req.target_account_id as i64, req.target_folder],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if folder_id > 0 {
+            conn.execute(
+                "UPDATE messages SET account_id = ?1, folder_id = ?2 WHERE account_id = ?3 AND uid = ?4",
+                rusqlite::params![req.target_account_id as i64, folder_id, req.account_id as i64, req.uid as i64],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    })?;
+
+    Ok(Json(()))
+}
+
 /// `POST /api/v1/messages/{uid}/delete` body: `{"account_id": N}`
 pub async fn delete_message(
     State(state): State<AppState>,
-    Path(uid): Path<u32>,
-    Json(req): Json<AccountIdRequest>,
+    Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
+    let uid = req.uid;
     let account_id = req.account_id;
     let account_id_i64 = account_id as i64;
     let uid_i64 = uid as i64;
@@ -662,6 +844,13 @@ pub async fn delete_message(
 #[derive(Deserialize)]
 pub struct AccountIdRequest {
     pub account_id: u32,
+}
+
+/// Action request for single-message mutations (uid + account in the body).
+#[derive(Deserialize)]
+pub struct MessageActionRequest {
+    pub account_id: u32,
+    pub uid: u32,
 }
 
 /// Delete by moving the message to the Trash folder instead of permanent delete.

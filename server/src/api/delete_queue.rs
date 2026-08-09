@@ -35,8 +35,9 @@ pub struct RetryRequest {
 /// pending so the worker retries it.
 pub async fn retry_delete_queue(
     State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<i64>,
+    Json(req): Json<RetryRequest>,
 ) -> ApiResult<serde_json::Value> {
+    let id = req.id;
     let updated = with_db(&state, |conn| {
         let n = conn.execute(
             "UPDATE delete_queue SET state = 'pending', attempts = 0, last_error = NULL, updated_at = datetime('now') WHERE id = ?1",
@@ -54,8 +55,9 @@ pub async fn retry_delete_queue(
 /// retrying (user reviewed it; provider deletion is abandoned).
 pub async fn remove_delete_queue(
     State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<i64>,
+    Json(req): Json<RetryRequest>,
 ) -> ApiResult<serde_json::Value> {
+    let id = req.id;
     let updated = with_db(&state, |conn| {
         let n = conn.execute(
             "DELETE FROM delete_queue WHERE id = ?1",

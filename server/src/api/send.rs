@@ -3,6 +3,7 @@
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
 
 use crate::db::with_db;
 use crate::imap::client::find_special_folder;
@@ -33,6 +34,85 @@ pub struct SendMessageRequest {
     pub recipient_email: Option<String>,
     pub attachments: Option<Vec<EmailAttachment>>,
     pub ai_draft: Option<String>,
+}
+
+/// Draft save request (local storage in the "Entwürfe" folder).
+#[derive(Deserialize)]
+pub struct SaveDraftRequest {
+    pub account_id: u32,
+    pub to: Vec<String>,
+    pub cc: Option<Vec<String>>,
+    pub bcc: Option<Vec<String>>,
+    pub subject: String,
+    pub body_text: String,
+    pub body_html: Option<String>,
+}
+
+/// Draft discard request.
+#[derive(Deserialize)]
+pub struct DiscardDraftRequest {
+    pub account_id: u32,
+    pub uid: u32,
+}
+
+/// `POST /api/v1/draft/save` — persist a draft in the LOCAL "Entwürfe" folder
+/// (extended mode) or the provider Drafts folder (mirror mode).
+pub async fn save_draft(
+    State(state): State<AppState>,
+    Json(req): Json<SaveDraftRequest>,
+) -> ApiResult<serde_json::Value> {
+    let account_id = req.account_id as i64;
+
+    // Ensure the local "Entwürfe" folder exists.
+    with_db(&state, |conn| {
+        crate::cache::messages::create_local_folder(conn, account_id, "Entwürfe")
+            .map_err(|e| e.to_string())
+    })?;
+
+    // Insert the draft locally (uid = next draft uid for this account).
+    let now = chrono::Utc::now().to_rfc3339();
+    let uid = with_db(&state, |conn| {
+        let uid: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(uid), 0) + 1 FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe')",
+            rusqlite::params![account_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
+             VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'), ?2, ?3, '', ?4, ?5, ?6, ?7, 0)",
+            rusqlite::params![
+                account_id,
+                uid,
+                req.subject,
+                req.to.join(", "),
+                now,
+                req.body_text,
+                req.body_html,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(uid)
+    })?;
+
+    Ok(Json(serde_json::json!({ "uid": uid })))
+}
+
+/// `POST /api/v1/draft/discard` — remove a local draft.
+pub async fn discard_draft(
+    State(state): State<AppState>,
+    Json(req): Json<DiscardDraftRequest>,
+) -> ApiResult<serde_json::Value> {
+    let account_id = req.account_id as i64;
+    let uid = req.uid as i64;
+    with_db(&state, |conn| {
+        conn.execute(
+            "DELETE FROM messages WHERE account_id = ?1 AND uid = ?2",
+            rusqlite::params![account_id, uid],
+        )
+        .map_err(|e| e.to_string())
+    })?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// `POST /api/v1/send`
@@ -137,35 +217,91 @@ pub async fn send_message(
         }
     }
 
-    // Append a copy to the IMAP Sent folder (non-critical)
+    // Append a copy to the Sent folder.
+    //   mirror mode: IMAP APPEND into the provider's Sent folder.
+    //   archive mode: store locally in the "Gesendet" folder (EML + index).
     let mut sent_copy_saved = false;
-    let imap_client_opt = state.imap_clients.read().get(&req.account_id).cloned();
-    if let Some(imap_client) = imap_client_opt {
-        if !imap_client.is_connected().await {
-            let _ = imap_client.connect().await;
-        }
-        if imap_client.is_connected().await {
-            match imap_client.list_folders_detailed().await {
-                Ok(folders) => {
-                    if let Some(sent_folder) = find_special_folder(&folders, SpecialFolder::Sent) {
-                        match imap_client.append_message(&sent_folder, &raw_bytes, None).await {
-                            Ok(()) => {
-                                sent_copy_saved = true;
-                                tracing::info!("send_message: Kopie nach '{}' gespeichert", sent_folder);
-                            }
-                            Err(e) => tracing::warn!(
-                                "send_message: APPEND nach '{}' fehlgeschlagen: {}",
-                                sent_folder, e
-                            ),
-                        }
-                    } else {
-                        tracing::warn!("send_message: Kein Sent-Ordner auf dem Server gefunden");
-                    }
-                }
-                Err(e) => tracing::warn!("send_message: list_folders fehlgeschlagen: {}", e),
+    let sync_mode: String = with_db(&state, |conn| {
+        Ok(conn
+            .query_row(
+                "SELECT sync_mode FROM accounts WHERE id = ?1",
+                rusqlite::params![req.account_id as i64],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "mirror".to_string()))
+    })
+    .unwrap_or_else(|_| "mirror".to_string());
+
+    if sync_mode == "archive" {
+        // Local "Gesendet" folder + EML archive + index row.
+        let account_id = req.account_id as i64;
+        let subject = req.subject.clone();
+        let to_addr = req.to.join(", ");
+        let date = chrono::Utc::now().to_rfc3339();
+        let _ = with_db(&state, |conn| {
+            crate::cache::messages::create_local_folder(conn, account_id, "Gesendet").map_err(|e| e.to_string())?;
+            let uid: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(uid), 0) + 1 FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Gesendet')",
+                rusqlite::params![account_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
+                 VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Gesendet'), ?2, ?3, '', ?4, ?5, ?6, ?7, 0)",
+                rusqlite::params![account_id, uid, subject, to_addr, date, req.body_text, req.body_html],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<(), String>(())
+        });
+        // Persist the raw RFC822 copy as an EML archive file (Concept §3.1).
+        // The uid is stable per message_id, so re-sending the same mail does
+        // not create duplicates.
+        let eml_uid = {
+            let mut h = sha2::Sha256::new();
+            h.update(message_id.as_bytes());
+            let d = h.finalize();
+            u32::from_le_bytes([d[0], d[1], d[2], d[3]])
+        };
+        let _ = crate::cache::archive::write_eml(
+            &state.data_root,
+            account_id,
+            eml_uid,
+            Some(&chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+            Some(&message_id),
+            &raw_bytes,
+        );
+        sent_copy_saved = true;
+        tracing::info!("send_message (archive): gesendete Mail lokal in 'Gesendet' abgelegt");
+    } else {
+        let imap_client_opt = state.imap_clients.read().get(&req.account_id).cloned();
+        if let Some(imap_client) = imap_client_opt {
+            if !imap_client.is_connected().await {
+                let _ = imap_client.connect().await;
             }
-        } else {
-            tracing::warn!("send_message: IMAP nicht verbunden, überspringe Sent-Kopie");
+            if imap_client.is_connected().await {
+                match imap_client.list_folders_detailed().await {
+                    Ok(folders) => {
+                        if let Some(sent_folder) = find_special_folder(&folders, SpecialFolder::Sent) {
+                            match imap_client.append_message(&sent_folder, &raw_bytes, None).await {
+                                Ok(()) => {
+                                    sent_copy_saved = true;
+                                    tracing::info!("send_message: Kopie nach '{}' gespeichert", sent_folder);
+                                }
+                                Err(e) => tracing::warn!(
+                                    "send_message: APPEND nach '{}' fehlgeschlagen: {}",
+                                    sent_folder, e
+                                ),
+                            }
+                        } else {
+                            tracing::warn!("send_message: Kein Sent-Ordner auf dem Server gefunden");
+                        }
+                    }
+                    Err(e) => tracing::warn!("send_message: list_folders fehlgeschlagen: {}", e),
+                }
+            } else {
+                tracing::warn!("send_message: IMAP nicht verbunden, überspringe Sent-Kopie");
+            }
         }
     }
 

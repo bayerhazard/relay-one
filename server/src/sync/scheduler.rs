@@ -786,6 +786,28 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
 
                 let imap_name = if raw_name.is_empty() { folder_name } else { raw_name };
 
+                // Extended mode (archive): SPAM folders are NOT cached locally —
+                // they stay exclusively on the provider and are shown live.
+                // Skip the local DB work for them entirely.
+                let extended = {
+                    let db_guard = state.cache_db.lock();
+                    let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                    conn.query_row(
+                        "SELECT sync_mode FROM accounts WHERE id = ?1",
+                        rusqlite::params![task.account_id as i64],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .map(|m| m == "archive")
+                    .unwrap_or(false)
+                };
+                if extended && is_spam {
+                    tracing::debug!(
+                        "FetchNew: '{}' (account {}) im Extended-Modus — kein lokaler Cache für SPAM",
+                        folder_name, task.account_id
+                    );
+                    continue;
+                }
+
                 // Per-folder error handling: a TagMismatch or transient error in
                 // one folder must NOT abort the entire sync cycle. Log and continue.
                 let sync_state = {

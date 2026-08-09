@@ -37,27 +37,29 @@ pub fn router() -> Router<AppState> {
         )
         // Accounts
         .route("/accounts", get(accounts::list_accounts).post(accounts::connect_account))
-        .route("/accounts/{id}", axum::routing::delete(accounts::delete_account))
-        .route("/accounts/{id}/settings", post(accounts::update_account))
+        .route("/accounts/delete", post(accounts::delete_account))
+        .route("/accounts/config", post(accounts::update_account))
         // Folders
         .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))
         // Messages
         .route("/messages", get(messages::fetch_messages))
         .route("/messages/search", get(messages::search_messages))
-        .route("/messages/{uid}/body", get(messages::fetch_message_body))
-        .route("/messages/{uid}/raw", get(messages::fetch_raw_message))
-        .route("/messages/{uid}/attachments", get(messages::fetch_attachments))
-        .route(
-            "/messages/{uid}/attachments/{att_id}/content",
-            get(messages::fetch_attachment_content),
-        )
-        .route("/messages/{uid}/read", post(messages::mark_as_read))
-        .route("/messages/{uid}/unread", post(messages::mark_as_unseen))
-        .route("/messages/{uid}/delete", post(messages::delete_message))
-        .route("/messages/{uid}/move", post(messages::move_message))
+        .route("/messages/body", get(messages::fetch_message_body))
+        .route("/messages/raw", get(messages::fetch_raw_message))
+        .route("/messages/attachments", get(messages::fetch_attachments))
+.route("/messages/attachment", get(messages::fetch_attachment_content))
+        .route("/messages/read", post(messages::mark_as_read))
+        .route("/messages/unread", post(messages::mark_as_unseen))
+        .route("/messages/flag", post(messages::flag_message))
+        .route("/messages/move-cross-account", post(messages::move_cross_account))
+        .route("/messages/delete", post(messages::delete_message))
+        .route("/messages/move", post(messages::move_message))
         // Send
         .route("/send", post(send::send_message))
+        // Drafts (local)
+        .route("/draft/save", post(send::save_draft))
+        .route("/draft/discard", post(send::discard_draft))
         // AI
         .route("/ai/reply", post(ai::ai_generate_reply))
         .route("/ai/summarize", post(ai::ai_summarize))
@@ -77,14 +79,8 @@ pub fn router() -> Router<AppState> {
         .route("/push/unsubscribe", post(push::unsubscribe))
         // Delete queue (verify pipeline review)
         .route("/archive/delete-queue", get(delete_queue::list_delete_queue))
-        .route(
-            "/archive/delete-queue/{id}/retry",
-            post(delete_queue::retry_delete_queue),
-        )
-        .route(
-            "/archive/delete-queue/{id}/remove",
-            post(delete_queue::remove_delete_queue),
-        )
+.route("/archive/queue-retry", post(delete_queue::retry_delete_queue))
+.route("/archive/queue-remove", post(delete_queue::remove_delete_queue))
         // Export (EML/MBox)
         .route("/export", get(export::export_archive))
         // Backup snapshot

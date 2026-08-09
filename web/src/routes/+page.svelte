@@ -143,6 +143,7 @@ import {
   let initError = $state<string | null>(null);
   let initOk = $state(false);
   let folderNames = $state<string[]>([]);
+  let localFolderNames = $state<Set<string>>(new Set());
   let folderRawNames = $state<Record<string, string>>({});
   let folderDelimiters = $state<Record<string, string>>({});
   let selectedFolder = $state("INBOX");
@@ -198,6 +199,7 @@ let sentFolderName = $state<string | null>(null);
         const names: string[] = [];
         const rawMap: Record<string, string> = {};
         const delimMap: Record<string, string> = {};
+        const localSet = new Set<string>();
         // Detect Drafts & Sent folders from SPECIAL-USE attributes or fallback names
         draftsFolderName = null;
         sentFolderName = null;
@@ -212,6 +214,7 @@ let sentFolderName = $state<string | null>(null);
           names.push(x.name);
           rawMap[x.name] = x.raw_name || x.name;
           delimMap[x.name] = x.delimiter || ".";
+          if ((x as { local_only?: boolean }).local_only) localSet.add(x.name);
           // Check if this folder is the Drafts folder (SPECIAL-USE or fallback)
           if (!draftsFolderName && (x.attributes?.some(a => a.includes("Drafts")) || draftFallbacks.includes(key))) {
             draftsFolderName = x.name;
@@ -224,6 +227,7 @@ let sentFolderName = $state<string | null>(null);
         folderNames = names;
         folderRawNames = rawMap;
         folderDelimiters = delimMap;
+        localFolderNames = localSet;
        // Persist to localStorage cache for fast recovery on navigation
         const cacheKey = `relay_folder_cache_${acct.id}`;
         localStorage.setItem(cacheKey, JSON.stringify(names));
@@ -333,6 +337,7 @@ let sentFolderName = $state<string | null>(null);
       const names: string[] = [];
       const rawMap: Record<string, string> = {};
       const delimMap: Record<string, string> = {};
+      const localSet = new Set<string>();
       for (const x of f) {
         if (x.tag === "noselect") continue;
         if (!x.name || typeof x.name !== "string" || x.name.length === 0) continue;
@@ -342,10 +347,12 @@ let sentFolderName = $state<string | null>(null);
         names.push(x.name);
         rawMap[x.name] = x.raw_name || x.name;
         delimMap[x.name] = x.delimiter || ".";
+        if ((x as { local_only?: boolean }).local_only) localSet.add(x.name);
       }
       folderNames = names;
       folderRawNames = rawMap;
       folderDelimiters = delimMap;
+      localFolderNames = localSet;
       try {
         localStorage.setItem(`relay_folder_cache_${selectedAccountId}`, JSON.stringify(names));
       } catch { /* ignore */ }
@@ -551,6 +558,7 @@ let sentFolderName = $state<string | null>(null);
     name: string;
     label: string;
     children: FolderNode[];
+    local_only?: boolean;
   }
 
    function getLeafName(fullName: string, delimiter: string): string {
@@ -578,7 +586,7 @@ let sentFolderName = $state<string | null>(null);
       const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
 
       if (parts.length === 1) {
-        const node: FolderNode = { name, label, children: [] };
+        const node: FolderNode = { name, label, children: [], local_only: localFolderNames.has(name) };
         root.children.push(node);
         level1Map.set(lowerName, node);
       } else if (parts.length === 2) {
@@ -591,7 +599,7 @@ let sentFolderName = $state<string | null>(null);
           root.children.push(parent);
           level1Map.set(parentName.toLowerCase(), parent);
         }
-        parent.children.push({ name, label, children: [] });
+        parent.children.push({ name, label, children: [], local_only: localFolderNames.has(name) });
       }
     }
 
@@ -2078,7 +2086,8 @@ let sentFolderName = $state<string | null>(null);
   .sidebar-pane {
     flex-shrink: 0;
     background: var(--color-sidebar);
-    border-right: 1px solid var(--color-border);
+    /* Trennlinie unsichtbar: gleiche Farbe wie der Sidebar-Hintergrund */
+    border-right: 1px solid var(--color-sidebar);
     contain: layout style paint;
   }
   .resize-handle {
@@ -2481,7 +2490,8 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid var(--color-border);
+    /* Linie unter dem Vorschau-Header unsichtbar (gleiche Farbe wie Hintergrund) */
+    border-bottom: 1px solid var(--color-preview);
     background: var(--color-preview);
     flex-shrink: 0;
   }
@@ -2562,10 +2572,11 @@ let sentFolderName = $state<string | null>(null);
   }
   .mail-iframe-container {
     background: var(--color-list);
-    border: 1px solid var(--color-border);
+    /* Umrandung der Mail-Vorschau unsichtbar */
+    border: 1px solid transparent;
     border-radius: 8px;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+    box-shadow: none;
     margin-bottom: 16px;
     height: calc(100vh - 280px);
     min-height: 450px;

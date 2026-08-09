@@ -120,7 +120,7 @@ export async function listAccounts(): Promise<AccountInfo[]> {
 }
 
 export async function deleteAccount(accountId: number): Promise<void> {
-  return apiCall("DELETE", `/accounts/${accountId}`, undefined,
+  return apiCall("POST", "/accounts/delete", { account_id: accountId },
     "Das Konto konnte nicht gelöscht werden.");
 }
 
@@ -130,11 +130,11 @@ export async function updateAccountSettings(
   trashRetentionDays?: number,
   imapInsecure?: boolean,
 ): Promise<{ ok: boolean; sync_mode: string }> {
-  const body: Record<string, unknown> = {};
+  const body: Record<string, unknown> = { account_id: accountId };
   if (syncMode !== undefined) body.sync_mode = syncMode;
   if (trashRetentionDays !== undefined) body.trash_retention_days = trashRetentionDays;
   if (imapInsecure !== undefined) body.imap_insecure = imapInsecure;
-  return apiCall("POST", `/accounts/${accountId}/settings`, body,
+  return apiCall("POST", "/accounts/config", body,
     "Die Konto-Einstellungen konnten nicht gespeichert werden.");
 }
 
@@ -201,7 +201,7 @@ export async function fetchFromImap(accountId: number, folder?: string, limit?: 
   return get(`/messages?${q}`, "Die E-Mails konnten nicht vom Server abgerufen werden.");
 }
 
-export async function listImapFolders(accountId: number): Promise<Array<{name: string; raw_name: string; delimiter: string; tag: string; attributes?: string[]}>> {
+export async function listImapFolders(accountId: number): Promise<Array<{name: string; raw_name: string; delimiter: string; tag: string; attributes?: string[]; local_only?: boolean}>> {
   return get(`/folders?account_id=${accountId}`, "Die Ordnerliste konnte nicht geladen werden.");
 }
 
@@ -248,7 +248,7 @@ export async function fetchRawMessage(
    accountId: number,
    uid: number,
  ): Promise<string> {
-   return get(`/messages/${uid}/raw?account_id=${accountId}`,
+   return get(`/messages/raw?account_id=${accountId}&uid=${uid}`,
      "Die vollständige Nachricht konnte nicht geladen werden.");
  }
 
@@ -265,7 +265,7 @@ export async function fetchAttachments(
    accountId: number,
    uid: number,
  ): Promise<AttachmentInfo[]> {
-   return get(`/messages/${uid}/attachments?account_id=${accountId}`,
+   return get(`/messages/attachments?account_id=${accountId}&uid=${uid}`,
      "Die Anhänge konnten nicht geladen werden.");
  }
 
@@ -274,7 +274,7 @@ export async function fetchAttachments(
    uid: number,
    attachmentId: number,
  ): Promise<string> {
-   return get(`/messages/${uid}/attachments/${attachmentId}/content?account_id=${accountId}`,
+   return get(`/messages/attachment?account_id=${accountId}&uid=${uid}&att_id=${attachmentId}`,
      "Der Anhang konnte nicht geladen werden.");
  }
 
@@ -317,7 +317,7 @@ export async function fetchMessageBody(
   accountId: number,
   uid: number
 ): Promise<Message> {
-  return get(`/messages/${uid}/body?account_id=${accountId}`,
+  return get(`/messages/body?account_id=${accountId}&uid=${uid}`,
     "Der Nachrichteninhalt konnte nicht geladen werden.");
 }
 
@@ -325,7 +325,7 @@ export async function markAsRead(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/read`, { account_id: accountId },
+  return post("/messages/read", { account_id: accountId, uid },
     "Die Nachricht konnte nicht als gelesen markiert werden.");
 }
 
@@ -333,7 +333,7 @@ export async function markAsUnseen(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/unread`, { account_id: accountId },
+  return post("/messages/unread", { account_id: accountId, uid },
     "Die Nachricht konnte nicht als ungelesen markiert werden.");
 }
 
@@ -343,7 +343,7 @@ export async function flagMessageCmd(
   folderName: string,
   flagged: boolean,
 ): Promise<void> {
-  return post(`/messages/${uid}/flag`, { accountId, folderName, flagged },
+  return post("/messages/flag", { account_id: accountId, uid, folder_name: folderName, flagged },
     "Die Markierung konnte nicht aktualisiert werden.");
 }
 
@@ -351,7 +351,7 @@ export async function deleteMessageCmd(
   accountId: number,
   uid: number
 ): Promise<void> {
-  return post(`/messages/${uid}/delete`, { account_id: accountId },
+  return post("/messages/delete", { account_id: accountId, uid },
     "Die Nachricht konnte nicht gelöscht werden.");
 }
 
@@ -363,8 +363,8 @@ export async function moveMessageCmd(
   rawSourceFolder?: string,
   rawTargetFolder?: string,
 ): Promise<void> {
-  return post(`/messages/${uid}/move`, {
-    account_id: accountId, source_folder: sourceFolder, target_folder: targetFolder,
+  return post("/messages/move", {
+    account_id: accountId, uid, source_folder: sourceFolder, target_folder: targetFolder,
     raw_source_folder: rawSourceFolder || "", raw_target_folder: rawTargetFolder || "",
   }, "Die Nachricht konnte nicht verschoben werden.");
 }
@@ -376,8 +376,9 @@ export async function moveMessageCrossAccount(
   targetAccountId: number,
   targetFolder: string,
 ): Promise<void> {
-  return post(`/messages/${sourceUid}/move-cross-account`, {
-    sourceAccountId, sourceFolder, targetAccountId, targetFolder,
+  return post("/messages/move-cross-account", {
+    account_id: sourceAccountId, uid: sourceUid, source_folder: sourceFolder,
+    target_account_id: targetAccountId, target_folder: targetFolder,
   }, "Die Nachricht konnte nicht zwischen Accounts verschoben werden.");
 }
 
@@ -426,7 +427,7 @@ export async function saveDraft(
   bcc?: string[]
 ): Promise<{ uid: number }> {
   return post("/draft/save", {
-    accountId, to, cc, bcc, subject, bodyText, bodyHtml,
+    account_id: accountId, to, cc, bcc, subject, body_text: bodyText, body_html: bodyHtml,
   }, "Der Entwurf konnte nicht gespeichert werden.");
 }
 
@@ -434,7 +435,7 @@ export async function discardDraft(
   accountId: number,
   uid: number,
 ): Promise<void> {
-  return post(`/draft/${uid}/discard`, { accountId },
+  return post("/draft/discard", { account_id: accountId, uid },
     "Der Entwurf konnte nicht gelöscht werden.");
 }
 

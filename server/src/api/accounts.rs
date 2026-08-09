@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -190,6 +190,7 @@ pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<Accou
 /// `PATCH /api/v1/accounts/{id}` — update sync mode / trash retention.
 #[derive(Deserialize)]
 pub struct UpdateAccountRequest {
+    pub account_id: i64,
     #[serde(default)]
     pub sync_mode: Option<String>,
     #[serde(default)]
@@ -200,9 +201,9 @@ pub struct UpdateAccountRequest {
 
 pub async fn update_account(
     State(state): State<AppState>,
-    axum::extract::Path(id): axum::extract::Path<i64>,
     Json(req): Json<UpdateAccountRequest>,
 ) -> ApiResult<serde_json::Value> {
+    let id = req.account_id;
     let current = with_db(&state, |conn| {
         cache::accounts::get_account(conn, id).map_err(|e| e.to_string())
     })?;
@@ -214,10 +215,10 @@ pub async fn update_account(
     let retention = req.trash_retention_days.unwrap_or(account.trash_retention_days);
     let insecure = req.imap_insecure.unwrap_or(account.imap_insecure);
     with_db(&state, |conn| {
-        cache::accounts::update_account_settings(conn, id, &mode, retention).map_err(|e| e.to_string())
+        cache::accounts::update_account_settings(conn, id as i64, &mode, retention).map_err(|e| e.to_string())
     })?;
     with_db(&state, |conn| {
-        cache::accounts::update_imap_insecure(conn, id, insecure).map_err(|e| e.to_string())
+        cache::accounts::update_imap_insecure(conn, id as i64, insecure).map_err(|e| e.to_string())
     })?;
     tracing::info!("Konto {}: sync_mode={}, trash_retention_days={}, imap_insecure={}", id, mode, retention, insecure);
 
@@ -227,10 +228,10 @@ pub async fn update_account(
         if let Some(old) = state.imap_clients.write().remove(&(id as u32)) {
             drop(old);
         }
-        let acct = cache::accounts::get_account(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id)
+        let acct = cache::accounts::get_account(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id as i64)
             .map_err(|e| ApiError(e.to_string()))?
             .ok_or(ApiError(format!("Konto {} nicht gefunden", id)))?;
-        let pass = cache::accounts::get_account_password(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id)
+        let pass = cache::accounts::get_account_password(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id as i64)
             .map_err(|e| ApiError(e.to_string()))?
             .unwrap_or_default();
         let decrypted = crate::crypto::decrypt(&pass).unwrap_or(pass);
@@ -261,8 +262,9 @@ pub async fn update_account(
 /// `DELETE /api/v1/accounts/{id}`
 pub async fn delete_account(
     State(state): State<AppState>,
-    Path(account_id): Path<u32>,
+    Json(req): Json<crate::api::messages::MessageActionRequest>,
 ) -> ApiResult<()> {
+    let account_id = req.account_id;
     with_db(&state, |conn| {
         cache::accounts::delete_account(conn, account_id as i64).map_err(|e| e.to_string())
     })?;
