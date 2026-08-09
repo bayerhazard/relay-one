@@ -110,6 +110,39 @@ pub async fn copy_folder_endpoint(
     Ok(Json(report))
 }
 
+/// `POST /api/v1/migrate/count-folder` — count UIDs on the IMAP server for a
+/// folder WITHOUT copying (diagnostics — verifies folder selection is right).
+#[derive(Deserialize)]
+pub struct CountFolderRequest {
+    pub source_account_id: u32,
+    pub folder: String,
+}
+
+pub async fn count_folder(
+    State(state): State<AppState>,
+    Json(req): Json<CountFolderRequest>,
+) -> ApiResult<serde_json::Value> {
+    let client = state
+        .imap_clients
+        .read()
+        .get(&req.source_account_id)
+        .cloned()
+        .ok_or(ApiError("Quell-IMAP-Client nicht gefunden".into()))?;
+    if !client.is_connected().await {
+        client.connect().await.map_err(|e| ApiError(e.to_string()))?;
+    }
+    let uids = client.fetch_all_uids_in_folder(&req.folder).await.map_err(|e| ApiError(e.to_string()))?;
+    let min = uids.iter().min().copied().unwrap_or(0);
+    let max = uids.iter().max().copied().unwrap_or(0);
+    Ok(Json(serde_json::json!({
+        "folder": req.folder,
+        "count": uids.len(),
+        "min_uid": min,
+        "max_uid": max,
+        "first_10": &uids[..uids.len().min(10)],
+    })))
+}
+
 async fn copy_folder(
     state: &AppState,
     source: i64,

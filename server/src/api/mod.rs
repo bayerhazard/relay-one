@@ -90,6 +90,7 @@ pub fn router() -> Router<AppState> {
         // Migration (copy account → local folders of another account)
         .route("/migrate/copy-account", post(migrate::copy_account))
         .route("/migrate/copy-folder", post(migrate::copy_folder_endpoint))
+        .route("/migrate/count-folder", post(migrate::count_folder))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).
