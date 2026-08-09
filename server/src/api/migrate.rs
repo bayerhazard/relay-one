@@ -152,6 +152,37 @@ async fn copy_folder(
     copy_folder_limited(state, source, target, folder_name, None).await
 }
 
+/// Build a dedicated IMAP connection to the source account (own session, so
+/// the background sync cannot steal it mid-migration). The passwords are
+/// decrypted from the DB.
+async fn source_imap_client(state: &AppState, source: i64) -> Result<crate::imap::client::ImapClient, String> {
+    let (host, port, ssl, user, pass_enc, insecure) = with_db(state, |conn| {
+        let (host, port, ssl, user, pass_enc, insecure): (String, i64, i32, String, String, i32) = conn
+            .query_row(
+                "SELECT imap_host, imap_port, imap_ssl, username, password, imap_insecure
+                 FROM accounts WHERE id = ?1",
+                rusqlite::params![source],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .map_err(|e| format!("Quell-Account nicht gefunden: {e}"))?;
+        Ok::<_, String>((host, port, ssl, user, pass_enc, insecure))
+    })?;
+
+    let password = crate::crypto::decrypt(&pass_enc).unwrap_or(pass_enc);
+    let client = crate::imap::client::ImapClient::new_with_options(
+        host,
+        port as u16,
+        user,
+        password,
+        ssl != 0,
+        insecure != 0,
+    );
+    if !client.is_connected().await {
+        client.connect().await.map_err(|e| e.to_string())?;
+    }
+    Ok(client)
+}
+
 async fn copy_folder_limited(
     state: &AppState,
     source: i64,
@@ -165,19 +196,14 @@ async fn copy_folder_limited(
     })?;
 
     // Complete UID set from the IMAP server (ALL mails, not just the ones
-    // the local sync cached — the sync only fetches recent batches). SELECT
-    // + UID SEARCH run atomically so a concurrent sync can't switch folders.
+    // the local sync cached — the sync only fetches recent batches). A
+    // DEDICATED connection is used so the background sync cannot steal the
+    // session mid-migration.
+    let imap_client = source_imap_client(state, source)
+        .await
+        .map_err(ApiError)?;
     let imap_uids: Vec<u32> = {
-        let client = state
-            .imap_clients
-            .read()
-            .get(&(source as u32))
-            .cloned()
-            .ok_or(ApiError("Quell-IMAP-Client nicht gefunden".into()))?;
-        if !client.is_connected().await {
-            client.connect().await.map_err(|e| ApiError(e.to_string()))?;
-        }
-        match client.fetch_all_uids_in_folder(folder_name).await {
+        match imap_client.fetch_all_uids_in_folder(folder_name).await {
             Ok(uids) => uids,
             Err(e) => {
                 tracing::warn!("migrate: Ordner '{}' am IMAP nicht wählbar (lokal-only?): {}", folder_name, e);
@@ -209,7 +235,7 @@ async fn copy_folder_limited(
         if existing_target.contains(&uid_i64) {
             continue; // already migrated — never re-copy
         }
-        match copy_one_message(state, source, target, folder_name, uid_i64, cached.contains(&uid_i64)).await {
+        match copy_one_message(&imap_client, state, source, target, folder_name, uid_i64, cached.contains(&uid_i64)).await {
             Ok(()) => report.copied += 1,
             Err(e) => {
                 tracing::warn!("migrate: {} / uid {} fehlgeschlagen: {}", folder_name, uid, e);
@@ -232,6 +258,7 @@ async fn copy_folder_limited(
 }
 
 async fn copy_one_message(
+    imap_client: &crate::imap::client::ImapClient,
     state: &AppState,
     source: i64,
     target: i64,
@@ -316,16 +343,7 @@ async fn copy_one_message(
         // source mail only exists locally — a local-only test folder), fall
         // back to reconstructing the message from the local DB row so no
         // locally stored mail is ever lost.
-        let client = state
-            .imap_clients
-            .read()
-            .get(&(source as u32))
-            .cloned()
-            .ok_or("Quell-IMAP-Client nicht gefunden")?;
-        if !client.is_connected().await {
-            client.connect().await.map_err(|e| e.to_string())?;
-        }
-        let raw_result = client
+        let raw_result = imap_client
             .fetch_raw_message_in_folder(uid as u32, Some(folder_name.to_string()))
             .await;
         let bytes = match raw_result {
