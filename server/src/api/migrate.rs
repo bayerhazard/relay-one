@@ -431,10 +431,10 @@ async fn copy_one_message(
               body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
               is_read, is_flagged, has_attachments, synced, raw_path, raw_sha256)
              VALUES (
-               ?1, ?16, ?3, ?4, ?5, ?6, ?7, ?8,
-               (SELECT body_text FROM messages WHERE account_id = ?9 AND uid = ?3),
-               (SELECT body_html FROM messages WHERE account_id = ?9 AND uid = ?3),
-               ?10, NULL, NULL, NULL, ?11, ?12, ?13, 0, ?14, ?15
+               ?1, ?15, ?2, ?3, ?4, ?5, ?6, ?7,
+               (SELECT body_text FROM messages WHERE account_id = ?8 AND uid = ?2),
+               (SELECT body_html FROM messages WHERE account_id = ?8 AND uid = ?2),
+               ?9, NULL, NULL, NULL, ?10, ?11, ?12, 0, ?13, ?14
              )",
             rusqlite::params![
                 target, uid,
