@@ -186,7 +186,10 @@ async fn copy_one_message(
         let computed = format!("{:x}", h.finalize());
         (bytes, computed)
     } else {
-        // Fetch raw from IMAP (source account).
+        // Fetch raw from IMAP (source account). If that fails (e.g. the
+        // source mail only exists locally — a local-only test folder), fall
+        // back to reconstructing the message from the local DB row so no
+        // locally stored mail is ever lost.
         let client = state
             .imap_clients
             .read()
@@ -196,11 +199,44 @@ async fn copy_one_message(
         if !client.is_connected().await {
             client.connect().await.map_err(|e| e.to_string())?;
         }
-        let raw = client
+        let raw_result = client
             .fetch_raw_message_in_folder(uid as u32, Some(folder_name.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-        let bytes = raw.into_bytes();
+            .await;
+        let bytes = match raw_result {
+            Ok(raw) => raw.into_bytes(),
+            Err(_) => {
+                // Reconstruct from the local DB (headers + body).
+                let (subject, from, to, date, body_text, body_html) = with_db(state, |conn| {
+                    Ok::<_, String>((
+                        meta.0.clone(), meta.1.clone(), meta.2.clone(), meta.3.clone(),
+                        conn.query_row(
+                            "SELECT body_text FROM messages WHERE account_id = ?1 AND uid = ?2",
+                            rusqlite::params![source, uid],
+                            |r| r.get::<_, Option<String>>(0),
+                        ).unwrap_or(None),
+                        conn.query_row(
+                            "SELECT body_html FROM messages WHERE account_id = ?1 AND uid = ?2",
+                            rusqlite::params![source, uid],
+                            |r| r.get::<_, Option<String>>(0),
+                        ).unwrap_or(None),
+                    ))
+                })?;
+                let mut raw = format!(
+                    "From: {}\r\nTo: {}\r\nSubject: {}\r\nDate: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}",
+                    from.unwrap_or_default(),
+                    to.unwrap_or_default(),
+                    subject.unwrap_or_default(),
+                    date.unwrap_or_default(),
+                    body_text.unwrap_or_default(),
+                );
+                if let Some(html) = body_html {
+                    if !html.is_empty() {
+                        raw.push_str(&format!("\r\n\r\n--relay-boundary\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{}", html));
+                    }
+                }
+                raw.into_bytes()
+            }
+        };
         let mut h = sha2::Sha256::new();
         h.update(&bytes);
         let computed = format!("{:x}", h.finalize());

@@ -2,5 +2,5 @@ apiVersion: v2
 name: relay
 description: Relay — self-hosted email client (IMAP/SMTP, AI-assisted)
 type: application
-version: 26.09.8
-appVersion: "26.09.8"
+version: 26.09.9
+appVersion: "26.09.9"
