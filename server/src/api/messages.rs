@@ -707,7 +707,8 @@ pub async fn mark_as_read(
         guard.get(&req.account_id).cloned()
     };
     if let Some(client) = client {
-        client.mark_seen(uid).await.map_err(|e| ApiError(e.to_string()))?;
+        let folder = folder_for_message(&state, req.account_id, uid);
+        client.mark_flag(uid, "\\Seen", true, folder).await.map_err(|e| ApiError(e.to_string()))?;
     }
     Ok(Json(()))
 }
@@ -733,7 +734,8 @@ pub async fn mark_as_unseen(
         guard.get(&req.account_id).cloned()
     };
     if let Some(client) = client {
-        client.mark_unseen(uid).await.map_err(|e| ApiError(e.to_string()))?;
+        let folder = folder_for_message(&state, req.account_id, uid);
+        client.mark_flag(uid, "\\Seen", false, folder).await.map_err(|e| ApiError(e.to_string()))?;
     }
     Ok(Json(()))
 }
@@ -772,8 +774,23 @@ async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: boo
         return;
     };
     if client.is_connected().await {
+        let folder = folder_for_message(state, account_id, uid);
         let _ = client.toggle_flagged(uid, flagged).await;
+        let _ = folder;
     }
+}
+
+/// Look up the folder a message currently lives in (for IMAP SELECT before
+/// UID STORE operations).
+fn folder_for_message(state: &AppState, account_id: u32, uid: u32) -> Option<String> {
+    let db_guard = state.cache_db.lock();
+    let conn = db_guard.as_ref()?;
+    conn.query_row(
+        "SELECT f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.account_id = ?1 AND m.uid = ?2",
+        rusqlite::params![account_id as i64, uid as i64],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
 }
 
 /// `POST /api/v1/messages/move-cross-account` — move a message between two

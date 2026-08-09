@@ -439,21 +439,38 @@ impl ImapClient {
     }
 
     pub async fn mark_seen(&self, uid: u32) -> Result<(), AppError> {
-        self.with_session_blocking("mark_seen", move |session| {
-            session
-                .uid_store(uid.to_string(), "+FLAGS (\\Seen)")
-                .map_err(|e| AppError::imap(e.to_string(), "mark_seen"))?;
-            Ok(())
-        })
-        .await
+        self.mark_flag(uid, "\\Seen", true, None).await
     }
 
     /// Remove the \Seen flag from a message (mark as unread).
   pub async fn mark_unseen(&self, uid: u32) -> Result<(), AppError> {
-        self.with_session_blocking("mark_unseen", move |session| {
+        self.mark_flag(uid, "\\Seen", false, None).await
+    }
+
+    /// STORE a flag on a message. IMAP requires a selected mailbox before
+    /// UID STORE — if `folder` is given it is selected first.
+    pub async fn mark_flag(
+        &self,
+        uid: u32,
+        flag: &str,
+        set: bool,
+        folder: Option<String>,
+    ) -> Result<(), AppError> {
+        let flag = flag.to_string();
+        self.with_session_blocking("mark_flag", move |session| {
+            if let Some(ref f) = folder {
+                session
+                    .select(f)
+                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "mark_flag"))?;
+            }
+            let op = if set {
+                format!("+FLAGS ({})", flag)
+            } else {
+                format!("-FLAGS ({})", flag)
+            };
             session
-                .uid_store(uid.to_string(), "-FLAGS (\\Seen)")
-                .map_err(|e| AppError::imap(e.to_string(), "mark_unseen"))?;
+                .uid_store(uid.to_string(), &op)
+                .map_err(|e| AppError::imap(e.to_string(), "mark_flag"))?;
             Ok(())
         })
         .await
@@ -461,14 +478,7 @@ impl ImapClient {
 
     /// Toggle the \Flagged flag on a message (mark/unmark).
     pub async fn toggle_flagged(&self, uid: u32, flagged: bool) -> Result<(), AppError> {
-        let flag_op = if flagged { "+FLAGS (\\Flagged)" } else { "-FLAGS (\\Flagged)" };
-        self.with_session_blocking("toggle_flagged", move |session| {
-            session
-                .uid_store(uid.to_string(), flag_op)
-                .map_err(|e| AppError::imap(e.to_string(), "toggle_flagged"))?;
-            Ok(())
-        })
-        .await
+        self.mark_flag(uid, "\\Flagged", flagged, None).await
     }
 
     /// Fetch FLAGS for a set of UIDs. Returns Vec<(uid, is_read, is_flagged)>.
