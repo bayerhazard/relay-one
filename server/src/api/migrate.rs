@@ -85,16 +85,37 @@ async fn copy_folder(
         cache_messages::create_local_folder(conn, target, folder_name).map_err(|e| e.to_string())
     })?;
 
-    // All source UIDs in this folder.
-    let uids = with_db(state, |conn| {
+    // Complete UID set from the IMAP server (ALL mails, not just the ones
+    // the local sync cached — the sync only fetches recent batches).
+    let imap_uids: Vec<u32> = {
+        let client = state
+            .imap_clients
+            .read()
+            .get(&(source as u32))
+            .cloned()
+            .ok_or(ApiError("Quell-IMAP-Client nicht gefunden".into()))?;
+        if !client.is_connected().await {
+            client.connect().await.map_err(|e| ApiError(e.to_string()))?;
+        }
+        if let Err(e) = client.select_folder(folder_name).await {
+            tracing::warn!("migrate: Ordner '{}' am IMAP nicht wählbar (lokal-only?): {}", folder_name, e);
+            return Ok(FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0 });
+        }
+        client.fetch_all_uids().await.map_err(|e| ApiError(e.to_string()))?
+    };
+
+    // Locally cached UIDs (for the fast path / SHA-verified EML copy).
+    let cached_uids: Vec<i64> = with_db(state, |conn| {
         cache_messages::get_messages_with_uids_for_folder(conn, source, folder_name)
             .map_err(|e| e.to_string())
     })?;
+    let cached: std::collections::HashSet<i64> = cached_uids.into_iter().collect();
 
     let mut report = FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0 };
 
-    for uid in uids {
-        match copy_one_message(state, source, target, folder_name, uid).await {
+    for uid in &imap_uids {
+        let uid_i64 = *uid as i64;
+        match copy_one_message(state, source, target, folder_name, uid_i64, cached.contains(&uid_i64)).await {
             Ok(()) => report.copied += 1,
             Err(e) => {
                 tracing::warn!("migrate: {} / uid {} fehlgeschlagen: {}", folder_name, uid, e);
@@ -112,6 +133,7 @@ async fn copy_one_message(
     target: i64,
     folder_name: &str,
     uid: i64,
+    _is_cached: bool,
 ) -> Result<(), String> {
     // 1. Read the source row (raw_path, raw_sha256, meta).
     let (raw_rel, raw_sha_expected, meta) = with_db(state, |conn| {
