@@ -330,6 +330,25 @@ impl ImapClient {
         .await
     }
 
+    /// SELECT a folder and fetch ALL its UIDs atomically (single session
+    /// lock). Avoids the race where another thread selects a different
+    /// folder between our SELECT and UID SEARCH.
+    pub async fn fetch_all_uids_in_folder(&self, folder: &str) -> Result<Vec<u32>, AppError> {
+        let folder = folder.to_string();
+        self.with_session_blocking("fetch_all_uids_in_folder", move |session| {
+            session
+                .select(&folder)
+                .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", folder, e), "fetch_all_uids_in_folder"))?;
+            let uid_set = session
+                .uid_search("ALL")
+                .map_err(|e| AppError::imap(format!("IMAP uid_search ALL fehlgeschlagen: {}", e), "fetch_all_uids_in_folder"))?;
+            let mut uids: Vec<u32> = uid_set.into_iter().collect();
+            uids.sort_unstable();
+            Ok(uids)
+        })
+        .await
+    }
+
     /// Fetch and fully parse a message body, returning clean
     /// `(plain_text, Option<html>)`.
     ///

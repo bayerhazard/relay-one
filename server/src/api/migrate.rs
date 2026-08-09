@@ -132,7 +132,8 @@ async fn copy_folder_limited(
     })?;
 
     // Complete UID set from the IMAP server (ALL mails, not just the ones
-    // the local sync cached — the sync only fetches recent batches).
+    // the local sync cached — the sync only fetches recent batches). SELECT
+    // + UID SEARCH run atomically so a concurrent sync can't switch folders.
     let imap_uids: Vec<u32> = {
         let client = state
             .imap_clients
@@ -143,11 +144,13 @@ async fn copy_folder_limited(
         if !client.is_connected().await {
             client.connect().await.map_err(|e| ApiError(e.to_string()))?;
         }
-        if let Err(e) = client.select_folder(folder_name).await {
-            tracing::warn!("migrate: Ordner '{}' am IMAP nicht wählbar (lokal-only?): {}", folder_name, e);
-            return Ok(FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0, batch_done: true });
+        match client.fetch_all_uids_in_folder(folder_name).await {
+            Ok(uids) => uids,
+            Err(e) => {
+                tracing::warn!("migrate: Ordner '{}' am IMAP nicht wählbar (lokal-only?): {}", folder_name, e);
+                return Ok(FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0, batch_done: true });
+            }
         }
-        client.fetch_all_uids().await.map_err(|e| ApiError(e.to_string()))?
     };
 
     // Locally cached UIDs (for the fast path / SHA-verified EML copy).
