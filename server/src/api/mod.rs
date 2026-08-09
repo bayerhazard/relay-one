@@ -9,6 +9,7 @@ pub mod ai;
 pub mod delete_queue;
 pub mod export;
 pub mod health;
+pub mod migrate;
 pub mod messages;
 pub mod push;
 pub mod send;
@@ -86,6 +87,8 @@ pub fn router() -> Router<AppState> {
         .route("/export", get(export::export_archive))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))
+        // Migration (copy account → local folders of another account)
+        .route("/migrate/copy-account", post(migrate::copy_account))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).
