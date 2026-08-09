@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Selbst gehosteter E-Mail-Client — IMAP/SMTP mit KI-Unterstützung.
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.08.8
+  version: 26.08.9
   categories:
     - Utilities
 entrances:
@@ -17,14 +17,14 @@ entrances:
     title: Relay
     icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
     openMethod: window
-    authLevel: internal
+    authLevel: public
     # Custom Route-ID "mail": NICHT im Chart setzbar (Olares legt
     # spec.settings.customDomain.<entrance>.third_level_domain erst nach
     # Install im Application-CR an). Nach der Installation setzen:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.08.8
+  versionName: 26.08.9
   fullDescription: |
     **Relay** — dein selbst gehosteter E-Mail-Client.
     IMAP/SMTP-Anbindung mit lokalem Cache und KI-Assistenz (Antworten, Zusammenfassungen, Prioritäten, Tonfall).
