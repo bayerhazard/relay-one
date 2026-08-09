@@ -561,3 +561,19 @@ pub async fn db_count(
         "folders": folders.iter().map(|(n, c)| serde_json::json!({"folder": n, "count": c})).collect::<Vec<_>>(),
     })))
 }
+
+/// `POST /api/v1/migrate/stop-sync` — detach the target account from the
+/// background sync so it cannot prune/overwrite the migrated local folders.
+#[derive(Deserialize)]
+pub struct StopSyncRequest {
+    pub account_id: u32,
+}
+
+pub async fn stop_sync(
+    State(state): State<AppState>,
+    Json(req): Json<StopSyncRequest>,
+) -> ApiResult<serde_json::Value> {
+    let removed = state.imap_clients.write().remove(&req.account_id).is_some();
+    tracing::warn!("migrate: Sync für Konto {} getrennt ({})", req.account_id, removed);
+    Ok(Json(serde_json::json!({ "ok": true, "sync_detached": removed })))
+}
