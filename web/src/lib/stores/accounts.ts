@@ -14,6 +14,7 @@ export interface AccountInfo {
   sender_email: string;
   sync_mode?: string;
   trash_retention_days?: number;
+  imap_insecure?: boolean;
 }
 
 export interface AccountGroup {

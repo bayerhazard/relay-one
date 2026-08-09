@@ -17,6 +17,7 @@ pub struct AccountRecord {
     pub sender_email: String,
     pub sync_mode: String,
     pub trash_retention_days: i64,
+    pub imap_insecure: bool,
 }
 
 /// Update per-account archive settings (sync mode / trash retention).
@@ -30,6 +31,19 @@ pub fn update_account_settings(
     conn.execute(
         "UPDATE accounts SET sync_mode = ?1, trash_retention_days = ?2 WHERE id = ?3",
         params![mode, trash_retention_days, account_id],
+    )?;
+    Ok(())
+}
+
+/// Update the insecure-IMAP flag for an existing account (self-signed certs).
+pub fn update_imap_insecure(
+    conn: &Connection,
+    account_id: i64,
+    insecure: bool,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE accounts SET imap_insecure = ?1 WHERE id = ?2",
+        params![insecure as i32, account_id],
     )?;
     Ok(())
 }
@@ -49,18 +63,19 @@ pub fn create_account(
     smtp_password: &str,
     sender_name: &str,
     sender_email: &str,
+    imap_insecure: bool,
 ) -> Result<i64, rusqlite::Error> {
     conn.execute(
-        "INSERT INTO accounts (name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, password, smtp_username, smtp_password, sender_name, sender_email)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![name, imap_host, imap_port, imap_ssl as i32, smtp_host, smtp_port, smtp_tls as i32, username, password, smtp_username, smtp_password, sender_name, sender_email],
+        "INSERT INTO accounts (name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, password, smtp_username, smtp_password, sender_name, sender_email, imap_insecure)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![name, imap_host, imap_port, imap_ssl as i32, smtp_host, smtp_port, smtp_tls as i32, username, password, smtp_username, smtp_password, sender_name, sender_email, imap_insecure as i32],
     )?;
     Ok(conn.last_insert_rowid())
 }
 
 pub fn list_accounts(conn: &Connection) -> Result<Vec<AccountRecord>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, smtp_username, sender_name, sender_email, sync_mode, trash_retention_days
+        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, smtp_username, sender_name, sender_email, sync_mode, trash_retention_days, imap_insecure
          FROM accounts ORDER BY id",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -79,6 +94,7 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<AccountRecord>, rusqlite::
             sender_email: row.get(11)?,
             sync_mode: row.get(12)?,
             trash_retention_days: row.get(13)?,
+            imap_insecure: row.get::<_, i32>(14)? != 0,
         })
     })?;
 
@@ -92,7 +108,7 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<AccountRecord>, rusqlite::
 #[allow(dead_code)]
 pub fn get_account(conn: &Connection, account_id: i64) -> Result<Option<AccountRecord>, rusqlite::Error> {
     match conn.query_row(
-        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, smtp_username, sender_name, sender_email, sync_mode, trash_retention_days
+        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, smtp_username, sender_name, sender_email, sync_mode, trash_retention_days, imap_insecure
          FROM accounts WHERE id = ?1",
         params![account_id],
         |row| {
@@ -111,6 +127,7 @@ pub fn get_account(conn: &Connection, account_id: i64) -> Result<Option<AccountR
                 sender_email: row.get(11)?,
                 sync_mode: row.get(12)?,
                 trash_retention_days: row.get(13)?,
+                imap_insecure: row.get::<_, i32>(14)? != 0,
             })
         },
     ) {
@@ -136,7 +153,7 @@ pub fn get_account_password(conn: &Connection, account_id: i64) -> Result<Option
 /// Returns (account_record, imap_password_encrypted, smtp_password_encrypted)
 pub fn list_accounts_with_passwords(conn: &Connection) -> Result<Vec<(AccountRecord, String, String)>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, password, smtp_username, smtp_password, sender_name, sender_email, sync_mode, trash_retention_days
+        "SELECT id, name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, password, smtp_username, smtp_password, sender_name, sender_email, sync_mode, trash_retention_days, imap_insecure
          FROM accounts ORDER BY id",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -156,6 +173,7 @@ pub fn list_accounts_with_passwords(conn: &Connection) -> Result<Vec<(AccountRec
                 sender_email: row.get(13)?,
                 sync_mode: row.get(14)?,
                 trash_retention_days: row.get(15)?,
+                imap_insecure: row.get::<_, i32>(16)? != 0,
             },
             row.get::<_, String>(9)?,
             row.get::<_, String>(11)?,
@@ -202,6 +220,7 @@ mod tests {
             &format!("smtp_pass{}", id_suffix),
             &format!("Sender {}", id_suffix),
             &format!("sender{}@test.com", id_suffix),
+            false,
         ).unwrap()
     }
 

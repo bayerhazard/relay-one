@@ -34,6 +34,7 @@ fn create_test_account(conn: &Connection, suffix: &str) -> i64 {
         &format!("secret_smtp{}", suffix),
         &format!("Sender {}", suffix),
         &format!("sender{}@example.com", suffix),
+        false,
     )
     .unwrap()
 }

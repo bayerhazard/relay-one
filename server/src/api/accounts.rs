@@ -127,6 +127,7 @@ pub async fn connect_account(
             &req.imap_username, &encrypted_imap_password,
             &req.smtp_username, &encrypted_smtp_password,
             &req.sender_name, &req.sender_email,
+            imap_insecure,
         )
         .map_err(|e| e.to_string())?)
     })?;
@@ -190,6 +191,8 @@ pub struct UpdateAccountRequest {
     pub sync_mode: Option<String>,
     #[serde(default)]
     pub trash_retention_days: Option<i64>,
+    #[serde(default)]
+    pub imap_insecure: Option<bool>,
 }
 
 pub async fn update_account(
@@ -206,10 +209,35 @@ pub async fn update_account(
     let was_archive = account.sync_mode == "archive";
     let mode = req.sync_mode.unwrap_or(account.sync_mode);
     let retention = req.trash_retention_days.unwrap_or(account.trash_retention_days);
+    let insecure = req.imap_insecure.unwrap_or(account.imap_insecure);
     with_db(&state, |conn| {
         cache::accounts::update_account_settings(conn, id, &mode, retention).map_err(|e| e.to_string())
     })?;
-    tracing::info!("Konto {}: sync_mode={}, trash_retention_days={}", id, mode, retention);
+    with_db(&state, |conn| {
+        cache::accounts::update_imap_insecure(conn, id, insecure).map_err(|e| e.to_string())
+    })?;
+    tracing::info!("Konto {}: sync_mode={}, trash_retention_days={}, imap_insecure={}", id, mode, retention, insecure);
+
+    // imap_insecure changed → rebuild the IMAP client so the new TLS mode
+    // takes effect immediately without a restart.
+    if insecure != account.imap_insecure {
+        if let Some(old) = state.imap_clients.write().remove(&(id as u32)) {
+            drop(old);
+        }
+        let acct = cache::accounts::get_account(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id)
+            .map_err(|e| ApiError(e.to_string()))?
+            .ok_or(ApiError(format!("Konto {} nicht gefunden", id)))?;
+        let pass = cache::accounts::get_account_password(&*state.cache_db.lock().as_ref().ok_or(ApiError("DB nicht initialisiert".into()))?, id)
+            .map_err(|e| ApiError(e.to_string()))?
+            .unwrap_or_default();
+        let decrypted = crate::crypto::decrypt(&pass).unwrap_or(pass);
+        let client = Arc::new(crate::imap::client::ImapClient::new_with_options(
+            acct.imap_host.clone(), acct.imap_port, acct.username.clone(),
+            decrypted, acct.imap_ssl, acct.imap_insecure,
+        ));
+        state.imap_clients.write().insert(id as u32, client);
+        tracing::info!("Konto {}: IMAP-Client mit imap_insecure={} neu gebaut", id, insecure);
+    }
 
     // Switching to archive mode → enqueue an EML backfill for cached mails
     // that do not have an archive file yet.

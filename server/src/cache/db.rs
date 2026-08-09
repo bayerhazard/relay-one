@@ -241,6 +241,9 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Migration: per-account sync mode (mirror/archive) + trash retention.
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'mirror'", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30", []);
+    // Migration: insecure IMAP TLS (self-signed certs, e.g. Synology NAS).
+    // Was previously only used at connect time and never persisted.
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN imap_insecure INTEGER NOT NULL DEFAULT 0", []);
 
     // Migration: add photo columns to settings table
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN photo_data BLOB", []);

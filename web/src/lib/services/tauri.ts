@@ -126,11 +126,15 @@ export async function deleteAccount(accountId: number): Promise<void> {
 
 export async function updateAccountSettings(
   accountId: number,
-  syncMode: string,
+  syncMode?: string,
   trashRetentionDays?: number,
+  imapInsecure?: boolean,
 ): Promise<{ ok: boolean; sync_mode: string }> {
-  return apiCall("PATCH", `/accounts/${accountId}/settings`,
-    { sync_mode: syncMode, ...(trashRetentionDays !== undefined ? { trash_retention_days: trashRetentionDays } : {}) },
+  const body: Record<string, unknown> = {};
+  if (syncMode !== undefined) body.sync_mode = syncMode;
+  if (trashRetentionDays !== undefined) body.trash_retention_days = trashRetentionDays;
+  if (imapInsecure !== undefined) body.imap_insecure = imapInsecure;
+  return apiCall("PATCH", `/accounts/${accountId}/settings`, body,
     "Die Konto-Einstellungen konnten nicht gespeichert werden.");
 }
 

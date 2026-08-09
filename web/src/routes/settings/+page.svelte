@@ -368,6 +368,7 @@ async function handleSaveCardDav() {
   let imapHost = $state("");
   let imapPort = $state(993);
   let imapSsl = $state(true);
+  let imapInsecure = $state(false);
   let smtpHost = $state("");
   let smtpPort = $state(587);
   let smtpTls = $state(true);
@@ -384,6 +385,7 @@ async function handleSaveCardDav() {
 
   // Used for editing state UI helper
   let isEditing = $state(false);
+  let editingAccountId = $state<number | null>(null);
 
   async function loadAccountList() {
     try {
@@ -403,21 +405,27 @@ async function handleSaveCardDav() {
     acctError = null;
     acctSuccess = null;
     try {
-      await connectAccount(
-        acctName, imapHost, imapPort, imapSsl,
-        smtpHost, smtpPort, smtpTls,
-        acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
-      );
-      acctSuccess = isEditing 
-        ? `Konto "${acctName}" erfolgreich aktualisiert!` 
-        : `Konto "${acctName}" verbunden!`;
+      if (isEditing && editingAccountId != null) {
+        // Edit mode: update the EXISTING account (imap_insecure etc.) instead
+        // of creating a duplicate.
+        await updateAccountSettings(editingAccountId, undefined, undefined, imapInsecure);
+        acctSuccess = `Konto "${acctName}" aktualisiert (IMAP-Zertifikat: ${imapInsecure ? 'unsicher erlaubt' : 'verifiziert'})!`;
+      } else {
+        await connectAccount(
+          acctName, imapHost, imapPort, imapSsl, imapInsecure,
+          smtpHost, smtpPort, smtpTls,
+          acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
+        );
+        acctSuccess = `Konto "${acctName}" verbunden!`;
+      }
       
       // Clear fields
       acctName = ""; imapHost = ""; smtpHost = ""; acctUser = "";
       acctPass = ""; smtpUser = ""; smtpPass = ""; senderName = ""; senderMail = "";
-      imapPort = 993; imapSsl = true;
+      imapPort = 993; imapSsl = true; imapInsecure = false;
       smtpPort = 587; smtpTls = true;
       isEditing = false;
+      editingAccountId = null;
       
       await loadAccountList();
       setTimeout(() => (acctSuccess = null), 4000);
@@ -432,6 +440,7 @@ async function handleSaveCardDav() {
     acctName = a.name;
     imapHost = a.imap_host;
     imapPort = a.imap_port;
+    imapInsecure = !!a.imap_insecure;
     smtpHost = a.smtp_host;
     smtpPort = a.smtp_port;
     acctUser = a.username;
@@ -439,6 +448,7 @@ async function handleSaveCardDav() {
     senderName = a.sender_name;
     senderMail = a.sender_email;
     isEditing = true;
+    editingAccountId = a.id;
     acctError = null;
     acctSuccess = null;
     
@@ -452,9 +462,10 @@ async function handleSaveCardDav() {
   function handleCancelEdit() {
     acctName = ""; imapHost = ""; smtpHost = ""; acctUser = "";
     acctPass = ""; smtpUser = ""; smtpPass = ""; senderName = ""; senderMail = "";
-    imapPort = 993; imapSsl = true;
+    imapPort = 993; imapSsl = true; imapInsecure = false;
     smtpPort = 587; smtpTls = true;
     isEditing = false;
+    editingAccountId = null;
     acctError = null;
     acctSuccess = null;
   }
@@ -826,6 +837,13 @@ async function handleSaveCardDav() {
                   <input type="checkbox" class="toggle" bind:checked={imapSsl} />
                   <span class="toggle-track" aria-hidden="true"></span>
                   <span class="toggle-text">SSL</span>
+                </label>
+              </div>
+              <div class="form-group justify-self-center">
+                <label class="toggle-label" title="Erlaubt Self-Signed-Zertifikate (z. B. Synology NAS)">
+                  <input type="checkbox" class="toggle" bind:checked={imapInsecure} />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-text">Unsicher erlauben</span>
                 </label>
               </div>
             </div>

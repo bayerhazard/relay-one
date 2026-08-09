@@ -97,13 +97,13 @@ pub fn router() -> Router<AppState> {
 
 /// X-Relay-Key guard (Concept §12 / F6).
 ///
-/// When `RELAY_API_KEY` is set (chart-provided K8s secret), every API request
-/// must carry the key in the `X-Relay-Key` header — except:
-///   - `/health`, `/info`: K8s probes have no header.
-///   - `/events`: SSE stream consumed by the browser.
-/// Browser clients themselves never send the key (the Olares entrance with
-/// authLevel handles access); this guard only stops direct cluster-internal
-/// callers (other pods hitting the ClusterIP).
+/// When `RELAY_API_KEY` is set (chart-provided K8s secret), requests from
+/// INSIDE the cluster (ClusterIP / service DNS — no public host header) must
+/// carry the key in `X-Relay-Key`. Browser traffic through the Olares
+/// entrance arrives with a public Host header (e.g. mail.aimighty.olares.de)
+/// and is already protected by the entrance authLevel — it passes through
+/// without the key (Concept: "the web app does not set the header itself").
+/// `/health` and `/info` stay open for K8s probes.
 async fn relay_key_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -117,6 +117,21 @@ async fn relay_key_guard(
 
     let path = req.uri().path().to_string();
     if path == "/health" || path == "/info" || path == "/events" {
+        return next.run(req).await;
+    }
+
+    // Browser path: public Host header (entrance domain). Internal callers
+    // present an IP or a bare service name as Host.
+    let host = req
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let looks_internal = host.is_empty()
+        || host.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '-')
+        || !host.contains('.');
+
+    if !looks_internal {
         return next.run(req).await;
     }
 

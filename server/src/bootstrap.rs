@@ -139,10 +139,14 @@ async fn reconnect_one_account(
     );
 
     // ── IMAP reconnect with timeout ──────────────────────
-    let imap_client = Arc::new(ImapClient::new(
+    // imap_insecure (self-signed certs, e.g. Synology NAS) is persisted on the
+    // account and MUST be honored here — otherwise reconnects fail with
+    // "invalid peer certificate: UnknownIssuer" and the account shows
+    // "Getrennt" after every restart.
+    let imap_client = Arc::new(ImapClient::new_with_options(
         acct.imap_host.clone(), acct.imap_port,
         acct.username.clone(), imap_password.clone(),
-        acct.imap_ssl,
+        acct.imap_ssl, acct.imap_insecure,
     ));
 
     let imap_result = timeout(
