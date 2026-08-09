@@ -264,7 +264,7 @@ async fn copy_one_message(
     target: i64,
     folder_name: &str,
     uid: i64,
-    _is_cached: bool,
+    is_cached: bool,
 ) -> Result<(), String> {
     // 1. Read the source row (raw_path, raw_sha256, meta).
     let (raw_rel, raw_sha_expected, meta) = with_db(state, |conn| {
@@ -348,8 +348,10 @@ async fn copy_one_message(
             .await;
         let bytes = match raw_result {
             Ok(raw) => raw.into_bytes(),
-            Err(_) => {
-                // Reconstruct from the local DB (headers + body).
+            Err(_) if is_cached => {
+                // Reconstruct from the local DB (headers + body) — only for
+                // mails that are genuinely cached locally (they exist here
+                // even if the IMAP copy is gone).
                 let (subject, from, to, date, body_text, body_html) = with_db(state, |conn| {
                     Ok::<_, String>((
                         meta.0.clone(), meta.1.clone(), meta.2.clone(), meta.3.clone(),
@@ -379,6 +381,11 @@ async fn copy_one_message(
                     }
                 }
                 raw.into_bytes()
+            }
+            Err(e) => {
+                // Mail not fetchable from IMAP AND not locally cached — it no
+                // longer exists. Report as failed, do not fabricate.
+                return Err(format!("Mail nicht am IMAP und nicht lokal: {}", e));
             }
         };
         let mut h = sha2::Sha256::new();
