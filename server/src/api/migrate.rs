@@ -254,6 +254,11 @@ async fn copy_folder_limited(
     // When the loop ran to completion, every UID was processed (either copied
     // or already present in the target).
 
+    // Close the dedicated IMAP connection — otherwise every chunk leaks a
+    // connection and the provider blocks new ones
+    // (mail_max_userip_connections).
+    imap_client.shutdown().await;
+
     Ok(report)
 }
 
