@@ -882,6 +882,18 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
                         .as_mut()
                         .ok_or("Datenbank nicht initialisiert")?;
 
+                    // Local-only folders are NOT mirrors of an IMAP folder —
+                    // never prune them against server UIDs (archive mode).
+                    let is_local_folder = crate::cache::messages::is_local_only_folder(
+                        conn,
+                        task.account_id as i64,
+                        folder_name,
+                    )
+                    .unwrap_or(false);
+                    if is_local_folder {
+                        continue;
+                    }
+
                     match crate::cache::messages::delete_messages_not_in(
                         conn,
                         task.account_id as i64,

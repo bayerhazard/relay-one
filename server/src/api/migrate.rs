@@ -401,15 +401,30 @@ async fn copy_one_message(
 
     // 5. Insert the target row (same uid, local folder, synced=0).
     //    Resolve the target folder_id explicitly — a NULL folder_id would
-    //    silently drop the row into a folder-less limbo.
+    //    silently drop the row into a folder-less limbo. Re-create the local
+    //    folder if a concurrent sync removed it between the folder pass and
+    //    this message.
     with_db(state, |conn| {
-        let folder_id: i64 = conn
+        let folder_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
                 rusqlite::params![target, folder_name],
                 |r| r.get(0),
             )
-            .map_err(|e| format!("Ziel-Ordner '{}' nicht gefunden: {}", folder_name, e))?;
+            .ok();
+        let folder_id = match folder_id {
+            Some(id) => id,
+            None => {
+                cache_messages::create_local_folder(conn, target, folder_name)
+                    .map_err(|e| format!("Ziel-Ordner anlegen fehlgeschlagen: {}", e))?;
+                conn.query_row(
+                    "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                    rusqlite::params![target, folder_name],
+                    |r| r.get(0),
+                )
+                .map_err(|e| format!("Ziel-Ordner '{}' nicht gefunden: {}", folder_name, e))?
+            }
+        };
         conn.execute(
             "INSERT OR IGNORE INTO messages
              (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
