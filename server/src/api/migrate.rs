@@ -400,26 +400,33 @@ async fn copy_one_message(
         .unwrap_or_else(|_| target_path.to_string_lossy().to_string());
 
     // 5. Insert the target row (same uid, local folder, synced=0).
+    //    Resolve the target folder_id explicitly — a NULL folder_id would
+    //    silently drop the row into a folder-less limbo.
     with_db(state, |conn| {
+        let folder_id: i64 = conn
+            .query_row(
+                "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                rusqlite::params![target, folder_name],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("Ziel-Ordner '{}' nicht gefunden: {}", folder_name, e))?;
         conn.execute(
             "INSERT OR IGNORE INTO messages
              (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
               body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
               is_read, is_flagged, has_attachments, synced, raw_path, raw_sha256)
              VALUES (
-               ?1,
-               (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2),
-               ?3, ?4, ?5, ?6, ?7, ?8,
+               ?1, ?16, ?3, ?4, ?5, ?6, ?7, ?8,
                (SELECT body_text FROM messages WHERE account_id = ?9 AND uid = ?3),
                (SELECT body_html FROM messages WHERE account_id = ?9 AND uid = ?3),
                ?10, NULL, NULL, NULL, ?11, ?12, ?13, 0, ?14, ?15
              )",
             rusqlite::params![
-                target, folder_name, uid,
+                target, uid,
                 meta.4, meta.0, meta.1, meta.2, meta.3,
                 source,
                 "[]", 0i32, 0i32, 0i32,
-                rel, written_sha,
+                rel, written_sha, folder_id,
             ],
         )
         .map_err(|e| e.to_string())
