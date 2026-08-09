@@ -185,6 +185,24 @@ export async function createBackup(): Promise<BackupInfo> {
   return post("/archive/backup", {}, "Das Backup konnte nicht erstellt werden.");
 }
 
+export interface BackupListInfo {
+  backups: Array<{ name: string; size: number }>;
+}
+
+export async function listBackups(): Promise<BackupListInfo> {
+  return get("/archive/backups", "Die Backup-Liste konnte nicht geladen werden.");
+}
+
+export async function restoreBackupSnapshot(backupName: string): Promise<{
+  ok: boolean;
+  restored: string;
+  bytes: number;
+  note?: string;
+}> {
+  return post("/archive/restore", { backup_name: backupName },
+    "Die Wiederherstellung konnte nicht durchgeführt werden.");
+}
+
 // ─── Badge ──────────────────────────────────────────────────
 // Web version has no dock badge — unread count is returned directly.
 

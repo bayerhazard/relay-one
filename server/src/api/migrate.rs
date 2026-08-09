@@ -622,3 +622,170 @@ pub async fn reset_target(
     tracing::warn!("migrate: Ziel-Konto {} zurückgesetzt ({} Mails, {} Ordner)", req.account_id, messages, folders);
     Ok(Json(serde_json::json!({ "ok": true, "messages_deleted": messages, "folders_deleted": folders })))
 }
+
+/// `POST /api/v1/migrate/start` — run the full account migration as a
+/// server-side background task (no HTTP request limits, no gateway timeout,
+/// no chunking races). The target account is detached from the sync first.
+#[derive(Deserialize)]
+pub struct StartMigrationRequest {
+    pub source_account_id: u32,
+    pub target_account_id: u32,
+}
+
+pub async fn start_migration(
+    State(state): State<AppState>,
+    Json(req): Json<StartMigrationRequest>,
+) -> ApiResult<serde_json::Value> {
+    // Refuse to start twice.
+    if state.migration.read().as_ref().map(|m| m.running).unwrap_or(false) {
+        return Err(ApiError("Migration läuft bereits".into()));
+    }
+    // Detach the target from the sync.
+    state.imap_clients.write().remove(&req.target_account_id);
+
+    let status = MigrationStatus {
+        running: true,
+        done: false,
+        started_at: Some(chrono::Utc::now().to_rfc3339()),
+        ..Default::default()
+    };
+    *state.migration.write() = Some(status);
+
+    let state2 = state.clone();
+    tokio::spawn(async move {
+        run_migration_task(&state2, req.source_account_id as i64, req.target_account_id as i64).await;
+    });
+
+    Ok(Json(serde_json::json!({ "ok": true, "message": "Migration gestartet" })))
+}
+
+/// `GET /api/v1/migrate/status` — poll migration progress.
+pub async fn migration_status(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let status = state.migration.read().clone().unwrap_or_default();
+    Ok(Json(serde_json::to_value(&status).map_err(|e| ApiError(e.to_string()))?))
+}
+
+/// The background migration task: walks every source folder, copies every
+/// mail (EML + DB row), updates the status. Runs inside the server, so no
+/// gateway timeouts apply.
+async fn run_migration_task(state: &AppState, source: i64, target: i64) {
+    let folders = match with_db(state, |conn| {
+        cache_messages::list_all_folders(conn, source).map_err(|e| e.to_string())
+    }) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("migrate: Ordnerliste fehlgeschlagen: {}", e);
+            let mut s = state.migration.write();
+            if let Some(st) = s.as_mut() {
+                st.running = false;
+                st.done = true;
+                st.finished_at = Some(chrono::Utc::now().to_rfc3339());
+            }
+            return;
+        }
+    };
+
+    {
+        let mut s = state.migration.write();
+        if let Some(st) = s.as_mut() {
+            st.folders_total = folders.len();
+        }
+    }
+
+    for (folder_name, _local) in &folders {
+        {
+            let mut s = state.migration.write();
+            if let Some(st) = s.as_mut() {
+                st.current_folder = folder_name.clone();
+            }
+        }
+
+        // Dedicated IMAP connection per folder (closed afterwards).
+        let imap_client = match source_imap_client(state, source).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("migrate: {} — Verbindung fehlgeschlagen: {}", folder_name, e);
+                {
+                    let mut s = state.migration.write();
+                    if let Some(st) = s.as_mut() {
+                        st.folders_done += 1;
+                    }
+                }
+                continue;
+            }
+        };
+
+        let uids = match imap_client.fetch_all_uids_in_folder(folder_name).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!("migrate: {} — UID-Liste fehlgeschlagen: {}", folder_name, e);
+                imap_client.shutdown().await;
+                {
+                    let mut s = state.migration.write();
+                    if let Some(st) = s.as_mut() {
+                        st.folders_done += 1;
+                    }
+                }
+                continue;
+            }
+        };
+
+        // Existing target UIDs (skip).
+        let existing: std::collections::HashSet<i64> = {
+            let uids = with_db(state, |conn| {
+                cache_messages::get_messages_with_uids_for_folder(conn, target, folder_name)
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap_or_default();
+            uids.into_iter().collect()
+        };
+
+        let mut copied = 0usize;
+        let mut failed = 0usize;
+        for uid in uids {
+            if existing.contains(&(uid as i64)) {
+                continue;
+            }
+            let is_cached = with_db(state, |conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT 1 FROM messages WHERE account_id = ?1 AND uid = ?2",
+                        rusqlite::params![source, uid as i64],
+                        |r| r.get::<_, i64>(0),
+                    )
+                    .is_ok())
+            })
+            .unwrap_or(false);
+
+            match copy_one_message(&imap_client, state, source, target, folder_name, uid as i64, is_cached).await {
+                Ok(()) => copied += 1,
+                Err(e) => {
+                    tracing::debug!("migrate: {} / uid {} fehlgeschlagen: {}", folder_name, uid, e);
+                    failed += 1;
+                }
+            }
+        }
+        imap_client.shutdown().await;
+
+        {
+            let mut s = state.migration.write();
+            if let Some(st) = s.as_mut() {
+                st.messages_copied += copied;
+                st.messages_failed += failed;
+                st.folders_done += 1;
+            }
+        }
+        tracing::info!("migrate: {} — {} kopiert, {} fehlgeschlagen", folder_name, copied, failed);
+    }
+
+    {
+        let mut s = state.migration.write();
+        if let Some(st) = s.as_mut() {
+            st.running = false;
+            st.done = true;
+            st.finished_at = Some(chrono::Utc::now().to_rfc3339());
+            st.current_folder = String::new();
+        }
+    }
+    tracing::info!("migrate: Migration abgeschlossen");
+}

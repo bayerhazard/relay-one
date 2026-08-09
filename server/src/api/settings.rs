@@ -5,6 +5,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::ai::client::{AIClient, AIConfig};
+use crate::api::ApiError;
 use crate::cache;
 use crate::crypto;
 use crate::db::with_db;
@@ -103,4 +104,81 @@ pub async fn set_move_to_trash(
     ok(with_db(&state, |conn| {
         cache::settings::set_move_to_trash(conn, enabled).map_err(|e| e.to_string())
     }))
+}
+
+// ─── CardDAV ─────────────────────────────────────────────────────
+
+/// `GET /api/v1/carddav/settings` — stored CardDAV connection settings.
+pub async fn get_carddav_settings(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let json = with_db(&state, |conn| {
+        cache::settings::get_setting(conn, "carddav_settings").map_err(|e| e.to_string())
+    })?;
+    match json {
+        Some(raw) => {
+            let mut settings: crate::carddav::CardDavSettings =
+                serde_json::from_str(&raw).map_err(|e| ApiError(format!("CardDAV parse: {e}")))?;
+            settings.password = crate::crypto::decrypt(&settings.password).unwrap_or(settings.password);
+            Ok(Json(serde_json::json!({
+                "url": settings.url, "username": settings.username, "password": settings.password,
+                "sync_interval_minutes": settings.sync_interval_minutes,
+            })))
+        }
+        None => Ok(Json(serde_json::json!({
+            "url": "", "username": "", "password": "", "sync_interval_minutes": 30,
+        }))),
+    }
+}
+
+/// `POST /api/v1/carddav/settings` — save the CardDAV connection settings.
+#[derive(Deserialize)]
+pub struct CardDavSettingsRequest {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub sync_interval_minutes: Option<u64>,
+}
+
+pub async fn set_carddav_settings(
+    State(state): State<AppState>,
+    Json(req): Json<CardDavSettingsRequest>,
+) -> ApiResult<serde_json::Value> {
+    let encrypted_pw = crate::crypto::encrypt(&req.password).unwrap_or_else(|_| req.password.clone());
+    let settings = crate::carddav::CardDavSettings {
+        url: req.url.clone(),
+        username: req.username.clone(),
+        password: encrypted_pw,
+        sync_interval_minutes: req.sync_interval_minutes.unwrap_or(30),
+    };
+    let raw = serde_json::to_string(&settings).map_err(|e| ApiError(e.to_string()))?;
+    with_db(&state, |conn| {
+        cache::settings::set_setting(conn, "carddav_settings", &raw).map_err(|e| e.to_string())
+    })?;
+    // Update the in-memory state so the scheduler picks it up.
+    let mut live = settings.clone();
+    live.password = req.password.clone();
+    *state.carddav_settings.write() = Some(live);
+    tracing::info!("CardDAV-Einstellungen gespeichert: {}", req.url);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// `POST /api/v1/carddav/sync` — trigger a manual CardDAV sync.
+pub async fn sync_carddav(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let settings = state.carddav_settings.read().clone();
+    let Some(settings) = settings else {
+        return Err(ApiError("CardDAV nicht konfiguriert".into()));
+    };
+    let client = crate::carddav::client::CardDavClient::new(settings);
+    let token = state.carddav_sync_token.read().clone();
+    match client.sync_incremental(&token).await {
+        Ok((contacts, _deleted, new_token)) => {
+            *state.carddav_sync_token.write() = new_token.clone();
+            with_db(&state, |conn| {
+                crate::cache::settings::set_setting(conn, "carddav_sync_token", &new_token)
+                    .map_err(|e| e.to_string())
+            })?;
+            Ok(Json(serde_json::json!({ "ok": true, "synced": contacts.len() })))
+        }
+        Err(e) => Err(ApiError(format!("CardDAV-Sync fehlgeschlagen: {e}"))),
+    }
 }

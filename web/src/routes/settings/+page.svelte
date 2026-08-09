@@ -10,7 +10,7 @@ import {
     resetCircuitBreaker,
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache,
     setupPush, teardownPush, pushEnabled,
-    getDeleteQueue, retryDeleteQueueRow, removeDeleteQueueRow, downloadExport, createBackup,
+    getDeleteQueue, retryDeleteQueueRow, removeDeleteQueueRow, downloadExport, createBackup, listBackups, restoreBackupSnapshot,
   } from "$lib/services/tauri";
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
@@ -77,6 +77,8 @@ import {
 
   let backupBusy = $state(false);
   let backupResult = $state<{ path: string; size: number } | null>(null);
+  let backups = $state<Array<{ name: string; size: number }>>([]);
+  let restoreResult = $state<string | null>(null);
 
   async function handleBackup() {
     if (backupBusy) return;
@@ -85,10 +87,30 @@ import {
     try {
       const b = await createBackup();
       backupResult = { path: b.path, size: b.size };
+      await loadBackups();
     } catch (e) {
       console.error("backup failed", e);
     } finally {
       backupBusy = false;
+    }
+  }
+
+  async function loadBackups() {
+    try {
+      const d = await listBackups();
+      backups = d.backups ?? [];
+    } catch (e) {
+      console.warn("backup list load failed", e);
+    }
+  }
+
+  async function restoreBackup(name: string) {
+    if (!window.confirm(`Backup "${name}" wiederherstellen? Die aktuelle DB wird zuerst gesichert, danach startet der Server neu.`)) return;
+    try {
+      const r = await restoreBackupSnapshot(name);
+      restoreResult = `Wiederhergestellt: ${r.restored} (${formatBytes(r.bytes)}). ${r.note ?? ''}`;
+    } catch (e) {
+      restoreResult = "Wiederherstellung fehlgeschlagen: " + (e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -132,7 +154,7 @@ import {
   try { autoDownloadImages = localStorage.getItem("relay_auto_download_images") !== "false"; } catch {}
 
   function handleFetchLimitChange() {
-    const clamped = Math.max(10, Math.min(500, fetchLimit));
+    const clamped = Math.max(10, Math.min(100000, fetchLimit));
     fetchLimit = clamped;
     try { localStorage.setItem("relay_fetch_limit", String(clamped)); } catch {}
   }
@@ -588,7 +610,7 @@ async function handleSaveCardDav() {
         <span>Cache</span>
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { activeTab = 'archive'; loadDeleteQueue(); }}>
+      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { activeTab = 'archive'; loadDeleteQueue(); loadBackups(); }}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
@@ -689,7 +711,7 @@ async function handleSaveCardDav() {
                 </div>
               </div>
               <div class="flex-3 py-2">
-                <p class="hint-text mt-4">Niedrigere Werte beschleunigen den Abrufvorgang; höhere Werte laden mehr historische E-Mails (Erlaubt: 10 bis 500).</p>
+                <p class="hint-text mt-4">Niedrigere Werte beschleunigen den Abrufvorgang; höhere Werte laden mehr historische E-Mails (Erlaubt: ab 10, unbegrenzt nach oben).</p>
               </div>
             </div>
 
@@ -1251,8 +1273,8 @@ async function handleSaveCardDav() {
         <!-- Card: Backup -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Backup-Snapshot</h3>
-            <p class="card-desc">Erstellt eine konsistente Kopie der Mail-DB (SQLite VACUUM INTO) unter /data/Relay/backups/. Zusammen mit dem EML-Archiv und den Anhängen ist damit alles gesichert.</p>
+            <h3>Backup & Wiederherstellung</h3>
+            <p class="card-desc">Alle Nutzerdaten liegen unter /data/Relay (Mail-DB, EML-Archiv, Anhänge, Einstellungen). Ein Backup-Snapshot erstellt eine konsistente Kopie der DB; das EML-Archiv und die Anhänge liegen als Dateien im selben Stamm und werden vom Olares-Backup mit erfasst.</p>
           </div>
           <div class="export-row">
             <button type="button" class="btn-action" onclick={handleBackup} disabled={backupBusy}>
@@ -1262,6 +1284,24 @@ async function handleSaveCardDav() {
               <p class="hint-text mt-2">Backup erstellt: {backupResult.path} ({formatBytes(backupResult.size)})</p>
             {/if}
           </div>
+
+          <div class="card-header" style="margin-top:16px">
+            <h4>Vorhandene Backups</h4>
+          </div>
+          <div class="backup-list">
+            {#each backups as b (b.name)}
+              <div class="backup-row">
+                <span class="backup-name">{b.name}</span>
+                <span class="backup-size">{formatBytes(b.size)}</span>
+                <button type="button" class="btn-action-danger-ghost" onclick={() => restoreBackup(b.name)}>Wiederherstellen</button>
+              </div>
+            {:else}
+              <p class="hint-text">Noch keine Backups erstellt.</p>
+            {/each}
+          </div>
+          {#if restoreResult}
+            <p class="hint-text mt-2">{restoreResult}</p>
+          {/if}
         </section>
       {/if}
 
@@ -2113,6 +2153,32 @@ async function handleSaveCardDav() {
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+
+  .backup-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .backup-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border, rgba(127,127,127,0.25));
+    border-radius: 8px;
+    font-size: 0.8rem;
+  }
+
+  .backup-name {
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .backup-size {
+    color: var(--color-text-secondary);
   }
 
   .export-row {

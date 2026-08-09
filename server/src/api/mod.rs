@@ -4,13 +4,14 @@
 //! typed axum handler; `State<'_, AppState>` becomes axum `State<AppState>`.
 
 pub mod accounts;
-pub mod backup;
 pub mod ai;
+pub mod backup;
 pub mod delete_queue;
 pub mod export;
 pub mod health;
-pub mod migrate;
 pub mod messages;
+pub mod migrate;
+pub mod profile;
 pub mod push;
 pub mod send;
 pub mod settings;
@@ -87,6 +88,8 @@ pub fn router() -> Router<AppState> {
         .route("/export", get(export::export_archive))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))
+        .route("/archive/backups", get(backup::list_backups))
+        .route("/archive/restore", post(backup::restore_backup))
         // Migration (copy account → local folders of another account)
         .route("/migrate/copy-account", post(migrate::copy_account))
         .route("/migrate/copy-folder", post(migrate::copy_folder_endpoint))
@@ -94,6 +97,14 @@ pub fn router() -> Router<AppState> {
         .route("/migrate/db-count", post(migrate::db_count))
         .route("/migrate/stop-sync", post(migrate::stop_sync))
         .route("/migrate/reset-target", post(migrate::reset_target))
+        .route("/migrate/start", post(migrate::start_migration))
+        .route("/migrate/status", get(migrate::migration_status))
+        // Profile photo + Voice
+        .route("/profile/photo", get(profile::get_own_photo).post(profile::save_own_photo))
+        .route("/voice/config", get(profile::get_voice_config).post(profile::save_voice_config))
+        // CardDAV
+        .route("/carddav/settings", get(settings::get_carddav_settings).post(settings::set_carddav_settings))
+        .route("/carddav/sync", post(settings::sync_carddav))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

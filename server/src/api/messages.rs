@@ -660,7 +660,37 @@ pub async fn fetch_attachment_content(
         return Ok(Json(serde_json::json!({ "content": content, "cached": true })));
     }
 
-    // 3. Fetch raw from IMAP, extract attachments, find ours.
+    // 3a. Local EML archive: if the message has a raw EML on disk, extract
+    //     the attachment from there — works for archived/migrated messages
+    //     with no IMAP session (and is faster).
+    let local_eml: Option<String> = {
+        let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
+        let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
+        let raw_rel: Option<String> = conn
+            .query_row(
+                "SELECT raw_path FROM messages WHERE account_id = ?1 AND uid = ?2",
+                rusqlite::params![q.account_id as i64, uid as i64],
+                |r| r.get(0),
+            )
+            .ok();
+        raw_rel.and_then(|rel| {
+            let abs = state.data_root.join(&rel);
+            std::fs::read(&abs).ok().map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+        })
+    };
+    if let Some(raw) = local_eml {
+        let attachments = client::parse_message_attachments(raw.as_bytes());
+        if let Some(att) = attachments.iter().find(|a| a.filename == filename) {
+            {
+                let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
+                let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
+                let _ = crate::cache::attachments::cache_content_dedup(conn, att_id as i64, &att.content, &state.data_root);
+            }
+            return Ok(Json(serde_json::json!({ "content": att.content, "cached": false })));
+        }
+    }
+
+    // 3b. Fallback: fetch raw from IMAP, extract attachments, find ours.
     let client = state
         .imap_clients
         .read()

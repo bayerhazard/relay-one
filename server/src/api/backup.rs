@@ -45,3 +45,83 @@ pub async fn create_backup(State(state): State<AppState>) -> ApiResult<serde_jso
         Err(e) => Err(crate::api::ApiError(e)),
     }
 }
+
+/// `GET /api/v1/archive/backups` — list available backup snapshots.
+pub async fn list_backups(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let backups_dir = state.data_root.join("backups");
+    let mut snapshots = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&backups_dir) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("index-") && name.ends_with(".db") {
+                if let Ok(meta) = e.metadata() {
+                    snapshots.push(serde_json::json!({
+                        "name": name,
+                        "size": meta.len(),
+                        "modified": meta.modified().ok().map(|t| {
+                            let d: chrono::DateTime<chrono::Utc> = t.into();
+                            d.to_rfc3339()
+                        }),
+                    }));
+                }
+            }
+        }
+    }
+    snapshots.sort_by(|a, b| b["name"].as_str().cmp(&a["name"].as_str()));
+    Ok(Json(serde_json::json!({ "backups": snapshots })))
+}
+
+/// `POST /api/v1/archive/restore` — restore the index.db from a backup
+/// snapshot in backups/. The current DB is kept as a safety copy first.
+#[derive(serde::Deserialize)]
+pub struct RestoreRequest {
+    pub backup_name: String,
+}
+
+pub async fn restore_backup(
+    State(state): State<AppState>,
+    Json(req): Json<RestoreRequest>,
+) -> ApiResult<serde_json::Value> {
+    let backups_dir = state.data_root.join("backups");
+    let src = backups_dir.join(&req.backup_name);
+    if !src.exists() {
+        return Err(crate::api::ApiError(format!("Backup '{}' nicht gefunden", req.backup_name)));
+    }
+
+    let db_path = state
+        .db_path
+        .lock()
+        .as_ref()
+        .ok_or_else(|| crate::api::ApiError("DB-Pfad unbekannt".into()))?
+        .clone();
+
+    // 1. Safety copy of the current DB.
+    let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let safety = backups_dir.join(format!("pre-restore-{ts}.db"));
+    std::fs::copy(&db_path, &safety).map_err(|e| crate::api::ApiError(format!("Sicherung: {e}")))?;
+
+    // 2. Replace the live DB file. The server keeps the old connection open;
+    //    a restart picks up the restored file. We signal a graceful shutdown
+    //    so the pod restarts automatically with the restored data.
+    let restored_bytes = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
+    std::fs::copy(&src, &db_path).map_err(|e| crate::api::ApiError(format!("Restore: {e}")))?;
+
+    tracing::warn!(
+        "Restore: DB aus '{}' wiederhergestellt ({} bytes). Sicherung: {} — Server wird neu gestartet.",
+        req.backup_name, restored_bytes, safety.file_name().unwrap_or_default().to_string_lossy()
+    );
+
+    // Signal shutdown → the deployment restarts the pod, which loads the
+    // restored DB (WAL/schema are re-initialized on boot).
+    if let Some(tx) = state.sync_shutdown_tx.lock().as_ref() {
+        let _ = tx.send(());
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "restored": req.backup_name,
+        "bytes": restored_bytes,
+        "safety_copy": safety.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        "note": "Server wird neu gestartet, um die wiederhergestellte DB zu laden",
+    })))
+}
