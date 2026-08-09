@@ -1043,6 +1043,24 @@
   .btn-save:hover {
     background: var(--color-accent-hover);
   }
+
+  /* Mobile: compose fills the screen (iPhone). */
+  @media (max-width: 600px) {
+    .compose-window {
+      margin: 0;
+      border-radius: 0;
+      border: none;
+      box-shadow: none;
+      height: 100%;
+      min-height: 0;
+    }
+    .compose-header {
+      padding-top: max(16px, env(safe-area-inset-top, 0px));
+    }
+    .compose-body {
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    }
+  }
 </style>
 
 

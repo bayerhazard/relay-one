@@ -3095,6 +3095,54 @@ let sentFolderName = $state<string | null>(null);
     transform: translateX(0);
   }
 
+  /* ─── iPhone 15 Pro mobile optimizations ─────────────────── */
+  /* Safe-area insets (Dynamic Island + home indicator). */
+  .app-container.narrow .sidebar-pane {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .app-container.narrow .preview-back-bar {
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    min-height: 44px;
+  }
+  .app-container.narrow .sidebar-footer {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+  .app-container.narrow .menu-toggle,
+  .app-container.narrow .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1.25rem;
+  }
+  /* Compact preview header on phones. */
+  .app-container.narrow .preview-pane-header {
+    height: auto;
+    min-height: 64px;
+    padding: 8px 14px;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+  }
+  .app-container.narrow .preview-from-name {
+    font-size: 1rem;
+  }
+  .app-container.narrow .preview-subject-large {
+    font-size: 1.2rem;
+  }
+  .app-container.narrow .mail-iframe-container {
+    height: calc(100vh - 220px);
+    min-height: 320px;
+  }
+  .app-container.narrow .action-btn-pill {
+    padding: 9px 12px;
+    min-height: 40px;
+    font-size: 0.85rem;
+  }
+  /* Compose window fills the phone screen. */
+  .app-container.narrow .compose-window {
+    margin: 0;
+    border-radius: 0;
+    height: 100%;
+  }
+
   /* ─── Plain HTML context menus (replaces Tauri native menus) ─── */
   .ctx-menu-scrim {
     position: fixed;

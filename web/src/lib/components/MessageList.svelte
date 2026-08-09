@@ -38,6 +38,103 @@
     };
   });
 
+  // iOS-Mail-style swipe gestures (touch devices).
+  //  - swipe left  → mark read/unread (half) | full swipe = read toggle
+  //  - swipe right → flag (half) | full swipe = delete
+  // A sticky action button sits behind each row (iOS look).
+  let swipeState = $state<Record<number, { dx: number; startX: number; startY: number; dir: "x" | "y" | null; active: boolean }>>({});
+  let isTouch = $state(false);
+
+  $effect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      isTouch = window.matchMedia("(pointer: coarse)").matches;
+    } catch {
+      isTouch = false;
+    }
+  });
+
+  const SWIPE_DELETE = -220;
+  const SWIPE_READ = -110;
+  const SWIPE_FLAG = 110;
+  const SWIPE_DELETE_RIGHT = 220;
+
+  function touchStart(e: TouchEvent, uid: number) {
+    if (!isTouch) return;
+    const t = e.changedTouches[0];
+    swipeState[uid] = { dx: 0, startX: t.clientX, startY: t.clientY, dir: null, active: true };
+  }
+
+  function touchMove(e: TouchEvent, uid: number) {
+    const s = swipeState[uid];
+    if (!s?.active) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.startX;
+    const dy = t.clientY - s.startY;
+    if (s.dir === null) {
+      // Lock axis after ~8px of movement.
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        s.dir = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      } else {
+        return;
+      }
+    }
+    if (s.dir !== "x") return; // vertical scroll — let the page handle it
+    e.preventDefault();
+    // Clamp between full-right and full-left.
+    s.dx = Math.max(-260, Math.min(260, dx));
+  }
+
+  // Ignore click if this row was just swiped (touch gesture ended on it).
+  let lastTouchUid: number | null = null;
+  function touchEnd(_e: TouchEvent, msg: Message, uid: number) {
+    const s = swipeState[uid];
+    if (!s) return;
+    delete swipeState[uid];
+    if (s.dir !== "x") return;
+    lastTouchUid = uid;
+    setTimeout(() => { if (lastTouchUid === uid) lastTouchUid = null; }, 400);
+    const dx = s.dx;
+    if (dx <= SWIPE_DELETE || dx >= SWIPE_DELETE_RIGHT) {
+      // Full swipe → delete.
+      ondelete?.(uid);
+    } else if (dx <= SWIPE_READ) {
+      // Half left swipe → toggle read.
+      ontoggleRead?.(uid);
+    } else if (dx >= SWIPE_FLAG) {
+      // Half right swipe → toggle flag.
+      ontoggleFlag?.(uid);
+    }
+    // Small swipes snap back (state is cleared).
+  }
+
+  function touchCancel(uid: number) {
+    delete swipeState[uid];
+  }
+
+  function swipeStyle(uid: number) {
+    const s = swipeState[uid];
+    if (!s) return "";
+    return `transform: translateX(${s.dx}px); transition: none;`;
+  }
+
+  function hasSwipe(uid: number) {
+    return !!swipeState[uid];
+  }
+
+
+  // Use ResizeObserver to get actual container height on mount/resize
+  $effect(() => {
+    if (!scrollElement) return;
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        containerHeight = entry.contentRect.height;
+      }
+    });
+    observer.observe(scrollElement);
+    return () => observer.disconnect();
+  });
+
   let scrollElement: HTMLDivElement;
   let itemHeight = 88;
   let overscan = 5;
@@ -67,12 +164,17 @@
   }
 
   let startIndex = $derived(Math.max(0, Math.floor(scrollTop / itemHeight) - overscan));
-    let visibleCount = $derived(Math.min(messages.length - startIndex, Math.ceil(containerHeight / itemHeight) + 2 * overscan));
-    let visibleItems = $derived(messages.slice(startIndex, startIndex + visibleCount));
-    let offsetY = $derived(startIndex * itemHeight);
-    let selectedSet = $derived(new Set(selectedUids));
+  let visibleCount = $derived(Math.min(messages.length - startIndex, Math.ceil(containerHeight / itemHeight) + 2 * overscan));
+  let visibleItems = $derived(messages.slice(startIndex, startIndex + visibleCount));
+  let offsetY = $derived(startIndex * itemHeight);
+  let selectedSet = $derived(new Set(selectedUids));
 
   function handleClick(e: MouseEvent, uid: number, index: number) {
+    if (lastTouchUid === uid) {
+      // Row was swiped — suppress the synthetic click.
+      lastTouchUid = null;
+      return;
+    }
     if (!pendingReadUids.has(uid)) {
       pendingReadUids = new Set([...pendingReadUids, uid]);
       const timer = setTimeout(() => {
@@ -140,40 +242,71 @@
   <div style="height: {totalHeight}px; position: relative;">
     <div style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({offsetY}px);">
       {#each visibleItems as msg, i (msg.uid)}
-        <div
-          class="message-item"
-          class:selected={selectedSet.has(msg.uid)}
-          class:unread={!msg.is_read && !pendingReadUids.has(msg.uid)}
-          style="height: {itemHeight}px;"
-          draggable="true"
-          onclick={(e) => handleClick(e, msg.uid, startIndex + i)}
-          oncontextmenu={(e) => handleContextMenu(e, msg.uid)}
-          ondragstart={(e) => ondragstart?.(e, msg.uid)}
-          role="option"
-          aria-selected={selectedSet.has(msg.uid)}
-        >
-          <div class="msg-header">
-            <span class="sender">{extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}{msg.is_flagged && " 🚩"}</span>
-            <span class="msg-header-right">
-              {#if msg.has_attachments}
-                <span class="attach-indicator" title="Enthält einen Anhang" aria-label="Anhang">&#x1F4CE;</span>
+        <div class="swipe-container" class:swiping={hasSwipe(msg.uid)}>
+          <!-- Behind-actions (iOS look) -->
+          <div class="swipe-bg">
+            <div class="swipe-bg-left">
+              <button type="button" class="swipe-action flag" onclick={() => ontoggleFlag?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                🚩
+              </button>
+              <button type="button" class="swipe-action read" onclick={() => ontoggleRead?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                {msg.is_read ? "○" : "●"}
+              </button>
+              <button type="button" class="swipe-action delete" onclick={() => ondelete?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                🗑
+              </button>
+            </div>
+            <div class="swipe-bg-right">
+              <button type="button" class="swipe-action flag" onclick={() => ontoggleFlag?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                🚩
+              </button>
+              <button type="button" class="swipe-action read" onclick={() => ontoggleRead?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                {msg.is_read ? "○" : "●"}
+              </button>
+              <button type="button" class="swipe-action delete" onclick={() => ondelete?.(msg.uid)} tabindex="-1" aria-hidden="true">
+                🗑
+              </button>
+            </div>
+          </div>
+          <div
+            class="message-item"
+            class:selected={selectedSet.has(msg.uid)}
+            class:unread={!msg.is_read && !pendingReadUids.has(msg.uid)}
+            style="height: {itemHeight}px; {swipeStyle(msg.uid)}"
+            draggable="true"
+            onclick={(e) => handleClick(e, msg.uid, startIndex + i)}
+            oncontextmenu={(e) => handleContextMenu(e, msg.uid)}
+            ondragstart={(e) => ondragstart?.(e, msg.uid)}
+            ontouchstart={(e) => touchStart(e, msg.uid)}
+            ontouchmove={(e) => touchMove(e, msg.uid)}
+            ontouchend={(e) => touchEnd(e, msg, msg.uid)}
+            ontouchcancel={() => touchCancel(msg.uid)}
+            role="option"
+            aria-selected={selectedSet.has(msg.uid)}
+          >
+            <div class="msg-header">
+              <span class="sender">{extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}{msg.is_flagged && " 🚩"}</span>
+              <span class="msg-header-right">
+                {#if msg.has_attachments}
+                  <span class="attach-indicator" title="Enthält einen Anhang" aria-label="Anhang">&#x1F4CE;</span>
+                {/if}
+                <span class="date">{formatDate(msg.date)}</span>
+              </span>
+            </div>
+            <div class="msg-subject">
+              {#if isDraftFolder}
+                <span class="draft-badge">Entwurf</span>
               {/if}
-              <span class="date">{formatDate(msg.date)}</span>
-            </span>
-          </div>
-          <div class="msg-subject">
-            {#if isDraftFolder}
-              <span class="draft-badge">Entwurf</span>
+              <PriorityBadge intensity={msg.ai_priority ?? 0} fraudScore={msg.ai_fraud_score ?? 0} />
+              {msg.subject || "(Kein Betreff)"}
+            </div>
+            {#if msg.ai_summary}
+              <SummaryLine summary={msg.ai_summary} />
             {/if}
-            <PriorityBadge intensity={msg.ai_priority ?? 0} fraudScore={msg.ai_fraud_score ?? 0} />
-            {msg.subject || "(Kein Betreff)"}
+            {#if (msg.ai_fraud_score ?? 0) > 0.6}
+              <FraudWarning score={msg.ai_fraud_score ?? 0} warnings={[]} />
+            {/if}
           </div>
-          {#if msg.ai_summary}
-            <SummaryLine summary={msg.ai_summary} />
-          {/if}
-          {#if (msg.ai_fraud_score ?? 0) > 0.6}
-            <FraudWarning score={msg.ai_fraud_score ?? 0} warnings={[]} />
-          {/if}
         </div>
       {/each}
     </div>
@@ -397,5 +530,61 @@
   @keyframes shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+  }
+
+  /* ─── iOS-Mail-style swipe gestures ─────────────────────── */
+  .swipe-container {
+    position: relative;
+    overflow: hidden;
+    height: 88px;
+  }
+  .swipe-container.swiping .message-item {
+    touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .message-item {
+    position: relative;
+    z-index: 2;
+    background: var(--color-list);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+    touch-action: pan-y;
+  }
+  .swipe-container.swiping .message-item {
+    transition: none;
+  }
+  .swipe-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .swipe-bg-left,
+  .swipe-bg-right {
+    display: flex;
+    align-items: stretch;
+  }
+  .swipe-action {
+    border: none;
+    color: #fff;
+    font-size: 1.25rem;
+    width: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .swipe-action.flag { background: #f5a623; }
+  .swipe-action.read { background: #4a90d9; }
+  .swipe-action.delete { background: #d9534f; }
+
+  @media (pointer: coarse) {
+    .message-item {
+      touch-action: pan-y;
+    }
   }
 </style>
