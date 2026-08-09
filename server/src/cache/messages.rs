@@ -643,6 +643,13 @@ pub fn create_local_folder(
         "INSERT OR IGNORE INTO folders (account_id, name, imap_id, local_only) VALUES (?1, ?2, NULL, 1)",
         params![account_id, name],
     )?;
+    // If a folder with this name already exists (e.g. as an IMAP mirror from
+    // the sync), convert it to a LOCAL folder so the sync never touches it
+    // and the migration target stays stable.
+    conn.execute(
+        "UPDATE folders SET local_only = 1, imap_id = NULL WHERE account_id = ?1 AND name = ?2",
+        params![account_id, name],
+    )?;
     Ok(())
 }
 
@@ -698,15 +705,17 @@ pub fn delete_local_folder(
     account_id: i64,
     name: &str,
 ) -> Result<usize, String> {
+    // Matches ANY folder with this name (local-only OR IMAP mirror) — used by
+    // the migration cleanup to purge polluted target folders.
     let folder_id: Option<i64> = conn
         .query_row(
-            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2 AND local_only = 1",
+            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
             params![account_id, name],
             |row| row.get(0),
         )
         .ok();
     let Some(folder_id) = folder_id else {
-        return Err(format!("Lokaler Ordner '{}' nicht gefunden", name));
+        return Err(format!("Ordner '{}' nicht gefunden", name));
     };
 
     // Remove EML archive files first.
