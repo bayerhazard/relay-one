@@ -98,11 +98,7 @@
     }}
   >
     <span class="tree-label">{account.name}</span>
-    {#if folderTree.children.length > 0}
-      <span class="chevron" aria-hidden="true">
-        {@html chevronSVG(!collapsedFolders.has("INBOX"))}
-      </span>
-    {/if}
+    <!-- No chevron on the account root: toggling happens via double-click. -->
   </div>
 
   <!-- Children tree -->

@@ -16,7 +16,7 @@
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, sendMessage,
-    listAccounts, fetchFromImap, listImapFolders, createLocalFolder,
+    listAccounts, fetchFromImap, listImapFolders, createLocalFolder, deleteFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
@@ -150,6 +150,8 @@ import {
   let theme = $state("blue");
   try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
   let showDeleteConfirm = $state(false);
+  let showDeleteFolderConfirm = $state(false);
+  let pendingDeleteFolder = $state<string | null>(null);
   let pendingDeleteUid = $state<number | null>(null);
   let isDeleting = $state(false);
   let moveToTrash = $state(true);
@@ -306,23 +308,31 @@ let sentFolderName = $state<string | null>(null);
   // ─── New local folder dialog ─────────────────────────────────
   let showNewFolderDialog = $state(false);
   let newFolderName = $state("");
+  let newFolderParent = $state<string | null>(null);
 
   function openNewFolderDialog() {
     newFolderName = "";
+    newFolderParent = null;
     showNewFolderDialog = true;
   }
 
   function cancelNewFolder() {
     showNewFolderDialog = false;
-    newFolderName = "";
+    newFolderParent = null;
   }
 
   async function confirmNewFolder(name: string) {
     showNewFolderDialog = false;
+    const parent = newFolderParent;
+    newFolderParent = null;
     const trimmed = name.trim();
     if (!trimmed || !selectedAccountId) return;
     try {
-      await createLocalFolder(selectedAccountId, trimmed);
+      // Sub-folders are created below the clicked folder using the IMAP
+      // delimiter (local-only folders are still stored in our DB).
+      const delim = parent && parent !== "INBOX" ? (folderDelimiters[parent] || ".") : ".";
+      const fullName = parent && parent !== "INBOX" ? `${parent}${delim}${trimmed}` : trimmed;
+      await createLocalFolder(selectedAccountId, fullName);
       await reloadFolders();
     } catch (e) {
       console.error("createLocalFolder failed", e);
@@ -471,6 +481,41 @@ let sentFolderName = $state<string | null>(null);
     e.preventDefault();
     const pos = clampMenuPosition(e.clientX, e.clientY, 220, 150);
     folderCtxMenu = { x: pos.x, y: pos.y, folderName: originalName };
+  }
+
+  // "Neuer Ordner" creates a LOCAL folder below the clicked folder
+  // (for INBOX / top-level → a new top-level local folder).
+  async function folderCtxNewSubFolder(parentName: string) {
+    closeMenus();
+    if (!selectedAccountId) return;
+    newFolderParent = parentName;
+    newFolderName = "";
+    showNewFolderDialog = true;
+  }
+
+  async function folderCtxDeleteFolder(folderName: string) {
+    closeMenus();
+    if (!selectedAccountId) return;
+    pendingDeleteFolder = folderName;
+    showDeleteFolderConfirm = true;
+  }
+
+  async function confirmDeleteFolder() {
+    const name = pendingDeleteFolder;
+    showDeleteFolderConfirm = false;
+    pendingDeleteFolder = null;
+    if (!name || !selectedAccountId) return;
+    try {
+      await deleteFolder(selectedAccountId, name);
+      await reloadFolders();
+      if (selectedFolder === name) {
+        selectedFolder = "INBOX";
+        mailbox.setFolderId("INBOX");
+      }
+    } catch (e) {
+      console.error("deleteFolder failed", e);
+      mailbox.setError("Ordner konnte nicht gelöscht werden: " + (e instanceof Error ? e.message : String(e)));
+    }
   }
 
   function folderCtxResetName(originalName: string) {
@@ -1914,7 +1959,6 @@ let sentFolderName = $state<string | null>(null);
                 <button type="button" class="search-clear" onclick={clearSearch} title="Suche löschen" aria-label="Suche löschen">&#x2715;</button>
               {/if}
             </div>
-            <button type="button" class="new-folder-btn" onclick={openNewFolderDialog} title="Lokalen Ordner anlegen" aria-label="Lokalen Ordner anlegen">+ Ordner</button>
           </div>
           
           <span class="version">Relay 2.1</span>
@@ -2018,6 +2062,19 @@ let sentFolderName = $state<string | null>(null);
     {/if}
   {/if}
 
+  {#if showDeleteFolderConfirm}
+    <ConfirmationDialog
+      open={showDeleteFolderConfirm}
+      title="Ordner löschen"
+      message={`Ordner "${pendingDeleteFolder ?? ''}" wirklich löschen? Alle enthaltenen Mails werden entfernt.`}
+      confirmLabel="Löschen"
+      cancelLabel="Abbrechen"
+      danger={true}
+      onconfirm={confirmDeleteFolder}
+      oncancel={() => { showDeleteFolderConfirm = false; pendingDeleteFolder = null; }}
+    />
+  {/if}
+
   <PromptDialog
     open={showRenameDialog}
     title="Ordner umbenennen"
@@ -2043,9 +2100,14 @@ let sentFolderName = $state<string | null>(null);
   {#if folderCtxMenu}
     <div class="ctx-menu-scrim" role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" style="left: {folderCtxMenu.x}px; top: {folderCtxMenu.y}px;" role="menu">
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu.folderName); }}>Neuer Ordner...</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu.folderName); closeMenus(); }}>Umbenennen...</button>
       {#if customFolderNames[folderCtxMenu.folderName]}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu.folderName)}>Name zurücksetzen</button>
+      {/if}
+      {#if folderCtxMenu.folderName !== "INBOX"}
+        <div class="ctx-menu-separator" role="separator"></div>
+        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu.folderName)}>Löschen</button>
       {/if}
       {#if folderCtxMenu.folderName !== "INBOX"}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu.folderName)}>Ausblenden</button>
@@ -2407,22 +2469,6 @@ let sentFolderName = $state<string | null>(null);
     flex-shrink: 0;
   }
   .search-clear:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
-  }
-  .new-folder-btn {
-    flex-shrink: 0;
-    border: 1px solid var(--color-border, rgba(127,127,127,0.35));
-    background: transparent;
-    color: var(--color-text-secondary);
-    border-radius: 8px;
-    padding: 6px 10px;
-    font-size: 0.78rem;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  .new-folder-btn:hover {
     background: var(--color-active-wash);
     color: var(--color-text);
   }
@@ -3089,6 +3135,13 @@ let sentFolderName = $state<string | null>(null);
   .ctx-menu-item:hover {
     background: var(--color-active-wash);
     color: var(--color-accent);
+  }
+  .ctx-menu-item.danger {
+    color: var(--color-danger);
+  }
+  .ctx-menu-item.danger:hover {
+    background: rgba(220, 38, 38, 0.10);
+    color: var(--color-danger);
   }
   .ctx-menu-separator {
     height: 1px;

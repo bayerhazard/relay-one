@@ -219,6 +219,11 @@ export async function createLocalFolder(accountId: number, name: string): Promis
     "Der lokale Ordner konnte nicht angelegt werden.");
 }
 
+export async function deleteFolder(accountId: number, name: string): Promise<{ ok: boolean }> {
+  return post("/folders/delete", { account_id: accountId, name },
+    "Der Ordner konnte nicht gelöscht werden.");
+}
+
 // ─── Messages ──────────────────────────────────────────────
 
 export async function fetchMessages(

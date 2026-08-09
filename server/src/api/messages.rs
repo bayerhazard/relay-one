@@ -514,6 +514,60 @@ pub async fn rename_folder(
         .map_err(|e| ApiError(e.to_string()))
 }
 
+/// `POST /api/v1/folders/delete` — delete a folder.
+/// Local-only folders are removed from the cache (incl. EML files);
+/// IMAP folders are deleted on the provider.
+#[derive(Deserialize)]
+pub struct DeleteFolderRequest {
+    pub account_id: u32,
+    pub name: String,
+}
+
+pub async fn delete_folder(
+    State(state): State<AppState>,
+    Json(req): Json<DeleteFolderRequest>,
+) -> ApiResult<serde_json::Value> {
+    let is_local = with_db(&state, |conn| {
+        cache::messages::is_local_only_folder(conn, req.account_id as i64, &req.name)
+            .map_err(|e| e.to_string())
+    })
+    .unwrap_or(false);
+
+    if is_local {
+        let deleted = with_db(&state, |conn| {
+            cache::messages::delete_local_folder(conn, &state.data_root, req.account_id as i64, &req.name)
+        })?;
+        tracing::info!("Lokaler Ordner '{}' gelöscht ({} Mails)", req.name, deleted);
+        return Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted })));
+    }
+
+    let client = {
+        let guard = state.imap_clients.read();
+        guard
+            .get(&req.account_id)
+            .cloned()
+            .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?
+    };
+    client
+        .delete_folder(&req.name)
+        .await
+        .map_err(|e| ApiError(format!("Ordner '{}' konnte nicht gelöscht werden: {}", req.name, e)))?;
+    // Also drop the local mirror rows for this folder.
+    with_db(&state, |conn| {
+        conn.execute(
+            "DELETE FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
+            rusqlite::params![req.account_id as i64, req.name],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM folders WHERE account_id = ?1 AND name = ?2",
+            rusqlite::params![req.account_id as i64, req.name],
+        )
+        .map_err(|e| e.to_string())
+    })?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 /// `GET /api/v1/messages/{uid}/raw?account_id=…`
 pub async fn fetch_raw_message(
     State(state): State<AppState>,

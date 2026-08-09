@@ -412,9 +412,10 @@ async function handleSaveCardDav() {
         acctSuccess = `Konto "${acctName}" aktualisiert (IMAP-Zertifikat: ${imapInsecure ? 'unsicher erlaubt' : 'verifiziert'})!`;
       } else {
         await connectAccount(
-          acctName, imapHost, imapPort, imapSsl, imapInsecure,
+          acctName, imapHost, imapPort, imapSsl,
           smtpHost, smtpPort, smtpTls,
           acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
+          imapInsecure,
         );
         acctSuccess = `Konto "${acctName}" verbunden!`;
       }

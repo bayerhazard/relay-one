@@ -690,6 +690,54 @@ pub fn rename_local_folder(
     Ok(())
 }
 
+/// Delete a LOCAL-only folder and all its messages (index rows + EML files).
+/// Returns the number of removed message rows.
+pub fn delete_local_folder(
+    conn: &Connection,
+    data_root: &std::path::Path,
+    account_id: i64,
+    name: &str,
+) -> Result<usize, String> {
+    let folder_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2 AND local_only = 1",
+            params![account_id, name],
+            |row| row.get(0),
+        )
+        .ok();
+    let Some(folder_id) = folder_id else {
+        return Err(format!("Lokaler Ordner '{}' nicht gefunden", name));
+    };
+
+    // Remove EML archive files first.
+    let raws: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT raw_path FROM messages WHERE folder_id = ?1 AND raw_path IS NOT NULL")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![folder_id], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            if let Ok(p) = r {
+                out.push(p);
+            }
+        }
+        out
+    };
+    for rel in &raws {
+        let abs = data_root.join(rel);
+        let _ = std::fs::remove_file(&abs);
+    }
+
+    let deleted = conn
+        .execute("DELETE FROM messages WHERE folder_id = ?1", params![folder_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])
+        .map_err(|e| e.to_string())?;
+    Ok(deleted)
+}
+
 /// Build a safe FTS5 MATCH expression from free user input.
 /// Each whitespace-separated term becomes a quoted prefix query, ANDed
 /// together. Quoting neutralises FTS5 operators so arbitrary input cannot

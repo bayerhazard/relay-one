@@ -727,12 +727,24 @@ impl ImapClient {
     }
 
     pub async fn rename_folder(&self, old_name: &str, new_name: &str) -> Result<(), AppError> {
-        let old_name = old_name.to_string();
-        let new_name = new_name.to_string();
+        let old_name = old_name.to_string();        let new_name = new_name.to_string();
         self.with_session_blocking("rename_folder", move |session| {
             session
                 .rename(&old_name, &new_name)
                 .map_err(|e| AppError::imap(format!("RENAME fehlgeschlagen: {}", e), "rename_folder"))?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Delete a folder on the provider (IMAP DELETE). Note: the provider may
+    /// refuse if the mailbox contains messages or has inferior children.
+    pub async fn delete_folder(&self, name: &str) -> Result<(), AppError> {
+        let name = name.to_string();
+        self.with_session_blocking("delete_folder", move |session| {
+            session
+                .delete(&name)
+                .map_err(|e| AppError::imap(format!("DELETE folder fehlgeschlagen: {}", e), "delete_folder"))?;
             Ok(())
         })
         .await

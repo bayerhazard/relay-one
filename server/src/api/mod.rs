@@ -42,6 +42,7 @@ pub fn router() -> Router<AppState> {
         // Folders
         .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))
+        .route("/folders/delete", post(messages::delete_folder))
         // Messages
         .route("/messages", get(messages::fetch_messages))
         .route("/messages/search", get(messages::search_messages))
