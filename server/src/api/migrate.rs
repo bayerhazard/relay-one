@@ -577,3 +577,48 @@ pub async fn stop_sync(
     tracing::warn!("migrate: Sync für Konto {} getrennt ({})", req.account_id, removed);
     Ok(Json(serde_json::json!({ "ok": true, "sync_detached": removed })))
 }
+
+/// `POST /api/v1/migrate/reset-target` — wipe ALL messages + folders of the
+/// target account (EML files included). Used to clean the polluted target
+/// before a fresh migration.
+#[derive(Deserialize)]
+pub struct ResetTargetRequest {
+    pub account_id: u32,
+}
+
+pub async fn reset_target(
+    State(state): State<AppState>,
+    Json(req): Json<ResetTargetRequest>,
+) -> ApiResult<serde_json::Value> {
+    let target = req.account_id as i64;
+    // Collect all raw_paths of the target, delete EML files, then wipe rows
+    // and folders.
+    let raws: Vec<String> = with_db(&state, |conn| {
+        let mut stmt = conn
+            .prepare("SELECT raw_path FROM messages WHERE account_id = ?1 AND raw_path IS NOT NULL")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![target], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            if let Ok(p) = r {
+                out.push(p);
+            }
+        }
+        Ok::<_, String>(out)
+    })?;
+    for rel in &raws {
+        let _ = std::fs::remove_file(state.data_root.join(rel));
+    }
+    let messages = with_db(&state, |conn| {
+        conn.execute("DELETE FROM messages WHERE account_id = ?1", rusqlite::params![target])
+            .map_err(|e| e.to_string())
+    })?;
+    let folders = with_db(&state, |conn| {
+        conn.execute("DELETE FROM folders WHERE account_id = ?1", rusqlite::params![target])
+            .map_err(|e| e.to_string())
+    })?;
+    tracing::warn!("migrate: Ziel-Konto {} zurückgesetzt ({} Mails, {} Ordner)", req.account_id, messages, folders);
+    Ok(Json(serde_json::json!({ "ok": true, "messages_deleted": messages, "folders_deleted": folders })))
+}

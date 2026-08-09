@@ -93,6 +93,7 @@ pub fn router() -> Router<AppState> {
         .route("/migrate/count-folder", post(migrate::count_folder))
         .route("/migrate/db-count", post(migrate::db_count))
         .route("/migrate/stop-sync", post(migrate::stop_sync))
+        .route("/migrate/reset-target", post(migrate::reset_target))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).
