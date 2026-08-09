@@ -16,6 +16,9 @@ pub enum SyncTaskType {
     AnalyzeDiff,
     /// Background: refresh style fingerprints for recipients with new hints
     RefreshFingerprint,
+    /// Background: write missing EML archive files for already-cached messages
+    /// (backfill after switching an account to archive mode).
+    BackfillEmails,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

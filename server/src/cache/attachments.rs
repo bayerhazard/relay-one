@@ -31,12 +31,40 @@ pub fn get_attachments(conn: &Connection, message_id: i64) -> Result<Vec<CachedA
 }
 
 /// Cache the base64 content for a specific attachment.
+/// Additionally persists the raw bytes deduplicated to
+/// `<data>/attachments/<sha256>` and records `disk_path` (Concept §3.1).
 pub fn cache_content(conn: &Connection, attachment_id: i64, content: &str) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE message_attachments SET content = ?, content_cached = 1, cached_at = datetime('now') WHERE id = ?",
         rusqlite::params![content, attachment_id],
     )?;
     Ok(())
+}
+
+/// Persist attachment bytes deduplicated to disk, update `disk_path`.
+/// `content` is standard-base64; returns the relative disk path.
+pub fn cache_content_dedup(
+    conn: &Connection,
+    attachment_id: i64,
+    content_b64: &str,
+    data_root: &std::path::Path,
+) -> Result<String, String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(content_b64)
+        .map_err(|e| format!("Attachment base64 decode: {e}"))?;
+    let (abs, _sha, _is_new) = crate::cache::archive::save_attachment(data_root, &bytes)
+        .map_err(|e| e.to_string())?;
+    let rel = abs
+        .strip_prefix(data_root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| abs.to_string_lossy().to_string());
+    conn.execute(
+        "UPDATE message_attachments SET disk_path = ?1, content_cached = 1, cached_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![rel, attachment_id],
+    )
+    .map_err(|e| format!("Attachment disk_path update: {e}"))?;
+    Ok(rel)
 }
 
 /// Clear cached content for old/large attachments to free space.

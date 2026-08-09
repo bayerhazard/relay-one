@@ -12,6 +12,8 @@ export interface AccountInfo {
   connected: boolean;
   sender_name: string;
   sender_email: string;
+  sync_mode?: string;
+  trash_retention_days?: number;
 }
 
 export interface AccountGroup {

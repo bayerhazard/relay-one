@@ -3,13 +3,14 @@
   import { goto } from "$app/navigation";
 import {
     getSettings, saveSettings,
-    connectAccount, listAccounts, deleteAccount,
+    connectAccount, listAccounts, deleteAccount, updateAccountSettings,
     getMoveToTrash, setMoveToTrash,
     getCardDavSettings, setCardDavSettings, syncCardDav, getOwnPhoto, saveOwnPhoto,
     getVoiceSettings, saveVoiceSettings,
     resetCircuitBreaker,
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache,
     setupPush, teardownPush, pushEnabled,
+    getDeleteQueue, retryDeleteQueueRow, removeDeleteQueueRow, downloadExport, createBackup,
   } from "$lib/services/tauri";
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
@@ -72,6 +73,56 @@ import {
   let voiceError = $state<string | null>(null);
 
   // ─── Cache Management ─────────────────────────
+  let deleteQueue = $state<Array<{ id: number; account_id: number; uid: number; folder: string; action: string; state: string; attempts: number; last_error: string | null }>>([]);
+
+  let backupBusy = $state(false);
+  let backupResult = $state<{ path: string; size: number } | null>(null);
+
+  async function handleBackup() {
+    if (backupBusy) return;
+    backupBusy = true;
+    backupResult = null;
+    try {
+      const b = await createBackup();
+      backupResult = { path: b.path, size: b.size };
+    } catch (e) {
+      console.error("backup failed", e);
+    } finally {
+      backupBusy = false;
+    }
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  }
+
+  async function loadDeleteQueue() {
+    try {
+      deleteQueue = await getDeleteQueue();
+    } catch (e) {
+      console.warn("delete queue load failed", e);
+    }
+  }
+
+  async function retryDeleteQueue(id: number) {
+    try {
+      await retryDeleteQueueRow(id);
+      await loadDeleteQueue();
+    } catch (e) {
+      console.error("retry failed", e);
+    }
+  }
+
+  async function removeDeleteQueue(id: number) {
+    try {
+      await removeDeleteQueueRow(id);
+      await loadDeleteQueue();
+    } catch (e) {
+      console.error("remove failed", e);
+    }
+  }
   let cacheStats = $state<{ total_attachments: number; cached_count: number; cached_size_mb: number } | null>(null);
   let cacheMaxMb = $state(100);
   let cacheCleaning = $state(false);
@@ -417,6 +468,16 @@ async function handleSaveCardDav() {
     showDeleteAccountConfirm = true;
   }
 
+  async function handleSyncModeChange(accountId: number, mode: string) {
+    try {
+      await updateAccountSettings(accountId, mode);
+      await loadAccountList();
+    } catch (e) {
+      console.error("updateAccountSettings failed", e);
+      notificationsError = String(e);
+    }
+  }
+
   async function confirmDeleteAccount() {
     const id = pendingDeleteAccountId;
     showDeleteAccountConfirm = false;
@@ -513,6 +574,15 @@ async function handleSaveCardDav() {
           </svg>
         </div>
         <span>Cache</span>
+      </button>
+
+      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { activeTab = 'archive'; loadDeleteQueue(); }}>
+        <div class="menu-icon-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+          </svg>
+        </div>
+        <span>Archiv</span>
       </button>
     </nav>
   </aside>
@@ -694,6 +764,23 @@ async function handleSaveCardDav() {
                       <span class="bullet-separator">•</span>
                       <span>SMTP: {a.smtp_host}:{a.smtp_port}</span>
                     </p>
+                    <div class="account-sync-row">
+                      <label class="sync-mode-label" for={`sync-mode-${a.id}`}>Sync-Modus</label>
+                      <select
+                        id={`sync-mode-${a.id}`}
+                        class="sync-mode-select"
+                        value={a.sync_mode ?? 'mirror'}
+                        onchange={(e) => handleSyncModeChange(a.id, (e.currentTarget as HTMLSelectElement).value)}
+                      >
+                        <option value="mirror">mirror (Provider = Quelle)</option>
+                        <option value="archive">archive (lokal archivieren)</option>
+                      </select>
+                      <span class="sync-mode-hint">
+                        {a.sync_mode === 'archive'
+                          ? 'Mails werden als EML archiviert; Verschieben in lokale Ordner entfernt die Provider-Kopie.'
+                          : 'Mails bleiben Spiegel; nichts wird automatisch entfernt.'}
+                      </span>
+                    </div>
                   </div>
                   <div class="account-actions">
                     <button type="button" class="btn-action-ghost" onclick={() => connectAndEditAccount(a)}>
@@ -1024,8 +1111,6 @@ async function handleSaveCardDav() {
           <h1>Voice-to-Mail</h1>
           <p class="tab-desc">Sprachgesteuerte E-Mail-Erstellung mit lokalem Speech-to-Text.</p>
         </header>
-
-        <!-- Card: Voice Activation -->
         <section class="settings-card">
           <div class="card-header">
             <h3>Voice2Mail</h3>
@@ -1084,6 +1169,79 @@ async function handleSaveCardDav() {
                   {voiceSaved ? "✓ Gespeichert" : "Verbindung speichern"}
                 </button>
               </div>
+          </div>
+        </section>
+      {/if}
+
+      {#if activeTab === 'archive'}
+        <header class="tab-header">
+          <h1>Archiv & Lösch-Queue</h1>
+          <p class="tab-desc">Lokales Mail-Archiv (EML), Lösch-Überprüfung und Export.</p>
+        </header>
+
+        <!-- Card: Delete Queue Review -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>Lösch-Queue ({deleteQueue.length})</h3>
+            <p class="card-desc">Wartende Provider-Löschungen. Die lokale Kopie (EML) wird erst verifiziert, bevor die Provider-Kopie hart gelöscht wird (sonst weich in den Provider-Papierkorb).</p>
+          </div>
+          {#if deleteQueue.length === 0}
+            <p class="hint-text">Keine wartenden Löschungen.</p>
+          {:else}
+            <div class="delete-queue-list">
+              {#each deleteQueue as row}
+                <div class="delete-queue-row">
+                  <div class="delete-queue-info">
+                    <span class="delete-queue-uid">Konto {row.account_id} · UID {row.uid}</span>
+                    <span class="delete-queue-folder">{row.folder}</span>
+                    <span class="delete-queue-state" class:failed={row.state === 'failed'}>{row.state}</span>
+                    {#if row.last_error}
+                      <span class="delete-queue-error">{row.last_error}</span>
+                    {/if}
+                  </div>
+                  <div class="delete-queue-actions">
+                    <button type="button" class="btn-action-ghost" onclick={() => retryDeleteQueue(row.id)}>Erneut versuchen</button>
+                    <button type="button" class="btn-action-danger-ghost" onclick={() => removeDeleteQueue(row.id)}>Verwerfen</button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
+        <!-- Card: Export -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>Export (EML / MBox)</h3>
+            <p class="card-desc">Exportiere das lokale EML-Archiv (Provider-unabhängig). MBox für Apple Mail / Thunderbird, ZIP mit einzelnen EML-Dateien.</p>
+          </div>
+          <div class="export-row">
+            {#each accountList as a (a.id)}
+              <div class="export-account">
+                <span class="export-account-name">{a.name}</span>
+                <button type="button" class="btn-action-ghost" onclick={() => downloadExport(a.id, "mbox")}>MBox</button>
+                <button type="button" class="btn-action-ghost" onclick={() => downloadExport(a.id, "zip")}>EML-ZIP</button>
+              </div>
+            {/each}
+            {#if accountList.length === 0}
+              <p class="hint-text">Keine Konten — füge zuerst ein Konto hinzu.</p>
+            {/if}
+          </div>
+        </section>
+
+        <!-- Card: Backup -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>Backup-Snapshot</h3>
+            <p class="card-desc">Erstellt eine konsistente Kopie der Mail-DB (SQLite VACUUM INTO) unter /data/Relay/backups/. Zusammen mit dem EML-Archiv und den Anhängen ist damit alles gesichert.</p>
+          </div>
+          <div class="export-row">
+            <button type="button" class="btn-action" onclick={handleBackup} disabled={backupBusy}>
+              {backupBusy ? 'Erstelle Backup…' : 'Backup erstellen'}
+            </button>
+            {#if backupResult}
+              <p class="hint-text mt-2">Backup erstellt: {backupResult.path} ({formatBytes(backupResult.size)})</p>
+            {/if}
           </div>
         </section>
       {/if}
@@ -1936,6 +2094,114 @@ async function handleSaveCardDav() {
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+
+  .export-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .export-account {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px;
+  }
+
+  .export-account-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    min-width: 180px;
+  }
+
+  .delete-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .delete-queue-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border, rgba(127,127,127,0.25));
+    border-radius: 10px;
+    background: var(--color-surface, rgba(255,255,255,0.5));
+  }
+
+  .delete-queue-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+  }
+
+  .delete-queue-uid {
+    font-weight: 600;
+  }
+
+  .delete-queue-folder {
+    color: var(--color-text-secondary);
+  }
+
+  .delete-queue-state {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--color-active-wash, rgba(127,127,127,0.12));
+  }
+
+  .delete-queue-state.failed {
+    background: rgba(220, 38, 38, 0.12);
+    color: #b91c1c;
+  }
+
+  .delete-queue-error {
+    font-size: 0.72rem;
+    color: #b91c1c;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .delete-queue-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .account-sync-row {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sync-mode-label {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+
+  .sync-mode-select {
+    font-size: 0.78rem;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border, rgba(127,127,127,0.35));
+    background: var(--color-surface, #fff);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .sync-mode-hint {
+    font-size: 0.7rem;
+    color: var(--color-text-tertiary, var(--color-text-secondary));
   }
 
   .bullet-separator {

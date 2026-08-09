@@ -28,6 +28,8 @@ pub struct AccountInfo {
     pub connected: bool,
     pub sender_name: String,
     pub sender_email: String,
+    pub sync_mode: String,
+    pub trash_retention_days: i64,
 }
 
 #[derive(Deserialize)]
@@ -150,12 +152,13 @@ pub async fn connect_account(
         connected: true,
         sender_name: req.sender_name.clone(),
         sender_email: req.sender_email,
+        sync_mode: "mirror".to_string(),
+        trash_retention_days: 30,
     }))
 }
 
 /// `GET /api/v1/accounts`
-pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<AccountInfo>> {
-    let accounts = with_db(&state, |conn| {
+pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<AccountInfo>> {    let accounts = with_db(&state, |conn| {
         let accounts = cache::accounts::list_accounts(conn).map_err(|e| e.to_string())?;
         let imap_clients = state.imap_clients.read();
         Ok(accounts
@@ -172,12 +175,58 @@ pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<Accou
                 connected: imap_clients.contains_key(&(a.id as u32)),
                 sender_name: a.sender_name,
                 sender_email: a.sender_email,
+                sync_mode: a.sync_mode,
+                trash_retention_days: a.trash_retention_days,
             })
             .collect())
     })?;
     Ok(Json(accounts))
 }
 
+/// `PATCH /api/v1/accounts/{id}` — update sync mode / trash retention.
+#[derive(Deserialize)]
+pub struct UpdateAccountRequest {
+    #[serde(default)]
+    pub sync_mode: Option<String>,
+    #[serde(default)]
+    pub trash_retention_days: Option<i64>,
+}
+
+pub async fn update_account(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    Json(req): Json<UpdateAccountRequest>,
+) -> ApiResult<serde_json::Value> {
+    let current = with_db(&state, |conn| {
+        cache::accounts::get_account(conn, id).map_err(|e| e.to_string())
+    })?;
+    let Some(account) = current else {
+        return Err(ApiError(format!("Konto {} nicht gefunden", id)));
+    };
+    let was_archive = account.sync_mode == "archive";
+    let mode = req.sync_mode.unwrap_or(account.sync_mode);
+    let retention = req.trash_retention_days.unwrap_or(account.trash_retention_days);
+    with_db(&state, |conn| {
+        cache::accounts::update_account_settings(conn, id, &mode, retention).map_err(|e| e.to_string())
+    })?;
+    tracing::info!("Konto {}: sync_mode={}, trash_retention_days={}", id, mode, retention);
+
+    // Switching to archive mode → enqueue an EML backfill for cached mails
+    // that do not have an archive file yet.
+    if mode == "archive" && !was_archive {
+        state.sync_queue.enqueue(crate::sync::queue::SyncTask {
+            account_id: id as u32,
+            task_type: crate::sync::queue::SyncTaskType::BackfillEmails,
+            created_at: tokio::time::Instant::now(),
+            retries: 0,
+            max_retries: 2,
+            priority: 3,
+        }).await;
+        tracing::info!("Konto {}: EML-Backfill für archive-Modus eingereiht", id);
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true, "sync_mode": mode, "trash_retention_days": retention })))
+}
 /// `DELETE /api/v1/accounts/{id}`
 pub async fn delete_account(
     State(state): State<AppState>,

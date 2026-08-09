@@ -27,6 +27,10 @@ const RETENTION_KEEP_MINIMUM: u32 = 200;
 /// no longer exist on the IMAP server (deleted from another client).
 const REMOVAL_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60); // 10 min
 
+/// IMAP IDLE window per account (seconds). Servers drop IDLE after ~29 min;
+/// 20s keeps the session fresh and the poll fallback tight.
+const IDLE_TIMEOUT_SECS: u64 = 20;
+
 /// How often to refresh IMAP flags (\Seen) for existing cached messages to
 /// detect read/unread changes made from other clients (phone, webmail, …).
 const FLAG_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
@@ -84,6 +88,11 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
                     last_flag_refresh = Some(Instant::now());
                     run_flag_refresh(&state).await;
                 }
+                // Delete-queue worker: verify → hard/soft provider delete.
+                run_delete_queue(&state).await;
+                // Local-trash retention (archive mode): remove local copies
+                // older than the per-account retention window.
+                run_trash_retention(&state);
                 // Smart interval: back off on empty cycles, reset on new mail
                 let wait_time = calculate_backoff(
                     new_count,
@@ -160,7 +169,8 @@ fn run_retention(state: &AppState) {
 
 /// Refresh IMAP \Seen flags for all cached messages to detect read/unread
 /// changes made from other clients (phone, webmail, …).
-async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
+async fn run_flag_refresh(state: &AppState) {
+    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
         let guard = state.imap_clients.read();
         guard.iter().map(|(k, v)| (*k, v.clone())).collect()
     };
@@ -282,6 +292,178 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
 
 /// Scan all IMAP folders for each account and remove local messages whose
 /// UIDs no longer exist on the server (deleted from another client).
+/// Local-trash retention (archive mode). Local copies of messages in the
+/// "Trash" folder older than the account's `trash_retention_days` are removed
+/// (index row + EML file). The provider copy is already gone (delete queue).
+/// Runs cheaply: only rows in the Trash folder are touched.
+fn run_trash_retention(state: &AppState) {
+    let (expired, _accounts) = {
+        let db_guard = state.cache_db.lock();
+        let Some(conn) = db_guard.as_ref() else { return; };
+        // (message_id, account_id, uid, raw_path, retention_days)
+        let mut stmt = match conn.prepare(
+            "SELECT m.id, m.account_id, m.uid, m.raw_path, a.trash_retention_days
+             FROM messages m
+             JOIN folders f ON f.id = m.folder_id
+             JOIN accounts a ON a.id = m.account_id
+             WHERE f.name = 'Trash'
+               AND m.updated_at < datetime('now', '-' || a.trash_retention_days || ' days')",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("Trash-Retention: Query fehlgeschlagen: {}", e);
+                return;
+            }
+        };
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            });
+        let mut expired = Vec::new();
+        let mut accounts = std::collections::HashSet::new();
+        match rows {
+            Ok(iter) => {
+                for r in iter {
+                    if let Ok((mid, acct, u, rp, days)) = r {
+                        if days > 0 {
+                            expired.push((mid, acct, u, rp));
+                            accounts.insert(acct);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Trash-Retention: Zeilen fehlgeschlagen: {}", e);
+                return;
+            }
+        }
+        (expired, accounts)
+    };
+
+    if expired.is_empty() {
+        return;
+    }
+
+    let mut removed_eml = 0usize;
+    for (_message_id, account_id, uid, raw_path) in &expired {
+        // Remove the EML archive file if present (local source of truth gone
+        // by user intent after the retention window — provider already deleted).
+        if let Some(rel) = raw_path {
+            let abs = state.data_root.join(rel);
+            if abs.exists() {
+                if std::fs::remove_file(&abs).is_ok() {
+                    removed_eml += 1;
+                }
+            }
+        }
+        let db_guard = state.cache_db.lock();
+        if let Some(conn) = db_guard.as_ref() {
+            let _ = crate::cache::messages::delete_message(conn, *account_id, *uid);
+        }
+        tracing::info!(
+            "Trash-Retention: lokale Kopie uid {} (Konto {}) nach Ablauf entfernt",
+            uid, account_id
+        );
+    }
+    let _ = removed_eml;
+}
+
+/// Delete-queue worker (Concept §5). Only rows enqueued by explicit user
+/// action are processed. For each pending/failed row:///   1. Verify the local archive guarantee (EML exists + hash matches).
+///   2. verified → hard delete (STORE \Deleted + EXPUNGE) on the provider.
+///   3. not verified → soft fallback (MOVE into Provider-Trash).
+///   4. Provider failure → mark failed (retried next cycle, max 5 attempts).
+async fn run_delete_queue(state: &AppState) {
+    let rows = {
+        let db_guard = state.cache_db.lock();
+        let Some(conn) = db_guard.as_ref() else { return; };
+        match crate::cache::delete_queue::list_by_state(conn, None) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("delete_queue: Liste fehlgeschlagen: {}", e);
+                return;
+            }
+        }
+    };
+
+    for row in rows {
+        if row.attempts >= 5 {
+            continue; // give up permanently; user reviews in UI
+        }
+
+        // 1. Verify local archive guarantee.
+        let verified = {
+            let db_guard = state.cache_db.lock();
+            let conn = db_guard.as_ref().ok_or("DB nicht initialisiert");
+            match conn {
+                Ok(c) => crate::cache::delete_queue::verify_archive_guarantee(c, &state.data_root, row.message_id),
+                Err(e) => Err(e.to_string()),
+            }
+        };
+        let (ok, _path, _sha) = verified.unwrap_or((false, None, None));
+
+        // 2. Mark verified before touching the provider (guarantee proven).
+        {
+            let db_guard = state.cache_db.lock();
+            if let Some(conn) = db_guard.as_ref() {
+                let _ = crate::cache::delete_queue::mark_verified(conn, row.id);
+            }
+        }
+
+        // 3. Provider delete (hard if verified, else soft fallback).
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&(row.account_id as u32)).cloned()
+        };
+        let Some(client) = client else {
+            tracing::warn!("delete_queue: kein IMAP-Client für Konto {}", row.account_id);
+            continue;
+        };
+        if !client.is_connected().await {
+            if let Err(e) = client.reconnect().await {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::delete_queue::mark_failed(conn, row.id, &format!("reconnect: {e}"));
+                }
+                continue;
+            }
+        }
+
+        let result = if ok {
+            client.hard_delete_message(row.uid as u32, &row.folder).await
+        } else {
+            tracing::warn!(
+                "delete_queue {}: Verify-Garantie fehlt (uid {}, Konto {}) — weiches Löschen (Provider-Trash)",
+                row.id, row.uid, row.account_id
+            );
+            client.move_message(row.uid as u32, &row.folder, "Trash").await
+        };
+
+        match result {
+            Ok(()) => {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::delete_queue::mark_deleted(conn, row.id);
+                }
+                tracing::info!("delete_queue {}: Provider-Kopie entfernt (uid {})", row.id, row.uid);
+            }
+            Err(e) => {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::delete_queue::mark_failed(conn, row.id, &e.to_string());
+                }
+                tracing::warn!("delete_queue {}: Provider-Löschung fehlgeschlagen: {}", row.id, e);
+            }
+        }
+    }
+}
+
 async fn run_removal_check(state: &AppState) {
     // Archive mode: local copies are never deleted because the provider
     // deleted the mail. Only run when explicitly enabled (default off).
@@ -476,6 +658,25 @@ async fn do_sync_cycle(
             }
         }
 
+        // IDLE fast-path: wait up to IDLE_TIMEOUT for an INBOX change. On a
+        // mailbox change we enqueue FetchNew immediately (low latency); on
+        // timeout the regular poll below still runs (fallback).
+        let changed = client.idle_wait("INBOX", Duration::from_secs(IDLE_TIMEOUT_SECS)).await;
+        if changed {
+            tracing::debug!("IMAP IDLE: INBOX-Änderung für account {}", account_id);
+            queue
+                .enqueue(SyncTask {
+                    account_id: *account_id,
+                    task_type: SyncTaskType::FetchNew,
+                    created_at: tokio::time::Instant::now(),
+                    retries: 0,
+                    max_retries: 3,
+                    priority: 10,
+                })
+                .await;
+            continue;
+        }
+
         queue
             .enqueue(SyncTask {
                 account_id: *account_id,
@@ -587,18 +788,18 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
 
                 // Per-folder error handling: a TagMismatch or transient error in
                 // one folder must NOT abort the entire sync cycle. Log and continue.
-                let res = {
+                let sync_state = {
                     let db_guard = state.cache_db.lock();
                     let conn = db_guard
                         .as_ref()
                         .ok_or("Datenbank nicht initialisiert")?;
-                    crate::cache::messages::get_max_uid_for_folder(conn, task.account_id as i64, folder_name)
+                    crate::cache::sync_state::get(conn, task.account_id as i64, folder_name)
                 };
-                let max_uid = match res {
-                    Ok(uid) => uid,
+                let (max_uid, _modseq) = match sync_state {
+                    Ok(s) => (s.last_uid, s.highest_modseq),
                     Err(e) => {
                         tracing::warn!(
-                            "FetchNew: get_max_uid_for_folder '{}' (account {}): {}",
+                            "FetchNew: sync_state '{}' (account {}): {}",
                             folder_name, task.account_id, e
                         );
                         continue;
@@ -688,16 +889,30 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
 
                 // Hybrid Body-Fetch: only fetch body for INBOX to keep sync fast.
                 // Other folders rely on on-demand body fetch when the user clicks a message.
+                // The raw RFC822 bytes are archived to disk (EML) — the local-first
+                // source of truth for backup/export (Concept §3.1).
                 let is_inbox = folder_name.eq_ignore_ascii_case("INBOX");
                 if is_inbox {
                     for msg in &messages {
-                        match client.fetch_body(msg.uid).await {
-                            Ok((body_text, body_html)) => {
+                        match client.fetch_body_with_raw(msg.uid).await {
+                            Ok((body_text, body_html, raw)) => {
+                                let raw_path = crate::cache::archive::write_eml(
+                                    &state.data_root,
+                                    task.account_id as i64,
+                                    msg.uid,
+                                    Some(msg.envelope.date.as_str()),
+                                    Some(msg.envelope.message_id.as_str()),
+                                    &raw,
+                                )
+                                .ok();
+                                let raw_sha256 = Some(crate::cache::archive::sha256_hex(&raw));
                                 let db_guard = state.cache_db.lock();
                                 if let Some(conn) = db_guard.as_ref() {
-                                    let _ = crate::cache::messages::update_body(
+                                    let _ = crate::cache::messages::update_body_with_raw(
                                         conn, task.account_id as i64, msg.uid as i64,
                                         &body_text, body_html.as_deref(),
+                                        raw_path.as_deref().and_then(|p| p.to_str()),
+                                        raw_sha256.as_deref(),
                                     );
                                 }
                             }
@@ -772,6 +987,21 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
                         folder_name
                     );
                 }
+
+                // Persist per-folder sync state (last UID + modseq) for delta sync.
+                {
+                    let db_guard = state.cache_db.lock();
+                    if let Some(conn) = db_guard.as_ref() {
+                        let new_max = messages.iter().map(|m| m.uid as i64).max().unwrap_or(max_uid);
+                        let _ = crate::cache::sync_state::set(
+                            conn,
+                            task.account_id as i64,
+                            folder_name,
+                            new_max.max(max_uid),
+                            0,
+                        );
+                    }
+                }
             }
 
             Ok(total_new)
@@ -780,6 +1010,119 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
             // Flag refresh is handled by run_flag_refresh in the main loop.
             // This task type exists for future use if we need to enqueue it.
             Ok(0)
+        }
+        SyncTaskType::BackfillEmails => {
+            // Backfill: for every cached message without raw_path, fetch the
+            // raw RFC822 bytes and write the EML archive file. Runs in small
+            // batches so a single sync cycle stays bounded.
+            let account_id = task.account_id;
+            let client = {
+                let guard = state.imap_clients.read();
+                guard
+                    .get(&account_id)
+                    .cloned()
+                    .ok_or("IMAP-Client nicht gefunden")?
+            };
+            if !client.is_connected().await {
+                client.reconnect().await.map_err(|e| e.to_string())?;
+            }
+
+            let pending: Vec<(u32, String)> = {
+                let db_guard = state.cache_db.lock();
+                let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT m.uid, f.name FROM messages m
+                         JOIN folders f ON f.id = m.folder_id
+                         WHERE m.account_id = ?1 AND (m.raw_path IS NULL OR m.raw_path = '')
+                         ORDER BY m.date DESC LIMIT 20",
+                    )
+                    .map_err(|e| e.to_string())?;
+                let rows = stmt
+                    .query_map(rusqlite::params![account_id as i64], |row| {
+                        Ok((row.get::<_, i64>(0)? as u32, row.get::<_, String>(1)?))
+                    })
+                    .map_err(|e| e.to_string())?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(r.map_err(|e| e.to_string())?);
+                }
+                out
+            };
+
+            let mut backfilled = 0usize;
+            for (uid, folder) in pending {
+                match client.fetch_body_with_raw_from_folder(uid, Some(folder.clone())).await {
+                    Ok((_text, _html, raw)) => {
+                        let (msg_id, date) = {
+                            let db_guard = state.cache_db.lock();
+                            let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                            let mid: Option<String> = conn
+                                .query_row(
+                                    "SELECT message_id FROM messages WHERE account_id = ?1 AND uid = ?2",
+                                    rusqlite::params![account_id as i64, uid as i64],
+                                    |r| r.get(0),
+                                )
+                                .ok();
+                            (mid, None::<String>)
+                        };
+                        let path = crate::cache::archive::write_eml(
+                            &state.data_root,
+                            account_id as i64,
+                            uid,
+                            date.as_deref(),
+                            msg_id.as_deref(),
+                            &raw,
+                        );
+                        let sha = crate::cache::archive::sha256_hex(&raw);
+                        if let Ok(abs) = path {
+                            let rel = abs
+                                .strip_prefix(&state.data_root)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| abs.to_string_lossy().to_string());
+                            let db_guard = state.cache_db.lock();
+                            if let Some(conn) = db_guard.as_ref() {
+                                let _ = conn.execute(
+                                    "UPDATE messages SET raw_path = ?1, raw_sha256 = ?2 WHERE account_id = ?3 AND uid = ?4",
+                                    rusqlite::params![rel, sha, account_id as i64, uid as i64],
+                                );
+                            }
+                            backfilled += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Backfill uid {} ({}): {}", uid, folder, e);
+                    }
+                }
+            }
+
+            if backfilled > 0 {
+                tracing::info!("Backfill: {} EMLs für Konto {} nachgezogen", backfilled, account_id);
+            }
+            // If more messages remain, re-enqueue so subsequent cycles continue.
+            let remaining: i64 = {
+                let db_guard = state.cache_db.lock();
+                let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND (raw_path IS NULL OR raw_path = '')",
+                    rusqlite::params![account_id as i64],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0)
+            };
+            if remaining > 0 {
+                queue
+                    .enqueue(SyncTask {
+                        account_id,
+                        task_type: SyncTaskType::BackfillEmails,
+                        created_at: tokio::time::Instant::now(),
+                        retries: 0,
+                        max_retries: 2,
+                        priority: 3,
+                    })
+                    .await;
+            }
+            Ok(backfilled)
         }
         SyncTaskType::GenerateAiSummary(uid) => {
             let uid = *uid;

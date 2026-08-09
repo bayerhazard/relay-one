@@ -16,7 +16,7 @@
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, sendMessage,
-    listAccounts, fetchFromImap, listImapFolders,
+    listAccounts, fetchFromImap, listImapFolders, createLocalFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
@@ -298,6 +298,61 @@ let sentFolderName = $state<string | null>(null);
   let showRenameDialog = $state(false);
   let renameOriginalName = $state<string | null>(null);
   let renameLeafValue = $state("");
+
+  // ─── New local folder dialog ─────────────────────────────────
+  let showNewFolderDialog = $state(false);
+  let newFolderName = $state("");
+
+  function openNewFolderDialog() {
+    newFolderName = "";
+    showNewFolderDialog = true;
+  }
+
+  function cancelNewFolder() {
+    showNewFolderDialog = false;
+    newFolderName = "";
+  }
+
+  async function confirmNewFolder(name: string) {
+    showNewFolderDialog = false;
+    const trimmed = name.trim();
+    if (!trimmed || !selectedAccountId) return;
+    try {
+      await createLocalFolder(selectedAccountId, trimmed);
+      await reloadFolders();
+    } catch (e) {
+      console.error("createLocalFolder failed", e);
+    }
+  }
+
+  async function reloadFolders() {
+    if (!selectedAccountId) return;
+    try {
+      const f = await listImapFolders(selectedAccountId);
+      const seen = new Set<string>();
+      const names: string[] = [];
+      const rawMap: Record<string, string> = {};
+      const delimMap: Record<string, string> = {};
+      for (const x of f) {
+        if (x.tag === "noselect") continue;
+        if (!x.name || typeof x.name !== "string" || x.name.length === 0) continue;
+        const key = x.name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        names.push(x.name);
+        rawMap[x.name] = x.raw_name || x.name;
+        delimMap[x.name] = x.delimiter || ".";
+      }
+      folderNames = names;
+      folderRawNames = rawMap;
+      folderDelimiters = delimMap;
+      try {
+        localStorage.setItem(`relay_folder_cache_${selectedAccountId}`, JSON.stringify(names));
+      } catch { /* ignore */ }
+    } catch (e) {
+      console.warn("reloadFolders failed", e);
+    }
+  }
 
   function openRenameDialog(originalName: string) {
     const delim = folderDelimiters[originalName] || ".";
@@ -1851,6 +1906,7 @@ let sentFolderName = $state<string | null>(null);
                 <button type="button" class="search-clear" onclick={clearSearch} title="Suche löschen" aria-label="Suche löschen">&#x2715;</button>
               {/if}
             </div>
+            <button type="button" class="new-folder-btn" onclick={openNewFolderDialog} title="Lokalen Ordner anlegen" aria-label="Lokalen Ordner anlegen">+ Ordner</button>
           </div>
           
           <span class="version">Relay 2.1</span>
@@ -1963,6 +2019,17 @@ let sentFolderName = $state<string | null>(null);
     cancelLabel="Abbrechen"
     onconfirm={confirmRename}
     oncancel={cancelRename}
+  />
+
+  <PromptDialog
+    open={showNewFolderDialog}
+    title="Lokalen Ordner anlegen"
+    message="Dieser Ordner existiert nur lokal auf deinem Relay-Server (kein IMAP-Ordner). Mails, die du hierher verschiebst, werden lokal archiviert und vom Provider entfernt."
+    placeholder="z. B. Wichtige Rechnungen"
+    confirmLabel="Anlegen"
+    cancelLabel="Abbrechen"
+    onconfirm={confirmNewFolder}
+    oncancel={cancelNewFolder}
   />
 
   {#if folderCtxMenu}
@@ -2145,8 +2212,7 @@ let sentFolderName = $state<string | null>(null);
     justify-content: center;
     gap: 8px;
     margin-bottom: 8px;
-    padding: 0 14px;
-  }
+    padding: 0 14px;  }
   :global(.folder-item) {
     display: flex;
     align-items: center;
@@ -2328,11 +2394,26 @@ let sentFolderName = $state<string | null>(null);
     color: var(--color-text-secondary);
     cursor: pointer;
     font-size: 0.875rem;
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 2px 6px;    border-radius: 4px;
     flex-shrink: 0;
   }
   .search-clear:hover {
+    background: var(--color-active-wash);
+    color: var(--color-text);
+  }
+  .new-folder-btn {
+    flex-shrink: 0;
+    border: 1px solid var(--color-border, rgba(127,127,127,0.35));
+    background: transparent;
+    color: var(--color-text-secondary);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .new-folder-btn:hover {
     background: var(--color-active-wash);
     color: var(--color-text);
   }

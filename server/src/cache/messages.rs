@@ -549,6 +549,25 @@ pub fn update_body(
     Ok(())
 }
 
+/// Update body + archive path (raw EML file location) for a message.
+pub fn update_body_with_raw(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    body_text: &str,
+    body_html: Option<&str>,
+    raw_path: Option<&str>,
+    raw_sha256: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE messages SET body_text = ?1, body_html = ?2, raw_path = COALESCE(?3, raw_path),
+                raw_sha256 = COALESCE(?4, raw_sha256), updated_at = datetime('now')
+         WHERE account_id = ?5 AND uid = ?6",
+        params![body_text, body_html, raw_path, raw_sha256, account_id, uid],
+    )?;
+    Ok(())
+}
+
 pub fn update_ai_summary(
     conn: &Connection,
     account_id: i64,
@@ -610,6 +629,63 @@ pub fn update_folder(
     conn.execute(
         "UPDATE messages SET folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2), updated_at = datetime('now') WHERE account_id = ?3 AND uid = ?4",
         params![account_id, folder, account_id, uid],
+    )?;
+    Ok(())
+}
+
+/// Create a local-only folder (no IMAP counterpart). Idempotent.
+pub fn create_local_folder(
+    conn: &Connection,
+    account_id: i64,
+    name: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO folders (account_id, name, imap_id, local_only) VALUES (?1, ?2, NULL, 1)",
+        params![account_id, name],
+    )?;
+    Ok(())
+}
+
+/// Is a folder local-only (no IMAP counterpart)?
+pub fn is_local_only_folder(conn: &Connection, account_id: i64, name: &str) -> Result<bool, rusqlite::Error> {
+    let local: i32 = conn
+        .query_row(
+            "SELECT local_only FROM folders WHERE account_id = ?1 AND name = ?2",
+            params![account_id, name],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    Ok(local == 1)
+}
+
+/// List all folders (incl. local-only) with their local_only flag.
+pub fn list_all_folders(conn: &Connection, account_id: i64) -> Result<Vec<(String, bool)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT name, local_only FROM folders WHERE account_id = ?1 ORDER BY local_only ASC, name ASC",
+    )?;
+    let rows = stmt.query_map(params![account_id], |row| Ok((row.get(0)?, row.get::<_, i32>(1)? != 0)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Rename a local-only folder locally (no IMAP involvement).
+pub fn rename_local_folder(
+    conn: &Connection,
+    account_id: i64,
+    old_name: &str,
+    new_name: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE folders SET name = ?1 WHERE account_id = ?2 AND name = ?3 AND local_only = 1",
+        params![new_name, account_id, old_name],
+    )?;
+    conn.execute(
+        "UPDATE messages SET folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)
+         WHERE account_id = ?3 AND folder_id = (SELECT id FROM folders WHERE account_id = ?3 AND name = ?4)",
+        params![account_id, new_name, account_id, old_name],
     )?;
     Ok(())
 }

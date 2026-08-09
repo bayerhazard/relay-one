@@ -124,6 +124,63 @@ export async function deleteAccount(accountId: number): Promise<void> {
     "Das Konto konnte nicht gelöscht werden.");
 }
 
+export async function updateAccountSettings(
+  accountId: number,
+  syncMode: string,
+  trashRetentionDays?: number,
+): Promise<{ ok: boolean; sync_mode: string }> {
+  return apiCall("PATCH", `/accounts/${accountId}/settings`,
+    { sync_mode: syncMode, ...(trashRetentionDays !== undefined ? { trash_retention_days: trashRetentionDays } : {}) },
+    "Die Konto-Einstellungen konnten nicht gespeichert werden.");
+}
+
+// ─── Delete queue (verify pipeline review) ────────────────────
+
+export interface DeleteQueueRow {
+  id: number;
+  account_id: number;
+  uid: number;
+  folder: string;
+  action: string;
+  state: string;
+  attempts: number;
+  last_error: string | null;
+}
+
+export async function getDeleteQueue(): Promise<DeleteQueueRow[]> {
+  return get("/archive/delete-queue", "Die Lösch-Queue konnte nicht geladen werden.");
+}
+
+export async function retryDeleteQueueRow(id: number): Promise<{ ok: boolean }> {
+  return post(`/archive/delete-queue/${id}/retry`, {}, "Der Eintrag konnte nicht erneut eingereiht werden.");
+}
+
+export async function removeDeleteQueueRow(id: number): Promise<{ ok: boolean }> {
+  return post(`/archive/delete-queue/${id}/remove`, {}, "Der Eintrag konnte nicht entfernt werden.");
+}
+
+/** Download the EML/MBox export for an account (browser download). */
+export function downloadExport(accountId: number, format: "mbox" | "zip"): void {
+  const url = `${API_BASE}/export?account_id=${accountId}&format=${format}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = format === "zip" ? `relay-account-${accountId}-eml.zip` : `relay-account-${accountId}.mbox`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export interface BackupInfo {
+  ok: boolean;
+  path: string;
+  size: number;
+  created_at: string;
+}
+
+export async function createBackup(): Promise<BackupInfo> {
+  return post("/archive/backup", {}, "Das Backup konnte nicht erstellt werden.");
+}
+
 // ─── Badge ──────────────────────────────────────────────────
 // Web version has no dock badge — unread count is returned directly.
 
@@ -151,6 +208,11 @@ export async function renameFolder(
 ): Promise<void> {
   return post("/folders/rename", { account_id: accountId, old_name: oldName, new_name: newName },
     "Der Ordner konnte nicht umbenannt werden.");
+}
+
+export async function createLocalFolder(accountId: number, name: string): Promise<{ ok: boolean; name: string; local_only: boolean }> {
+  return post("/folders", { account_id: accountId, name },
+    "Der lokale Ordner konnte nicht angelegt werden.");
 }
 
 // ─── Messages ──────────────────────────────────────────────

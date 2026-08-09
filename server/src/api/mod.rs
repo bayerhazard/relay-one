@@ -4,7 +4,10 @@
 //! typed axum handler; `State<'_, AppState>` becomes axum `State<AppState>`.
 
 pub mod accounts;
+pub mod backup;
 pub mod ai;
+pub mod delete_queue;
+pub mod export;
 pub mod health;
 pub mod messages;
 pub mod push;
@@ -35,8 +38,9 @@ pub fn router() -> Router<AppState> {
         // Accounts
         .route("/accounts", get(accounts::list_accounts).post(accounts::connect_account))
         .route("/accounts/{id}", axum::routing::delete(accounts::delete_account))
+        .route("/accounts/{id}/settings", axum::routing::patch(accounts::update_account))
         // Folders
-        .route("/folders", get(messages::list_imap_folders))
+        .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))
         // Messages
         .route("/messages", get(messages::fetch_messages))
@@ -44,6 +48,10 @@ pub fn router() -> Router<AppState> {
         .route("/messages/{uid}/body", get(messages::fetch_message_body))
         .route("/messages/{uid}/raw", get(messages::fetch_raw_message))
         .route("/messages/{uid}/attachments", get(messages::fetch_attachments))
+        .route(
+            "/messages/{uid}/attachments/{att_id}/content",
+            get(messages::fetch_attachment_content),
+        )
         .route("/messages/{uid}/read", post(messages::mark_as_read))
         .route("/messages/{uid}/unread", post(messages::mark_as_unseen))
         .route("/messages/{uid}/delete", post(messages::delete_message))
@@ -67,6 +75,64 @@ pub fn router() -> Router<AppState> {
         .route("/push/vapid", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
         .route("/push/unsubscribe", post(push::unsubscribe))
+        // Delete queue (verify pipeline review)
+        .route("/archive/delete-queue", get(delete_queue::list_delete_queue))
+        .route(
+            "/archive/delete-queue/{id}/retry",
+            post(delete_queue::retry_delete_queue),
+        )
+        .route(
+            "/archive/delete-queue/{id}/remove",
+            post(delete_queue::remove_delete_queue),
+        )
+        // Export (EML/MBox)
+        .route("/export", get(export::export_archive))
+        // Backup snapshot
+        .route("/archive/backup", post(backup::create_backup))
+        // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
+        // axum wraps them; protects against direct cluster-internal callers.
+        // /health, /info and /events stay open (probes + browser SSE).
+        .route_layer(axum::middleware::from_fn(relay_key_guard))
+}
+
+/// X-Relay-Key guard (Concept §12 / F6).
+///
+/// When `RELAY_API_KEY` is set (chart-provided K8s secret), every API request
+/// must carry the key in the `X-Relay-Key` header — except:
+///   - `/health`, `/info`: K8s probes have no header.
+///   - `/events`: SSE stream consumed by the browser.
+/// Browser clients themselves never send the key (the Olares entrance with
+/// authLevel handles access); this guard only stops direct cluster-internal
+/// callers (other pods hitting the ClusterIP).
+async fn relay_key_guard(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+
+    let configured = std::env::var("RELAY_API_KEY").unwrap_or_default();
+    if configured.is_empty() {
+        return next.run(req).await;
+    }
+
+    let path = req.uri().path().to_string();
+    if path == "/health" || path == "/info" || path == "/events" {
+        return next.run(req).await;
+    }
+
+    let has_key = req
+        .headers()
+        .get("x-relay-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == configured)
+        .unwrap_or(false);
+
+    if has_key {
+        next.run(req).await
+    } else {
+        let body = axum::Json(serde_json::json!({ "error": "X-Relay-Key fehlt oder ungültig" }));
+        (StatusCode::UNAUTHORIZED, body).into_response()
+    }
 }
 
 /// Shared error type: turns a `String` error into `500 {"error": "…"}`.

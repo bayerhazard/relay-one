@@ -47,6 +47,8 @@ pub struct AppState {
     pub carddav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Server → client notification bus (replaces Tauri `Emitter`).
     pub events: events::EventBus,
+    /// Data root for ALL user data (EML archive, attachments, DBs).
+    pub data_root: std::path::PathBuf,
 }
 
 impl AppState {
@@ -65,6 +67,9 @@ impl AppState {
             carddav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             carddav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             events: events::EventBus::new(),
+            data_root: std::env::var("RELAY_DATA_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("/data/Relay")),
         }
     }
 

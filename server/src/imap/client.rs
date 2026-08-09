@@ -139,8 +139,7 @@ impl ImapClient {
         .await
     }
 
-    pub async fn list_folders(&self) -> Result<Vec<(String, String, String, String)>, AppError> {
-        self.with_session_blocking("list_folders", |session| {
+    pub async fn list_folders(&self) -> Result<Vec<(String, String, String, String)>, AppError> {        self.with_session_blocking("list_folders", |session| {
             let folders = session
                 .list(None, Some("*"))
                 .map_err(|e| AppError::imap(format!("IMAP list fehlgeschlagen: {}", e), "list_folders"))?;
@@ -341,7 +340,43 @@ impl ImapClient {
     /// heuristic `BODY[TEXT] BODY[2]` fetch + guess-based decoding, which left
     /// raw MIME headers, boundaries and `=XX` control sequences in the output.
   pub async fn fetch_body(&self, uid: u32) -> Result<(String, Option<String>), AppError> {
-        self.fetch_body_from_folder(uid, None).await
+        let (text, html, _raw) = self.fetch_body_with_raw(uid).await?;
+        Ok((text, html))
+    }
+
+    /// Fetch message body + the raw RFC822 bytes. The raw bytes are what gets
+    /// persisted to the EML archive (`archive/<acct>/YYYY/MM/<uid>-<sha>.eml`).
+    pub async fn fetch_body_with_raw(&self, uid: u32) -> Result<(String, Option<String>, Vec<u8>), AppError> {
+        self.fetch_body_with_raw_from_folder(uid, None).await
+    }
+
+    /// Same as `fetch_body_with_raw`, scoped to an explicit folder.
+    pub async fn fetch_body_with_raw_from_folder(
+        &self,
+        uid: u32,
+        folder: Option<String>,
+    ) -> Result<(String, Option<String>, Vec<u8>), AppError> {
+        self.with_session_blocking("fetch_body_with_raw", move |session| {
+            if let Some(f) = folder {
+                session
+                    .select(&f)
+                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+            }
+
+            let msgs = session
+                .uid_fetch(uid.to_string(), "(BODY.PEEK[])")
+                .map_err(|e| AppError::imap(e.to_string(), "fetch_body_with_raw"))?;
+
+            let msg = msgs
+                .iter()
+                .next()
+                .ok_or(AppError::not_found("Nachricht nicht gefunden", "fetch_body_with_raw"))?;
+            let raw = msg.body().or_else(|| msg.text()).unwrap_or(b"").to_vec();
+
+            let (text, html) = parse_message_bodies(&raw);
+            Ok((text, html, raw))
+        })
+        .await
     }
 
     /// Fetch message body from a specific folder. If folder is None, uses the current folder.
@@ -479,6 +514,33 @@ impl ImapClient {
             Ok(())
         })
         .await
+    }
+
+    /// Hard-delete a message on the provider (STORE \Deleted + EXPUNGE).
+    /// Only to be called after the local archive guarantee holds (F1).
+    pub async fn hard_delete_message(&self, uid: u32, folder: &str) -> Result<(), AppError> {
+        self.delete_message(uid, folder).await
+    }
+
+    /// IMAP IDLE: wait up to `timeout` for a mailbox change in `folder`.
+    /// Returns true if the mailbox changed (new mail), false on timeout.
+    /// Falls back to false on any error (the caller then polls normally).
+    /// The read timeout is restored afterwards so the session stays reusable.
+    pub async fn idle_wait(&self, folder: &str, timeout: std::time::Duration) -> bool {
+        let folder = folder.to_string();
+        let result = self.with_session_blocking("idle_wait", move |session| {
+            session
+                .select(&folder)
+                .map_err(|e| AppError::imap(format!("IDLE select '{}': {}", folder, e), "select_folder"))?;
+            let mut handle = session.idle();
+            handle.timeout(timeout);
+            let outcome = handle
+                .wait_while(imap::extensions::idle::stop_on_any)
+                .map_err(|e| AppError::imap(format!("IDLE wait: {}", e), "idle_wait"))?;
+            Ok(matches!(outcome, imap::extensions::idle::WaitOutcome::MailboxChanged))
+        })
+        .await;
+        result.unwrap_or(false)
     }
 
     pub async fn move_message(&self, uid: u32, source: &str, target: &str) -> Result<(), AppError> {

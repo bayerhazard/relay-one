@@ -18,6 +18,8 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             smtp_password TEXT NOT NULL DEFAULT '',
             sender_name TEXT NOT NULL DEFAULT '',
             sender_email TEXT NOT NULL DEFAULT '',
+            sync_mode TEXT NOT NULL DEFAULT 'mirror',
+            trash_retention_days INTEGER NOT NULL DEFAULT 30,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
@@ -25,7 +27,8 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
-            imap_id TEXT
+            imap_id TEXT,
+            local_only INTEGER NOT NULL DEFAULT 0
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_name ON folders(account_id, name);
 
@@ -188,6 +191,36 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             UNIQUE(endpoint)
         );
         CREATE INDEX IF NOT EXISTS idx_push_account ON push_subscriptions(account_id);
+
+        -- Delete queue (Concept §5): ONLY filled by explicit user action
+        -- (delete / move to local-only). State machine:
+        --   pending → verified → deleted | failed
+        CREATE TABLE IF NOT EXISTS delete_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            account_id INTEGER NOT NULL,
+            uid INTEGER NOT NULL,
+            folder TEXT NOT NULL,
+            action TEXT NOT NULL DEFAULT 'delete',
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_delete_queue_state ON delete_queue(state);
+        CREATE INDEX IF NOT EXISTS idx_delete_queue_account ON delete_queue(account_id);
+
+        -- Sync state per folder (CONDSTORE modseq + last UID) — Phase 4K
+        CREATE TABLE IF NOT EXISTS sync_state (
+            folder_id INTEGER PRIMARY KEY,
+            account_id INTEGER NOT NULL,
+            folder_name TEXT NOT NULL,
+            last_uid INTEGER NOT NULL DEFAULT 0,
+            highest_modseq INTEGER NOT NULL DEFAULT 0,
+            last_sync_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_state_account ON sync_state(account_id);
         ",
     )?;
 
@@ -198,10 +231,31 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0", []);
     // Migration: flagged indicator for message star/flag support.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_flagged INTEGER NOT NULL DEFAULT 0", []);
+    // Migration: EML archive path (relative to data root) + content hash.
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
+    // Migration: attachment dedup storage path (relative to data root).
+    let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN disk_path TEXT", []);
+    // Migration: local-only folders (no IMAP counterpart).
+    let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
+    // Migration: per-account sync mode (mirror/archive) + trash retention.
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'mirror'", []);
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30", []);
 
     // Migration: add photo columns to settings table
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN photo_data BLOB", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN photo_type TEXT", []);
+
+    // Migration: EML archive path on messages (raw RFC822 file on disk).
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_raw ON messages(raw_path)", []);
+
+    // Migration: sync mode per account ('mirror' | 'archive').
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'mirror'", []);
+    // Migration: trash retention days per account (F7, default 30).
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30", []);
+    // Migration: local-only folders carry NULL imap_id and are not synced from IMAP.
+    let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
 
     init_fts(conn);
 
