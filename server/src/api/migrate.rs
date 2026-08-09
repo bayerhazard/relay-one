@@ -23,6 +23,13 @@ pub struct CopyAccountRequest {
     pub target_account_id: u32,
 }
 
+#[derive(Deserialize)]
+pub struct CopyFolderRequest {
+    pub source_account_id: u32,
+    pub target_account_id: u32,
+    pub folder: String,
+}
+
 #[derive(serde::Serialize)]
 pub struct CopyReport {
     pub folders_created: usize,
@@ -71,6 +78,23 @@ pub async fn copy_account(
         report.folders.push(folder_report);
     }
 
+    Ok(Json(report))
+}
+
+/// `POST /api/v1/migrate/copy-folder` — copy ONE folder (chunked migration).
+/// Splitting the copy into per-folder calls keeps each request below the
+/// Olares gateway timeout; the caller walks the folder list.
+pub async fn copy_folder_endpoint(
+    State(state): State<AppState>,
+    Json(req): Json<CopyFolderRequest>,
+) -> ApiResult<FolderReport> {
+    let report = copy_folder(
+        &state,
+        req.source_account_id as i64,
+        req.target_account_id as i64,
+        &req.folder,
+    )
+    .await?;
     Ok(Json(report))
 }
 
