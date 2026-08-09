@@ -159,8 +159,20 @@ async fn copy_folder_limited(
 
     let mut report = FolderReport { folder: folder_name.to_string(), copied: 0, failed: 0, batch_done: true };
 
+    // UIDs already present in the TARGET folder (skip — no re-copy).
+    let existing_target: std::collections::HashSet<i64> = {
+        let uids = with_db(state, |conn| {
+            cache_messages::get_messages_with_uids_for_folder(conn, target, folder_name)
+                .map_err(|e| e.to_string())
+        })?;
+        uids.into_iter().collect()
+    };
+
     for uid in &imap_uids {
         let uid_i64 = *uid as i64;
+        if existing_target.contains(&uid_i64) {
+            continue; // already migrated — never re-copy
+        }
         match copy_one_message(state, source, target, folder_name, uid_i64, cached.contains(&uid_i64)).await {
             Ok(()) => report.copied += 1,
             Err(e) => {
@@ -168,7 +180,7 @@ async fn copy_folder_limited(
                 report.failed += 1;
             }
         }
-        // Chunked mode: stop after batch_limit successfully copied messages.
+        // Chunked mode: stop after batch_limit newly copied messages.
         if let Some(limit) = batch_limit {
             if report.copied >= limit {
                 report.batch_done = false;
@@ -176,9 +188,9 @@ async fn copy_folder_limited(
             }
         }
     }
-    if batch_limit.is_some() {
-        report.batch_done = report.copied as usize >= imap_uids.len();
-    }
+    // batch_done stays true unless the loop broke early (batch_limit hit).
+    // When the loop ran to completion, every UID was processed (either copied
+    // or already present in the target).
 
     Ok(report)
 }
