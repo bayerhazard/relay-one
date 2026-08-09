@@ -538,6 +538,17 @@ async fn run_removal_check(state: &AppState) {
             let deleted = {
                 let db_guard = state.cache_db.lock();
                 let Some(conn) = db_guard.as_ref() else { continue; };
+                // Local-only folders are never mirrors of an IMAP folder —
+                // never prune them against server UIDs (archive mode).
+                let is_local_folder = crate::cache::messages::is_local_only_folder(
+                    conn,
+                    *account_id as i64,
+                    folder_name,
+                )
+                .unwrap_or(false);
+                if is_local_folder {
+                    continue;
+                }
                 match crate::cache::messages::delete_messages_not_in(
                     conn, *account_id as i64, folder_name, &server_uids,
                 ) {
