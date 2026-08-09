@@ -38,7 +38,7 @@ pub fn router() -> Router<AppState> {
         // Accounts
         .route("/accounts", get(accounts::list_accounts).post(accounts::connect_account))
         .route("/accounts/{id}", axum::routing::delete(accounts::delete_account))
-        .route("/accounts/{id}/settings", axum::routing::patch(accounts::update_account))
+        .route("/accounts/{id}/settings", post(accounts::update_account))
         // Folders
         .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))

@@ -134,7 +134,7 @@ export async function updateAccountSettings(
   if (syncMode !== undefined) body.sync_mode = syncMode;
   if (trashRetentionDays !== undefined) body.trash_retention_days = trashRetentionDays;
   if (imapInsecure !== undefined) body.imap_insecure = imapInsecure;
-  return apiCall("PATCH", `/accounts/${accountId}/settings`, body,
+  return apiCall("POST", `/accounts/${accountId}/settings`, body,
     "Die Konto-Einstellungen konnten nicht gespeichert werden.");
 }
 

@@ -30,6 +30,7 @@ pub struct AccountInfo {
     pub sender_email: String,
     pub sync_mode: String,
     pub trash_retention_days: i64,
+    pub imap_insecure: bool,
 }
 
 #[derive(Deserialize)]
@@ -155,6 +156,7 @@ pub async fn connect_account(
         sender_email: req.sender_email,
         sync_mode: "mirror".to_string(),
         trash_retention_days: 30,
+        imap_insecure,
     }))
 }
 
@@ -178,6 +180,7 @@ pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<Accou
                 sender_email: a.sender_email,
                 sync_mode: a.sync_mode,
                 trash_retention_days: a.trash_retention_days,
+                imap_insecure: a.imap_insecure,
             })
             .collect())
     })?;
