@@ -376,7 +376,12 @@ impl CardDavClient {
 
             let mut added = Vec::new();
             for url in &added_urls {
-                match self.fetch_vcard(url).await {
+                // Sync responses carry server-relative hrefs (e.g.
+                // /user/addressbook/kontakt.vcf) — resolve them against the
+                // configured base URL, like list_contacts() does, otherwise
+                // reqwest fails with a builder error and no contact is saved.
+                let abs_url = resolve_href(&self.settings.url, url);
+                match self.fetch_vcard(&abs_url).await {
                     Ok(vcard) => {
                         let contact = vcard::parse_vcard(&vcard);
                         added.push(contact);
