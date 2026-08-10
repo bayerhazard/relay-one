@@ -260,9 +260,15 @@ pub async fn update_account(
     Ok(Json(serde_json::json!({ "ok": true, "sync_mode": mode, "trash_retention_days": retention })))
 }
 /// `DELETE /api/v1/accounts/{id}`
+/// `POST /api/v1/accounts/delete` — remove an account and all its data.
+#[derive(Deserialize)]
+pub struct DeleteAccountRequest {
+    pub account_id: u32,
+}
+
 pub async fn delete_account(
     State(state): State<AppState>,
-    Json(req): Json<crate::api::messages::MessageActionRequest>,
+    Json(req): Json<DeleteAccountRequest>,
 ) -> ApiResult<()> {
     let account_id = req.account_id;
     with_db(&state, |conn| {

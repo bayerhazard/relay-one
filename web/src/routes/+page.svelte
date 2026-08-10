@@ -2066,7 +2066,7 @@ let sentFolderName = $state<string | null>(null);
       <div class="resize-handle" onmousedown={(e) => startResize(e, 'list')}></div>
     {/if}
     <section class="preview-pane">
-      {#if isCompact && previewOpen}
+      {#if isCompact && previewOpen && !showCompose}
         <div class="preview-back-bar">
           <button type="button" class="icon-btn" onclick={backToList} title="Zurück zur Liste" aria-label="Zurück">
             &#8592; Zurück

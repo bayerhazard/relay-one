@@ -194,31 +194,38 @@
       mediaRecorder.start();
       isRecording = true;
 
-      // Auto-stop after 3 seconds of silence
-      let silenceTimeout: ReturnType<typeof setTimeout>;
+      // Auto-stop after 2 seconds of silence (RMS-based detection).
+      let lastVoiceAt = 0;
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.4;
       source.connect(analyser);
+
+      const rmsLevel = (): number => {
+        const buf = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        return Math.sqrt(sum / buf.length);
+      };
 
       const checkSilence = () => {
         if (!isRecording) return;
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-        if (average < 10) { // Silence threshold
-          clearTimeout(silenceTimeout);
-          silenceTimeout = setTimeout(() => {
-            if (isRecording) stopRecording();
-          }, 3000);
-        } else {
-          clearTimeout(silenceTimeout);
+        const rms = rmsLevel();
+        if (rms >= 0.01) {
+          // Voice detected — reset the silence window.
+          lastVoiceAt = Date.now();
+        } else if (Date.now() - lastVoiceAt >= 2000) {
+          // 2 seconds without speech → stop and transcribe immediately.
+          void audioContext.close().catch(() => {});
+          stopRecording();
+          return;
         }
-
         requestAnimationFrame(checkSilence);
       };
+      lastVoiceAt = Date.now();
       checkSilence();
 
     } catch (e: unknown) {
@@ -445,7 +452,10 @@
 <div class="compose-window">
   <div class="compose-header">
     <h2>{mode === "new" ? "Neue Nachricht" : "Antworten"}</h2>
-    <button type="button" class="close-btn" onclick={handleClose}>&#x2715;</button>
+    <button type="button" class="close-btn" onclick={handleClose} title="Schließen" aria-label="Schließen">
+      <span class="close-icon-desktop">&#x2715;</span>
+      <span class="close-icon-mobile">&#8592; Zurück</span>
+    </button>
   </div>
 
   <div class="compose-body">
@@ -640,6 +650,7 @@
     transition: all 0.15s ease;
   }
   .close-btn:hover { background: var(--color-sidebar); color: var(--color-text); }
+  .close-icon-mobile { display: none; }
   .compose-body {
     padding: 20px;
     flex: 1;
@@ -1059,9 +1070,45 @@
     }
     .compose-header {
       padding-top: max(16px, env(safe-area-inset-top, 0px));
+      padding-left: 16px;
+      padding-right: 16px;
     }
+    .close-icon-desktop { display: none; }
+    .close-icon-mobile { display: inline; font-size: 0.9375rem; font-weight: 500; }
+    .close-btn { padding: 10px 12px; }
     .compose-body {
-      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+      padding: 16px;
+      padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+    }
+    /* Stack fields vertically on phones — labels above inputs, no cramped
+       right-aligned 60px labels next to inputs. */
+    .field {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .field label {
+      width: auto;
+      text-align: left;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .field input,
+    .to-row input {
+      padding: 12px 14px;
+      font-size: 1rem;
+    }
+    .to-row {
+      gap: 8px;
+    }
+    .ccbcc-group {
+      flex-shrink: 0;
+    }
+    .tone-section {
+      margin-top: 4px;
     }
   }
 </style>
