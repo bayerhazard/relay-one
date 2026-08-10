@@ -11,6 +11,7 @@
   import { get } from "svelte/store";
   import { showDiffEnabled } from "$lib/stores/settings";
   import { textToHtml, wrapHtmlQuote } from "$lib/utils/format";
+  import { blobToWavBase64 } from "$lib/utils/wav";
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
 
@@ -159,9 +160,11 @@
           return;
         }
 
-        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-        const arrayBuffer = await audioBlob.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        // MediaRecorder produces browser-specific containers (WebM/Opus,
+        // MP4) — decode + re-encode as real 16 kHz PCM WAV, which the STT
+        // endpoint (Whisper / vLLM) can actually parse.
+        const base64 = await blobToWavBase64(audioBlob);
 
         // Transcribe
         isGenerating = true;

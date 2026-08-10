@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.09.39
+  tag: 26.09.40
   pullPolicy: IfNotPresent
 
 storage:
