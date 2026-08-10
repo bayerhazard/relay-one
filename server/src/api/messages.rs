@@ -545,34 +545,44 @@ pub async fn delete_folder(
         let guard = state.imap_clients.read();
         guard.get(&req.account_id).cloned()
     };
-    let Some(client) = client else {
-        // No live IMAP session (account never connected or sync not running).
-        // Drop the local rows + folder anyway — the user asked to delete this
-        // folder; the IMAP counterpart (if any) is simply left untouched.
-        let deleted = with_db(&state, |conn| {
-            cache::messages::delete_local_folder(conn, &state.data_root, req.account_id as i64, &req.name)
-        })?;
-        tracing::warn!("Kein IMAP-Client — Ordner '{}' nur lokal gelöscht ({} Mails, IMAP-Gegenstück bleibt)", req.name, deleted);
-        return Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted, "local_only": true })));
-    };
-    client
-        .delete_folder(&req.name)
-        .await
-        .map_err(|e| ApiError(format!("Ordner '{}' konnte nicht gelöscht werden: {}", req.name, e)))?;
-    // Also drop the local mirror rows for this folder.
-    with_db(&state, |conn| {
-        conn.execute(
-            "DELETE FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
-            rusqlite::params![req.account_id as i64, req.name],
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute(
-            "DELETE FROM folders WHERE account_id = ?1 AND name = ?2",
-            rusqlite::params![req.account_id as i64, req.name],
-        )
-        .map_err(|e| e.to_string())
+    if let Some(client) = client {
+        // Try the IMAP deletion; the folder may exist only locally (e.g. a
+        // migration target folder that the sync mirrored but GMX doesn't
+        // know). If the remote deletion fails for any reason, still remove
+        // the local rows — the user explicitly asked to delete this folder.
+        match client.delete_folder(&req.name).await {
+            Ok(()) => {
+                with_db(&state, |conn| {
+                    conn.execute(
+                        "DELETE FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
+                        rusqlite::params![req.account_id as i64, req.name],
+                    )
+                    .map_err(|e| e.to_string())?;
+                    conn.execute(
+                        "DELETE FROM folders WHERE account_id = ?1 AND name = ?2",
+                        rusqlite::params![req.account_id as i64, req.name],
+                    )
+                    .map_err(|e| e.to_string())
+                })?;
+                return Ok(Json(serde_json::json!({ "ok": true })));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "IMAP-Löschung '{}' fehlgeschlagen ({}), lösche lokal weiter",
+                    req.name, e
+                );
+            }
+        }
+    } else {
+        tracing::warn!("Kein IMAP-Client — Ordner '{}' wird nur lokal gelöscht", req.name);
+    }
+    // Local fallback: remove the folder rows + EML archives regardless of
+    // the IMAP state (folder may not exist remotely, or no session is up).
+    let deleted = with_db(&state, |conn| {
+        cache::messages::delete_local_folder(conn, &state.data_root, req.account_id as i64, &req.name)
     })?;
-    Ok(Json(serde_json::json!({ "ok": true })))
+    tracing::info!("Ordner '{}' lokal gelöscht ({} Mails)", req.name, deleted);
+    Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted, "local_only": true })))
 }
 
 /// `GET /api/v1/messages/{uid}/raw?account_id=…`
