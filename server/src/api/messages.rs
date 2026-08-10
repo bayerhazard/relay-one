@@ -698,7 +698,36 @@ pub async fn fetch_attachment_content(
     };
     if let Some(raw) = local_eml {
         let attachments = client::parse_message_attachments(raw.as_bytes());
-        if let Some(att) = attachments.iter().find(|a| a.filename == filename) {
+        // Match by filename; if the DB row carries no metadata (filename is
+        // empty — happens when BODYSTRUCTURE provided no names), fall back to
+        // matching by position: the attachments are stored in parse order, so
+        // the k-th DB row corresponds to the k-th parsed attachment.
+        let found = if !filename.is_empty() {
+            attachments.iter().find(|a| a.filename == filename)
+        } else {
+            // Determine our ordinal position among the message's attachments.
+            let ordinal: Option<usize> = {
+                let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
+                let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
+                conn.query_row(
+                    "SELECT COUNT(*) FROM message_attachments WHERE message_id = ?1 AND id <= ?2",
+                    rusqlite::params![
+                        conn.query_row(
+                            "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
+                            rusqlite::params![q.account_id as i64, uid as i64],
+                            |r| r.get::<_, i64>(0),
+                        )
+                        .unwrap_or(0),
+                        att_id as i64,
+                    ],
+                    |r| r.get::<_, i64>(0),
+                )
+                .ok()
+                .map(|c| c.saturating_sub(1) as usize)
+            };
+            ordinal.and_then(|idx| attachments.get(idx))
+        };
+        if let Some(att) = found {
             {
                 let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
                 let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;

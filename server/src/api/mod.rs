@@ -90,6 +90,7 @@ pub fn router() -> Router<AppState> {
         .route("/import/mbox", post(import::import_mbox))
         .route("/import/mbox-dir", post(import::import_mbox_dir))
         .route("/import/attachments-backfill", post(import::attachments_backfill))
+        .route("/cache/clear-ai-summaries", post(settings::clear_ai_summaries))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))
         .route("/archive/backups", get(backup::list_backups))

@@ -281,3 +281,38 @@ pub async fn resolve_carddav(
     })?;
     ok(Ok(serde_json::json!(results)))
 }
+
+/// `POST /api/v1/cache/clear-ai-summaries` — delete ALL AI summaries
+/// (ai_summary, ai_priority, ai_fraud_score) so they are regenerated.
+/// Optionally scoped to one account via `account_id`.
+#[derive(Deserialize)]
+pub struct ClearAiSummariesRequest {
+    #[serde(default)]
+    pub account_id: Option<u32>,
+}
+
+pub async fn clear_ai_summaries(
+    State(state): State<AppState>,
+    Json(req): Json<ClearAiSummariesRequest>,
+) -> crate::api::ApiResult<serde_json::Value> {
+    let cleared = with_db(&state, |conn| {
+        match req.account_id {
+            Some(account_id) => conn
+                .execute(
+                    "UPDATE messages SET ai_summary = NULL, ai_priority = NULL, ai_fraud_score = NULL
+                     WHERE account_id = ?1 AND ai_summary IS NOT NULL",
+                    rusqlite::params![account_id as i64],
+                )
+                .map_err(|e| e.to_string()),
+            None => conn
+                .execute(
+                    "UPDATE messages SET ai_summary = NULL, ai_priority = NULL, ai_fraud_score = NULL
+                     WHERE ai_summary IS NOT NULL",
+                    [],
+                )
+                .map_err(|e| e.to_string()),
+        }
+    })?;
+    tracing::info!("KI-Zusammenfassungen gelöscht ({} Mails)", cleared);
+    Ok(Json(serde_json::json!({ "ok": true, "cleared": cleared })))
+}

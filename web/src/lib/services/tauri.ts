@@ -297,8 +297,9 @@ export async function fetchAttachments(
    uid: number,
    attachmentId: number,
  ): Promise<string> {
-   return get(`/messages/attachment?account_id=${accountId}&uid=${uid}&att_id=${attachmentId}`,
+   const res = await get<{ content?: string }>(`/messages/attachment?account_id=${accountId}&uid=${uid}&att_id=${attachmentId}`,
      "Der Anhang konnte nicht geladen werden.");
+   return res?.content ?? "";
  }
 
 export async function getAttachmentCacheStats(): Promise<{
@@ -315,7 +316,14 @@ export async function cleanupAttachmentCache(maxKeepMb: number): Promise<number>
 
 export async function clearAttachmentCache(): Promise<number> {
    return 0;
- }
+}
+
+export async function clearAiSummaries(accountId?: number): Promise<number> {
+  const res = await post<{ cleared?: number }>("/cache/clear-ai-summaries",
+    accountId != null ? { account_id: accountId } : {},
+    "Die KI-Zusammenfassungen konnten nicht gelöscht werden.");
+  return res?.cleared ?? 0;
+}
 
  export async function saveAttachment(
   filename: string,

@@ -8,7 +8,7 @@ import {
     getCardDavSettings, setCardDavSettings, syncCardDav, getOwnPhoto, saveOwnPhoto,
     getVoiceSettings, saveVoiceSettings,
     resetCircuitBreaker,
-    getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache,
+    getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache, clearAiSummaries,
     setupPush, teardownPush, pushEnabled,
     getDeleteQueue, retryDeleteQueueRow, removeDeleteQueueRow, downloadExport, createBackup, listBackups, restoreBackupSnapshot,
   } from "$lib/services/tauri";
@@ -248,6 +248,23 @@ import {
       console.error("Cache clear failed", e);
     } finally {
       cacheCleaning = false;
+    }
+  }
+
+  let aiSummariesClearing = $state(false);
+  let aiSummariesResult = $state<number | null>(null);
+
+  async function handleClearAiSummaries() {
+    aiSummariesClearing = true;
+    aiSummariesResult = null;
+    try {
+      const cleared = await clearAiSummaries();
+      aiSummariesResult = cleared;
+      setTimeout(() => (aiSummariesResult = null), 6000);
+    } catch (e: unknown) {
+      console.error("KI-Zusammenfassungen löschen fehlgeschlagen", e);
+    } finally {
+      aiSummariesClearing = false;
     }
   }
 
@@ -1393,6 +1410,29 @@ async function handleSaveCardDav() {
               </button>
               <button type="button" class="btn-danger" onclick={handleClearCache} disabled={cacheCleaning}>
                 {cacheCleaning ? "Lösche…" : "Cache komplett leeren"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Card: KI-Zusammenfassungen -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>KI-Zusammenfassungen</h3>
+            <p class="card-desc">Alle KI-Zusammenfassungen (inkl. Prioritäten &amp; Betrugserkennung) löschen, damit sie neu generiert werden. Nützlich, wenn die Zusammenfassungen durcheinander sind.</p>
+          </div>
+
+          <div class="card-body">
+            {#if aiSummariesResult !== null}
+              <div class="alert-box success">
+                <div class="alert-icon">✓</div>
+                <div class="alert-text">{aiSummariesResult} Zusammenfassung(en) gelöscht. Sie werden bei den nächsten Ordner-Besuchen neu generiert.</div>
+              </div>
+            {/if}
+
+            <div class="form-actions-row">
+              <button type="button" class="btn-danger" onclick={handleClearAiSummaries} disabled={aiSummariesClearing}>
+                {aiSummariesClearing ? "Lösche…" : "Alle KI-Zusammenfassungen löschen"}
               </button>
             </div>
           </div>
