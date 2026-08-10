@@ -1239,9 +1239,16 @@ async fn delete_message_archive_trash(
     .unwrap_or(None);
 
     // 1. Locally move the row into the local Trash folder (EML stays).
+    //    Scoped to the source folder — uid is only unique per folder, so
+    //    without the scope every message sharing this uid (across folders)
+    //    would be moved/orphaned.
     with_db(state, |conn| {
-        cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
-            .map_err(|e| e.to_string())
+        match source_folder.as_deref() {
+            Some(src) => cache::messages::update_folder_from(conn, account_id_i64, uid_i64, src, "Trash")
+                .map_err(|e| e.to_string()),
+            None => cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
+                .map_err(|e| e.to_string()),
+        }
     })?;
 
     // 2. Enqueue provider deletion (verified by the worker before hard delete).

@@ -630,9 +630,36 @@ pub fn update_folder(
     uid: i64,
     folder: &str,
 ) -> Result<(), rusqlite::Error> {
+    // Ensure the target folder exists — otherwise the subquery below yields
+    // NULL and the row is silently orphaned (invisible in every folder).
+    // Local folders (Trash, migration targets) are created as local-only so
+    // the sync never prunes them.
+    create_local_folder(conn, account_id, folder)?;
     conn.execute(
         "UPDATE messages SET folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2), updated_at = datetime('now') WHERE account_id = ?3 AND uid = ?4",
         params![account_id, folder, account_id, uid],
+    )?;
+    Ok(())
+}
+
+/// Move the message row into `folder`, scoped to ONE source folder.
+/// UIDs are only unique per folder — without the source scope an UPDATE by
+/// uid alone would move EVERY message that shares the uid across all folders.
+pub fn update_folder_from(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    source_folder: &str,
+    folder: &str,
+) -> Result<(), rusqlite::Error> {
+    create_local_folder(conn, account_id, folder)?;
+    conn.execute(
+        "UPDATE messages
+         SET folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2),
+             updated_at = datetime('now')
+         WHERE account_id = ?3 AND uid = ?4
+           AND folder_id = (SELECT id FROM folders WHERE account_id = ?3 AND name = ?5)",
+        params![account_id, folder, account_id, uid, source_folder],
     )?;
     Ok(())
 }
