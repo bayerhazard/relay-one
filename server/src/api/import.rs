@@ -174,8 +174,21 @@ pub async fn import_mbox_dir(
     // containing the actual mbox file as `X.mbox/mbox` (+ table_of_contents).
     // Nested mailboxes become nested directories (e.g. `Beta Tests/Ecovacs Goat.mbox`).
     // We walk the tree and collect (display-folder-path, absolute-mbox-file).
+    //
+    // If `dir` itself points at a single Apple mailbox directory (it contains
+    // a file literally named `mbox`), import just that one mailbox as a folder
+    // named after the directory (e.g. "Mails/Gesendet.mbox" -> "Gesendet").
     let mut boxes: Vec<(String, std::path::PathBuf)> = Vec::new();
-    collect_apple_mailboxes(&dir, "", &mut boxes)?;
+    if dir.join("mbox").is_file() {
+        let raw_name = dir
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let folder = raw_name.trim_end_matches(".mbox").to_string();
+        boxes.push((folder, dir.join("mbox")));
+    } else {
+        collect_apple_mailboxes(&dir, "", &mut boxes)?;
+    }
     boxes.sort_by(|a, b| a.0.cmp(&b.0));
 
     if boxes.is_empty() {
