@@ -449,33 +449,119 @@ fn test_cache_survives_imap_failure_scenario() {
 }
 
 #[test]
-fn test_unique_constraint_prevents_duplicate_uid_per_account() {
-    // The UNIQUE(account_id, uid) constraint on messages should prevent
-    // inserting two rows with the same account_id + uid.
+fn test_unique_constraint_allows_same_uid_in_different_folders() {
+    // IMAP-UIDs are unique per folder, not per account: the same uid may
+    // exist in INBOX and in another folder. The constraint is now
+    // UNIQUE(account_id, folder_id, uid).
     let conn = setup_db();
     let account_id = create_test_account(&conn, "unique");
 
     let msg1 = make_cached_message(1, "First", "a@test.com", "Body 1");
     save_message(&conn, account_id, &msg1, "INBOX").unwrap();
 
-    // Direct INSERT with same account_id + uid should fail
+    // Same uid in a DIFFERENT folder must be allowed.
+    let msg2 = make_cached_message(1, "Other folder same uid", "b@test.com", "Body 2");
+    save_message(&conn, account_id, &msg2, "SENT").unwrap();
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND uid = 1",
+            rusqlite::params![account_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2, "same uid in two folders must both persist");
+
+    // Direct INSERT with same account_id + folder_id + uid should fail.
     let dup_result = conn.execute(
         "INSERT INTO messages (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date, body_text, is_read, synced)
-         VALUES (?1, 1, 1, '<dup@test.com>', 'Duplicate', 'b@test.com', 'c@test.com', '2025-01-01', 'dup body', 0, 1)",
+         VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'INBOX'), 1, '<dup@test.com>', 'Duplicate', 'b@test.com', 'c@test.com', '2025-01-01', 'dup body', 0, 1)",
         rusqlite::params![account_id],
     );
     assert!(
         dup_result.is_err(),
-        "duplicate account_id+uid should be rejected by UNIQUE constraint"
+        "duplicate account_id+folder_id+uid should be rejected by UNIQUE constraint"
     );
 
-    // But upsert via save_message should succeed (ON CONFLICT DO UPDATE)
-    let msg2 = make_cached_message(1, "Updated via upsert", "a@test.com", "Body updated");
-    save_message(&conn, account_id, &msg2, "INBOX").unwrap();
+    // Upsert via save_message on the same folder still updates in place.
+    let msg3 = make_cached_message(1, "Updated via upsert", "a@test.com", "Body updated");
+    save_message(&conn, account_id, &msg3, "INBOX").unwrap();
     let fetched = fetch_message_body(&conn, account_id, 1)
         .unwrap()
         .expect("message should exist after upsert");
     assert_eq!(fetched.subject.as_deref(), Some("Updated via upsert"));
+}
+
+#[test]
+fn test_migration_rebuilds_messages_unique_constraint() {
+    // Simulate an old-schema database: messages with UNIQUE(account_id, uid),
+    // two folders sharing the same uid range, then run the migration and
+    // verify both rows survive and the new constraint is in place.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+            imap_host TEXT NOT NULL, imap_port INTEGER NOT NULL DEFAULT 993, imap_ssl INTEGER NOT NULL DEFAULT 1,
+            smtp_host TEXT NOT NULL, smtp_port INTEGER NOT NULL DEFAULT 587, smtp_tls INTEGER NOT NULL DEFAULT 1,
+            username TEXT NOT NULL, password TEXT NOT NULL, smtp_username TEXT NOT NULL DEFAULT '',
+            smtp_password TEXT NOT NULL DEFAULT '', sender_name TEXT NOT NULL DEFAULT '',
+            sender_email TEXT NOT NULL DEFAULT '', sync_mode TEXT NOT NULL DEFAULT 'mirror',
+            trash_retention_days INTEGER NOT NULL DEFAULT 30, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+        CREATE TABLE folders (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL,
+            name TEXT NOT NULL, imap_id TEXT, local_only INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            folder_id INTEGER DEFAULT 1,
+            uid INTEGER NOT NULL,
+            message_id TEXT, subject TEXT, from_addr TEXT, to_addr TEXT, date TEXT,
+            body_text TEXT, body_html TEXT, flags TEXT DEFAULT '[]', ai_summary TEXT, ai_priority REAL,
+            ai_fraud_score REAL, is_read INTEGER NOT NULL DEFAULT 0, is_flagged INTEGER NOT NULL DEFAULT 0,
+            synced INTEGER NOT NULL DEFAULT 0, has_attachments INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(account_id, uid));
+        INSERT INTO accounts (name, imap_host, imap_port, imap_ssl, smtp_host, smtp_port, smtp_tls, username, password) VALUES ('a','h',993,1,'h',587,1,'u','p');
+        INSERT INTO folders (account_id, name) VALUES (1, 'INBOX'), (1, 'SENT');
+        INSERT INTO messages (account_id, folder_id, uid, subject, synced) VALUES (1, 1, 1, 'inbox-1', 1);
+        INSERT INTO messages (account_id, folder_id, uid, subject, synced) VALUES (1, 2, 3, 'sent-1', 1);
+        INSERT INTO messages (account_id, folder_id, uid, subject, synced) VALUES (1, 1, 2, 'inbox-2', 1);
+        INSERT INTO messages (account_id, folder_id, uid, subject, synced) VALUES (1, 2, 4, 'sent-2', 1);
+    ",
+    )
+    .unwrap();
+
+    // Add the remaining tables init_db expects (accounts/folders exist above;
+    // init_db is idempotent for the rest). Foreign keys off in-memory default.
+    db::init_db(&conn).unwrap();
+
+    // Migration must have run: all 4 rows survive, old constraint is gone.
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 4, "all (folder_id, uid) combos survive the rebuild");
+
+    // New constraint is UNIQUE(account_id, folder_id, uid): the same uid can
+    // now exist in a different folder of the same account.
+    conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject, synced) VALUES (1, 2, 1, 'sent-uid1-after-migrate', 1)",
+        [],
+    )
+    .unwrap();
+    let sent: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE folder_id = 2 AND uid = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(sent, 1, "same uid in a different folder must be allowed after migration");
+
+    // Same (account, folder, uid) still rejected.
+    let dup = conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject) VALUES (1, 1, 1, 'dup')",
+        [],
+    );
+    assert!(dup.is_err(), "new UNIQUE(account_id, folder_id, uid) must reject dup");
 }
 
 #[test]

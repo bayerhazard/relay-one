@@ -54,7 +54,7 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             has_attachments INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(account_id, uid)
+            UNIQUE(account_id, folder_id, uid)
         );
 
         CREATE TABLE IF NOT EXISTS ai_audit_log (
@@ -260,8 +260,99 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Migration: local-only folders carry NULL imap_id and are not synced from IMAP.
     let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
 
+    migrate_messages_uid_constraint(conn);
+
     init_fts(conn);
 
+    Ok(())
+}
+
+/// Migration: IMAP-UIDs are unique per folder, not per account. The old
+/// `UNIQUE(account_id, uid)` constraint silently merged messages from
+/// different folders that share the same UID range (INSERT OR IGNORE /
+/// ON CONFLICT hit it) — messages "vanished" from their folder. Rebuild the
+/// messages table with `UNIQUE(account_id, folder_id, uid)`.
+///
+/// Detection: PRAGMA index_list lists the auto index `sqlite_autoindex_messages_1`
+/// only when the table-level UNIQUE constraint exists. If present, rebuild the
+/// table, preserving one row per (account_id, folder_id, uid) — the newest
+/// (by id) wins, others are dropped.
+fn migrate_messages_uid_constraint(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let has_old: bool = {
+        let mut stmt = conn.prepare(
+            "SELECT name FROM pragma_index_list('messages') WHERE name LIKE 'sqlite_autoindex_messages_%'",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut found = false;
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(0)?;
+            // The old table-level UNIQUE(account_id, uid) produces this auto
+            // index. A table-level UNIQUE(account_id, folder_id, uid) also
+            // produces one — check its columns to distinguish.
+            let mut cols = conn.prepare("SELECT name FROM pragma_index_info(?)")?;
+            let mut col_rows = cols.query(rusqlite::params![&name])?;
+            let mut colnames = Vec::new();
+            while let Some(c) = col_rows.next()? {
+                colnames.push(c.get::<_, String>(0)?);
+            }
+            if colnames == ["account_id", "uid"] {
+                found = true;
+            }
+        }
+        found
+    };
+    if !has_old {
+        return Ok(());
+    }
+    tracing::info!("migrate: messages UNIQUE(account_id, uid) -> UNIQUE(account_id, folder_id, uid) — Tabelle wird neu aufgebaut");
+    conn.execute_batch(
+        "BEGIN;
+        ALTER TABLE messages RENAME TO messages_old;
+
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            folder_id INTEGER DEFAULT 1,
+            uid INTEGER NOT NULL,
+            message_id TEXT,
+            subject TEXT,
+            from_addr TEXT,
+            to_addr TEXT,
+            date TEXT,
+            body_text TEXT,
+            body_html TEXT,
+            flags TEXT DEFAULT '[]',
+            ai_summary TEXT,
+            ai_priority REAL,
+            ai_fraud_score REAL,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            is_flagged INTEGER NOT NULL DEFAULT 0,
+            synced INTEGER NOT NULL DEFAULT 0,
+            has_attachments INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(account_id, folder_id, uid)
+        );
+
+        INSERT INTO messages (
+            id, account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
+            body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+            is_read, is_flagged, synced, has_attachments, created_at, updated_at
+        )
+        SELECT
+            m.id, m.account_id, m.folder_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.date,
+            m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority, m.ai_fraud_score,
+            m.is_read, m.is_flagged, m.synced, m.has_attachments, m.created_at, m.updated_at
+        FROM messages_old m
+        WHERE m.id IN (
+            SELECT MAX(id) FROM messages_old
+            GROUP BY account_id, folder_id, uid
+        );
+
+        DROP TABLE messages_old;
+        COMMIT;",
+    )?;
+    tracing::info!("migrate: messages-Tabelle neu aufgebaut (folder_id im UNIQUE)");
     Ok(())
 }
 

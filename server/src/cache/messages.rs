@@ -59,7 +59,7 @@ fn save_message_inner(conn: &Connection, account_id: i64, msg: &CachedMessage, f
             body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
             is_read, is_flagged, has_attachments, synced
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1)
-ON CONFLICT(account_id, uid) DO UPDATE SET
+ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             folder_id = excluded.folder_id,
             subject = excluded.subject,
             from_addr = excluded.from_addr,
@@ -439,7 +439,7 @@ pub fn restore_message(
             body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
             is_read, synced
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-        ON CONFLICT(account_id, uid) DO UPDATE SET
+        ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             folder_id = excluded.folder_id,
             subject = excluded.subject,
             from_addr = excluded.from_addr,
