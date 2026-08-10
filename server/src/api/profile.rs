@@ -40,6 +40,7 @@ pub async fn get_own_photo(State(state): State<AppState>) -> ApiResult<serde_jso
 
 /// `POST /api/v1/profile/photo` — save the profile photo.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SavePhotoRequest {
     pub photo_base64: String,
     pub photo_type: String,

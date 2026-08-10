@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::cache;
 use crate::cache::messages::MessageRecord;
+use sha2::Digest as _;
 use crate::db::{get_db, with_db};
 use crate::imap::client;
 use crate::AppState;
@@ -871,7 +872,143 @@ pub async fn move_cross_account(
             .map_err(|e| ApiError(e.to_string()))?
     };
 
-    // 2. Append to the target account's folder.
+    // 2. Determine whether the target folder is a LOCAL-only folder (e.g. a
+    //    migration target or a locally created folder that has no IMAP
+    //    counterpart). For those, an IMAP APPEND would fail with "folder does
+    //    not exist" — instead copy the message into the target account's local
+    //    archive (EML + DB row), byte-identical.
+    let target_is_local = with_db(&state, |conn| {
+        Ok(conn
+            .query_row(
+                "SELECT local_only FROM folders WHERE account_id = ?1 AND name = ?2",
+                rusqlite::params![req.target_account_id as i64, req.target_folder],
+                |row| row.get::<_, i32>(0),
+            )
+            .unwrap_or(0)
+            == 1)
+    })
+    .unwrap_or(false);
+
+    if target_is_local {
+        // Local cross-account move: write EML into the target archive.
+        let (subject, from_addr, to_addr, date, mid, raw_sha256, raw_rel) = with_db(&state, |conn| {
+            Ok((
+                conn.query_row(
+                    "SELECT subject FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT from_addr FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT to_addr FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT date FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT message_id FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT raw_sha256 FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+                conn.query_row(
+                    "SELECT raw_path FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![req.account_id as i64, req.uid as i64],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap_or(None),
+            ))
+        })
+        .map_err(|e: String| ApiError(e))?;
+
+        let date_str = date.as_deref();
+        let mid_str = mid.as_deref();
+        let target_path = crate::cache::archive::write_eml(
+            &state.data_root,
+            req.target_account_id as i64,
+            req.uid,
+            date_str,
+            mid_str,
+            raw.as_bytes(),
+        )
+        .map_err(|e| ApiError(e.to_string()))?;
+
+        let rel = target_path
+            .strip_prefix(&state.data_root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| target_path.to_string_lossy().to_string());
+
+        let mut h = sha2::Sha256::new();
+        h.update(&raw);
+        let computed_sha = format!("{:x}", h.finalize());
+        let verify_sha = raw_sha256.clone().unwrap_or(computed_sha.clone());
+
+        with_db(&state, |conn| {
+            let folder_id: i64 = conn
+                .query_row(
+                    "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                    rusqlite::params![req.target_account_id as i64, req.target_folder],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            conn.execute(
+                "INSERT OR IGNORE INTO messages
+                 (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
+                  body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+                  is_read, is_flagged, has_attachments, synced, raw_path, raw_sha256)
+                 VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                   (SELECT body_text FROM messages WHERE account_id = ?9 AND uid = ?3),
+                   (SELECT body_html FROM messages WHERE account_id = ?9 AND uid = ?3),
+                   ?10, NULL, NULL, NULL, ?11, ?12, ?13, 0, ?14, ?15
+                 )",
+                rusqlite::params![
+                    req.target_account_id as i64, folder_id, req.uid as i64,
+                    mid, subject, from_addr, to_addr, date,
+                    req.account_id as i64,
+                    "[]", 0i32, 0i32, 0i32,
+                    rel, verify_sha,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<(), String>(())
+        })
+        .map_err(|e: String| ApiError(e))?;
+
+        // 3. Delete the source copy (hard) — from the local DB only. The
+        //    source account's EML stays (source account untouched on IMAP).
+        with_db(&state, |conn| {
+            conn.execute(
+                "DELETE FROM messages WHERE account_id = ?1 AND uid = ?2",
+                rusqlite::params![req.account_id as i64, req.uid as i64],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<(), String>(())
+        })
+        .map_err(|e: String| ApiError(e))?;
+
+        return Ok(Json(()));
+    }
+
+    // 3. (non-local target) Append to the target account's IMAP folder.
     {
         let client = state
             .imap_clients
@@ -887,7 +1024,7 @@ pub async fn move_cross_account(
             .map_err(|e| ApiError(format!("Append zum Ziel fehlgeschlagen: {}", e)))?;
     }
 
-    // 3. Delete the source copy (hard).
+    // 4. Delete the source copy (hard).
     {
         let client = state
             .imap_clients
@@ -898,7 +1035,7 @@ pub async fn move_cross_account(
         let _ = client.hard_delete_message(req.uid, &req.source_folder).await;
     }
 
-    // 4. Update local cache: move the row to the target account's folder.
+    // 5. Update local cache: move the row to the target account's folder.
     with_db(&state, |conn| {
         let folder_id: i64 = conn
             .query_row(

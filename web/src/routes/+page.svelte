@@ -2147,7 +2147,9 @@ let sentFolderName = $state<string | null>(null);
     <div class="ctx-menu-scrim" role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" style="left: {folderCtxMenu.x}px; top: {folderCtxMenu.y}px;" role="menu">
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu.folderName); }}>Neuer Ordner...</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu.folderName); closeMenus(); }}>Umbenennen...</button>
+      {#if folderCtxMenu.folderName !== "INBOX"}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu.folderName); closeMenus(); }}>Umbenennen...</button>
+      {/if}
       {#if customFolderNames[folderCtxMenu.folderName]}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu.folderName)}>Name zurücksetzen</button>
       {/if}

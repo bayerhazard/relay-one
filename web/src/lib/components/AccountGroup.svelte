@@ -91,6 +91,7 @@
     class:active={selectedFolder === "INBOX"}
     onclick={handleInboxClick}
     ondblclick={handleRootDblClick}
+    oncontextmenu={(e) => onContextMenu?.(e, "INBOX")}
     role="button"
     tabindex="0"
     onkeydown={(e) => {
