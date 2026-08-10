@@ -202,13 +202,14 @@ impl ImapClient {
         let mut uids: Vec<u32> = uid_set.into_iter().collect();
         uids.sort_unstable();
 
-        let selected: Vec<&u32> = if since_uid > 0 {
-            // Incremental: process in ascending order (no gaps)
-            uids.iter().take(limit as usize).collect()
-        } else {
-            // Initial: take the newest messages
-            uids.iter().rev().take(limit as usize).collect()
-        };
+        // Process in ascending UID order in both cases. For the initial sync
+        // (since_uid == 0) this means the OLDEST messages are fetched first;
+        // the sync scheduler writes back `last_uid` after each batch, so the
+        // NEXT cycle continues with `UID {last+1}:*` — the folder is filled
+        // completely over successive cycles (no messages are ever skipped,
+        // unlike the old `.rev().take(limit)` which only ever grabbed the
+        // newest `limit` messages).
+        let selected: Vec<&u32> = uids.iter().take(limit as usize).collect();
 
         let uid_list = selected.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
 

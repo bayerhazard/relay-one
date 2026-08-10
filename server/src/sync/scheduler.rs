@@ -871,6 +871,21 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
                         crate::cache::messages::save_message(&tx, task.account_id as i64, msg, folder_name)
                             .map_err(|e| e.to_string())?;
                     }
+                    // Advance the per-folder sync cursor to the highest UID of
+                    // THIS batch, so the next cycle continues with the next
+                    // slice (`UID {last+1}:*`) instead of re-fetching the same
+                    // messages or skipping older ones. Without this the sync
+                    // never progresses past the first batch.
+                    if let Some(max_uid) = messages.iter().map(|m| m.uid).max() {
+                        crate::cache::sync_state::set(
+                            &tx,
+                            task.account_id as i64,
+                            folder_name,
+                            max_uid as i64,
+                            0,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                     tx.commit().map_err(|e| e.to_string())?;
                 }
 

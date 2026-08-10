@@ -1213,7 +1213,7 @@ let sentFolderName = $state<string | null>(null);
       // Read from cache only — the sync scheduler keeps the cache up-to-date
       // via periodic IMAP fetches. This avoids redundant IMAP calls that cause
       // TagMismatch errors (imap crate bug) and blocks the sync scheduler.
-      const msgs = await fetchMessages(reqAccount, 100, 0, reqFolder);
+      const msgs = await fetchMessages(reqAccount, 10000, 0, reqFolder);
       // Re-check after the await: only apply if still the active selection.
       if (reqFolder !== selectedFolder || reqAccount !== selectedAccountId) return;
       // Always update the store — setMessages() preserves body_text/body_html
@@ -1287,7 +1287,7 @@ let sentFolderName = $state<string | null>(null);
   async function loadInbox() {
     mailbox.setLoading(true);
     try {
-      const msgs = await fetchMessages(selectedAccountId, 100, 0, selectedFolder);
+      const msgs = await fetchMessages(selectedAccountId, 10000, 0, selectedFolder);
       mailbox.setMessages(msgs, selectedFolder);
       updateBadgeCount(selectedAccountId).catch(() => {});
     } catch (e: unknown) {

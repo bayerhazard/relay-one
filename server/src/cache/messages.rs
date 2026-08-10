@@ -31,6 +31,11 @@ pub fn save_message(conn: &Connection, account_id: i64, msg: &CachedMessage, fol
     if result.is_ok() {
         conn.execute("RELEASE SAVEPOINT save_message", [])?;
     } else {
+        let err_text = result.as_ref().err().map(|e| e.to_string()).unwrap_or_default();
+        tracing::warn!(
+            "save_message FEHLER (account {}, folder '{}', uid {}): {}",
+            account_id, folder_name, msg.uid, err_text
+        );
         conn.execute("ROLLBACK TO SAVEPOINT save_message", [])?;
     }
     result
