@@ -262,6 +262,11 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
 
     migrate_messages_uid_constraint(conn);
 
+    // Repair: a previous rebuild (before raw_path/raw_sha256 were included in
+    // the table definition) left the messages table without those columns.
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
+
     init_fts(conn);
 
     Ok(())
@@ -301,10 +306,23 @@ fn migrate_messages_uid_constraint(conn: &Connection) -> Result<(), rusqlite::Er
         }
         found
     };
+    // Stale FTS triggers (pointing at messages_old after a previous partial
+    // rebuild) must be dropped even when no rebuild is needed — init_fts()
+    // recreates them afterwards. Idempotent.
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ai", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_au", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ad", []);
     if !has_old {
         return Ok(());
     }
     tracing::info!("migrate: messages UNIQUE(account_id, uid) -> UNIQUE(account_id, folder_id, uid) — Tabelle wird neu aufgebaut");
+    // Drop FTS triggers first: SQLite rewrites trigger/VIEW references during
+    // RENAME TO, so the old triggers would point at messages_old afterwards
+    // and fire with "no such table" on every INSERT. init_fts() recreates
+    // them after the rebuild.
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ai", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_au", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ad", []);
     conn.execute_batch(
         "BEGIN;
         ALTER TABLE messages RENAME TO messages_old;
@@ -329,6 +347,8 @@ fn migrate_messages_uid_constraint(conn: &Connection) -> Result<(), rusqlite::Er
             is_flagged INTEGER NOT NULL DEFAULT 0,
             synced INTEGER NOT NULL DEFAULT 0,
             has_attachments INTEGER NOT NULL DEFAULT 0,
+            raw_path TEXT,
+            raw_sha256 TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(account_id, folder_id, uid)
@@ -337,12 +357,12 @@ fn migrate_messages_uid_constraint(conn: &Connection) -> Result<(), rusqlite::Er
         INSERT INTO messages (
             id, account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
             body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
-            is_read, is_flagged, synced, has_attachments, created_at, updated_at
+            is_read, is_flagged, synced, has_attachments, raw_path, raw_sha256, created_at, updated_at
         )
         SELECT
             m.id, m.account_id, m.folder_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.date,
             m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority, m.ai_fraud_score,
-            m.is_read, m.is_flagged, m.synced, m.has_attachments, m.created_at, m.updated_at
+            m.is_read, m.is_flagged, m.synced, m.has_attachments, m.raw_path, m.raw_sha256, m.created_at, m.updated_at
         FROM messages_old m
         WHERE m.id IN (
             SELECT MAX(id) FROM messages_old
@@ -352,6 +372,12 @@ fn migrate_messages_uid_constraint(conn: &Connection) -> Result<(), rusqlite::Er
         DROP TABLE messages_old;
         COMMIT;",
     )?;
+    // The rebuild dropped the FTS triggers; init_fts() (called after this
+    // migration) recreates them. Drop the stale ones again in case a previous
+    // partial run left references to messages_old behind (idempotent).
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ai", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_au", []);
+    let _ = conn.execute("DROP TRIGGER IF EXISTS messages_fts_ad", []);
     tracing::info!("migrate: messages-Tabelle neu aufgebaut (folder_id im UNIQUE)");
     Ok(())
 }
