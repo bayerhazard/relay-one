@@ -164,7 +164,7 @@ impl ImapClient {
     }
 
     pub async fn select_folder(&self, folder: &str) -> Result<(), AppError> {
-        let folder = folder.to_string();
+        let folder = encode_imap_utf7(folder);
         self.with_session_blocking("select_folder", move |session| {
             session
                 .select(&folder)
@@ -334,7 +334,7 @@ impl ImapClient {
     /// lock). Avoids the race where another thread selects a different
     /// folder between our SELECT and UID SEARCH.
     pub async fn fetch_all_uids_in_folder(&self, folder: &str) -> Result<Vec<u32>, AppError> {
-        let folder = folder.to_string();
+        let folder = encode_imap_utf7(folder);
         self.with_session_blocking("fetch_all_uids_in_folder", move |session| {
             session
                 .select(&folder)
@@ -375,6 +375,7 @@ impl ImapClient {
         uid: u32,
         folder: Option<String>,
     ) -> Result<(String, Option<String>, Vec<u8>), AppError> {
+        let folder = folder.map(|f| encode_imap_utf7(&f));
         self.with_session_blocking("fetch_body_with_raw", move |session| {
             if let Some(f) = folder {
                 session
@@ -476,6 +477,7 @@ impl ImapClient {
         folder: Option<String>,
     ) -> Result<(), AppError> {
         let flag = flag.to_string();
+        let folder = folder.map(|f| encode_imap_utf7(&f));
         self.with_session_blocking("mark_flag", move |session| {
             if let Some(ref f) = folder {
                 session
@@ -522,6 +524,7 @@ impl ImapClient {
     }
 
     pub async fn delete_message(&self, uid: u32, folder: &str) -> Result<(), AppError> {
+        let folder = encode_imap_utf7(folder);
         #[cfg(test)]
         if let Some(ref o) = self.test_override {
             if o.fail_delete {
@@ -556,7 +559,7 @@ impl ImapClient {
     /// Falls back to false on any error (the caller then polls normally).
     /// The read timeout is restored afterwards so the session stays reusable.
     pub async fn idle_wait(&self, folder: &str, timeout: std::time::Duration) -> bool {
-        let folder = folder.to_string();
+        let folder = encode_imap_utf7(folder);
         let result = self.with_session_blocking("idle_wait", move |session| {
             session
                 .select(&folder)
@@ -573,8 +576,8 @@ impl ImapClient {
     }
 
     pub async fn move_message(&self, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
-        let source = source.to_string();
-        let target = target.to_string();
+        let source = encode_imap_utf7(source);
+        let target = encode_imap_utf7(target);
         self.with_session_blocking("move_message", move |session| {
             session
                 .select(&source)
@@ -745,7 +748,7 @@ impl ImapClient {
     }
 
     pub async fn create_folder(&self, name: &str) -> Result<(), AppError> {
-        let name = name.to_string();
+        let name = encode_imap_utf7(name);
         self.with_session_blocking("create_folder", move |session| {
             session
                 .create(&name)
@@ -756,7 +759,8 @@ impl ImapClient {
     }
 
     pub async fn rename_folder(&self, old_name: &str, new_name: &str) -> Result<(), AppError> {
-        let old_name = old_name.to_string();        let new_name = new_name.to_string();
+        let old_name = encode_imap_utf7(old_name);
+        let new_name = encode_imap_utf7(new_name);
         self.with_session_blocking("rename_folder", move |session| {
             session
                 .rename(&old_name, &new_name)
@@ -769,7 +773,7 @@ impl ImapClient {
     /// Delete a folder on the provider (IMAP DELETE). Note: the provider may
     /// refuse if the mailbox contains messages or has inferior children.
     pub async fn delete_folder(&self, name: &str) -> Result<(), AppError> {
-        let name = name.to_string();
+        let name = encode_imap_utf7(name);
         self.with_session_blocking("delete_folder", move |session| {
             session
                 .delete(&name)
@@ -1606,7 +1610,7 @@ fn decode_imap_utf7(input: &str) -> String {
             match end {
                 Some(0) => {
                     result.push('&');
-                    i += 1;
+                    i += 2;
                 }
                 Some(len) => {
                     let encoded = &input[i + 1..i + len];
@@ -1614,14 +1618,35 @@ fn decode_imap_utf7(input: &str) -> String {
                         result.push('&');
                         i += 2;
                     } else {
-                        let b64 = encoded.replace(',', "/");
+                        // IMAP-UTF-7 (RFC 3501 §5.1.3) encodes characters as
+                        // base64 of their UTF-16BE bytes, using a modified
+                        // alphabet (',' instead of '/') and NO padding. The
+                        // STANDARD decoder needs padding — append it — and
+                        // the result must be decoded as UTF-16BE, not UTF-8
+                        // (e.g. '&APw-' = [0x00, 0xFC] = ü; interpreting it
+                        // as UTF-8 fails and the char was silently dropped:
+                        // "Entw&APw-rfe" -> "Entwfe").
+                        let mut b64 = encoded.replace(',', "/").to_string();
+                        while b64.len() % 4 != 0 {
+                            b64.push('=');
+                        }
                         use base64::Engine;
                         if let Ok(vec) = base64::engine::general_purpose::STANDARD.decode(&b64) {
-                            if let Ok(s) = std::str::from_utf8(&vec) {
-                                result.push_str(&s);
+                            if vec.len() % 2 == 0 {
+                                let mut utf16: Vec<u16> = Vec::with_capacity(vec.len() / 2);
+                                for chunk in vec.chunks_exact(2) {
+                                    utf16.push(((chunk[0] as u16) << 8) | chunk[1] as u16);
+                                }
+                                if let Ok(s) = String::from_utf16(&utf16) {
+                                    result.push_str(&s);
+                                }
                             }
                         }
-                        i += len + 2;
+                        // `len` is the relative index of the terminating '-'
+                        // in bytes[i..] — skipping i += len + 1 moves past
+                        // '&' + encoded + '-'. (len + 2 would eat one
+                        // following character: "Entw&APw-rfe" -> "Entwüfe".)
+                        i += len + 1;
                     }
                 }
                 None => {
@@ -1638,6 +1663,53 @@ fn decode_imap_utf7(input: &str) -> String {
             i += 1;
         }
     }
+    result
+}
+
+/// Encode a UTF-8 string as IMAP-UTF-7 (RFC 3501 §5.1.3): non-ASCII runs are
+/// base64-encoded (modified alphabet: ',' instead of '/', no padding) between
+/// '&' and '-'. '&' itself becomes '&-'.
+///
+/// Needed before sending folder names to IMAP commands (RENAME, SELECT,
+/// CREATE, APPEND) — the server rejects raw UTF-8 ("unsupported folder name").
+pub fn encode_imap_utf7(input: &str) -> String {
+    let mut result = String::new();
+    let mut ascii_buf = String::new();
+
+    fn flush_ascii(result: &mut String, ascii_buf: &mut String) {
+        if !ascii_buf.is_empty() {
+            result.push_str(ascii_buf);
+            ascii_buf.clear();
+        }
+    }
+
+    for ch in input.chars() {
+        if ch == '&' {
+            flush_ascii(&mut result, &mut ascii_buf);
+            result.push_str("&-");
+        } else if ch.is_ascii() {
+            ascii_buf.push(ch);
+        } else {
+            flush_ascii(&mut result, &mut ascii_buf);
+            // UTF-16BE bytes of the char, base64 with modified alphabet.
+            let mut buf = [0u16; 2];
+            let units = ch.encode_utf16(&mut buf);
+            let mut raw = Vec::with_capacity(units.len() * 2);
+            for &u in units.iter() {
+                raw.push((u >> 8) as u8);
+                raw.push((u & 0xff) as u8);
+            }
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD
+                .encode(&raw)
+                .trim_end_matches('=')
+                .replace('/', ",");
+            result.push('&');
+            result.push_str(&b64);
+            result.push('-');
+        }
+    }
+    flush_ascii(&mut result, &mut ascii_buf);
     result
 }
 
@@ -1966,3 +2038,40 @@ fn hex_to_byte(b1: u8, b2: u8) -> Option<u8> {
 }
 
 
+
+#[cfg(test)]
+mod utf7_tests {
+    use super::*;
+
+    #[test]
+    fn decode_gmx_umlaut_folders() {
+        // GMX sends folder names as IMAP-UTF-7 (no base64 padding).
+        // The old decoder dropped the umlaut: "Entwfe" instead of "Entwürfe".
+        assert_eq!(decode_imap_utf7("Entw&APw-rfe"), "Entwürfe");
+        assert_eq!(decode_imap_utf7("Gel&APY-scht"), "Gelöscht");
+        assert_eq!(decode_imap_utf7("&ANw-"), "Ü");
+        assert_eq!(decode_imap_utf7("&AOQ-"), "ä");
+        assert_eq!(decode_imap_utf7("Plain"), "Plain");
+        assert_eq!(decode_imap_utf7("A&-B"), "A&B");
+    }
+
+    #[test]
+    fn encode_umlaut_folders() {
+        // Round-trip: encode(utf8) must produce what the server expects.
+        assert_eq!(encode_imap_utf7("Entwürfe"), "Entw&APw-rfe");
+        assert_eq!(encode_imap_utf7("Gelöscht"), "Gel&APY-scht");
+        assert_eq!(encode_imap_utf7("ä"), "&AOQ-");
+        assert_eq!(encode_imap_utf7("Ü"), "&ANw-");
+        assert_eq!(encode_imap_utf7("Plain"), "Plain");
+        assert_eq!(encode_imap_utf7("A&B"), "A&-B");
+    }
+
+    #[test]
+    fn encode_decode_roundtrip() {
+        for name in ["Entwürfe", "Gelöscht", "Müller & Söhne", "Privat", "Bikes", "Haus und Hof"] {
+            let encoded = encode_imap_utf7(name);
+            let decoded = decode_imap_utf7(&encoded);
+            assert_eq!(decoded, name, "roundtrip fehlgeschlagen für {}", name);
+        }
+    }
+}
