@@ -81,21 +81,24 @@ pub async fn import_mbox_dir(
     Json(req): Json<MboxDirRequest>,
 ) -> crate::api::ApiResult<serde_json::Value> {
     let dir = state.data_root.join(&req.dir);
-    let entries = std::fs::read_dir(&dir)
-        .map_err(|e| crate::api::ApiError(format!("Verzeichnis {} nicht lesbar: {}", dir.display(), e)))?;
-
-    let mut files: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.to_lowercase().ends_with(".mbox") {
-            files.push(name);
-        }
-    }
-    files.sort();
-
-    if files.is_empty() {
+    if !dir.exists() {
         return Err(crate::api::ApiError(format!(
-            "Keine .mbox-Dateien in {} gefunden",
+            "Verzeichnis {} existiert nicht",
+            dir.display()
+        )));
+    }
+
+    // Apple Mail exports each mailbox as a DIRECTORY named `X.mbox`
+    // containing the actual mbox file as `X.mbox/mbox` (+ table_of_contents).
+    // Nested mailboxes become nested directories (e.g. `Beta Tests/Ecovacs Goat.mbox`).
+    // We walk the tree and collect (display-folder-path, absolute-mbox-file).
+    let mut boxes: Vec<(String, std::path::PathBuf)> = Vec::new();
+    collect_apple_mailboxes(&dir, "", &mut boxes)?;
+    boxes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if boxes.is_empty() {
+        return Err(crate::api::ApiError(format!(
+            "Keine .mbox-Maillboxen in {} gefunden",
             dir.display()
         )));
     }
@@ -105,11 +108,12 @@ pub async fn import_mbox_dir(
     let mut total_duplicates = 0usize;
     let mut total_errors = 0usize;
 
-    for filename in &files {
-        // Folder name = file name without the .mbox extension.
-        let folder = filename.trim_end_matches(".mbox").trim_end_matches(".MBOX").to_string();
-        let abs = dir.join(filename);
-        let content = std::fs::read(&abs)
+    for (folder, abs) in &boxes {
+        // Folder name: relative path with '/' — Relay stores nested folders
+        // with the IMAP delimiter ('.'), so "Beta Tests/Ecovacs Goat"
+        // becomes the local folder "Beta Tests.Ecovacs Goat".
+        let folder_name = folder.replace('/', ".");
+        let content = std::fs::read(abs)
             .map_err(|e| crate::api::ApiError(format!("{} lesen fehlgeschlagen: {}", abs.display(), e)))?;
         let content = String::from_utf8_lossy(&content).to_string();
         let messages = split_mbox(&content);
@@ -121,15 +125,15 @@ pub async fn import_mbox_dir(
                 errors: 1,
             })
         } else {
-            import_mbox_content(&state, req.account_id, &folder, &messages)
+            import_mbox_content(&state, req.account_id, &folder_name, &messages)
         }?;
 
         total_imported += result.imported;
         total_duplicates += result.duplicates;
         total_errors += result.errors;
         summary.push(serde_json::json!({
-            "file": filename,
-            "folder": folder,
+            "file": abs.display().to_string(),
+            "folder": folder_name,
             "messages": messages.len(),
             "imported": result.imported,
             "duplicates": result.duplicates,
@@ -137,14 +141,14 @@ pub async fn import_mbox_dir(
         }));
         tracing::info!(
             "mbox-dir: {} -> Ordner '{}': {} importiert, {} Duplikate, {} Fehler ({} Mails)",
-            filename, folder, result.imported, result.duplicates, result.errors, messages.len()
+            abs.display(), folder_name, result.imported, result.duplicates, result.errors, messages.len()
         );
     }
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "dir": dir.display().to_string(),
-        "files": files.len(),
+        "files": boxes.len(),
         "imported": total_imported,
         "duplicates": total_duplicates,
         "errors": total_errors,
@@ -274,6 +278,41 @@ fn import_mbox_content(
     })
 }
 
+/// Walk the Apple-Mail export tree and collect (relative-folder, mbox-file).
+/// A mailbox directory is `X.mbox` containing a file literally named `mbox`.
+/// Regular directories (e.g. `Beta Tests`) are traversed recursively.
+fn collect_apple_mailboxes(
+    dir: &std::path::Path,
+    prefix: &str,
+    out: &mut Vec<(String, std::path::PathBuf)>,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("{} lesen fehlgeschlagen: {}", dir.display(), e))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        if path.is_dir() {
+            if name.to_lowercase().ends_with(".mbox") {
+                // Mailbox directory: expect a file named `mbox` inside.
+                let mbox_file = path.join("mbox");
+                if mbox_file.is_file() {
+                    let folder = if prefix.is_empty() {
+                        name.trim_end_matches(".mbox").to_string()
+                    } else {
+                        format!("{}/{}", prefix, name.trim_end_matches(".mbox"))
+                    };
+                    out.push((folder, mbox_file));
+                }
+            } else {
+                // Nested folder (e.g. "Beta Tests").
+                let nested = if prefix.is_empty() { name } else { format!("{}/{}", prefix, name) };
+                collect_apple_mailboxes(&path, &nested, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Split a mbox stream into individual raw RFC822 messages.
 /// A message starts at a line beginning with "From " (mbox separator).
 fn split_mbox(content: &str) -> Vec<String> {
@@ -351,5 +390,45 @@ mod tests {
         let msgs = split_mbox(mbox);
         assert_eq!(msgs.len(), 1);
         assert!(msgs[0].contains("Subject: CRLF"));
+    }
+}
+
+#[cfg(test)]
+mod apple_tests {
+    use super::*;
+    use std::fs;
+
+    fn setup_tree() -> tempfile::TempDir {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path();
+        // Auto.mbox/mbox (top-level mailbox)
+        fs::create_dir_all(root.join("Auto.mbox")).unwrap();
+        fs::write(root.join("Auto.mbox/mbox"), "From a@b Mon Jan  1 00:00:00 2024\nSubject: Auto\n\nBody\n").unwrap();
+        // Beta Tests/Ecovacs Goat.mbox/mbox (nested)
+        fs::create_dir_all(root.join("Beta Tests/Ecovacs Goat.mbox")).unwrap();
+        fs::write(root.join("Beta Tests/Ecovacs Goat.mbox/mbox"), "From a@b Mon Jan  1 00:00:00 2024\nSubject: Goat\n\nBody\n").unwrap();
+        // A plain file that should be ignored
+        fs::write(root.join("notes.txt"), "ignore me").unwrap();
+        td
+    }
+
+    #[test]
+    fn collects_apple_mailboxes() {
+        let td = setup_tree();
+        let mut boxes = Vec::new();
+        collect_apple_mailboxes(td.path(), "", &mut boxes).unwrap();
+        let mut names: Vec<String> = boxes.iter().map(|(f, _)| f.clone()).collect();
+        names.sort();
+        assert_eq!(names, vec!["Auto", "Beta Tests/Ecovacs Goat"]);
+        assert_eq!(boxes[0].1.file_name().unwrap().to_str().unwrap(), "mbox");
+    }
+
+    #[test]
+    fn folder_slash_becomes_dot() {
+        let td = setup_tree();
+        let mut boxes = Vec::new();
+        collect_apple_mailboxes(td.path(), "", &mut boxes).unwrap();
+        let folder = boxes.iter().find(|(f, _)| f.contains('/')).unwrap().0.clone();
+        assert_eq!(folder.replace('/', "."), "Beta Tests.Ecovacs Goat");
     }
 }
