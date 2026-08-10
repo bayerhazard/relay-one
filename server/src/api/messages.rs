@@ -1208,6 +1208,15 @@ async fn delete_message_trash_mode(
             .await;
         }
         None => {
+            // No folder hint or message not found. If the frontend DID send a
+            // hint but no row matched, refuse instead of hitting every row
+            // with this uid (uid is only unique per folder).
+            if source_folder_hint.is_some() {
+                return Err(ApiError(format!(
+                    "Nachricht uid {} in Ordner nicht gefunden (Konto {})",
+                    uid, account_id
+                )));
+            }
             let _ = with_db(state, |conn| {
                 cache::messages::delete_message(conn, account_id_i64, uid_i64)
                     .map_err(|e| e.to_string())
@@ -1311,8 +1320,17 @@ async fn delete_message_archive_trash(
         match source_folder.as_deref() {
             Some(src) => cache::messages::update_folder_from(conn, account_id_i64, uid_i64, src, "Trash")
                 .map_err(|e| e.to_string()),
-            None => cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
-                .map_err(|e| e.to_string()),
+            None => {
+                if source_folder_hint.is_some() {
+                    Err(format!(
+                        "Nachricht uid {} in Ordner nicht gefunden (Konto {})",
+                        uid, account_id
+                    ))
+                } else {
+                    cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
+                        .map_err(|e| e.to_string())
+                }
+            }
         }
     })?;
 
@@ -1378,8 +1396,21 @@ async fn delete_message_permanent_delete(
     .unwrap_or(None);
 
     // 1. Remove the local index row (user intent; EML archive stays untouched).
-    let cache_result = with_db(state, |conn| {
-        cache::messages::delete_message(conn, account_id_i64, uid_i64).map_err(|e| e.to_string())
+    //    Scoped to the source folder when known — uid is only unique per folder.
+    let cache_result = with_db(state, |conn| match folder.as_deref() {
+        Some(f) => cache::messages::delete_message_from(conn, account_id_i64, uid_i64, f)
+            .map_err(|e| e.to_string()),
+        None => {
+            if source_folder_hint.is_some() {
+                Err(format!(
+                    "Nachricht uid {} in Ordner nicht gefunden (Konto {})",
+                    uid, account_id
+                ))
+            } else {
+                cache::messages::delete_message(conn, account_id_i64, uid_i64)
+                    .map_err(|e| e.to_string())
+            }
+        }
     });
     if let Err(e) = cache_result {
         return Err(ApiError(format!("Cache delete fehlgeschlagen: {}", e)));

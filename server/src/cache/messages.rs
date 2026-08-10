@@ -345,6 +345,24 @@ pub fn delete_message(conn: &Connection, account_id: i64, uid: i64) -> Result<()
     Ok(())
 }
 
+/// Delete only the message row inside `folder` (uid is only unique per
+/// folder — an unscoped DELETE by uid would remove every row sharing the
+/// uid across all folders).
+pub fn delete_message_from(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM messages
+         WHERE account_id = ?1 AND uid = ?2
+           AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?3)",
+        params![account_id, uid, folder],
+    )?;
+    Ok(())
+}
+
 /// Fetches a full message record (including folder_id) for potential rollback
 /// after a failed IMAP delete. Returns None if the message doesn't exist.
 pub fn fetch_message_for_restore(
