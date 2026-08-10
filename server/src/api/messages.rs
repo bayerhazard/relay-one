@@ -891,7 +891,7 @@ pub async fn move_cross_account(
 
     if target_is_local {
         // Local cross-account move: write EML into the target archive.
-        let (subject, from_addr, to_addr, date, mid, raw_sha256, raw_rel) = with_db(&state, |conn| {
+        let (subject, from_addr, to_addr, date, mid, raw_sha256) = with_db(&state, |conn| {
             Ok((
                 conn.query_row(
                     "SELECT subject FROM messages WHERE account_id = ?1 AND uid = ?2",
@@ -925,12 +925,6 @@ pub async fn move_cross_account(
                 .unwrap_or(None),
                 conn.query_row(
                     "SELECT raw_sha256 FROM messages WHERE account_id = ?1 AND uid = ?2",
-                    rusqlite::params![req.account_id as i64, req.uid as i64],
-                    |r| r.get::<_, Option<String>>(0),
-                )
-                .unwrap_or(None),
-                conn.query_row(
-                    "SELECT raw_path FROM messages WHERE account_id = ?1 AND uid = ?2",
                     rusqlite::params![req.account_id as i64, req.uid as i64],
                     |r| r.get::<_, Option<String>>(0),
                 )

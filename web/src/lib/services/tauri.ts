@@ -666,8 +666,9 @@ export async function saveVoiceSettings(
 }
 
 export async function voiceTranscribe(audioBase64: string): Promise<string> {
-  return post("/voice/transcribe", { audioBase64 },
+  const res = await post<{ text?: string }>("/voice/transcribe", { audioBase64 },
     "Die Transkription konnte nicht durchgeführt werden.");
+  return (res?.text ?? "").trim();
 }
 
 export interface OwnPhotoResult {

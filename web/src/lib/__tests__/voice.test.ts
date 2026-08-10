@@ -116,7 +116,7 @@ describe("Voice Settings", () => {
   describe("voiceTranscribe", () => {
     it("returns transcription text on success", async () => {
       const mockTranscription = "Hallo, ich möchte einen Termin vereinbaren.";
-      fetchMock.mockResolvedValue(jsonResponse(mockTranscription));
+      fetchMock.mockResolvedValue(jsonResponse({ text: mockTranscription }));
 
       const result = await voiceTranscribe("base64-audio-data");
 
@@ -129,6 +129,14 @@ describe("Voice Settings", () => {
       );
     });
 
+    it("returns trimmed empty string when text is missing", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({}));
+
+      const result = await voiceTranscribe("base64-audio-data");
+
+      expect(result).toBe("");
+    });
+
     it("throws user-friendly error when transcription fails", async () => {
       fetchMock.mockRejectedValue(new Error("STT service unavailable"));
 
@@ -138,7 +146,7 @@ describe("Voice Settings", () => {
     });
 
     it("handles empty audio data", async () => {
-      fetchMock.mockResolvedValue(jsonResponse(""));
+      fetchMock.mockResolvedValue(jsonResponse({ text: "" }));
 
       const result = await voiceTranscribe("");
 
