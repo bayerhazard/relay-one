@@ -97,8 +97,17 @@
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleInboxClick(); }
     }}
   >
+    <button
+      type="button"
+      class="root-chevron"
+      onclick={(e) => { e.stopPropagation(); onToggleCollapse(account.id); }}
+      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onToggleCollapse(account.id); } }}
+      aria-label={collapsedFolders.has("INBOX") ? `${account.name} ausklappen` : `${account.name} einklappen`}
+      title={collapsedFolders.has("INBOX") ? "Ausklappen" : "Einklappen"}
+    >
+      {@html chevronSVG(!collapsedFolders.has("INBOX"))}
+    </button>
     <span class="tree-label">{account.name}</span>
-    <!-- No chevron on the account root: toggling happens via double-click. -->
   </div>
 
   <!-- Children tree -->
@@ -203,6 +212,28 @@
     font-size: 0.875rem;
     font-weight: 600;
     color: var(--color-text);
+  }
+
+  .root-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.12s ease, background 0.12s ease;
+  }
+
+  .root-chevron:hover {
+    opacity: 1;
+    background: var(--color-active-wash);
   }
 
   .root-row:hover {

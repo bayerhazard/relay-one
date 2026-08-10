@@ -146,6 +146,28 @@ import {
   let localFolderNames = $state<Set<string>>(new Set());
   let folderRawNames = $state<Record<string, string>>({});
   let folderDelimiters = $state<Record<string, string>>({});
+  // Per-account folder data so EVERY account group in the sidebar can render
+  // its own folder tree independently (previously only the selected account
+  // had folders, which made other accounts appear collapsed/unopenable).
+  interface AccountFolders {
+    names: string[];
+    local: Set<string>;
+    raw: Record<string, string>;
+    delim: Record<string, string>;
+  }
+  let foldersByAccount = $state<Record<number, AccountFolders>>({});
+  function getAccountFolders(accountId: number): AccountFolders {
+    return foldersByAccount[accountId] ?? { names: [], local: new Set(), raw: {}, delim: {} };
+  }
+  function setAccountFolders(accountId: number, f: AccountFolders) {
+    foldersByAccount = { ...foldersByAccount, [accountId]: f };
+    if (accountId === selectedAccountId) {
+      folderNames = f.names;
+      localFolderNames = f.local;
+      folderRawNames = f.raw;
+      folderDelimiters = f.delim;
+    }
+  }
   let selectedFolder = $state("INBOX");
   let theme = $state("blue");
   try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
@@ -188,6 +210,9 @@ let sentFolderName = $state<string | null>(null);
         const parsed = JSON.parse(cached) as string[];
         if (Array.isArray(parsed) && parsed.length > 0) {
           folderNames = parsed;
+          // Seed the per-account cache too (raw/delim defaults to "."), so
+          // other account groups render their trees immediately.
+          setAccountFolders(acct.id, { names: parsed, local: new Set(), raw: {}, delim: {} });
         }
       }
     } catch { /* ignore stale cache */ }
@@ -233,6 +258,7 @@ let sentFolderName = $state<string | null>(null);
        // Persist to localStorage cache for fast recovery on navigation
         const cacheKey = `relay_folder_cache_${acct.id}`;
         localStorage.setItem(cacheKey, JSON.stringify(names));
+        setAccountFolders(acct.id, { names, local: localSet, raw: rawMap, delim: delimMap });
         // Apply saved folder order
         try {
           const orderKey = `relay_folder_order_${acct.id}`;
@@ -363,6 +389,7 @@ let sentFolderName = $state<string | null>(null);
       folderRawNames = rawMap;
       folderDelimiters = delimMap;
       localFolderNames = localSet;
+      setAccountFolders(selectedAccountId, { names, local: localSet, raw: rawMap, delim: delimMap });
       try {
         localStorage.setItem(`relay_folder_cache_${selectedAccountId}`, JSON.stringify(names));
       } catch { /* ignore */ }
@@ -567,6 +594,15 @@ let sentFolderName = $state<string | null>(null);
         document.documentElement.classList.remove("theme-dark");
       }
       localStorage.setItem("relay_theme", theme);
+      // macOS: the web-app titlebar uses theme-color — match it to the theme
+      // (was a fixed medium blue that looked wrong in both themes).
+      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = "theme-color";
+        document.head.appendChild(meta);
+      }
+      meta.content = theme === "dark" ? "#0a2238" : "#f4f7fa";
     }
   });
 
@@ -654,6 +690,16 @@ let sentFolderName = $state<string | null>(null);
   let folderTree = $derived(
     buildFolderTree(folderNames, folderDelimiters["INBOX"] || ".")
   );
+
+  // Per-account folder tree so every account group renders independently.
+  let folderTreesByAccount = $derived.by(() => {
+    const out: Record<number, FolderNode> = {};
+    for (const acct of accountList) {
+      const f = getAccountFolders(acct.id);
+      out[acct.id] = buildFolderTree(f.names, f.delim["INBOX"] || ".");
+    }
+    return out;
+  });
 
   // Collapsed folders state — per account, persisted to localStorage
   let collapsedFoldersMap = $state<Record<number, Set<string>>>({});
@@ -1928,7 +1974,7 @@ let sentFolderName = $state<string | null>(null);
           {#each $accounts.groups as group}
             <AccountGroup
               account={group.account}
-              folderTree={group.account.id === selectedAccountId ? folderTree : { name: "INBOX", label: "", children: [] }}
+              folderTree={folderTreesByAccount[group.account.id] ?? { name: "INBOX", label: "", children: [] }}
               selectedFolder={group.account.id === selectedAccountId ? selectedFolder : null}
               collapsedFolders={getCollapsedForAccount(group.account.id)}
               bind:dragSource

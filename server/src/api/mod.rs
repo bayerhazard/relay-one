@@ -106,6 +106,8 @@ pub fn router() -> Router<AppState> {
         // CardDAV
         .route("/carddav/settings", get(settings::get_carddav_settings).post(settings::set_carddav_settings))
         .route("/carddav/sync", post(settings::sync_carddav))
+        .route("/carddav/search", post(settings::search_carddav))
+        .route("/carddav/resolve", post(settings::resolve_carddav))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

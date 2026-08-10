@@ -32,6 +32,14 @@ import {
         document.documentElement.classList.remove("theme-dark");
       }
       localStorage.setItem("relay_theme", theme);
+      // macOS: the web-app titlebar uses theme-color — match it to the theme.
+      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = "theme-color";
+        document.head.appendChild(meta);
+      }
+      meta.content = theme === "dark" ? "#0a2238" : "#f4f7fa";
     }
   });
 

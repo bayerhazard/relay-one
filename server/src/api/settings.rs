@@ -182,3 +182,102 @@ pub async fn sync_carddav(State(state): State<AppState>) -> ApiResult<serde_json
         Err(e) => Err(ApiError(format!("CardDAV-Sync fehlgeschlagen: {e}"))),
     }
 }
+
+/// `POST /api/v1/carddav/search` — search the locally synced contacts by
+/// name or email address (recipient autocomplete).
+#[derive(Deserialize)]
+pub struct CardDavSearchRequest {
+    pub query: String,
+}
+
+pub async fn search_carddav(
+    State(state): State<AppState>,
+    Json(req): Json<CardDavSearchRequest>,
+) -> ApiResult<serde_json::Value> {
+    let q = req.query.trim().to_lowercase();
+    if q.len() < 2 {
+        return ok(Ok(serde_json::json!([])));
+    }
+    let results = with_db(&state, |conn| {
+        let like = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+        let mut stmt = conn
+            .prepare(
+                "SELECT vcard_uid, given_name, family_name, display_name, email, phone, organization
+                 FROM contacts
+                 WHERE lower(display_name) LIKE ?1 ESCAPE '\\'
+                    OR lower(given_name) LIKE ?1 ESCAPE '\\'
+                    OR lower(family_name) LIKE ?1 ESCAPE '\\'
+                    OR lower(email) LIKE ?1 ESCAPE '\\'
+                 ORDER BY display_name COLLATE NOCASE
+                 LIMIT 20",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![like], |row| {
+                Ok(serde_json::json!({
+                    "vcard_uid": row.get::<_, String>(0)?,
+                    "given_name": row.get::<_, Option<String>>(1)?,
+                    "family_name": row.get::<_, Option<String>>(2)?,
+                    "display_name": row.get::<_, Option<String>>(3)?,
+                    "email": row.get::<_, Option<String>>(4)?,
+                    "phone": row.get::<_, Option<String>>(5)?,
+                    "organization": row.get::<_, Option<String>>(6)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    })?;
+    ok(Ok(serde_json::json!(results)))
+}
+
+/// `POST /api/v1/carddav/resolve` — resolve a free-text recipient input to a
+/// single best-matching synced contact (used for AI-assisted addressing).
+#[derive(Deserialize)]
+pub struct CardDavResolveRequest {
+    pub text: String,
+}
+
+pub async fn resolve_carddav(
+    State(state): State<AppState>,
+    Json(req): Json<CardDavResolveRequest>,
+) -> ApiResult<serde_json::Value> {
+    let text = req.text.trim().to_lowercase();
+    if text.is_empty() {
+        return ok(Ok(serde_json::json!(null)));
+    }
+    let results = with_db(&state, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT vcard_uid, given_name, family_name, display_name, email, phone, organization
+                 FROM contacts
+                 WHERE lower(email) = ?1
+                    OR lower(display_name) = ?1
+                    OR lower(display_name) LIKE ?2 ESCAPE '\\'
+                    OR lower(email) LIKE ?2 ESCAPE '\\'
+                 ORDER BY CASE WHEN lower(email) = ?1 OR lower(display_name) = ?1 THEN 0 ELSE 1 END
+                 LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+        let like = format!("%{}%", text.replace('%', "\\%").replace('_', "\\_"));
+        let mut rows = stmt
+            .query_map(rusqlite::params![text, like], |row| {
+                Ok(serde_json::json!({
+                    "vcard_uid": row.get::<_, String>(0)?,
+                    "given_name": row.get::<_, Option<String>>(1)?,
+                    "family_name": row.get::<_, Option<String>>(2)?,
+                    "display_name": row.get::<_, Option<String>>(3)?,
+                    "email": row.get::<_, Option<String>>(4)?,
+                    "phone": row.get::<_, Option<String>>(5)?,
+                    "organization": row.get::<_, Option<String>>(6)?,
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        let first = rows.next().transpose().map_err(|e| e.to_string())?;
+        Ok(first)
+    })?;
+    ok(Ok(serde_json::json!(results)))
+}

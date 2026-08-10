@@ -345,7 +345,12 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    contain: strict;
+    /* NOTE: do NOT use contain: strict/layout/paint here — it creates a
+       containing block for position:fixed descendants, which would offset
+       the context menu (rendered inside this component) relative to the
+       list instead of the viewport. inline-size containment keeps the
+       layout benefits without that side effect. */
+    contain: inline-size;
     will-change: scroll-position;
     padding-top: 10px;
   }
@@ -561,6 +566,14 @@
     align-items: stretch;
     justify-content: space-between;
     pointer-events: none;
+    /* Hidden unless a swipe is actually in progress. Showing the action
+       buttons permanently makes them shine through translucent selected
+       rows in dark mode (--color-active-wash is an rgba there). */
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .swipe-container.swiping .swipe-bg {
+    opacity: 1;
   }
   .swipe-bg-left,
   .swipe-bg-right {
@@ -577,6 +590,9 @@
     justify-content: center;
     cursor: pointer;
     pointer-events: auto;
+  }
+  .swipe-container:not(.swiping) .swipe-action {
+    pointer-events: none;
   }
   .swipe-action.flag { background: #f5a623; }
   .swipe-action.read { background: #4a90d9; }
