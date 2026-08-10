@@ -138,10 +138,9 @@ pub fn fetch_inbox(
     let limit = limit.unwrap_or(50);
     let offset = offset.unwrap_or(0);
 
-    // Exclude spam folders entirely
-    if is_spam_folder(folder) {
-        return Ok(Vec::new());
-    }
+    // NOTE: Spam folders were previously excluded entirely ("return empty").
+    // The user wants Spam handled like every other folder — shown from the
+    // local cache.
 
     // Lookup or create folder
     let folder_id: i64 = match conn.query_row(

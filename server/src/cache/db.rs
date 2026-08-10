@@ -267,6 +267,16 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
 
+    // Migration: the "Gesendet"/"Sent" folder is treated as a LOCAL folder —
+    // the user keeps the full sent history locally and does not want it
+    // mirrored against the (limited) provider mailbox. Converting it to
+    // local_only stops the IMAP prune/removal from deleting local copies.
+    let _ = conn.execute(
+        "UPDATE folders SET local_only = 1, imap_id = NULL
+         WHERE name IN ('Gesendet', 'Sent', 'Gesendete Elemente')",
+        [],
+    );
+
     init_fts(conn);
 
     Ok(())
