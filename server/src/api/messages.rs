@@ -359,9 +359,16 @@ pub async fn move_message(
     }
 
     // Step 2: Update cache to target folder (use decoded name for cache)
+    //    Scoped to the source folder — uid is only unique per folder.
     with_db(&state, |conn| {
-        cache::messages::update_folder(conn, account_id_i64, uid_i64, &req.target_folder)
-            .map_err(|e| e.to_string())
+        cache::messages::update_folder_from(
+            conn,
+            account_id_i64,
+            uid_i64,
+            &req.source_folder,
+            &req.target_folder,
+        )
+        .map_err(|e| e.to_string())
     })?;
 
     // Step 3: Attempt IMAP move (use raw IMAP-UTF7 names for server operations)
@@ -381,8 +388,14 @@ pub async fn move_message(
             req.account_id, uid, e, req.source_folder
         );
         let _ = with_db(&state, |conn| {
-            cache::messages::update_folder(conn, account_id_i64, uid_i64, &req.source_folder)
-                .map_err(|e| e.to_string())
+            cache::messages::update_folder_from(
+                conn,
+                account_id_i64,
+                uid_i64,
+                &req.target_folder,
+                &req.source_folder,
+            )
+            .map_err(|e| e.to_string())
         });
         return Err(ApiError(format!(
             "Verschieben von '{}' nach '{}' fehlgeschlagen: {}",
@@ -403,9 +416,16 @@ async fn move_to_local_folder(
     uid_i64: i64,
 ) -> ApiResult<()> {
     // 1. Locally move the index row (never blocks on IMAP).
+    //    Scoped to the source folder — uid is only unique per folder.
     with_db(state, |conn| {
-        cache::messages::update_folder(conn, account_id_i64, uid_i64, &req.target_folder)
-            .map_err(|e| e.to_string())
+        cache::messages::update_folder_from(
+            conn,
+            account_id_i64,
+            uid_i64,
+            &req.source_folder,
+            &req.target_folder,
+        )
+        .map_err(|e| e.to_string())
     })?;
 
     // 2. Verify archive guarantee: raw EML exists + hash matches.
@@ -1109,14 +1129,23 @@ pub async fn delete_message(
     .unwrap_or_else(|_| "mirror".to_string());
 
     if move_to_trash && sync_mode == "archive" {
-        return delete_message_archive_trash(&state, account_id, uid, account_id_i64, uid_i64).await;
+        return delete_message_archive_trash(
+            &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
+        )
+        .await;
     }
 
     if move_to_trash {
-        return delete_message_trash_mode(&state, account_id, uid, account_id_i64, uid_i64).await;
+        return delete_message_trash_mode(
+            &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
+        )
+        .await;
     }
 
-    delete_message_permanent_delete(&state, account_id, uid, account_id_i64, uid_i64).await
+    delete_message_permanent_delete(
+        &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
+    )
+    .await
 }
 
 #[derive(Deserialize)]
@@ -1129,6 +1158,10 @@ pub struct AccountIdRequest {
 pub struct MessageActionRequest {
     pub account_id: u32,
     pub uid: u32,
+    /// Folder the message was shown in. UIDs are only unique per folder, so
+    /// the frontend passes the source folder to disambiguate the row.
+    #[serde(default)]
+    pub source_folder: Option<String>,
 }
 
 /// Delete by moving the message to the Trash folder instead of permanent delete.
@@ -1138,17 +1171,25 @@ async fn delete_message_trash_mode(
     uid: u32,
     account_id_i64: i64,
     uid_i64: i64,
+    source_folder_hint: Option<String>,
 ) -> ApiResult<()> {
-    // Step 1: Look up the source folder
+    // Step 1: Look up the source folder (uid is only unique per folder — use
+    // the hint from the frontend to pick the right row when uids repeat).
     let folder: Option<String> = with_db(state, |conn| {
-        Ok(conn
-            .query_row(
+        let sql = match source_folder_hint {
+            Some(_) => format!(
                 "SELECT f.name FROM messages m \
                  JOIN folders f ON m.folder_id = f.id \
-                 WHERE m.account_id = ?1 AND m.uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
+            ),
+            None => format!(
+                "SELECT f.name FROM messages m \
+                 JOIN folders f ON m.folder_id = f.id \
+                 WHERE m.account_id = ?1 AND m.uid = ?2 LIMIT 1"
+            ),
+        };
+        Ok(conn
+            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1156,8 +1197,15 @@ async fn delete_message_trash_mode(
     let source_folder = match folder {
         Some(ref f) if f != "Trash" => f.clone(),
         Some(_) => {
-            return delete_message_permanent_delete(state, account_id, uid, account_id_i64, uid_i64)
-                .await;
+            return delete_message_permanent_delete(
+                state,
+                account_id,
+                uid,
+                account_id_i64,
+                uid_i64,
+                source_folder_hint,
+            )
+            .await;
         }
         None => {
             let _ = with_db(state, |conn| {
@@ -1170,14 +1218,16 @@ async fn delete_message_trash_mode(
 
     // Step 2: Get IMAP client
     let client = match state.imap_clients.read().get(&account_id).cloned() {
-        Some(c) => c,
         None => {
+            // No client: local fallback move into Trash, scoped to the
+            // source folder (uid is only unique per folder).
             let _ = with_db(state, |conn| {
-                cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
+                cache::messages::update_folder_from(conn, account_id_i64, uid_i64, &source_folder, "Trash")
                     .map_err(|e| e.to_string())
             });
             return Ok(Json(()));
         }
+        Some(c) => c,
     };
 
     // Step 3: Ensure IMAP connection
@@ -1196,9 +1246,9 @@ async fn delete_message_trash_mode(
         return Err(ApiError(format!("Verschieben in Papierkorb fehlgeschlagen: {}", e)));
     }
 
-    // Step 6: Update folder in cache
+    // Step 6: Update folder in cache (scoped to the source folder)
     with_db(state, |conn| {
-        cache::messages::update_folder(conn, account_id_i64, uid_i64, "Trash")
+        cache::messages::update_folder_from(conn, account_id_i64, uid_i64, &source_folder, "Trash")
             .map_err(|e| e.to_string())
     })?;
     Ok(Json(()))
@@ -1213,27 +1263,42 @@ async fn delete_message_archive_trash(
     uid: u32,
     account_id_i64: i64,
     uid_i64: i64,
+    source_folder_hint: Option<String>,
 ) -> ApiResult<()> {
+    // UID is only unique per folder — prefer the frontend's folder hint so
+    // repeated uids (per-folder uid counters) resolve to the right row.
     let source_folder: Option<String> = with_db(state, |conn| {
-        Ok(conn
-            .query_row(
+        let sql = match source_folder_hint {
+            Some(_) => format!(
                 "SELECT f.name FROM messages m \
                  JOIN folders f ON m.folder_id = f.id \
-                 WHERE m.account_id = ?1 AND m.uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
+            ),
+            None => format!(
+                "SELECT f.name FROM messages m \
+                 JOIN folders f ON m.folder_id = f.id \
+                 WHERE m.account_id = ?1 AND m.uid = ?2 LIMIT 1"
+            ),
+        };
+        Ok(conn
+            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
 
     let message_id: Option<i64> = with_db(state, |conn| {
+        let sql = match source_folder_hint {
+            Some(_) => format!(
+                "SELECT id FROM messages m \
+                 JOIN folders f ON m.folder_id = f.id \
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
+            ),
+            None => format!(
+                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 LIMIT 1"
+            ),
+        };
         Ok(conn
-            .query_row(
-                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
+            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1273,27 +1338,41 @@ async fn delete_message_permanent_delete(
     uid: u32,
     account_id_i64: i64,
     uid_i64: i64,
+    source_folder_hint: Option<String>,
 ) -> ApiResult<()> {
+    // UID is only unique per folder — use the frontend hint to pick the row.
     let folder: Option<String> = with_db(state, |conn| {
-        Ok(conn
-            .query_row(
+        let sql = match source_folder_hint {
+            Some(_) => format!(
                 "SELECT f.name FROM messages m \
                  JOIN folders f ON m.folder_id = f.id \
-                 WHERE m.account_id = ?1 AND m.uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
+            ),
+            None => format!(
+                "SELECT f.name FROM messages m \
+                 JOIN folders f ON m.folder_id = f.id \
+                 WHERE m.account_id = ?1 AND m.uid = ?2 LIMIT 1"
+            ),
+        };
+        Ok(conn
+            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
 
     let message_id: Option<i64> = with_db(state, |conn| {
+        let sql = match source_folder_hint {
+            Some(_) => format!(
+                "SELECT id FROM messages m \
+                 JOIN folders f ON m.folder_id = f.id \
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
+            ),
+            None => format!(
+                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 LIMIT 1"
+            ),
+        };
         Ok(conn
-            .query_row(
-                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
+            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);

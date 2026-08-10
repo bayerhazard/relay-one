@@ -1843,7 +1843,7 @@ let sentFolderName = $state<string | null>(null);
     try {
       for (const uid of uids) {
         try {
-          await deleteMessageCmd(selectedAccountId, uid);
+          await deleteMessageCmd(selectedAccountId, uid, selectedFolder);
         } catch (e) {
           console.warn("Loeschen von uid", uid, "fehlgeschlagen", e);
         }

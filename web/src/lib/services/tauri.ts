@@ -399,9 +399,10 @@ export async function flagMessageCmd(
 
 export async function deleteMessageCmd(
   accountId: number,
-  uid: number
+  uid: number,
+  sourceFolder?: string
 ): Promise<void> {
-  return post("/messages/delete", { account_id: accountId, uid },
+  return post("/messages/delete", { account_id: accountId, uid, source_folder: sourceFolder || "" },
     "Die Nachricht konnte nicht gelöscht werden.");
 }
 

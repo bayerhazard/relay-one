@@ -241,7 +241,7 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3)", () => {
     await renderPageWithAccount(true, 42);
     await clickDeleteButton();
     await fireEvent.click(getConfirmButton());
-    expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42);
+    expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42, expect.stringMatching(/INBOX|.*/));
     expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
   });
 
