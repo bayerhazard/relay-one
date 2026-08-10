@@ -89,6 +89,7 @@ pub fn router() -> Router<AppState> {
         .route("/export", get(export::export_archive))
         .route("/import/mbox", post(import::import_mbox))
         .route("/import/mbox-dir", post(import::import_mbox_dir))
+        .route("/import/attachments-backfill", post(import::attachments_backfill))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))
         .route("/archive/backups", get(backup::list_backups))

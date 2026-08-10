@@ -473,6 +473,15 @@ let sentFolderName = $state<string | null>(null);
           localStorage.setItem(getStoreKey("folder_order"), JSON.stringify(order));
         }
       } catch { /* non-critical */ }
+
+      // The sidebar renders from the per-account folder store — refresh it so
+      // the rename is visible immediately (no manual reload required).
+      setAccountFolders(selectedAccountId, {
+        names: folderNames,
+        local: localFolderNames,
+        raw: folderRawNames,
+        delim: folderDelimiters,
+      });
     } catch (e: unknown) {
       mailbox.setError("Server-Umbenennung fehlgeschlagen: " + (e instanceof Error ? e.message : String(e)));
     }
@@ -657,31 +666,47 @@ let sentFolderName = $state<string | null>(null);
     const root: FolderNode = { name: "INBOX", label: "", children: [] };
     const level1Map = new Map<string, FolderNode>();
 
+    // Pass 1: register every top-level folder first, so a child like
+    // "Beta Tests.Ecovacs Goat" ALWAYS finds its real parent — regardless
+    // of the order in the list. Previously, if the parent appeared AFTER
+    // its child, it was created twice (once synthetic with children, once
+    // real), which made "Beta Tests.Ecovacs Goat" render on the same level
+    // as "Beta Tests".
     for (const name of names) {
       const lowerName = name.toLowerCase();
       const leafLower = getLeafName(name, delimiter).toLowerCase();
-      // Skip INBOX and all its aliases (case-insensitive, full path AND leaf name)
       if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
       const parts = name.split(delimiter);
-      const leafName = getLeafName(name, delimiter);
-      const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
-
       if (parts.length === 1) {
+        const leafName = getLeafName(name, delimiter);
+        const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
         const node: FolderNode = { name, label, children: [], local_only: localFolderNames.has(name) };
         root.children.push(node);
         level1Map.set(lowerName, node);
-      } else if (parts.length === 2) {
-        const parentName = parts[0];
-        let parent = level1Map.get(parentName.toLowerCase());
-        if (!parent) {
-          const parentLeaf = getLeafName(parentName, delimiter);
-          const parentLabel = customFolderNames[parentName] || customFolderNames[parentLeaf] || translateFolder(parentLeaf);
-          parent = { name: parentName, label: parentLabel, children: [] };
-          root.children.push(parent);
-          level1Map.set(parentName.toLowerCase(), parent);
-        }
-        parent.children.push({ name, label, children: [], local_only: localFolderNames.has(name) });
       }
+    }
+
+    // Pass 2: attach children to their (now existing) parent.
+    for (const name of names) {
+      const lowerName = name.toLowerCase();
+      const leafLower = getLeafName(name, delimiter).toLowerCase();
+      if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
+      const parts = name.split(delimiter);
+      if (parts.length < 2) continue;
+      const leafName = getLeafName(name, delimiter);
+      const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
+      const parentName = parts[0];
+      let parent = level1Map.get(parentName.toLowerCase());
+      if (!parent) {
+        // Parent folder is not a standalone entry (e.g. only exists as a
+        // prefix) — synthesize it so the hierarchy stays intact.
+        const parentLeaf = getLeafName(parentName, delimiter);
+        const parentLabel = customFolderNames[parentName] || customFolderNames[parentLeaf] || translateFolder(parentLeaf);
+        parent = { name: parentName, label: parentLabel, children: [] };
+        root.children.push(parent);
+        level1Map.set(parentName.toLowerCase(), parent);
+      }
+      parent.children.push({ name, label, children: [], local_only: localFolderNames.has(name) });
     }
 
     return root;
@@ -1053,6 +1078,14 @@ let sentFolderName = $state<string | null>(null);
             reordered.splice(toIdx, 0, movedName);
             folderNames = reordered;
             localStorage.setItem(getStoreKey("folder_order"), JSON.stringify(reordered));
+            // The sidebar renders from the per-account store — keep it in sync
+            // so the reorder is visible immediately.
+            setAccountFolders(selectedAccountId, {
+              names: folderNames,
+              local: localFolderNames,
+              raw: folderRawNames,
+              delim: folderDelimiters,
+            });
           }
         }
         dragSource = null;

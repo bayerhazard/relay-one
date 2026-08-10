@@ -19,6 +19,7 @@ use serde::Deserialize;
 use crate::AppState;
 use crate::cache;
 use crate::db::with_db;
+use mail_parser::MimeHeaders;
 
 #[derive(Deserialize)]
 pub struct MboxImportRequest {
@@ -72,6 +73,87 @@ pub struct MboxDirRequest {
 
 fn default_dir() -> String {
     "Mails".to_string()
+}
+
+/// `POST /api/v1/import/attachments-backfill` — for messages that already
+/// have `has_attachments=1` but no `message_attachments` rows (e.g. mails
+/// imported before attachment metadata was stored), extract the attachments
+/// from the local EML archive and persist metadata + base64 content.
+pub async fn attachments_backfill(
+    State(state): State<AppState>,
+) -> crate::api::ApiResult<serde_json::Value> {
+    // Find messages with has_attachments but no attachment rows.
+    let candidates: Vec<(i64, i64, Option<String>)> = with_db(&state, |conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.account_id, m.raw_path
+                 FROM messages m
+                 WHERE m.has_attachments = 1
+                   AND NOT EXISTS (SELECT 1 FROM message_attachments a WHERE a.message_id = m.id)
+                 ORDER BY m.id
+                 LIMIT 2000",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<String>>(2)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    })?;
+
+    let mut filled = 0usize;
+    let mut no_eml = 0usize;
+    let mut parse_failed = 0usize;
+
+    for (message_id, _account_id, raw_rel) in candidates {
+        let Some(rel) = raw_rel else {
+            no_eml += 1;
+            continue;
+        };
+        let abs = state.data_root.join(&rel);
+        let Ok(bytes) = std::fs::read(&abs) else {
+            no_eml += 1;
+            continue;
+        };
+        let attachments = crate::imap::client::parse_message_attachments(&bytes);
+        if attachments.is_empty() {
+            parse_failed += 1;
+            continue;
+        }
+        let ok = with_db(&state, |conn| {
+            for att in &attachments {
+                conn.execute(
+                    "INSERT OR IGNORE INTO message_attachments
+                     (message_id, filename, content_type, size, content, content_cached, cached_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'))",
+                    rusqlite::params![
+                        message_id, att.filename, att.content_type,
+                        att.size as i64, att.content,
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok::<(), String>(())
+        });
+        match ok {
+            Ok(()) => filled += 1,
+            Err(_) => parse_failed += 1,
+        }
+    }
+
+    tracing::info!(
+        "Attachments-Backfill: {} Mails befüllt, {} ohne EML, {} ohne parsebare Anhänge",
+        filled, no_eml, parse_failed
+    );
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "filled": filled,
+        "no_eml": no_eml,
+        "parse_failed": parse_failed,
+    })))
 }
 
 /// `POST /api/v1/import/mbox-dir` — import every `*.mbox` file in
@@ -266,6 +348,40 @@ fn import_mbox_content(
                 ],
             )
             .map_err(|e| e.to_string())?;
+
+            // Attachment metadata: without these rows the UI shows the
+            // paperclip (has_attachments flag) but the preview pane finds no
+            // attachments and cannot open/save them. Store the metadata +
+            // base64 content directly (extracted from the parsed message), so
+            // attachments work for imported mails immediately.
+            let message_row_id: i64 = conn
+                .query_row(
+                    "SELECT id FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
+                    rusqlite::params![account_id as i64, folder_id, uid],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            for part in parsed.attachments() {
+                use base64::Engine as _;
+                let filename = part.attachment_name().unwrap_or("anhang").to_string();
+                let content_type = part
+                    .content_type()
+                    .map(|c| {
+                        let subtype = c.c_subtype.as_ref().map(|s| s.as_ref()).unwrap_or("octet-stream");
+                        format!("{}/{}", c.c_type, subtype)
+                    })
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                let contents = part.contents();
+                let size = contents.len() as i64;
+                let content = base64::engine::general_purpose::STANDARD.encode(contents);
+                conn.execute(
+                    "INSERT OR IGNORE INTO message_attachments
+                     (message_id, filename, content_type, size, content, content_cached, cached_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'))",
+                    rusqlite::params![message_row_id, filename, content_type, size, content],
+                )
+                .map_err(|e| e.to_string())?;
+            }
             Ok::<(), String>(())
         })?;
         imported += 1;
