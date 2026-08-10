@@ -99,6 +99,7 @@ pub async fn get_voice_config(State(state): State<AppState>) -> ApiResult<serde_
 
 /// `POST /api/v1/voice/config` — save STT configuration.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VoiceConfigRequest {
     pub enabled: bool,
     pub stt_url: Option<String>,

@@ -345,13 +345,12 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    /* NOTE: do NOT use contain: strict/layout/paint here — it creates a
-       containing block for position:fixed descendants, which would offset
-       the context menu (rendered inside this component) relative to the
-       list instead of the viewport. inline-size containment keeps the
-       layout benefits without that side effect. */
-    contain: inline-size;
-    will-change: scroll-position;
+    /* NOTE: do NOT use contain: size/inline-size/layout/paint/strict here —
+       ALL of them (except `style`) create a containing block for
+       position:fixed descendants, which offsets the context menu (rendered
+       inside this component) relative to the list instead of the viewport.
+       `contain: style` isolates styles without that side effect. */
+    contain: style;
     padding-top: 10px;
   }
   .message-list::-webkit-scrollbar {
