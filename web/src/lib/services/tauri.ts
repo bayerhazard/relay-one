@@ -321,7 +321,26 @@ export async function clearAttachmentCache(): Promise<number> {
   filename: string,
   contentBase64: string,
 ): Promise<string | null> {
-  return null;
+  // Web: trigger a browser download (Blob + <a download>). Returns null on
+  // failure, otherwise a placeholder (the download itself is side-effectful).
+  try {
+    const byteChars = atob(contentBase64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([bytes]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return filename;
+  } catch (e) {
+    console.error("saveAttachment failed", e);
+    return null;
+  }
 }
 
 export interface PickedFile {

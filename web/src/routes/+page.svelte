@@ -1674,7 +1674,6 @@ let sentFolderName = $state<string | null>(null);
   // ─── Attachments (Progressive Loading) ────────────────────
   let attachments = $state<AttachmentInfo[]>([]);
   let attachmentsLoading = $state(false);
-  let downloadingAttachment = $state<string | null>(null);
 
   // Load cached attachment metadata immediately (no IMAP fetch).
   $effect(() => {
@@ -1694,36 +1693,83 @@ let sentFolderName = $state<string | null>(null);
     return () => { cancelled = true; };
   });
 
-   async function handleDownloadAttachment(att: AttachmentInfo) {
-    if (downloadingAttachment) return;
-    downloadingAttachment = att.filename;
-    try {
-      let content = att.content;
-      // If content not cached, load it from IMAP first
-      if (!content) {
-        content = await loadAttachmentContent(selectedAccountId!, selectedMessage!.uid, att.id);
-        // Update the attachment in place with loaded content
-        attachments = attachments.map(a =>
-          a.id === att.id ? { ...a, content: content, content_cached: true } : a
-        );
-      }
-      if (!content) {
-        mailbox.setError("Anhanginhalt nicht verfügbar.");
-        return;
-      }
-      await saveAttachment(att.filename, content);
-    } catch (e) {
-      mailbox.setError("Anhang konnte nicht gespeichert werden: " + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      downloadingAttachment = null;
-    }
-  }
-
   function formatBytes(n: number): string {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  // ─── Attachment context menu (right-click: Open / Save as) ───────────
+  let attCtxMenu = $state<{ x: number; y: number; att: AttachmentInfo } | null>(null);
+
+  function handleAttachmentContextMenu(e: MouseEvent, att: AttachmentInfo) {
+    e.preventDefault();
+    attCtxMenu = { x: e.clientX, y: e.clientY, att };
+  }
+
+  function closeAttCtxMenu() {
+    attCtxMenu = null;
+  }
+
+  async function ensureAttachmentContent(att: AttachmentInfo): Promise<string | null> {
+    if (att.content) return att.content;
+    try {
+      const content = await loadAttachmentContent(selectedAccountId!, selectedMessage!.uid, att.id);
+      if (content) {
+        attachments = attachments.map(a =>
+          a.id === att.id ? { ...a, content, content_cached: true } : a
+        );
+      }
+      return content;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleOpenAttachment(att: AttachmentInfo) {
+    closeAttCtxMenu();
+    const content = await ensureAttachmentContent(att);
+    if (!content) {
+      mailbox.setError("Anhanginhalt nicht verfügbar.");
+      return;
+    }
+    try {
+      const byteChars = atob(content);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes]);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      mailbox.setError("Anhang konnte nicht geöffnet werden: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  async function handleSaveAsAttachment(att: AttachmentInfo) {
+    closeAttCtxMenu();
+    const content = await ensureAttachmentContent(att);
+    if (!content) {
+      mailbox.setError("Anhanginhalt nicht verfügbar.");
+      return;
+    }
+    const saved = await saveAttachment(att.filename, content);
+    if (!saved) {
+      mailbox.setError("Anhang konnte nicht gespeichert werden.");
+    }
+  }
+
+  $effect(() => {
+    if (!attCtxMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeAttCtxMenu(); };
+    const onBlur = () => closeAttCtxMenu();
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onBlur);
+    };
+  });
 
   let pendingDeleteUids: number[] = $state([]);
 
@@ -1917,18 +1963,26 @@ let sentFolderName = $state<string | null>(null);
                   <button
                     type="button"
                     class="attachment-chip"
-                    onclick={() => handleDownloadAttachment(att)}
-                    disabled={downloadingAttachment === att.filename}
-                    title="Herunterladen: {att.filename}"
+                    onclick={() => handleOpenAttachment(att)}
+                    oncontextmenu={(e) => handleAttachmentContextMenu(e, att)}
+                    title="Öffnen (Rechtsklick: Optionen)"
                   >
                     <span class="attachment-icon" aria-hidden="true">&#x1F4CE;</span>
                     <span class="attachment-meta">
                       <span class="attachment-name">{att.filename}</span>
-                      <span class="attachment-size">{formatBytes(att.size)}{downloadingAttachment === att.filename ? " — speichern…" : ""}</span>
+                      <span class="attachment-size">{formatBytes(att.size)}</span>
                     </span>
                   </button>
                 {/each}
               </div>
+            </div>
+          {/if}
+
+          {#if attCtxMenu}
+            <div class="ctx-menu-scrim" role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
+            <div class="ctx-menu" style="left: {attCtxMenu.x}px; top: {attCtxMenu.y}px;" role="menu">
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu.att)}>Öffnen</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu.att)}>Speichern als…</button>
             </div>
           {/if}
 
