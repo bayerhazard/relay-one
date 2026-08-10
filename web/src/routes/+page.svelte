@@ -662,9 +662,21 @@ let sentFolderName = $state<string | null>(null);
     return ["inbox", "posteingang", "e-mails", "bpostin", "postan", "mailbox", "mail"].includes(lower);
   }
 
-  function buildFolderTree(names: string[], delimiter: string): FolderNode {
+  function buildFolderTree(names: string[], delimMap: Record<string, string>): FolderNode {
     const root: FolderNode = { name: "INBOX", label: "", children: [] };
     const level1Map = new Map<string, FolderNode>();
+
+    // Per-folder delimiter: IMAP folders carry their provider delimiter
+    // (GMX = "/"), while LOCAL folders (imported/migration targets) have no
+    // delimiter and use "." as the hierarchy separator. Using one global
+    // delimiter (e.g. INBOX's "/") would leave "Beta Tests.Ecovacs Goat"
+    // flat — exactly the bug where the tree looks right briefly (empty delim
+    // -> "." fallback) and then flattens once the sync loads the IMAP
+    // delimiter.
+    const delimFor = (name: string): string => {
+      const d = delimMap[name];
+      return d && d.length > 0 ? d : ".";
+    };
 
     // Pass 1: register every top-level folder first, so a child like
     // "Beta Tests.Ecovacs Goat" ALWAYS finds its real parent — regardless
@@ -673,6 +685,7 @@ let sentFolderName = $state<string | null>(null);
     // real), which made "Beta Tests.Ecovacs Goat" render on the same level
     // as "Beta Tests".
     for (const name of names) {
+      const delimiter = delimFor(name);
       const lowerName = name.toLowerCase();
       const leafLower = getLeafName(name, delimiter).toLowerCase();
       if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
@@ -688,6 +701,7 @@ let sentFolderName = $state<string | null>(null);
 
     // Pass 2: attach children to their (now existing) parent.
     for (const name of names) {
+      const delimiter = delimFor(name);
       const lowerName = name.toLowerCase();
       const leafLower = getLeafName(name, delimiter).toLowerCase();
       if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
@@ -713,7 +727,7 @@ let sentFolderName = $state<string | null>(null);
   }
 
   let folderTree = $derived(
-    buildFolderTree(folderNames, folderDelimiters["INBOX"] || ".")
+    buildFolderTree(folderNames, folderDelimiters)
   );
 
   // Per-account folder tree so every account group renders independently.
@@ -721,7 +735,7 @@ let sentFolderName = $state<string | null>(null);
     const out: Record<number, FolderNode> = {};
     for (const acct of accountList) {
       const f = getAccountFolders(acct.id);
-      out[acct.id] = buildFolderTree(f.names, f.delim["INBOX"] || ".");
+      out[acct.id] = buildFolderTree(f.names, f.delim);
     }
     return out;
   });
