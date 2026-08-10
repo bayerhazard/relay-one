@@ -543,10 +543,17 @@ pub async fn delete_folder(
 
     let client = {
         let guard = state.imap_clients.read();
-        guard
-            .get(&req.account_id)
-            .cloned()
-            .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?
+        guard.get(&req.account_id).cloned()
+    };
+    let Some(client) = client else {
+        // No live IMAP session (account never connected or sync not running).
+        // Drop the local rows + folder anyway — the user asked to delete this
+        // folder; the IMAP counterpart (if any) is simply left untouched.
+        let deleted = with_db(&state, |conn| {
+            cache::messages::delete_local_folder(conn, &state.data_root, req.account_id as i64, &req.name)
+        })?;
+        tracing::warn!("Kein IMAP-Client — Ordner '{}' nur lokal gelöscht ({} Mails, IMAP-Gegenstück bleibt)", req.name, deleted);
+        return Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted, "local_only": true })));
     };
     client
         .delete_folder(&req.name)
