@@ -9,6 +9,7 @@ pub mod backup;
 pub mod delete_queue;
 pub mod export;
 pub mod health;
+pub mod import;
 pub mod messages;
 pub mod migrate;
 pub mod profile;
@@ -86,6 +87,8 @@ pub fn router() -> Router<AppState> {
 .route("/archive/queue-remove", post(delete_queue::remove_delete_queue))
         // Export (EML/MBox)
         .route("/export", get(export::export_archive))
+        .route("/import/mbox", post(import::import_mbox))
+        .route("/import/mbox-dir", post(import::import_mbox_dir))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))
         .route("/archive/backups", get(backup::list_backups))
