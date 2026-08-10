@@ -337,8 +337,29 @@ async function handleSaveCardDav() {
   async function handleSaveVoice() {
     voiceError = null;
     voiceSaved = false;
+    // Validate before saving — garbage in, "saved" out is misleading.
+    if (voiceEnabled) {
+      if (!voiceSttUrl.trim()) {
+        voiceError = "Bitte eine Speech-to-Text-URL angeben (z. B. https://speaches.aimighty.de/v1).";
+        return;
+      }
+      try {
+        const u = new URL(voiceSttUrl.trim());
+        if (u.protocol !== "https:" && u.protocol !== "http:") {
+          voiceError = "Die URL muss mit http:// oder https:// beginnen.";
+          return;
+        }
+      } catch {
+        voiceError = "Die Speech-to-Text-URL ist ungültig.";
+        return;
+      }
+      if (!voiceSttModel.trim()) {
+        voiceError = "Bitte ein STT-Modell angeben (z. B. Systran/faster-whisper-small).";
+        return;
+      }
+    }
     try {
-      await saveVoiceSettings(voiceEnabled, voiceSttUrl, voiceSttKey, voiceSttModel);
+      await saveVoiceSettings(voiceEnabled, voiceSttUrl.trim(), voiceSttKey.trim(), voiceSttModel.trim());
       voiceSaved = true;
       setTimeout(() => (voiceSaved = false), 2000);
     } catch (e: unknown) {

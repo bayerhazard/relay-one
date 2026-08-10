@@ -91,9 +91,9 @@ pub async fn get_voice_config(State(state): State<AppState>) -> ApiResult<serde_
     })?;
     Ok(Json(serde_json::json!({
         "enabled": enabled != 0,
-        "stt_url": stt_url,
-        "stt_key": stt_key,
-        "stt_model": stt_model,
+        "sttUrl": stt_url,
+        "sttKey": stt_key,
+        "sttModel": stt_model,
     })))
 }
 
