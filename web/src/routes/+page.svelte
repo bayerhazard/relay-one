@@ -2316,14 +2316,20 @@ let sentFolderName = $state<string | null>(null);
     flex-shrink: 0;
     background: var(--color-list);
     border-right: 1px solid var(--color-border);
-    contain: layout style paint;
+    /* NOTE: contain: layout/paint/strict would create a containing block for
+       position:fixed descendants — the context menu (rendered inside the
+       message list) would be positioned relative to this pane instead of the
+       viewport and appear shifted to the right. `style` only is safe. */
+    contain: style;
     display: flex;
     flex-direction: column;
   }
   .preview-pane {
     flex: 1;
     background: var(--color-preview);
-    contain: layout style;
+    /* contain: layout would create a containing block for position:fixed
+       descendants — the attachment context menu would be misplaced. */
+    contain: style;
     display: flex;
     flex-direction: column;
   }
