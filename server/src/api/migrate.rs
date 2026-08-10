@@ -491,6 +491,7 @@ pub struct MigrationStatus {
     pub current_folder: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    pub last_error: Option<String>,
 }
 
 impl Default for MigrationStatus {
@@ -505,6 +506,7 @@ impl Default for MigrationStatus {
             current_folder: String::new(),
             started_at: None,
             finished_at: None,
+            last_error: None,
         }
     }
 }
@@ -788,4 +790,127 @@ async fn run_migration_task(state: &AppState, source: i64, target: i64) {
         }
     }
     tracing::info!("migrate: Migration abgeschlossen");
+}
+
+/// `POST /api/v1/migrate/start-folder` — migrate ONE folder as a background
+/// task. After `done`, verify with db-count that source == target.
+#[derive(Deserialize)]
+pub struct StartFolderMigrationRequest {
+    pub source_account_id: u32,
+    pub target_account_id: u32,
+    pub folder: String,
+}
+
+pub async fn start_folder_migration(
+    State(state): State<AppState>,
+    Json(req): Json<StartFolderMigrationRequest>,
+) -> ApiResult<serde_json::Value> {
+    if state.migration.read().as_ref().map(|m| m.running).unwrap_or(false) {
+        return Err(ApiError("Migration läuft bereits".into()));
+    }
+    state.imap_clients.write().remove(&req.target_account_id);
+
+    let status = MigrationStatus {
+        running: true,
+        done: false,
+        folders_total: 1,
+        current_folder: req.folder.clone(),
+        started_at: Some(chrono::Utc::now().to_rfc3339()),
+        ..Default::default()
+    };
+    *state.migration.write() = Some(status);
+
+    let state2 = state.clone();
+    let folder = req.folder.clone();
+    let source_id = req.source_account_id as i64;
+    let target_id = req.target_account_id as i64;
+    tokio::spawn(async move {
+        run_single_folder_task(&state2, source_id, target_id, &folder).await;
+    });
+
+    Ok(Json(serde_json::json!({ "ok": true, "folder": req.folder })))
+}
+
+/// Background task for exactly one folder. On connection errors the folder is
+/// marked failed with an error message (NOT silently done) so the caller can
+/// retry that folder.
+async fn run_single_folder_task(state: &AppState, source: i64, target: i64, folder_name: &str) {
+    // Ensure local target folder.
+    if let Err(e) = with_db(state, |conn| {
+        cache_messages::create_local_folder(conn, target, folder_name).map_err(|e| e.to_string())
+    }) {
+        finish_folder_task(state, 0, 0, Some(format!("Ordner anlegen: {e}")));
+        return;
+    }
+
+    let imap_client = match source_imap_client(state, source).await {
+        Ok(c) => c,
+        Err(e) => {
+            finish_folder_task(state, 0, 0, Some(format!("IMAP-Verbindung: {e}")));
+            return;
+        }
+    };
+
+    let uids = match imap_client.fetch_all_uids_in_folder(folder_name).await {
+        Ok(u) => u,
+        Err(e) => {
+            imap_client.shutdown().await;
+            finish_folder_task(state, 0, 0, Some(format!("UID-Liste: {e}")));
+            return;
+        }
+    };
+
+    // Existing target UIDs (skip).
+    let existing: std::collections::HashSet<i64> = with_db(state, |conn| {
+        cache_messages::get_messages_with_uids_for_folder(conn, target, folder_name)
+            .map_err(|e| e.to_string())
+    })
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
+
+    let mut copied = 0usize;
+    let mut failed = 0usize;
+    for uid in uids {
+        if existing.contains(&(uid as i64)) {
+            continue;
+        }
+        let is_cached = with_db(state, |conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT 1 FROM messages WHERE account_id = ?1 AND uid = ?2",
+                    rusqlite::params![source, uid as i64],
+                    |r| r.get::<_, i64>(0),
+                )
+                .is_ok())
+        })
+        .unwrap_or(false);
+
+        match copy_one_message(&imap_client, state, source, target, folder_name, uid as i64, is_cached).await {
+            Ok(()) => copied += 1,
+            Err(e) => {
+                tracing::debug!("migrate: {} / uid {} fehlgeschlagen: {}", folder_name, uid, e);
+                failed += 1;
+            }
+        }
+    }
+    imap_client.shutdown().await;
+    finish_folder_task(state, copied, failed, None);
+}
+
+fn finish_folder_task(state: &AppState, copied: usize, failed: usize, error: Option<String>) {
+    let mut s = state.migration.write();
+    if let Some(st) = s.as_mut() {
+        st.running = false;
+        st.done = true;
+        st.messages_copied = copied;
+        st.messages_failed = failed;
+        st.folders_done = 1;
+        st.current_folder = String::new();
+        st.finished_at = Some(chrono::Utc::now().to_rfc3339());
+        if let Some(e) = error {
+            st.last_error = Some(e);
+        }
+    }
+    tracing::info!("migrate: Ordner abgeschlossen — {} kopiert, {} fehlgeschlagen", copied, failed);
 }

@@ -98,6 +98,7 @@ pub fn router() -> Router<AppState> {
         .route("/migrate/stop-sync", post(migrate::stop_sync))
         .route("/migrate/reset-target", post(migrate::reset_target))
         .route("/migrate/start", post(migrate::start_migration))
+        .route("/migrate/start-folder", post(migrate::start_folder_migration))
         .route("/migrate/status", get(migrate::migration_status))
         // Profile photo + Voice
         .route("/profile/photo", get(profile::get_own_photo).post(profile::save_own_photo))
