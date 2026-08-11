@@ -50,13 +50,25 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
     // Resets to base_interval as soon as any new message is found.
     let mut consecutive_empty: u32 = 0;
 
+    // AI summaries run on a DEDICATED worker channel. LLM calls take seconds
+    // each — queueing them on the sync queue would block the whole IMAP sync
+    // cycle behind hundreds of summarization tasks (observed: 200+ tasks →
+    // no sync for 20+ minutes).
+    let (ai_tx, ai_rx) = mpsc::channel::<SyncTask>(512);
+    {
+        let worker_state = state.clone();
+        tokio::spawn(async move {
+            run_ai_summary_worker(worker_state, ai_rx).await;
+        });
+    }
+
     loop {
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 tracing::info!("Sync-Loop wurde gestoppt");
                 break;
             }
-            result = do_sync_cycle(&state, &queue, base_interval, &mut last_health_checks) => {
+            result = do_sync_cycle(&state, &queue, base_interval, &mut last_health_checks, &ai_tx) => {
                 let new_count = match result {
                     Ok(count) => count,
                     Err(e) => {
@@ -611,6 +623,7 @@ async fn do_sync_cycle(
     queue: &SyncQueue,
     _base_interval: Duration,
     last_health_checks: &mut HashMap<u32, Instant>,
+    ai_tx: &mpsc::Sender<SyncTask>,
 ) -> Result<usize, String> {
     let imap_client_ids: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
         let guard = state.imap_clients.read();
@@ -737,7 +750,7 @@ async fn do_sync_cycle(
             sleep(delay).await;
         }
 
-        match process_sync_task(state, &task, queue).await {
+        match process_sync_task(state, &task, queue, ai_tx).await {
             Ok(count) => {
                 total_new += count;
                 queue.record_success().await;
@@ -769,7 +782,12 @@ async fn do_sync_cycle(
     Ok(total_new)
 }
 
-async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue) -> Result<usize, String> {
+async fn process_sync_task(
+    state: &AppState,
+    task: &SyncTask,
+    queue: &SyncQueue,
+    ai_tx: &mpsc::Sender<SyncTask>,
+) -> Result<usize, String> {
     match &task.task_type {
         SyncTaskType::FetchNew => {
             let client = {
@@ -1027,8 +1045,10 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
                         };
 
                         if needs_summary {
-                            queue
-                                .enqueue(SyncTask {
+                            // Send to the DEDICATED AI worker channel — never
+                            // the sync queue, so LLM work cannot stall IMAP sync.
+                            let _ = ai_tx
+                                .send(SyncTask {
                                     account_id: task.account_id,
                                     task_type: SyncTaskType::GenerateAiSummary(msg.uid),
                                     created_at: tokio::time::Instant::now(),
@@ -1188,92 +1208,9 @@ async fn process_sync_task(state: &AppState, task: &SyncTask, queue: &SyncQueue)
             Ok(backfilled)
         }
         SyncTaskType::GenerateAiSummary(uid) => {
-            let uid = *uid;
-            let (body_text, client_opt) = {
-                let db_guard = state.cache_db.lock();
-                let conn = db_guard
-                    .as_ref()
-                    .ok_or("Datenbank nicht initialisiert")?;
-
-                let msg = crate::cache::messages::fetch_message_body(
-                    conn,
-                    task.account_id as i64,
-                    uid as i64,
-                )
-                .map_err(|e| e.to_string())?;
-
-                let body = msg.and_then(|m| m.body_text);
-
-                let ai_client = {
-                    let guard = state.ai_client.read();
-                    guard.clone()
-                };
-
-                (body, ai_client)
-            };
-
-            if let (Some(body), Some(client)) = (body_text, client_opt) {
-                let summary = match client
-                    .complete_background(
-                        crate::ai::prompts::AI_SUMMARY_PROMPT,
-                        &pii::mask_pii(&body),
-                        Some(0.3),
-                        Some(300),
-                    )
-                    .await
-                {
-                    Some(Ok(s)) => Some(s),
-                    Some(Err(e)) => {
-                        tracing::warn!("AI Summary LLM error for uid {}: {}", uid, e);
-                        None
-                    }
-                    None => {
-                        tracing::debug!("LLM busy, skip summary for uid {}", uid);
-                        None
-                    }
-                };
-
-                if let Some(summary) = summary {
-                    let db_guard = state.cache_db.lock();
-                    let conn = db_guard
-                        .as_ref()
-                        .ok_or("Datenbank nicht initialisiert")?;
-                    let urgency = if summary.contains("KRITISCH") { Some(0.95f32) }
-                        else if summary.contains("ZEITKRITISCH") { Some(0.8f32) }
-                        else { Some(0.3f32) };
-                    let summary_text = summary.lines()
-                        .find(|l| l.starts_with("Zusammenfassung:"))
-                        .map(|l| l.trim_start_matches("Zusammenfassung:").trim())
-                        .unwrap_or(&summary)
-                        .to_string();
-                    crate::cache::messages::update_ai_summary(
-                        conn,
-                        task.account_id as i64,
-                        uid as i64,
-                        &summary_text,
-                    )
-                    .map_err(|e| e.to_string())?;
-                        let _ = state.events.emit("ai-summary-updated", (uid, task.account_id, summary_text.clone(), urgency));
-                    if let Some(u) = urgency {
-                        let _ = crate::cache::messages::update_ai_priority(
-                            conn, task.account_id as i64, uid as i64, u,
-                        );
-                    }
-                } else {
-                    // Fallback: rule-based priority detection when LLM is unavailable
-                    let rule_priority = priority::detect_priority("", &body);
-                    if rule_priority > 0.0 {
-                        let db_guard = state.cache_db.lock();
-                        if let Some(conn) = db_guard.as_ref() {
-                            let _ = crate::cache::messages::update_ai_priority(
-                                conn, task.account_id as i64, uid as i64, rule_priority,
-                            );
-                        }
-                        let _ = state.events.emit("ai-summary-updated", (uid, task.account_id, String::new(), Some(rule_priority)));
-                    }
-                }
-            }
-            Ok(0)
+            // Handled by the dedicated AI worker (run_ai_summary_worker).
+            // Kept for compatibility with tasks already in the queue.
+            process_ai_summary(state, task.account_id, *uid).await
         }
         SyncTaskType::AnalyzeDiff => {
             // Background: analyze queued diffs between AI draft and user's final text.
@@ -1773,5 +1710,117 @@ mod tests {
             0,
             "success should reset consecutive failure count"
         );
+    }
+}
+/// Generate the AI summary for one message (shared by the sync-queue
+/// compatibility arm and the dedicated worker).
+async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32) -> Result<usize, String> {
+    let (body_text, client_opt) = {
+        let db_guard = state.cache_db.lock();
+        let conn = db_guard
+            .as_ref()
+            .ok_or("Datenbank nicht initialisiert")?;
+
+        let msg = crate::cache::messages::fetch_message_body(
+            conn,
+            account_id as i64,
+            uid as i64,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let body = msg.and_then(|m| m.body_text);
+
+        let ai_client = {
+            let guard = state.ai_client.read();
+            guard.clone()
+        };
+
+        (body, ai_client)
+    };
+
+    if let (Some(body), Some(client)) = (body_text, client_opt) {
+        let summary = match client
+            .complete_background(
+                crate::ai::prompts::AI_SUMMARY_PROMPT,
+                &pii::mask_pii(&body),
+                Some(0.3),
+                Some(300),
+            )
+            .await
+        {
+            Some(Ok(s)) => Some(s),
+            Some(Err(e)) => {
+                tracing::warn!("AI Summary LLM error for uid {}: {}", uid, e);
+                None
+            }
+            None => {
+                tracing::debug!("LLM busy, skip summary for uid {}", uid);
+                None
+            }
+        };
+
+        if let Some(summary) = summary {
+            let db_guard = state.cache_db.lock();
+            let conn = db_guard
+                .as_ref()
+                .ok_or("Datenbank nicht initialisiert")?;
+            let urgency = if summary.contains("KRITISCH") { Some(0.95f32) }
+                else if summary.contains("ZEITKRITISCH") { Some(0.8f32) }
+                else { Some(0.3f32) };
+            let summary_text = summary.lines()
+                .find(|l| l.starts_with("Zusammenfassung:"))
+                .map(|l| l.trim_start_matches("Zusammenfassung:").trim())
+                .unwrap_or(&summary)
+                .to_string();
+            crate::cache::messages::update_ai_summary(
+                conn,
+                account_id as i64,
+                uid as i64,
+                &summary_text,
+            )
+            .map_err(|e| e.to_string())?;
+                let _ = state.events.emit("ai-summary-updated", (uid, account_id, summary_text.clone(), urgency));
+            if let Some(u) = urgency {
+                let _ = crate::cache::messages::update_ai_priority(
+                    conn, account_id as i64, uid as i64, u,
+                );
+            }
+        } else {
+            // Fallback: rule-based priority detection when LLM is unavailable
+            let rule_priority = priority::detect_priority("", &body);
+            if rule_priority > 0.0 {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::messages::update_ai_priority(
+                        conn, account_id as i64, uid as i64, rule_priority,
+                    );
+                }
+                let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority)));
+            }
+        }
+    }
+    Ok(0)
+}
+
+/// Dedicated AI-summary worker. Processes LLM summarization jobs sequentially
+/// (never in the sync cycle), so slow LLM calls cannot delay IMAP sync.
+async fn run_ai_summary_worker(state: Arc<AppState>, mut rx: mpsc::Receiver<SyncTask>) {
+    tracing::info!("AI-Summary-Worker gestartet");
+    while let Some(task) = rx.recv().await {
+        match &task.task_type {
+            SyncTaskType::GenerateAiSummary(uid) => {
+                if let Err(e) = process_ai_summary(&state, task.account_id, *uid).await {
+                    tracing::warn!(
+                        "AI-Summary-Worker: uid {} (account {}) fehlgeschlagen: {}",
+                        uid, task.account_id, e
+                    );
+                }
+                // Slight pacing so the LLM is not hammered by bulk imports.
+                sleep(Duration::from_millis(300)).await;
+            }
+            other => {
+                tracing::debug!("AI-Summary-Worker: unerwarteter Task {:?}", other);
+            }
+        }
     }
 }

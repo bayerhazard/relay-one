@@ -683,6 +683,12 @@ pub fn update_folder_from(
 }
 
 /// Create a local-only folder (no IMAP counterpart). Idempotent.
+///
+/// NOTE: this must NEVER convert an existing folder to local_only. The old
+/// UPDATE-by-name behavior turned real IMAP folders (INBOX!) into local-only
+/// folders when the name collided — the sync then silently stopped fetching
+/// them. Existing rows are left untouched; the caller's subquery resolves
+/// the folder id either way.
 pub fn create_local_folder(
     conn: &Connection,
     account_id: i64,
@@ -690,13 +696,6 @@ pub fn create_local_folder(
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT OR IGNORE INTO folders (account_id, name, imap_id, local_only) VALUES (?1, ?2, NULL, 1)",
-        params![account_id, name],
-    )?;
-    // If a folder with this name already exists (e.g. as an IMAP mirror from
-    // the sync), convert it to a LOCAL folder so the sync never touches it
-    // and the migration target stays stable.
-    conn.execute(
-        "UPDATE folders SET local_only = 1, imap_id = NULL WHERE account_id = ?1 AND name = ?2",
         params![account_id, name],
     )?;
     Ok(())
