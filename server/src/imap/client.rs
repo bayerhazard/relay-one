@@ -152,10 +152,25 @@ impl ImapClient {
                     let raw = f.name().to_string();
                     let name = decode_imap_utf7(&raw);
                     let delim = f.delimiter().map(|d| d.to_string()).unwrap_or_default();
-                    let has_no_select = f.attributes().iter().any(|a| {
+                    let attrs = f.attributes();
+                    let has_no_select = attrs.iter().any(|a| {
                         format!("{:?}", a).contains("NoSelect")
                     });
-                    let tag = if has_no_select { "noselect" } else { "folder" };
+                    // RFC 3501 §6.3.8: the \Trash attribute marks the
+                    // provider's trash folder. We map it onto our local
+                    // "Trash" so multiple provider trash folders (Gelöscht /
+                    // Papierkorb / Deleted Messages…) do not show up as
+                    // separate duplicates in the UI.
+                    let is_trash = attrs.iter().any(|a| {
+                        format!("{:?}", a).contains("Trash")
+                    });
+                    let tag = if has_no_select {
+                        "noselect"
+                    } else if is_trash {
+                        "trash"
+                    } else {
+                        "folder"
+                    };
                     (name, raw, delim, tag.to_string())
                 })
                 .collect())

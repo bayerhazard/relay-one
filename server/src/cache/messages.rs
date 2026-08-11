@@ -58,6 +58,29 @@ fn save_message_inner(conn: &Connection, account_id: i64, msg: &CachedMessage, f
         Err(e) => return Err(e),
     };
 
+    // Re-fetch guard: if this message_id already lives in the LOCAL Trash
+    // folder (user deleted it; the provider copy may still linger), do NOT
+    // re-insert it into another folder. Without this the sync would
+    // "revive" deleted mails in INBOX while their row stays in Trash — and
+    // the next delete would hit UNIQUE(account_id, folder_id, uid).
+    if !msg.envelope.message_id.is_empty() {
+        let already_in_trash: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM messages m
+                    JOIN folders f ON f.id = m.folder_id
+                    WHERE m.account_id = ?1 AND m.message_id = ?2
+                      AND f.local_only = 1 AND f.name = 'Trash'
+                )",
+                params![account_id, msg.envelope.message_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if already_in_trash {
+            return Ok(());
+        }
+    }
+
     conn.execute(
         "INSERT INTO messages (
             account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
@@ -663,6 +686,15 @@ pub fn update_folder(
 /// Move the message row into `folder`, scoped to ONE source folder.
 /// UIDs are only unique per folder — without the source scope an UPDATE by
 /// uid alone would move EVERY message that shares the uid across all folders.
+///
+/// Conflict handling for the target folder:
+///   1. If a target row with the SAME message_id already exists (e.g. the
+///      mail was previously deleted into Trash and the sync re-fetched it
+///      into INBOX), DELETE the source row — the target copy wins. This is
+///      the "Mail wiederaufersteht" case: the second delete must not hit
+///      UNIQUE(account_id, folder_id, uid).
+///   2. Otherwise, if the uid collides in the target folder, shift the uid
+///      by +100000 increments until free (keeps the row visible).
 pub fn update_folder_from(
     conn: &Connection,
     account_id: i64,
@@ -671,15 +703,84 @@ pub fn update_folder_from(
     folder: &str,
 ) -> Result<(), rusqlite::Error> {
     create_local_folder(conn, account_id, folder)?;
-    conn.execute(
-        "UPDATE messages
-         SET folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2),
-             updated_at = datetime('now')
-         WHERE account_id = ?3 AND uid = ?4
-           AND folder_id = (SELECT id FROM folders WHERE account_id = ?3 AND name = ?5)",
-        params![account_id, folder, account_id, uid, source_folder],
-    )?;
-    Ok(())
+
+    let source_folder_id: i64 = conn
+        .query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+            params![account_id, source_folder],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let target_folder_id: i64 = conn
+        .query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+            params![account_id, folder],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if source_folder_id == 0 || target_folder_id == 0 {
+        return Ok(());
+    }
+
+    // Source row (id + message_id) in the source folder.
+    let source = conn
+        .query_row(
+            "SELECT id, message_id FROM messages
+             WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
+            params![account_id, source_folder_id, uid],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .ok();
+    let Some((source_id, source_message_id)) = source else {
+        return Ok(()); // nothing to move
+    };
+
+    // Case 1: same message_id already in the target folder → the target copy
+    // wins; drop the stale source duplicate.
+    if let Some(mid) = source_message_id {
+        let duplicate_in_target: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages
+                 WHERE account_id = ?1 AND folder_id = ?2 AND message_id = ?3)",
+                params![account_id, target_folder_id, mid],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if duplicate_in_target {
+            conn.execute(
+                "DELETE FROM messages WHERE id = ?1",
+                params![source_id],
+            )?;
+            return Ok(());
+        }
+    }
+
+    // Case 2: find a free uid in the target folder (shift on collision).
+    let mut new_uid = uid;
+    loop {
+        let occupied: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages
+                 WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3)",
+                params![account_id, target_folder_id, new_uid],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !occupied {
+            conn.execute(
+                "UPDATE messages SET folder_id = ?1, uid = ?2, updated_at = datetime('now')
+                 WHERE id = ?3",
+                params![target_folder_id, new_uid, source_id],
+            )?;
+            return Ok(());
+        }
+        new_uid += 100000;
+        if new_uid > uid + 10_000_000 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "update_folder_from: keine freie uid im Zielordner".into(),
+            ));
+        }
+    }
 }
 
 /// Create a local-only folder (no IMAP counterpart). Idempotent.

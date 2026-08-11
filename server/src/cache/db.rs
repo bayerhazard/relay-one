@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
@@ -277,8 +277,146 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         [],
     );
 
+    // Migration: provider trash folders (Gelöscht / Papierkorb / Deleted
+    // Messages / …) are consolidated into the single local "Trash" folder.
+    // Without this the UI shows multiple Papierkorb/Trash duplicates (one
+    // per provider locale/client), and mails deleted via the trash flow end
+    // up in a different folder than the one displayed as "Papierkorb".
+    migrate_provider_trash_folders(conn);
+
     init_fts(conn);
 
+    Ok(())
+}
+
+/// Consolidate provider trash folders (by locale) into the single local
+/// "Trash" folder: move their messages + sync cursors over, then drop the
+/// provider-named folder rows. Idempotent.
+fn migrate_provider_trash_folders(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let trash_names = [
+        "Trash",
+        "Gelöscht",
+        "Gelöschte Elemente",
+        "Papierkorb",
+        "Deleted Messages",
+        "Deleted",
+        "Deleted Items",
+        "INBOX.Trash",
+        "INBOX.Gelöscht",
+        "INBOX.Papierkorb",
+        "INBOX.Deleted Messages",
+        "INBOX.Deleted",
+    ];
+
+    let trash_ids: Vec<(i64, i64)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, account_id FROM folders WHERE name = 'Trash' AND local_only = 1",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        out
+    };
+
+    for (trash_id, account_id) in trash_ids {
+        // Move messages from every provider trash folder of this account.
+        for name in &trash_names {
+            if *name == "Trash" {
+                continue;
+            }
+            let src_id: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2 AND local_only = 0",
+                    params![account_id, name],
+                    |row| row.get(0),
+                )
+                .ok();
+            let Some(src_id) = src_id else { continue };
+
+            // Fold messages with an identical message_id already in Trash
+            // (the local copy wins), others move with a free uid (offset on
+            // collision, mirroring update_folder_from semantics).
+            let mut src_msgs: Vec<(i64, i64, Option<String>)> = {
+                let mut stmt = conn.prepare(
+                    "SELECT id, uid, message_id FROM messages
+                     WHERE account_id = ?1 AND folder_id = ?2",
+                )?;
+                let rows = stmt.query_map(params![account_id, src_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(r?);
+                }
+                out
+            };
+            src_msgs.sort_by_key(|(_, uid, _)| *uid);
+
+            for (msg_id, uid, message_id) in &src_msgs {
+                if let Some(mid) = message_id {
+                    let dup: bool = conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM messages
+                             WHERE account_id = ?1 AND folder_id = ?2 AND message_id = ?3)",
+                            params![account_id, trash_id, mid],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(false);
+                    if dup {
+                        conn.execute("DELETE FROM messages WHERE id = ?1", params![msg_id])?;
+                        continue;
+                    }
+                }
+                // Find a free uid in Trash.
+                let mut new_uid = *uid;
+                loop {
+                    let occupied: bool = conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM messages
+                             WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3)",
+                            params![account_id, trash_id, new_uid],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(false);
+                    if !occupied {
+                        conn.execute(
+                            "UPDATE messages SET folder_id = ?1, uid = ?2 WHERE id = ?3",
+                            params![trash_id, new_uid, msg_id],
+                        )?;
+                        break;
+                    }
+                    new_uid += 100000;
+                }
+            }
+
+            // Move the sync cursor over, keeping the highest value.
+            conn.execute(
+                "INSERT OR IGNORE INTO sync_state (account_id, folder_name, last_uid, highest_modseq)
+                 VALUES (?1, 'Trash', 0, 0)",
+                params![account_id],
+            )?;
+            conn.execute(
+                "UPDATE sync_state
+                 SET last_uid = MAX(last_uid, (SELECT COALESCE(MAX(last_uid), 0) FROM sync_state WHERE account_id = ?1 AND folder_name = ?2)),
+                     highest_modseq = MAX(highest_modseq, (SELECT COALESCE(MAX(highest_modseq), 0) FROM sync_state WHERE account_id = ?1 AND folder_name = ?2))
+                 WHERE account_id = ?1 AND folder_name = 'Trash'",
+                params![account_id, name],
+            )?;
+            conn.execute(
+                "DELETE FROM sync_state WHERE account_id = ?1 AND folder_name = ?2",
+                params![account_id, name],
+            )?;
+
+            // Drop the provider-named folder row (messages already moved).
+            conn.execute("DELETE FROM folders WHERE id = ?1", params![src_id])?;
+            tracing::info!(
+                "Migration: Provider-Papierkorb '{}' (Konto {}) nach 'Trash' konsolidiert",
+                name, account_id
+            );
+        }
+    }
     Ok(())
 }
 

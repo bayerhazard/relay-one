@@ -35,6 +35,34 @@ const IDLE_TIMEOUT_SECS: u64 = 20;
 /// detect read/unread changes made from other clients (phone, webmail, …).
 const FLAG_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
 
+/// Provider trash folders (by name, per provider locale) that are mapped onto
+/// the single local "Trash" folder. Prevents duplicate Papierkorb/Trash/
+/// Gelöscht/Deleted-Messages folders showing up in the UI.
+const PROVIDER_TRASH_NAMES: &[&str] = &[
+    "Trash",
+    "Gelöscht",
+    "Gelöschte Elemente",
+    "Papierkorb",
+    "Deleted Messages",
+    "Deleted",
+    "Deleted Items",
+    "INBOX.Trash",
+    "INBOX.Gelöscht",
+    "INBOX.Papierkorb",
+    "INBOX.Deleted Messages",
+    "INBOX.Deleted",
+];
+
+/// Map a provider folder onto the local storage folder: every provider trash
+/// folder is stored inside the single local "Trash".
+fn storage_folder_name(folder_name: &str, tag: &str) -> String {
+    if tag == "trash" || PROVIDER_TRASH_NAMES.iter().any(|t| folder_name.eq_ignore_ascii_case(t)) {
+        "Trash".to_string()
+    } else {
+        folder_name.to_string()
+    }
+}
+
 pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Receiver<()>) {
     let queue = state.sync_queue.clone();
     let base_interval = Duration::from_secs(20);
@@ -213,6 +241,8 @@ async fn run_flag_refresh(state: &AppState) {
             if tag == "noselect" {
                 continue;
             }
+            // Provider trash folders are stored under the local "Trash".
+            let storage_folder = storage_folder_name(folder_name, tag);
             // NOTE: pass the DECODED name — select_folder() re-encodes to
             // UTF-7 internally. Passing raw_name (already UTF-7) would
             // double-encode (& → &-) and fail with "unknown folder".
@@ -229,7 +259,7 @@ async fn run_flag_refresh(state: &AppState) {
                 let db_guard = state.cache_db.lock();
                 let Some(conn) = db_guard.as_ref() else { continue; };
                 match crate::cache::messages::get_messages_with_uids_for_folder(
-                    conn, *account_id as i64, folder_name,
+                    conn, *account_id as i64, &storage_folder,
                 ) {
                     Ok(m) => m,
                     Err(e) => {
@@ -841,6 +871,10 @@ async fn process_sync_task(
                 // internally (raw_name would be double-encoded → "unknown
                 // folder").
 
+                // Provider trash folders (Gelöscht/Papierkorb/Deleted
+                // Messages…) are stored inside the single local "Trash".
+                let storage_folder = storage_folder_name(folder_name, tag);
+
                 // NOTE: SPAM folders used to be skipped entirely in archive
                 // mode ("stays exclusively on the provider"). The user wants
                 // Spam handled like every other folder — cached and shown.
@@ -850,7 +884,11 @@ async fn process_sync_task(
                 // conversion, or migration/import targets) are not mirrored
                 // against the provider: skip the IMAP fetch + prune for them
                 // so the local history is never touched by the sync.
-                let is_local_folder = {
+                // Exception: provider trash folders map ONTO the local Trash
+                // row (which is local_only) — they must still be fetched.
+                let is_local_folder = if storage_folder == "Trash" {
+                    false
+                } else {
                     let db_guard = state.cache_db.lock();
                     let conn = db_guard
                         .as_ref()
@@ -873,14 +911,15 @@ async fn process_sync_task(
                     let conn = db_guard
                         .as_ref()
                         .ok_or("Datenbank nicht initialisiert")?;
-                    crate::cache::sync_state::get(conn, task.account_id as i64, folder_name)
+                    crate::cache::sync_state::get(conn, task.account_id as i64, &storage_folder)
                 };
                 let (max_uid, _modseq) = match sync_state {
                     Ok(s) => (s.last_uid, s.highest_modseq),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => (0, 0),
                     Err(e) => {
                         tracing::warn!(
                             "FetchNew: sync_state '{}' (account {}): {}",
-                            folder_name, task.account_id, e
+                            storage_folder, task.account_id, e
                         );
                         continue;
                     }
@@ -915,7 +954,7 @@ async fn process_sync_task(
 
                     let tx = conn.transaction().map_err(|e| e.to_string())?;
                     for msg in &messages {
-                        crate::cache::messages::save_message(&tx, task.account_id as i64, msg, folder_name)
+                        crate::cache::messages::save_message(&tx, task.account_id as i64, msg, &storage_folder)
                             .map_err(|e| e.to_string())?;
                     }
                     // Advance the per-folder sync cursor to the highest UID of
@@ -927,7 +966,7 @@ async fn process_sync_task(
                         crate::cache::sync_state::set(
                             &tx,
                             task.account_id as i64,
-                            folder_name,
+                            &storage_folder,
                             max_uid as i64,
                             0,
                         )
@@ -957,6 +996,13 @@ async fn process_sync_task(
 
                     // Local-only folders are NOT mirrors of an IMAP folder —
                     // never prune them against server UIDs (archive mode).
+                    // Provider trash folders map onto the local Trash — also
+                    // never pruned: deleted mails must stay in the local
+                    // Trash even if the provider copy is gone.
+                    let storage_folder = storage_folder_name(folder_name, tag);
+                    if storage_folder == "Trash" {
+                        continue;
+                    }
                     let is_local_folder = crate::cache::messages::is_local_only_folder(
                         conn,
                         task.account_id as i64,
