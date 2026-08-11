@@ -2123,6 +2123,52 @@ async function handleSaveCardDav() {
     border-color: var(--color-text-secondary);
   }
 
+  /* Primary action button (Backup erstellen) — same visual language as
+     .btn-submit so the Archiv tab matches the other tabs. */
+  .btn-action {
+    padding: 10px 24px;
+    background: var(--color-accent);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-action:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+  }
+
+  .btn-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Destructive action button (Cache komplett leeren / KI-Zusammenfassungen
+     löschen) — theme-aware danger variant of .btn-submit. */
+  .btn-danger {
+    padding: 10px 24px;
+    background: var(--color-danger);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 85%, #000000);
+  }
+
+  .btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   /* ─── ACCOUNT CARDS ─── */
   .account-grid {
     display: flex;
@@ -2236,7 +2282,7 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: 12px;
     padding: 8px 12px;
-    border: 1px solid var(--color-border, rgba(127,127,127,0.25));
+    border: 1px solid var(--color-border);
     border-radius: 8px;
     font-size: 0.8rem;
   }
@@ -2283,9 +2329,9 @@ async function handleSaveCardDav() {
     justify-content: space-between;
     gap: 12px;
     padding: 10px 12px;
-    border: 1px solid var(--color-border, rgba(127,127,127,0.25));
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    background: var(--color-surface, rgba(255,255,255,0.5));
+    background: var(--color-list);
   }
 
   .delete-queue-info {
@@ -2308,17 +2354,17 @@ async function handleSaveCardDav() {
     font-size: 0.7rem;
     padding: 2px 8px;
     border-radius: 999px;
-    background: var(--color-active-wash, rgba(127,127,127,0.12));
+    background: var(--color-active-wash);
   }
 
   .delete-queue-state.failed {
-    background: rgba(220, 38, 38, 0.12);
-    color: #b91c1c;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    color: var(--color-danger);
   }
 
   .delete-queue-error {
     font-size: 0.72rem;
-    color: #b91c1c;
+    color: var(--color-danger);
     max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2371,9 +2417,9 @@ async function handleSaveCardDav() {
     background: transparent;
     border: 1.5px solid var(--color-border);
     color: var(--color-text);
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 0.75rem;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -2388,9 +2434,9 @@ async function handleSaveCardDav() {
     background: transparent;
     border: 1.5px solid var(--color-border);
     color: var(--color-danger);
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 0.75rem;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s ease;
