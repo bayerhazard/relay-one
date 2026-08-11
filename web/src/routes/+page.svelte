@@ -2341,7 +2341,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .sidebar-header {
     height: 72px;
-    padding: 0 20px;
+    padding: 0 15px;
     display: flex;
     align-items: center;
     border-bottom: 1px solid var(--color-border);
@@ -2438,7 +2438,7 @@ let sentFolderName = $state<string | null>(null);
     justify-content: center;
     gap: 8px;
     margin-bottom: 8px;
-    padding: 0 14px;  }
+    padding: 0 15px;  }
   :global(.folder-item) {
     display: flex;
     align-items: center;
@@ -2501,7 +2501,8 @@ let sentFolderName = $state<string | null>(null);
     border-top: 1px solid var(--color-border);
   }
   .sidebar-footer .search-bar-inner {
-    margin: 0 24px;
+    margin: 0;
+    width: 100%;
   }
   .version {
     font-size: 0.75rem;
