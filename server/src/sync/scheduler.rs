@@ -407,6 +407,28 @@ async fn run_delete_queue(state: &AppState) {
     };
 
     for row in rows {
+        // Local-only folders (mbox-import/migration targets, e.g. "Auto",
+        // "Beta Tests") have NO provider copy — there is nothing to delete on
+        // the server. Skip the attempt counter too: these rows are done by
+        // definition and must never linger as "failed".
+        let is_local_folder = {
+            let db_guard = state.cache_db.lock();
+            let Some(conn) = db_guard.as_ref() else { continue; };
+            crate::cache::messages::is_local_only_folder(conn, row.account_id, &row.folder)
+                .unwrap_or(false)
+        };
+        if is_local_folder {
+            let db_guard = state.cache_db.lock();
+            if let Some(conn) = db_guard.as_ref() {
+                let _ = crate::cache::delete_queue::mark_deleted(conn, row.id);
+            }
+            tracing::info!(
+                "delete_queue {}: Ordner '{}' ist lokal (kein Provider-Gegenstück) — Eintrag abgeschlossen",
+                row.id, row.folder
+            );
+            continue;
+        }
+
         if row.attempts >= 5 {
             continue; // give up permanently; user reviews in UI
         }
