@@ -209,13 +209,15 @@ async fn run_flag_refresh(state: &AppState) {
             }
         };
 
-        for (folder_name, raw_name, _, tag) in &folders {
+        for (folder_name, _raw_name, _, tag) in &folders {
             if tag == "noselect" {
                 continue;
             }
-            let imap_name = if raw_name.is_empty() { folder_name } else { raw_name };
+            // NOTE: pass the DECODED name — select_folder() re-encodes to
+            // UTF-7 internally. Passing raw_name (already UTF-7) would
+            // double-encode (& → &-) and fail with "unknown folder".
 
-            if let Err(e) = client.select_folder(imap_name).await {
+            if let Err(e) = client.select_folder(folder_name).await {
                 tracing::warn!(
                     "flag_refresh: select_folder '{}' fuer account {} fehlgeschlagen: {}",
                     folder_name, account_id, e
@@ -522,13 +524,13 @@ async fn run_removal_check(state: &AppState) {
             }
         };
 
-        for (folder_name, raw_name, _, tag) in &folders {
+        for (folder_name, _raw_name, _, tag) in &folders {
             if tag == "noselect" {
                 continue;
             }
-            let imap_name = if raw_name.is_empty() { folder_name } else { raw_name };
-
-            if let Err(e) = client.select_folder(imap_name).await {
+            // Decoded name — select_folder() re-encodes to UTF-7 internally
+            // (raw_name would be double-encoded → "unknown folder").
+            if let Err(e) = client.select_folder(folder_name).await {
                 tracing::warn!(
                     "removal_check: select_folder '{}' fuer account {} fehlgeschlagen: {}",
                     folder_name, account_id, e
@@ -805,7 +807,7 @@ async fn process_sync_task(
             let folders = client.list_folders().await.map_err(|e| e.to_string())?;
 
             let mut total_new: usize = 0;
-            for (folder_name, raw_name, _, tag) in &folders {
+            for (folder_name, _raw_name, _, tag) in &folders {
                 if tag == "noselect" {
                     continue;
                 }
@@ -813,7 +815,9 @@ async fn process_sync_task(
                 let is_spam = ["Spam", "Junk", "Spamverdacht", "Junk E-Mail"]
                     .iter().any(|s| folder_name.eq_ignore_ascii_case(s));
 
-                let imap_name = if raw_name.is_empty() { folder_name } else { raw_name };
+                // Decoded name — select_folder() re-encodes to UTF-7
+                // internally (raw_name would be double-encoded → "unknown
+                // folder").
 
                 // NOTE: SPAM folders used to be skipped entirely in archive
                 // mode ("stays exclusively on the provider"). The user wants
@@ -860,7 +864,7 @@ async fn process_sync_task(
                     }
                 };
 
-                if let Err(e) = client.select_folder(imap_name).await {
+                if let Err(e) = client.select_folder(folder_name).await {
                     tracing::warn!(
                         "FetchNew: select_folder '{}' (account {}): {}",
                         folder_name, task.account_id, e
