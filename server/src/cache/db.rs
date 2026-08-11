@@ -308,11 +308,12 @@ fn migrate_provider_trash_folders(conn: &Connection) -> Result<(), rusqlite::Err
         "INBOX.Deleted",
     ];
 
-    let trash_ids: Vec<(i64, i64)> = {
-        let mut stmt = conn.prepare(
-            "SELECT id, account_id FROM folders WHERE name = 'Trash' AND local_only = 1",
-        )?;
-        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    // Ensure a local Trash row exists per account, then consolidate every
+    // provider trash folder of that account into it. Idempotent: rows that
+    // are already "Trash" (or already migrated) are skipped.
+    let account_ids: Vec<i64> = {
+        let mut stmt = conn.prepare("SELECT id FROM accounts")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -320,7 +321,30 @@ fn migrate_provider_trash_folders(conn: &Connection) -> Result<(), rusqlite::Err
         out
     };
 
-    for (trash_id, account_id) in trash_ids {
+    for account_id in &account_ids {
+        let trash_id: i64 = conn
+            .query_row(
+                "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Trash'",
+                params![account_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let trash_id = if trash_id == 0 {
+            conn.execute(
+                "INSERT INTO folders (account_id, name, imap_id, local_only) VALUES (?1, 'Trash', NULL, 1)",
+                params![account_id],
+            )?;
+            conn.last_insert_rowid()
+        } else {
+            // Make sure the local Trash is marked local_only (the provider's
+            // own "Trash" folder is mirrored INTO this row by the sync).
+            let _ = conn.execute(
+                "UPDATE folders SET local_only = 1 WHERE account_id = ?1 AND name = 'Trash'",
+                params![account_id],
+            );
+            trash_id
+        };
+
         // Move messages from every provider trash folder of this account.
         for name in &trash_names {
             if *name == "Trash" {
