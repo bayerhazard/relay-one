@@ -1156,7 +1156,7 @@
       margin-left: -16px;
       margin-right: -16px;
       margin-bottom: -16px;
-      padding: 0 16px calc(10px + env(safe-area-inset-bottom, 0px));
+      padding: 3px 16px calc(10px + env(safe-area-inset-bottom, 0px));
     }
     .editor-toolbar .spacer {
       display: none;
