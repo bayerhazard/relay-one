@@ -119,6 +119,10 @@ where
 pub struct MessageUidQuery {
     pub account_id: u32,
     pub uid: u32,
+    /// Optional folder name to disambiguate uid collisions (IMAP uids are
+    /// unique per folder). Drafts live in "Entwürfe", where a uid may also
+    /// exist in INBOX — without this the wrong body could be returned.
+    pub folder: Option<String>,
 }
 
 /// Query for attachment content (uid + att_id + account in the query string).
@@ -310,7 +314,7 @@ pub async fn fetch_message_body(
     let uid = q.uid;
     // Fast path: cached body with folder info.
     let cached_with_folder = with_db(&state, |conn| {
-        cache::messages::fetch_message_body_with_folder(conn, q.account_id as i64, uid as i64)
+        cache::messages::fetch_message_body_with_folder(conn, q.account_id as i64, uid as i64, q.folder.as_deref())
             .map_err(|e| e.to_string())
     })?;
 

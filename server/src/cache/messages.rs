@@ -270,46 +270,68 @@ pub fn fetch_message_body_with_folder(
     conn: &Connection,
     account_id: i64,
     uid: i64,
+    folder: Option<&str>,
 ) -> Result<Option<(MessageRecord, String)>, rusqlite::Error> {
-    match conn.query_row(
-        "SELECT m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.date,
+    const COLS: &str = "m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.date,
                 m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority, m.ai_fraud_score,
-                m.is_read, m.is_flagged, m.synced, m.has_attachments, f.name
-         FROM messages m
-         JOIN folders f ON m.folder_id = f.id
-         WHERE m.account_id = ?1 AND m.uid = ?2
-           AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)",
-        params![account_id, uid],
-        |row| {
-            Ok((
-                MessageRecord {
-                    id: row.get(0)?,
-                    account_id: row.get(1)?,
-                    uid: row.get(2)?,
-                    message_id: row.get(3)?,
-                    subject: row.get(4)?,
-                    from_addr: row.get(5)?,
-                    to_addr: row.get(6)?,
-                    date: row.get(7)?,
-                    body_text: row.get(8)?,
-                    body_html: row.get(9)?,
-                    flags: row.get(10)?,
-                    ai_summary: row.get(11)?,
-                    ai_priority: row.get(12)?,
-                    ai_fraud_score: row.get(13)?,
-                    is_read: row.get::<_, i32>(14)? != 0,
-                    is_flagged: row.get::<_, i32>(15)? != 0,
-                    synced: row.get::<_, i32>(16)? != 0,
-                    has_attachments: row.get::<_, i32>(17)? != 0,
-                },
-                row.get::<_, String>(18)?,
-            ))
-        },
-    ) {
+                m.is_read, m.is_flagged, m.synced, m.has_attachments, f.name";
+    let result = match folder {
+        Some(f) => conn.query_row(
+            &format!(
+                "SELECT {COLS}
+                 FROM messages m
+                 JOIN folders f ON m.folder_id = f.id
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3
+                   AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
+                 LIMIT 1"
+            ),
+            params![account_id, uid, f],
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(18)?)),
+        ),
+        None => conn.query_row(
+            &format!(
+                "SELECT {COLS}
+                 FROM messages m
+                 JOIN folders f ON m.folder_id = f.id
+                 WHERE m.account_id = ?1 AND m.uid = ?2
+                   AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
+                 ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+                 LIMIT 1"
+            ),
+            params![account_id, uid],
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(18)?)),
+        ),
+    };
+    match result {
         Ok(record) => Ok(Some(record)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// Map a row produced by `fetch_message_body_with_folder` (columns match COLS)
+/// into a MessageRecord.
+fn message_record_from_row(row: &rusqlite::Row<'_>) -> Result<MessageRecord, rusqlite::Error> {
+    Ok(MessageRecord {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        uid: row.get(2)?,
+        message_id: row.get(3)?,
+        subject: row.get(4)?,
+        from_addr: row.get(5)?,
+        to_addr: row.get(6)?,
+        date: row.get(7)?,
+        body_text: row.get(8)?,
+        body_html: row.get(9)?,
+        flags: row.get(10)?,
+        ai_summary: row.get(11)?,
+        ai_priority: row.get(12)?,
+        ai_fraud_score: row.get(13)?,
+        is_read: row.get::<_, i32>(14)? != 0,
+        is_flagged: row.get::<_, i32>(15)? != 0,
+        synced: row.get::<_, i32>(16)? != 0,
+        has_attachments: row.get::<_, i32>(17)? != 0,
+    })
 }
 
 /// Check if a folder name corresponds to a spam/junk folder.

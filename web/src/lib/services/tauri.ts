@@ -395,9 +395,12 @@ export async function openFilePicker(): Promise<PickedFile[]> {
 
 export async function fetchMessageBody(
   accountId: number,
-  uid: number
+  uid: number,
+  folder?: string
 ): Promise<Message> {
-  return get(`/messages/body?account_id=${accountId}&uid=${uid}`,
+  const q = new URLSearchParams({ account_id: String(accountId), uid: String(uid) });
+  if (folder) q.set("folder", folder);
+  return get(`/messages/body?${q}`,
     "Der Nachrichteninhalt konnte nicht geladen werden.");
 }
 

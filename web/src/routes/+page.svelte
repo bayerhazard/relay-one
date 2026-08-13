@@ -1407,7 +1407,7 @@ let sentFolderName = $state<string | null>(null);
     // If we're in the Drafts folder, open ComposeWindow pre-filled
     if (selectedFolder === draftsFolderName) {
       try {
-        const full = await fetchMessageBody(selectedAccountId, uid);
+        const full = await fetchMessageBody(selectedAccountId, uid, draftsFolderName);
         if (lastClickedUid !== uid) return;
         draftUid = uid;
         draftTo = full.to || "";
