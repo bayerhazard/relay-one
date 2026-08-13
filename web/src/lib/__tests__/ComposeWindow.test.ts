@@ -18,6 +18,7 @@ vi.mock("$lib/services/tauri", async (importOriginal) => {
     saveDraft: vi.fn().mockResolvedValue({ uid: 0 }),
     discardDraft: vi.fn().mockResolvedValue(undefined),
     getToneProfile: vi.fn().mockResolvedValue(null),
+    getVoiceSettings: vi.fn().mockResolvedValue({ enabled: false }),
   };
 });
 
@@ -307,5 +308,38 @@ describe("ComposeWindow - draft functionality", () => {
     expect(subjectInput.value).toBe("Entwurf Betreff");
     const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
     expect(bodyInput.value).toBe("Entwurf Inhalt");
+  });
+});
+
+describe("ComposeWindow - mic divider", () => {
+  const dividerProps = {
+    mode: "new" as const,
+    mailChain: [] as { text: string; html: string | null }[],
+    onclose: vi.fn(),
+    onsend: vi.fn().mockResolvedValue(undefined),
+  };
+
+  it("renders no mic-divider when voice is disabled", async () => {
+    const { container } = render(ComposeWindow, dividerProps);
+    await waitFor(() => {
+      expect(container.querySelector(".mic-divider")).toBeNull();
+    });
+  });
+
+  it("renders the mic-divider when voice is enabled", async () => {
+    const { getVoiceSettings } = await import("$lib/services/tauri");
+    (getVoiceSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ enabled: true });
+
+    const { container } = render(ComposeWindow, dividerProps);
+    await waitFor(() => {
+      const divider = container.querySelector(".mic-divider");
+      expect(divider).toBeTruthy();
+      const btn = container.querySelector(".btn-ai.primary");
+      // Divider sits between the mic toggle and the label.
+      const toggle = btn?.querySelector(".toggle-mic");
+      const label = btn?.querySelector(".btn-label");
+      expect(toggle && divider && label && toggle.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(divider!.compareDocumentPosition(label as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
   });
 });

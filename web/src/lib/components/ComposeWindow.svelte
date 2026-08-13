@@ -602,6 +602,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
           </svg>
         </span>
+        {#if voiceEnabled}
+          <span class="mic-divider" aria-hidden="true"></span>
+        {/if}
         <span class="btn-label">
           {#if isGenerating}
             {generationStep === 1 ? "Generiere Text..." : "Ermittle Felder..."}
@@ -934,6 +937,15 @@
   .btn-ai.primary .toggle-mic:hover { background: transparent; }
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
   .toggle-mic svg { width: 14px; height: 14px; }
+  .mic-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--color-list);
+    opacity: 0.9;
+    border-radius: 1px;
+    flex-shrink: 0;
+    pointer-events: none;
+  }
   .btn-label { pointer-events: none; }
   .label-short { display: none; }
 
@@ -1176,6 +1188,7 @@
       padding: 5px 8px;
       justify-content: center;
     }
+    .mic-divider { height: 20px; }
     .btn-send {
       flex: 0 0 auto;
       height: 44px;
