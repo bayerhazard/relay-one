@@ -5,9 +5,9 @@ metadata:
   name: relay
   appid: relay
   title: Relay
-  description: Selbst gehosteter E-Mail-Client — IMAP/SMTP mit KI-Unterstützung.
+  description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.68
+  version: 26.09.69
   categories:
     - Utilities
 entrances:
@@ -24,10 +24,12 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.68
+  versionName: 26.09.69
   fullDescription: |
-    **Relay** — dein selbst gehosteter E-Mail-Client.
-    IMAP/SMTP-Anbindung mit lokalem Cache und KI-Assistenz (Antworten, Zusammenfassungen, Prioritäten, Tonfall).
+    - **AI Email Generation** – quickly draft precise emails and replies in your individual tone. It learns automatically to adapt generated email texts for different recipient groups (work, private) and even for individual recipients.
+    - **Voice-to-Mail** – voice input that automatically becomes a finished email. It recognizes recipients and subject lines to generate complete templates.
+    - **AI Monitoring** – smart inbox analysis for critical content, phishing warnings, priority rating, and automatic summaries.
+    - **Local & Secure** – full data sovereignty; emails and AI models remain exclusively local on your device.
   developer: bayerhazard
   website: https://github.com/bayerhazard/relay-one
   sourceCode: https://github.com/bayerhazard/relay-one
