@@ -1936,10 +1936,12 @@ let sentFolderName = $state<string | null>(null);
         </div>
         <div class="preview-header-actions">
           <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
-            &#x21A9; Antworten
+            <span class="pill-icon" aria-hidden="true">&#x21A9;</span>
+            <span class="pill-label">Antworten</span>
           </button>
           <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title="Löschen (⌫)">
-            &#x1F5D1; Löschen
+            <span class="pill-icon" aria-hidden="true">&#x1F5D1;</span>
+            <span class="pill-label">Löschen</span>
           </button>
         </div>
       </div>
@@ -2750,6 +2752,9 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 4px;
   }
+  .pill-icon {
+    line-height: 1;
+  }
   .action-btn-pill:hover {
     border-color: var(--color-accent);
     color: var(--color-accent);
@@ -3293,6 +3298,17 @@ let sentFolderName = $state<string | null>(null);
     min-width: 44px;
     min-height: 44px;
     font-size: 1.25rem;
+  }
+  /* Burger menu ~33% bigger on phones (1.25rem -> 1.67rem). */
+  .app-container.narrow .menu-toggle {
+    font-size: 1.67rem;
+    min-width: 48px;
+    min-height: 48px;
+    line-height: 1;
+  }
+  /* Preview action pills: text only (no icons) on phones. */
+  .app-container.narrow .action-btn-pill .pill-icon {
+    display: none;
   }
   /* Compact preview header on phones. */
   .app-container.narrow .preview-pane-header {

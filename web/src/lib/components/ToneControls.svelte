@@ -309,38 +309,33 @@
   }
 
   @container (max-width: 480px) {
-    /* Compact stacked layout: pill (name + current value) above the slider,
-       endpoint labels below. Sliders get bigger touch targets on phones. */
+    /* Mobile (iPhone): keep the sliders + endpoint labels only. The category
+       names (Seriosität/Textumfang) and the current-value labels
+       (Locker/Ausgewogen/Formell, knapp/normal/ausführlich) are hidden to
+       keep the tone block compact. Sliders get bigger touch targets. */
     .sliders-grid {
       grid-template-columns: 1fr auto;
-      grid-template-rows: auto auto auto auto auto auto;
+      grid-template-rows: auto auto auto auto;
       grid-template-areas:
-        "label badge"
         "slider slider"
         "start end"
-        "label2 badge2"
         "slider2 slider2"
         "start2 end2";
       gap: 4px 8px;
     }
 
-    .slider-name:nth-child(1) { grid-area: label; justify-self: start; min-width: 0; }
+    .slider-name,
+    .slider-label {
+      display: none;
+    }
+
     .range-label:nth-child(2) { grid-area: start; text-align: left; }
     .track:nth-child(3) { grid-area: slider; }
     .range-label:nth-child(5) { grid-area: end; text-align: right; }
-    .slider-label:nth-child(6) { grid-area: badge; min-width: 0; }
 
-    .slider-name:nth-child(7) { grid-area: label2; justify-self: start; min-width: 0; margin-top: 6px; }
     .range-label:nth-child(8) { grid-area: start2; text-align: left; }
     .track:nth-child(9) { grid-area: slider2; }
     .range-label:nth-child(11) { grid-area: end2; text-align: right; }
-    .slider-label:nth-child(12) { grid-area: badge2; min-width: 0; margin-top: 6px; }
-
-    .slider-name,
-    .slider-label {
-      font-size: 0.6875rem;
-      padding: 2px 8px;
-    }
 
     /* Larger hit area + thumb for fingers. */
     .track {
