@@ -20,6 +20,29 @@ import {
   // ─── Active Tab State ────────────────────────
   let activeTab = $state("general"); // 'general' | 'accounts' | 'ai' | 'carddav' | 'voice'
 
+  // ─── Mobile drill-down (iOS settings style) ──
+  // On phones (≤600px) the menu list fills the screen; tapping an item
+  // pushes the content view with a back button returning to the menu.
+  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
+  let isNarrow = $derived(viewportWidth <= 600);
+  let mobileContentOpen = $state(false);
+
+  $effect(() => {
+    if (typeof window === "undefined") return;
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => { viewportWidth = window.innerWidth; });
+    };
+    window.addEventListener("resize", onResize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
+  });
+
+  function selectTab(tab: string) {
+    activeTab = tab;
+    if (isNarrow) mobileContentOpen = true;
+  }
+
   // ─── Theme ───────────────────────────────────
   let theme = $state("blue");
   try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
@@ -584,7 +607,7 @@ async function handleSaveCardDav() {
   }
 </script>
 
-<div class="settings-page">
+<div class="settings-page" class:narrow={isNarrow} class:mobile-content={isNarrow && mobileContentOpen}>
   <!-- 1. LEFT SIDEBAR (HubSpot-Style Navigation) -->
   <aside class="settings-sidebar">
     <div class="sidebar-header">
@@ -598,7 +621,7 @@ async function handleSaveCardDav() {
     </div>
 
     <nav class="sidebar-menu">
-      <button type="button" class="menu-item" class:active={activeTab === 'general'} onclick={() => activeTab = 'general'}>
+      <button type="button" class="menu-item" class:active={activeTab === 'general'} onclick={() => selectTab('general')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -608,7 +631,7 @@ async function handleSaveCardDav() {
         <span>Allgemein</span>
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'accounts'} onclick={() => activeTab = 'accounts'}>
+      <button type="button" class="menu-item" class:active={activeTab === 'accounts'} onclick={() => selectTab('accounts')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0l-7.5-4.615a2.25 2.25 0 01-1.07-1.916V6.75" />
@@ -620,7 +643,7 @@ async function handleSaveCardDav() {
         {/if}
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'carddav'} onclick={() => activeTab = 'carddav'}>
+      <button type="button" class="menu-item" class:active={activeTab === 'carddav'} onclick={() => selectTab('carddav')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.29-.792-3.07M15 19.128v.106A12.318 12.318 0 018.5 21c-2.191 0-4.22-.558-6-1.54v-.036a4.125 4.125 0 017.533-2.493c.505.78.967 1.659.967 2.638M8.25 3.75a4.125 4.125 0 100 8.25 4.125 4.125 0 000-8.25zM12.971 6.304a4.125 4.125 0 010 6.392m8.404-1.446a2.25 2.25 0 010 3.5" />
@@ -629,7 +652,7 @@ async function handleSaveCardDav() {
         <span>Kontakte</span>
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => activeTab = 'ai'}>
+      <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => selectTab('ai')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 21l-.813-5.096L3 15l5.187-.813L9 9l.813 5.187L15 15l-5.187.814zM18 10.5L17.25 15l-.75-4.5L12 10l4.5-.75.75-4.5.75 4.5L22 10l-4.5.75z" />
@@ -638,7 +661,7 @@ async function handleSaveCardDav() {
         <span>KI & Text</span>
       </button>
 
-    <button type="button" class="menu-item" class:active={activeTab === 'voice'} onclick={() => activeTab = 'voice'}>
+    <button type="button" class="menu-item" class:active={activeTab === 'voice'} onclick={() => selectTab('voice')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5a6 6 0 01-6-6v-1.5m6 7.5a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
@@ -647,7 +670,7 @@ async function handleSaveCardDav() {
         <span>Voice</span>
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'cache'} onclick={() => activeTab = 'cache'}>
+      <button type="button" class="menu-item" class:active={activeTab === 'cache'} onclick={() => selectTab('cache')}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
@@ -656,7 +679,7 @@ async function handleSaveCardDav() {
         <span>Cache</span>
       </button>
 
-      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { activeTab = 'archive'; loadDeleteQueue(); loadBackups(); }}>
+      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { selectTab('archive'); loadDeleteQueue(); loadBackups(); }}>
         <div class="menu-icon-wrapper">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
@@ -669,6 +692,16 @@ async function handleSaveCardDav() {
 
   <!-- 2. RIGHT MAIN CONTENT AREA -->
   <main class="settings-content-wrapper">
+    {#if isNarrow}
+      <div class="mobile-content-header">
+        <button type="button" class="back-btn" onclick={() => mobileContentOpen = false} title="Zurück zum Menü">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+          <span>Einstellungen</span>
+        </button>
+      </div>
+    {/if}
     <div class="settings-content">
 
       <!-- ================= TAB: ALLGEMEIN ================= -->
@@ -1587,6 +1620,69 @@ async function handleSaveCardDav() {
     max-width: 800px;
     margin: 0 auto;
     padding: 48px 40px 80px 40px;
+  }
+
+  /* ─── MOBILE (≤600px): iOS-style drill-down ─────────────────
+     Menu list fills the screen; selecting an item pushes the content
+     view (with a back button). Sidebar and content never show at once. */
+  .mobile-content-header {
+    display: none;
+  }
+
+  @media (max-width: 600px) {
+    .settings-sidebar {
+      width: 100%;
+      border-right: none;
+      padding: 16px;
+      padding-top: max(16px, env(safe-area-inset-top, 0px));
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+      overflow-y: auto;
+    }
+    .settings-page.mobile-content .settings-sidebar {
+      display: none;
+    }
+    .settings-content-wrapper {
+      display: none;
+    }
+    .settings-page.mobile-content .settings-content-wrapper {
+      display: block;
+    }
+    .mobile-content-header {
+      display: block;
+      padding: 8px 12px;
+      padding-top: max(8px, env(safe-area-inset-top, 0px));
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-list);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .mobile-content-header .back-btn {
+      min-height: 44px;
+      font-size: 0.9375rem;
+    }
+    .settings-content {
+      max-width: none;
+      padding: 20px 16px 64px;
+    }
+    .tab-header {
+      margin-bottom: 20px;
+    }
+    .tab-header h1 {
+      font-size: 1.375rem;
+    }
+    .settings-card {
+      padding: 16px;
+      border-radius: 10px;
+    }
+    .menu-item {
+      min-height: 48px;
+      padding: 12px;
+      font-size: 1rem;
+    }
+    .sidebar-header h2 {
+      font-size: 1.5rem;
+    }
   }
 
   .tab-header {

@@ -583,9 +583,15 @@
           </svg>
         </span>
         <span class="btn-label">
-          {isGenerating
-            ? (generationStep === 1 ? "Generiere Text..." : "Ermittle Felder...")
-            : (isRecording ? "Aufnahme" : (mode === "reply" ? "Antwort generieren" : "Generieren"))}
+          {#if isGenerating}
+            {generationStep === 1 ? "Generiere Text..." : "Ermittle Felder..."}
+          {:else if isRecording}
+            Aufnahme
+          {:else if mode === "reply"}
+            <span class="label-long">Antwort generieren</span><span class="label-short">Generieren</span>
+          {:else}
+            Generieren
+          {/if}
         </span>
       </button>
       <button type="button" class="btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
@@ -858,6 +864,16 @@
     margin-top: 16px;
     align-items: center;
     flex-wrap: wrap;
+    /* Pinned to the bottom of the scrollable body so "Senden" is always
+       reachable without scrolling (esp. on phones). */
+    position: sticky;
+    bottom: 0;
+    margin-left: -20px;
+    margin-right: -20px;
+    margin-bottom: -20px;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--color-list);
+    border-top: 1px solid var(--color-border);
   }
   .spacer { flex: 1; }
   .btn-ai {
@@ -899,6 +915,7 @@
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
   .toggle-mic svg { width: 14px; height: 14px; }
   .btn-label { pointer-events: none; }
+  .label-short { display: none; }
 
   .btn-send {
     display: flex;
@@ -1078,7 +1095,8 @@
     .close-btn { padding: 10px 12px; }
     .compose-body {
       padding: 16px;
-      padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+      /* The sticky toolbar carries its own safe-area padding. */
+      padding-bottom: 16px;
     }
     /* Stack fields vertically on phones — labels above inputs, no cramped
        right-aligned 60px labels next to inputs. */
@@ -1110,6 +1128,41 @@
     .tone-section {
       margin-top: 4px;
     }
+    /* Editor: 16px font prevents iOS focus auto-zoom; shorter default
+       height leaves room for the sticky toolbar. */
+    .editor {
+      font-size: 1rem;
+      min-height: 120px;
+    }
+    .editor-resize {
+      min-height: 120px;
+    }
+    /* Toolbar: all three actions in ONE row, 44px touch targets. */
+    .editor-toolbar {
+      flex-wrap: nowrap;
+      gap: 8px;
+      margin-left: -16px;
+      margin-right: -16px;
+      margin-bottom: -16px;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    }
+    .editor-toolbar .spacer {
+      display: none;
+    }
+    .btn-ai {
+      flex: 1 1 0;
+      min-width: 0;
+      height: 44px;
+      padding: 5px 8px;
+      justify-content: center;
+    }
+    .btn-send {
+      flex: 0 0 auto;
+      height: 44px;
+      padding: 5px 16px;
+    }
+    .label-long { display: none; }
+    .label-short { display: inline; }
   }
 </style>
 

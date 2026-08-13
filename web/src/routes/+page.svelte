@@ -38,6 +38,17 @@ import {
   let isNarrow = $derived(viewportWidth <= 600);
   let sidebarOpen = $state(false); // only relevant in narrow mode (overlay)
 
+  // Touch devices: context menus render as iOS-style bottom sheets.
+  let isTouchDevice = $state(false);
+  $effect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+    } catch {
+      isTouchDevice = false;
+    }
+  });
+
   $effect(() => {
     if (typeof window === "undefined") return;
     let rafId: number | null = null;
@@ -513,7 +524,7 @@ let sentFolderName = $state<string | null>(null);
     };
   }
 
-  function handleFolderContextMenu(e: MouseEvent, originalName: string) {
+  function handleFolderContextMenu(e: { clientX: number; clientY: number; preventDefault: () => void }, originalName: string) {
     e.preventDefault();
     const pos = clampMenuPosition(e.clientX, e.clientY, 220, 150);
     folderCtxMenu = { x: pos.x, y: pos.y, folderName: originalName };
@@ -1993,8 +2004,8 @@ let sentFolderName = $state<string | null>(null);
           {/if}
 
           {#if attCtxMenu}
-            <div class="ctx-menu-scrim" role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
-            <div class="ctx-menu" style="left: {attCtxMenu.x}px; top: {attCtxMenu.y}px;" role="menu">
+            <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
+            <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu.x}px; top: ${attCtxMenu.y}px;`} role="menu">
               <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu.att)}>Öffnen</button>
               <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu.att)}>Speichern als…</button>
             </div>
@@ -2054,6 +2065,11 @@ let sentFolderName = $state<string | null>(null);
     <aside class="sidebar-pane" style={isNarrow ? "" : `width: ${sidebarWidth}px; min-width: ${sidebarWidth}px;`}>
       <div class="sidebar">
         <div class="sidebar-header">
+          {#if isNarrow}
+            <button type="button" class="icon-btn sidebar-close" onclick={() => sidebarOpen = false} title="Schließen" aria-label="Ordner schließen">
+              &#8592;
+            </button>
+          {/if}
           <div class="account-header-btn" role="button" tabindex="0" onclick={() => goto('/settings')} onkeydown={(e) => e.key === 'Enter' && goto('/settings')} title="Konto-Einstellungen">
             <div class="account-header-avatar">
               {#if ownPhoto}
@@ -2245,8 +2261,8 @@ let sentFolderName = $state<string | null>(null);
   />
 
   {#if folderCtxMenu}
-    <div class="ctx-menu-scrim" role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
-    <div class="ctx-menu" style="left: {folderCtxMenu.x}px; top: {folderCtxMenu.y}px;" role="menu">
+    <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
+    <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu.x}px; top: ${folderCtxMenu.y}px;`} role="menu">
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu.folderName); }}>Neuer Ordner...</button>
       {#if folderCtxMenu.folderName !== "INBOX"}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu.folderName); closeMenus(); }}>Umbenennen...</button>
@@ -2269,8 +2285,8 @@ let sentFolderName = $state<string | null>(null);
   {/if}
 
   {#if moveMenu}
-    <div class="ctx-menu-scrim" role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
-    <div class="ctx-menu" style="left: {moveMenu.x}px; top: {moveMenu.y}px;" role="menu">
+    <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
+    <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${moveMenu.x}px; top: ${moveMenu.y}px;`} role="menu">
       {#each moveMenu.targets as target (target.name)}
         <button
           type="button"
@@ -2344,9 +2360,14 @@ let sentFolderName = $state<string | null>(null);
     padding: 0 15px;
     display: flex;
     align-items: center;
+    gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
     margin-bottom: 16px;
+  }
+  .sidebar-close {
+    flex-shrink: 0;
+    font-size: 1.25rem;
   }
   .account-header-btn {
     display: flex;
@@ -3234,18 +3255,17 @@ let sentFolderName = $state<string | null>(null);
     position: relative;
   }
 
-  /* NARROW (≤600px): sidebar collapses to an off-canvas overlay. */
+  /* NARROW (≤600px): sidebar collapses to a full-width overlay (iOS Mail style). */
   .app-container.narrow .sidebar-pane {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
-    width: 260px;
-    max-width: 80vw;
+    width: 100%;
+    max-width: none;
     z-index: 50;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.12);
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
   }
   .app-container.narrow.sidebar-open .sidebar-pane {
     transform: translateX(0);
@@ -3256,6 +3276,10 @@ let sentFolderName = $state<string | null>(null);
   .app-container.narrow .sidebar-pane {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .app-container.narrow .list-header-container {
+    padding-top: env(safe-area-inset-top, 0px);
+    background: var(--color-list);
   }
   .app-container.narrow .preview-back-bar {
     padding-top: max(8px, env(safe-area-inset-top, 0px));
@@ -3305,6 +3329,9 @@ let sentFolderName = $state<string | null>(null);
     inset: 0;
     z-index: 1000;
   }
+  .ctx-menu-scrim.sheet-scrim {
+    background: rgba(0, 0, 0, 0.35);
+  }
   .ctx-menu {
     position: fixed;
     z-index: 1001;
@@ -3346,6 +3373,46 @@ let sentFolderName = $state<string | null>(null);
   .ctx-menu-item.danger:hover {
     background: rgba(220, 38, 38, 0.10);
     color: var(--color-danger);
+  }
+
+  /* iOS-style bottom sheet (touch devices): slides up from the bottom edge,
+     full width, large touch targets, safe-area aware. */
+  @keyframes sheetUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .ctx-menu.sheet {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    max-height: 65vh;
+    border: none;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+    padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    animation: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .ctx-menu.sheet .ctx-menu-item {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 12px 16px;
+    font-size: 1rem;
+    border-radius: 10px;
+  }
+  .ctx-menu.sheet .ctx-menu-item:hover {
+    background: var(--color-active-wash);
+    color: var(--color-text);
+  }
+  .ctx-menu.sheet .ctx-menu-item.danger:hover {
+    color: var(--color-danger);
+  }
+  .ctx-menu.sheet .ctx-menu-separator {
+    margin: 4px 16px;
   }
   .ctx-menu-separator {
     height: 1px;

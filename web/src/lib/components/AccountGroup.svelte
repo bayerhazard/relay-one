@@ -25,7 +25,7 @@
     onToggleFolder?: (accountId: number, folderName: string) => void;
     onMoveMessage?: (uid: number, targetFolder: string, targetAccountId?: number) => void;
     onFolderMouseDown?: (e: MouseEvent, name: string) => void;
-    onContextMenu?: (e: MouseEvent, name: string) => void;
+    onContextMenu?: (e: { clientX: number; clientY: number; preventDefault: () => void }, name: string) => void;
   }
 
   let {
@@ -75,6 +75,58 @@
     dragSource = null;
   }
 
+  // ─── Long-press → context menu (touch devices, iOS has no contextmenu) ──
+  let isTouch = false;
+  try {
+    isTouch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  } catch { isTouch = false; }
+
+  let lpTimer: ReturnType<typeof setTimeout> | null = null;
+  let lpStartX = 0;
+  let lpStartY = 0;
+  let lpFired = false;
+
+  function cancelLongPress() {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+  }
+
+  function handleTouchStart(e: TouchEvent, name: string) {
+    if (!isTouch || !onContextMenu) return;
+    lpFired = false;
+    const t = e.changedTouches[0];
+    lpStartX = t.clientX;
+    lpStartY = t.clientY;
+    cancelLongPress();
+    lpTimer = setTimeout(() => {
+      lpTimer = null;
+      lpFired = true;
+      try { navigator.vibrate?.(15); } catch { /* unsupported */ }
+      onContextMenu({ clientX: lpStartX, clientY: lpStartY, preventDefault: () => {} }, name);
+    }, 500);
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    if (!lpTimer) return;
+    const t = e.changedTouches[0];
+    if (Math.abs(t.clientX - lpStartX) > 10 || Math.abs(t.clientY - lpStartY) > 10) {
+      cancelLongPress();
+    }
+  }
+
+  function handleTouchEnd() {
+    cancelLongPress();
+    // Reset the fired flag after the synthetic click has passed.
+    if (lpFired) setTimeout(() => { lpFired = false; }, 300);
+  }
+
+  function handleRowClick(name: string, isRoot: boolean) {
+    // Suppress the synthetic click that follows a long-press.
+    if (lpFired) { lpFired = false; return; }
+    if (isRoot) handleInboxClick();
+    else if (dragSource == null) onSelectFolder(account.id, name);
+    dragSource = null;
+  }
+
   // Chevron SVG — inline, compact
   function chevronSVG(open: boolean): string {
     if (open) {
@@ -90,9 +142,13 @@
   <div
     class="tree-row root-row"
     class:active={selectedFolder === "INBOX"}
-    onclick={handleInboxClick}
+    onclick={() => handleRowClick("INBOX", true)}
     ondblclick={handleRootDblClick}
     oncontextmenu={(e) => onContextMenu?.(e, "INBOX")}
+    ontouchstart={(e) => handleTouchStart(e, "INBOX")}
+    ontouchmove={handleTouchMove}
+    ontouchend={handleTouchEnd}
+    ontouchcancel={handleTouchEnd}
     role="button"
     tabindex="0"
     onkeydown={(e) => {
@@ -126,7 +182,7 @@
     data-folder={node.name}
     role="button"
     tabindex="0"
-    onclick={() => { if (dragSource == null) onSelectFolder(account.id, node.name); dragSource = null; }}
+    onclick={() => handleRowClick(node.name, false)}
     ondblclick={(e) => {
       if (node.children.length > 0) {
         e.preventDefault();
@@ -136,6 +192,10 @@
     onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectFolder(account.id, node.name); } }}
     onmousedown={(e) => onFolderMouseDown?.(e, node.name)}
     oncontextmenu={(e) => onContextMenu?.(e, node.name)}
+    ontouchstart={(e) => handleTouchStart(e, node.name)}
+    ontouchmove={handleTouchMove}
+    ontouchend={handleTouchEnd}
+    ontouchcancel={handleTouchEnd}
     ondragenter={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; dragTarget = node.name; }}
     ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; dragTarget = node.name; }}
     ondragleave={(e) => {
@@ -147,7 +207,13 @@
   >
     <span class="tree-label">{node.label}</span>
     {#if node.children.length > 0}
-      <span class="chevron" aria-hidden="true">
+      <span
+        class="chevron"
+        role="button"
+        tabindex="-1"
+        aria-label={collapsedFolders.has(node.name) ? "Unterordner einblenden" : "Unterordner ausblenden"}
+        onclick={(e) => { e.stopPropagation(); onToggleFolder(account.id, node.name); }}
+      >
         {@html chevronSVG(!collapsedFolders.has(node.name))}
       </span>
     {/if}
@@ -177,6 +243,8 @@
     color: var(--color-text-secondary);
     transition: background 0.12s ease, color 0.12s ease;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
   .tree-row:hover {
@@ -221,9 +289,17 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
     color: var(--color-text-secondary);
     opacity: 0.45;
     transition: opacity 0.12s ease;
+    /* Bigger touch target on phones (chevron toggles expand/collapse —
+       dblclick is unreachable on touch). */
+    min-width: 24px;
+    min-height: 24px;
+    margin: -4px -6px -4px 0;
+    border-radius: 6px;
+    cursor: pointer;
   }
 
   .tree-row:hover .chevron {
