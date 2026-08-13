@@ -1804,6 +1804,21 @@ mod tests {
         );
     }
 }
+/// Resolve a folder_id to its display name (for SSE events). Returns an empty
+/// string when unknown — the frontend then treats the event as unscoped.
+fn resolve_folder_name(conn: &rusqlite::Connection, account_id: i64, folder_id: Option<i64>) -> String {
+    let Some(fid) = folder_id else { return String::new() };
+    if fid < 0 {
+        return String::new();
+    }
+    conn.query_row(
+        "SELECT name FROM folders WHERE account_id = ?1 AND id = ?2",
+        rusqlite::params![account_id, fid],
+        |r| r.get::<_, String>(0),
+    )
+    .unwrap_or_default()
+}
+
 /// Generate the AI summary for one message (shared by the sync-queue
 /// compatibility arm and the dedicated worker).
 ///
@@ -1873,13 +1888,15 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
                 conn,
                 account_id as i64,
                 uid as i64,
+                folder_id,
                 &summary_text,
             )
             .map_err(|e| e.to_string())?;
-                let _ = state.events.emit("ai-summary-updated", (uid, account_id, summary_text.clone(), urgency));
+                let folder_name = resolve_folder_name(conn, account_id as i64, folder_id);
+                let _ = state.events.emit("ai-summary-updated", (uid, account_id, summary_text.clone(), urgency, folder_name));
             if let Some(u) = urgency {
                 let _ = crate::cache::messages::update_ai_priority(
-                    conn, account_id as i64, uid as i64, u,
+                    conn, account_id as i64, uid as i64, folder_id, u,
                 );
             }
         } else {
@@ -1889,10 +1906,11 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
                 let db_guard = state.cache_db.lock();
                 if let Some(conn) = db_guard.as_ref() {
                     let _ = crate::cache::messages::update_ai_priority(
-                        conn, account_id as i64, uid as i64, rule_priority,
+                        conn, account_id as i64, uid as i64, folder_id, rule_priority,
                     );
+                    let folder_name = resolve_folder_name(conn, account_id as i64, folder_id);
+                    let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority), folder_name));
                 }
-                let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority)));
             }
         }
     }

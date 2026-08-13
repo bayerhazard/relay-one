@@ -86,12 +86,50 @@ describe("mailbox store", () => {
       { uid: 1, subject: "Test", from: "test@example.com", is_read: false, is_flagged: false },
       { uid: 2, subject: "Another", from: "another@example.com", is_read: true, is_flagged: false },
     ];
-    mailbox.setMessages(messages);
+    mailbox.setMessages(messages, "INBOX", 1);
+    mailbox.setFolderId("INBOX");
 
-    mailbox.updateMessage(1, { is_read: true });
+    mailbox.updateMessage(1, "INBOX", { is_read: true });
     const updated = get(mailbox).messages;
     expect(updated[0].is_read).toBe(true);
     expect(updated[1].is_read).toBe(true);
+  });
+
+  it("does not apply an update scoped to a different folder (uid collision)", () => {
+    const messages: Message[] = [
+      { uid: 5, subject: "INBOX Mail", from: "inbox@test.com", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(messages, "INBOX", 1);
+    mailbox.setFolderId("INBOX");
+
+    // A summary event for a DIFFERENT folder that shares uid 5 must not touch
+    // the currently displayed INBOX row.
+    mailbox.updateMessage(5, "Entwürfe", { ai_summary: "WRONG" });
+    const updated = get(mailbox).messages;
+    expect(updated[0].ai_summary).toBeUndefined();
+  });
+
+  it("applies an update when the folder scopes match", () => {
+    const messages: Message[] = [
+      { uid: 5, subject: "INBOX Mail", from: "inbox@test.com", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(messages, "INBOX", 1);
+    mailbox.setFolderId("INBOX");
+
+    mailbox.updateMessage(5, "INBOX", { ai_summary: "RIGHT" });
+    const updated = get(mailbox).messages;
+    expect(updated[0].ai_summary).toBe("RIGHT");
+  });
+
+  it("falls back to uid-only match when no folder scope is provided", () => {
+    const messages: Message[] = [
+      { uid: 5, subject: "Mail", from: "a@test.com", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(messages, "INBOX", 1);
+    mailbox.setFolderId("INBOX");
+
+    mailbox.updateMessage(5, "", { is_read: true });
+    expect(get(mailbox).messages[0].is_read).toBe(true);
   });
 
   it("sets loading state", () => {

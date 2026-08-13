@@ -113,13 +113,17 @@ import {
         return;
       }
       if (event === "ai-summary-updated") {
-        const [uid, accountId, summary, priority] = payload as [number, number, string, number | null];
+        const [uid, accountId, summary, priority, folderName] = payload as [number, number, string, number | null, string | null];
         if (accountId === selectedAccountId) {
           const changes: Record<string, unknown> = {};
           if (summary) changes.ai_summary = summary;
           if (priority !== undefined && priority !== null) changes.ai_priority = priority;
           if (Object.keys(changes).length) {
-            mailbox.updateMessage(uid, changes);
+            // The event carries the source folder name. updateMessage only
+            // touches rows whose (account, folder, uid) matches the current
+            // view — a summary computed for a different folder's uid must
+            // never overwrite what the user is looking at.
+            mailbox.updateMessage(uid, folderName ?? "", changes);
           }
         }
         return;
@@ -1420,7 +1424,7 @@ let sentFolderName = $state<string | null>(null);
         replySubject = "";
         mailChain = [];
         showCompose = true;
-        mailbox.updateMessage(uid, { is_read: true, body_text: full.body_text, body_html: full.body_html });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
         loadingBodyUid = null;
         selectingUid = null;
       } catch (e: unknown) {
@@ -1441,11 +1445,11 @@ let sentFolderName = $state<string | null>(null);
       // Only overwrite if the store doesn't already have body_text for this uid.
       const existing = $mailbox.messages.find((m) => m.uid === uid);
       if (!existing?.body_text || existing.body_text.length < (full.body_text?.length ?? 0)) {
-        mailbox.updateMessage(uid, { is_read: true, body_text: full.body_text, body_html: full.body_html });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
       } else {
         // body already in the store (put there by setMessages with Fix 1);
         // still mark as read but don't wipe the full body.
-        mailbox.updateMessage(uid, { is_read: true });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
       }
       loadingBodyUid = null;
       selectingUid = null;
@@ -1573,14 +1577,14 @@ let sentFolderName = $state<string | null>(null);
       if (msg.is_read) {
         try {
           await markAsUnseen(selectedAccountId, uid);
-          mailbox.updateMessage(uid, { is_read: false });
+          mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
         } catch (e) {
           console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
         }
       } else {
         try {
           await markAsRead(selectedAccountId, uid);
-          mailbox.updateMessage(uid, { is_read: true });
+          mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
         } catch (e) {
           console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
         }
@@ -1597,7 +1601,7 @@ let sentFolderName = $state<string | null>(null);
       if (!msg || msg.is_read) continue;
       try {
         await markAsRead(selectedAccountId, uid);
-        mailbox.updateMessage(uid, { is_read: true });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
       } catch (e) {
         console.warn("markSelectedRead fehlgeschlagen fuer uid", uid, e);
       }
@@ -1885,14 +1889,14 @@ let sentFolderName = $state<string | null>(null);
     if (msg.is_read) {
       try {
         await markAsUnseen(selectedAccountId, uid);
-        mailbox.updateMessage(uid, { is_read: false });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
       } catch (e) {
         console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
       }
     } else {
       try {
         await markAsRead(selectedAccountId, uid);
-        mailbox.updateMessage(uid, { is_read: true });
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
       } catch (e) {
         console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
       }
@@ -1905,7 +1909,7 @@ let sentFolderName = $state<string | null>(null);
     if (!msg) return;
     try {
       await flagMessageCmd(selectedAccountId, uid, selectedFolder ?? "INBOX", !msg.is_flagged);
-      mailbox.updateMessage(uid, { is_flagged: !msg.is_flagged });
+      mailbox.updateMessage(uid, $mailbox.folderId, { is_flagged: !msg.is_flagged });
       invalidateFolderCache(selectedAccountId, selectedFolder ?? "INBOX");
     } catch (e) {
       console.warn("handleToggleFlag fehlgeschlagen fuer uid", uid, e);

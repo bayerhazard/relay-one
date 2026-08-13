@@ -939,7 +939,13 @@
   .toggle-mic svg { width: 14px; height: 14px; }
   .mic-divider {
     width: 5px;
-    height: 100%;
+    /* Cover the full button incl. padding + border: the flex-line height is
+       the content box (border-box button 34px − 2×5px padding − 2×1px border =
+       22px), so add 14px and pull it 7px beyond top/bottom. The 1px overhang
+       per side is invisible because the divider uses the background colour. */
+    height: calc(100% + 14px);
+    margin-top: -7px;
+    margin-bottom: -7px;
     background: var(--color-list);
     opacity: 0.9;
     border-radius: 2px;
@@ -1188,7 +1194,6 @@
       padding: 5px 8px;
       justify-content: center;
     }
-    .mic-divider { height: 100%; }
     .btn-send {
       flex: 0 0 auto;
       height: 44px;

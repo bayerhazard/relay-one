@@ -217,6 +217,9 @@ pub struct SummarizeRequest {
     pub body: String,
     pub account_id: i64,
     pub uid: i64,
+    /// Optional folder name — scopes the summary write so a uid shared with
+    /// another folder never overwrites a different message.
+    pub folder: Option<String>,
 }
 
 /// `POST /api/v1/ai/summarize` — summarize a message and store summary + priority.
@@ -256,10 +259,21 @@ pub async fn ai_summarize(
     };
 
     if let Ok(conn) = state.cache_db.lock().as_ref().ok_or("") {
+        let folder_id: Option<i64> = req
+            .folder
+            .as_deref()
+            .and_then(|f| {
+                conn.query_row(
+                    "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                    rusqlite::params![req.account_id, f],
+                    |r| r.get(0),
+                )
+                .ok()
+            });
         if let Some(p) = priority {
-            let _ = cache::messages::update_ai_priority(conn, req.account_id, req.uid, p);
+            let _ = cache::messages::update_ai_priority(conn, req.account_id, req.uid, folder_id, p);
         }
-        let _ = cache::messages::update_ai_summary(conn, req.account_id, req.uid, &summary);
+        let _ = cache::messages::update_ai_summary(conn, req.account_id, req.uid, folder_id, &summary);
     }
 
     Ok(Json(summary))

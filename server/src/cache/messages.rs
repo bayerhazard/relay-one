@@ -656,12 +656,24 @@ pub fn update_ai_summary(
     conn: &Connection,
     account_id: i64,
     uid: i64,
+    folder_id: Option<i64>,
     summary: &str,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE messages SET ai_summary = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
-        params![summary, account_id, uid],
-    )?;
+    match folder_id {
+        Some(fid) => {
+            conn.execute(
+                "UPDATE messages SET ai_summary = ?1, updated_at = datetime('now')
+                 WHERE account_id = ?2 AND uid = ?3 AND folder_id = ?4",
+                params![summary, account_id, uid, fid],
+            )?;
+        }
+        None => {
+            conn.execute(
+                "UPDATE messages SET ai_summary = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
+                params![summary, account_id, uid],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -669,12 +681,24 @@ pub fn update_ai_priority(
     conn: &Connection,
     account_id: i64,
     uid: i64,
+    folder_id: Option<i64>,
     priority: f32,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE messages SET ai_priority = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
-        params![priority, account_id, uid],
-    )?;
+    match folder_id {
+        Some(fid) => {
+            conn.execute(
+                "UPDATE messages SET ai_priority = ?1, updated_at = datetime('now')
+                 WHERE account_id = ?2 AND uid = ?3 AND folder_id = ?4",
+                params![priority, account_id, uid, fid],
+            )?;
+        }
+        None => {
+            conn.execute(
+                "UPDATE messages SET ai_priority = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
+                params![priority, account_id, uid],
+            )?;
+        }
+    }
     Ok(())
 }
 

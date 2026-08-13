@@ -189,9 +189,13 @@ function createMailboxStore() {
       })),
     clearSelection: () =>
       update((s) => ({ ...s, selectedUids: [], lastClickedUid: null })),
-    updateMessage: (uid: number, changes: Partial<Message>) =>
+    updateMessage: (uid: number, folderId: string, changes: Partial<Message>) =>
       update((s) => {
-        const idx = s.messages.findIndex((m) => m.uid === uid);
+        // UIDs are only unique per (account, folder) — scope the match so an
+        // event for another folder's message never overwrites this view.
+        const idx = s.messages.findIndex(
+          (m) => m.uid === uid && (folderId === "" || folderId === s.folderId)
+        );
         if (idx === -1) return s;
         const updated = [...s.messages];
         updated[idx] = { ...updated[idx], ...changes };
