@@ -88,7 +88,23 @@ pub struct FetchMessagesQuery {
     pub offset: Option<u32>,
     /// When set, the list response omits `body_text`/`body_html` (metadata-only).
     /// The full body is loaded on demand via `GET /messages/{uid}/body`.
+    #[serde(default, deserialize_with = "deserialize_boolish")]
     pub list_only: Option<bool>,
+}
+
+fn deserialize_boolish<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = Option::<String>::deserialize(deserializer)?;
+    match s.as_deref() {
+        None | Some("") => Ok(None),
+        Some("1") | Some("true") | Some("True") | Some("TRUE") | Some("on") | Some("yes") => Ok(Some(true)),
+        Some("0") | Some("false") | Some("False") | Some("FALSE") | Some("off") | Some("no") => Ok(Some(false)),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "ungültiger bool-Wert: {other}"
+        ))),
+    }
 }
 
 /// Query for single-message endpoints (uid + account in the query string).
@@ -1471,4 +1487,65 @@ async fn delete_message_permanent_delete(
     }
 
     Ok(Json(()))
+}
+
+#[cfg(test)]
+mod messages_query_tests {
+    use super::*;
+
+    #[test]
+    fn fetch_messages_query_deserializes_list_only_1() {
+        let q: FetchMessagesQuery = serde_urlencoded::from_str(
+            "account_id=1&list_only=1",
+        )
+        .expect("query must deserialize");
+        assert_eq!(q.account_id, 1);
+        assert_eq!(q.list_only, Some(true));
+    }
+
+    #[test]
+    fn fetch_messages_query_accepts_plain_true() {
+        let q: FetchMessagesQuery = serde_urlencoded::from_str(
+            "account_id=2&list_only=true",
+        )
+        .expect("query must deserialize");
+        assert_eq!(q.list_only, Some(true));
+    }
+
+    #[test]
+    fn fetch_messages_query_accepts_words_and_numeric_false() {
+        for raw in ["0", "false", "off", "no"] {
+            let q: FetchMessagesQuery = serde_urlencoded::from_str(&format!(
+                "account_id=2&list_only={raw}",
+            ))
+            .unwrap_or_else(|e| panic!("{raw} must deserialize: {e}"));
+            assert_eq!(q.list_only, Some(false), "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn fetch_messages_query_defaults_list_only_absent() {
+        let q: FetchMessagesQuery = serde_urlencoded::from_str(
+            "account_id=3",
+        )
+        .expect("query must deserialize");
+        assert_eq!(q.list_only, None);
+    }
+
+    #[test]
+    fn fetch_messages_query_rejects_garbage() {
+        assert!(serde_urlencoded::from_str::<FetchMessagesQuery>(
+            "account_id=1&list_only=banana",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fetch_messages_query_accepts_empty_list_only() {
+        let q: FetchMessagesQuery = serde_urlencoded::from_str(
+            "account_id=1&list_only=",
+        )
+        .expect("empty value must deserialize");
+        assert_eq!(q.list_only, None);
+    }
 }
