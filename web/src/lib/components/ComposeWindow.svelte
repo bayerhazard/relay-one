@@ -83,6 +83,18 @@
     }).catch(() => {});
   });
 
+  // Narrow (mobile) detection — reduces the editor height (-30%) on phones
+  // via the `rows` attribute without affecting the desktop layout.
+  let isNarrow = $state(false);
+  $effect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 600px)");
+    const update = () => { isNarrow = mq.matches; };
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  });
+
   // Draft persistence (local — distinct from the prop `draftUid`)
   let localDraftUid = $state<number | null>(null);
   let isSavingDraft = $state(false);
@@ -540,7 +552,7 @@
           class="editor"
           bind:value={userInput}
           placeholder="Gib Deine eigene Nachricht oder Stichpunkte ein..."
-          rows={12}
+          rows={isNarrow ? 8 : 12}
           aria-label=Nachrichtentext
         ></textarea>
         {#if isGenerating && generationStep > 0}
@@ -1144,7 +1156,7 @@
       margin-left: -16px;
       margin-right: -16px;
       margin-bottom: -16px;
-      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+      padding: 0 16px calc(10px + env(safe-area-inset-bottom, 0px));
     }
     .editor-toolbar .spacer {
       display: none;

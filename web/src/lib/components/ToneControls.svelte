@@ -331,11 +331,11 @@
 
     .range-label:nth-child(2) { grid-area: start; text-align: left; }
     .track:nth-child(3) { grid-area: slider; }
-    .range-label:nth-child(5) { grid-area: end; text-align: right; }
+    .range-label:nth-child(4) { grid-area: end; text-align: right; }
 
-    .range-label:nth-child(8) { grid-area: start2; text-align: left; }
-    .track:nth-child(9) { grid-area: slider2; }
-    .range-label:nth-child(11) { grid-area: end2; text-align: right; }
+    .range-label:nth-child(7) { grid-area: start2; text-align: left; }
+    .track:nth-child(8) { grid-area: slider2; }
+    .range-label:nth-child(9) { grid-area: end2; text-align: right; }
 
     /* Larger hit area + thumb for fingers. */
     .track {

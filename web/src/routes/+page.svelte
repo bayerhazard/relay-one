@@ -3275,6 +3275,11 @@ let sentFolderName = $state<string | null>(null);
   .app-container.narrow.sidebar-open .sidebar-pane {
     transform: translateX(0);
   }
+  /* In narrow mode the sidebar covers the whole width, so the dark scrim would
+     only flash at the edge while the sidebar slides in — hide its shadow. */
+  .app-container.narrow .sidebar-scrim {
+    background: transparent;
+  }
 
   /* ─── iPhone 15 Pro mobile optimizations ─────────────────── */
   /* Safe-area insets (Dynamic Island + home indicator). */
