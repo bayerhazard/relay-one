@@ -7,6 +7,13 @@ image:
   tag: 26.09.63
   pullPolicy: IfNotPresent
 
+# Pin the pod to the main node: the relay data volume is hostPath-backed
+# (userspace appData), and only the "olares" node holds the real database.
+# Without this the scheduler can place the pod on "olares-worker", which has
+# a stale/corrupt copy -> "database disk image is malformed" crash loop.
+nodeSelector:
+  kubernetes.io/hostname: olares
+
 storage:
   mountPath: /data/Relay
   size: 100Gi

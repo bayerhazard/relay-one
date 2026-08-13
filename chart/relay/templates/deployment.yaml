@@ -14,6 +14,10 @@ spec:
       labels:
         app: relay
     spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       enableServiceLinks: false
       initContainers:
         - name: relay-data-chown
