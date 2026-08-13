@@ -147,7 +147,7 @@ fn test_delete_account_cascades_to_folders_and_messages() {
     save_message(&conn, account_id, &msg, "INBOX").unwrap();
 
     // Verify message and folder exist
-    assert!(fetch_message_body(&conn, account_id, 1).unwrap().is_some());
+    assert!(fetch_message_body(&conn, account_id, 1, None).unwrap().is_some());
     let folder_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM folders WHERE account_id = ?1",
@@ -161,7 +161,7 @@ fn test_delete_account_cascades_to_folders_and_messages() {
     delete_account(&conn, account_id).unwrap();
 
     // Verify cascade: messages gone
-    assert!(fetch_message_body(&conn, account_id, 1).unwrap().is_none());
+    assert!(fetch_message_body(&conn, account_id, 1, None).unwrap().is_none());
     // Verify cascade: folders gone
     let folder_count_after: i64 = conn
         .query_row(
@@ -202,7 +202,7 @@ fn test_fetch_message_body_by_uid() {
     let msg = make_cached_message(7, "Subject", "bob@example.com", "Detailed body text.");
     save_message(&conn, account_id, &msg, "INBOX").unwrap();
 
-    let fetched = fetch_message_body(&conn, account_id, 7)
+    let fetched = fetch_message_body(&conn, account_id, 7, None)
         .unwrap()
         .expect("message should exist");
     assert_eq!(fetched.uid, 7);
@@ -215,7 +215,7 @@ fn test_fetch_message_body_by_uid() {
 fn test_fetch_nonexistent_message_body_returns_none() {
     let conn = setup_db();
     let account_id = create_test_account(&conn, "nonexist");
-    assert!(fetch_message_body(&conn, account_id, 999).unwrap().is_none());
+    assert!(fetch_message_body(&conn, account_id, 999, None).unwrap().is_none());
 }
 
 #[test]
@@ -225,11 +225,11 @@ fn test_delete_message_removes_from_cache() {
 
     let msg = make_cached_message(10, "To delete", "spam@example.com", "Spam content.");
     save_message(&conn, account_id, &msg, "INBOX").unwrap();
-    assert!(fetch_message_body(&conn, account_id, 10).unwrap().is_some());
+    assert!(fetch_message_body(&conn, account_id, 10, None).unwrap().is_some());
 
     delete_message(&conn, account_id, 10).unwrap();
     assert!(
-        fetch_message_body(&conn, account_id, 10).unwrap().is_none(),
+        fetch_message_body(&conn, account_id, 10, None).unwrap().is_none(),
         "deleted message should not be found"
     );
   // Verify inbox no longer lists it
@@ -355,7 +355,7 @@ fn test_message_upsert_updates_existing() {
     };
     save_message(&conn, account_id, &msg2, "INBOX").unwrap();
 
-    let fetched = fetch_message_body(&conn, account_id, 1)
+    let fetched = fetch_message_body(&conn, account_id, 1, None)
         .unwrap()
         .expect("message should exist");
     assert_eq!(fetched.subject.as_deref(), Some("Updated"));
@@ -402,7 +402,7 @@ fn test_savepoint_rollback_prevents_partial_save() {
     // Save one message successfully first
     let msg = make_cached_message(1, "Good", "alice@test.com", "Body.");
     save_message(&conn, account_id, &msg, "INBOX").unwrap();
-    assert!(fetch_message_body(&conn, account_id, 1).unwrap().is_some());
+    assert!(fetch_message_body(&conn, account_id, 1, None).unwrap().is_some());
 
     // Now simulate a failure: drop the folders table so the next save_message
     // will fail inside the SAVEPOINT (folder lookup fails).
@@ -419,7 +419,7 @@ fn test_savepoint_rollback_prevents_partial_save() {
          INSERT INTO folders (id, account_id, name) VALUES (1, 1, 'INBOX');",
     )
     .unwrap();
-    let msg1_after = fetch_message_body(&conn, account_id, 1)
+    let msg1_after = fetch_message_body(&conn, account_id, 1, None)
         .unwrap()
         .expect("message 1 should survive the failed save");
     assert_eq!(msg1_after.subject.as_deref(), Some("Good"));
@@ -440,7 +440,7 @@ fn test_cache_survives_imap_failure_scenario() {
 
     // Simulate IMAP failure: the message is in cache even though IMAP would fail
     // (no actual IMAP connection — we just verify the cache state)
-    let fetched = fetch_message_body(&conn, account_id, 100)
+    let fetched = fetch_message_body(&conn, account_id, 100, None)
         .unwrap()
         .expect("message should be in cache despite IMAP failure");
     assert_eq!(fetched.subject.as_deref(), Some("Cached OK"));
@@ -486,7 +486,7 @@ fn test_unique_constraint_allows_same_uid_in_different_folders() {
     // Upsert via save_message on the same folder still updates in place.
     let msg3 = make_cached_message(1, "Updated via upsert", "a@test.com", "Body updated");
     save_message(&conn, account_id, &msg3, "INBOX").unwrap();
-    let fetched = fetch_message_body(&conn, account_id, 1)
+    let fetched = fetch_message_body(&conn, account_id, 1, None)
         .unwrap()
         .expect("message should exist after upsert");
     assert_eq!(fetched.subject.as_deref(), Some("Updated via upsert"));
@@ -866,7 +866,7 @@ fn test_has_attachments_roundtrip() {
     // A message without attachments stays false.
     let m2 = make_cached_message(2, "Ohne Anhang", "y@test.com", "body");
     save_message(&conn, account_id, &m2, "INBOX").unwrap();
-    let body = fetch_message_body(&conn, account_id, 2).unwrap().unwrap();
+    let body = fetch_message_body(&conn, account_id, 2, None).unwrap().unwrap();
     assert!(!body.has_attachments);
 }
 
@@ -878,4 +878,44 @@ fn test_vacuum_runs() {
     save_message(&conn, account_id, &msg, "INBOX").unwrap();
     // VACUUM must succeed on a normal connection.
     vacuum(&conn).unwrap();
+}
+
+#[test]
+fn test_fetch_message_body_scoped_by_folder_on_uid_collision() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "uidcollision");
+
+    // Two different messages that happen to share the same IMAP uid across
+    // folders (IMAP uids are only unique per folder).
+    let inbox_msg = make_cached_message(7, "INBOX Subject", "inbox@test.com", "INBOX BODY TEXT");
+    save_message(&conn, account_id, &inbox_msg, "INBOX").unwrap();
+    let draft_msg = make_cached_message(7, "Draft Subject", "draft@test.com", "DRAFT BODY TEXT");
+    save_message(&conn, account_id, &draft_msg, "Entwürfe").unwrap();
+
+    // Locate both folder ids.
+    let inbox_id: i64 = conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = 'INBOX'",
+        rusqlite::params![account_id],
+        |r| r.get(0),
+    ).unwrap();
+    let drafts_id: i64 = conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'",
+        rusqlite::params![account_id],
+        |r| r.get(0),
+    ).unwrap();
+
+    // Scoped lookup must return the right body for each folder.
+    let inbox_body = fetch_message_body(&conn, account_id, 7, Some(inbox_id))
+        .unwrap()
+        .unwrap()
+        .body_text
+        .unwrap();
+    assert_eq!(inbox_body, "INBOX BODY TEXT", "INBOX-scoped lookup returned the wrong message");
+
+    let drafts_body = fetch_message_body(&conn, account_id, 7, Some(drafts_id))
+        .unwrap()
+        .unwrap()
+        .body_text
+        .unwrap();
+    assert_eq!(drafts_body, "DRAFT BODY TEXT", "Drafts-scoped lookup returned the wrong message");
 }

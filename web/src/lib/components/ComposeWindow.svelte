@@ -938,11 +938,11 @@
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
   .toggle-mic svg { width: 14px; height: 14px; }
   .mic-divider {
-    width: 1px;
-    height: 16px;
+    width: 5px;
+    height: 100%;
     background: var(--color-list);
     opacity: 0.9;
-    border-radius: 1px;
+    border-radius: 2px;
     flex-shrink: 0;
     pointer-events: none;
   }
@@ -1188,7 +1188,7 @@
       padding: 5px 8px;
       justify-content: center;
     }
-    .mic-divider { height: 20px; }
+    .mic-divider { height: 100%; }
     .btn-send {
       flex: 0 0 auto;
       height: 44px;

@@ -11,7 +11,10 @@ pub enum SyncTaskType {
     FetchNew,
     #[allow(dead_code)]
     RefreshFlags,
-    GenerateAiSummary(u32),
+    /// Summary job scoped to a folder: IMAP uids are only unique per folder,
+    /// so the folder id must travel with the task to avoid summarizing the
+    /// wrong message when two folders share a uid.
+    GenerateAiSummary(u32, i64),
     /// Background: analyze queued diffs between AI draft and user's final text
     AnalyzeDiff,
     /// Background: refresh style fingerprints for recipients with new hints

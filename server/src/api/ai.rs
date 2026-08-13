@@ -278,14 +278,14 @@ pub async fn trigger_folder_summaries(
     Json(req): Json<TriggerFolderSummariesRequest>,
 ) -> ApiResult<u32> {
     let queue = state.sync_queue.clone();
-    let uids: Vec<i64> = with_db(&state, |conn| {
+    let (folder_id, uids): (i64, Vec<i64>) = with_db(&state, |conn| {
         let folder_id: i64 = match conn.query_row(
             "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
             rusqlite::params![req.account_id as i64, req.folder],
             |row| row.get(0),
         ) {
             Ok(id) => id,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(Vec::new()),
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok((-1, Vec::new())),
             Err(e) => return Err(e.to_string()),
         };
 
@@ -305,7 +305,7 @@ pub async fn trigger_folder_summaries(
             .filter_map(|r| r.ok())
             .collect();
 
-        Ok(uids)
+        Ok((folder_id, uids))
     })?;
 
     if uids.is_empty() {
@@ -317,7 +317,7 @@ pub async fn trigger_folder_summaries(
         queue
             .enqueue(SyncTask {
                 account_id: req.account_id,
-                task_type: SyncTaskType::GenerateAiSummary(uid as u32),
+                task_type: SyncTaskType::GenerateAiSummary(uid as u32, folder_id),
                 created_at: tokio::time::Instant::now(),
                 retries: 0,
                 max_retries: 2,

@@ -227,42 +227,59 @@ pub fn fetch_message_body(
     conn: &Connection,
     account_id: i64,
     uid: i64,
+    folder_id: Option<i64>,
 ) -> Result<Option<MessageRecord>, rusqlite::Error> {
-       match conn.query_row(
-        "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
-                body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
-                is_read, is_flagged, synced, has_attachments
-         FROM messages
-         WHERE account_id = ?1 AND uid = ?2
-           AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)",
-        params![account_id, uid],
-        |row| {
- Ok(MessageRecord {
-            id: row.get(0)?,
-            account_id: row.get(1)?,
-            uid: row.get(2)?,
-            message_id: row.get(3)?,
-            subject: row.get(4)?,
-            from_addr: row.get(5)?,
-            to_addr: row.get(6)?,
-            date: row.get(7)?,
-            body_text: row.get(8)?,
-            body_html: row.get(9)?,
-            flags: row.get(10)?,
-            ai_summary: row.get(11)?,
-            ai_priority: row.get(12)?,
-            ai_fraud_score: row.get(13)?,
-            is_read: row.get::<_, i32>(14)? != 0,
-            is_flagged: row.get::<_, i32>(15)? != 0,
-            synced: row.get::<_, i32>(16)? != 0,
-            has_attachments: row.get::<_, i32>(17)? != 0,
-        })
-        },
-    ) {
+    let result = match folder_id {
+        Some(fid) => conn.query_row(
+            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
+                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+                    is_read, is_flagged, synced, has_attachments
+             FROM messages
+             WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3
+               AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)",
+            params![account_id, uid, fid],
+            |row| row_to_message_record(row),
+        ),
+        None => conn.query_row(
+            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
+                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+                    is_read, is_flagged, synced, has_attachments
+             FROM messages
+             WHERE account_id = ?1 AND uid = ?2
+               AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
+             LIMIT 1",
+            params![account_id, uid],
+            |row| row_to_message_record(row),
+        ),
+    };
+    match result {
         Ok(record) => Ok(Some(record)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+fn row_to_message_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
+    Ok(MessageRecord {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        uid: row.get(2)?,
+        message_id: row.get(3)?,
+        subject: row.get(4)?,
+        from_addr: row.get(5)?,
+        to_addr: row.get(6)?,
+        date: row.get(7)?,
+        body_text: row.get(8)?,
+        body_html: row.get(9)?,
+        flags: row.get(10)?,
+        ai_summary: row.get(11)?,
+        ai_priority: row.get(12)?,
+        ai_fraud_score: row.get(13)?,
+        is_read: row.get::<_, i32>(14)? != 0,
+        is_flagged: row.get::<_, i32>(15)? != 0,
+        synced: row.get::<_, i32>(16)? != 0,
+        has_attachments: row.get::<_, i32>(17)? != 0,
+    })
 }
 
 /// Fetch message body along with its folder name for IMAP fallback.

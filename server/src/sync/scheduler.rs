@@ -1106,11 +1106,31 @@ async fn process_sync_task(
 
                 // Enqueue AI summary only for messages that don't already have one
                 if !is_spam {
+                    // UIDs are only unique per folder — the folder id must scope
+                    // the summary so a uid shared with another folder never
+                    // summarizes (and overwrites) the wrong message.
+                    let folder_id: Option<i64> = {
+                        let db_guard = state.cache_db.lock();
+                        match db_guard.as_ref().and_then(|conn| conn.query_row(
+                            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                            rusqlite::params![task.account_id as i64, folder_name],
+                            |r| r.get(0),
+                        ).ok()) {
+                            Some(fid) => Some(fid),
+                            None => {
+                                tracing::warn!(
+                                    "AI-Summary: folder_id für '{}' (account {}) nicht gefunden",
+                                    folder_name, task.account_id
+                                );
+                                None
+                            }
+                        }
+                    };
                     for msg in &messages {
                         let needs_summary = {
                             let db_guard = state.cache_db.lock();
                             let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
-                            match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64) {
+                            match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64, folder_id) {
                                 Ok(Some(m)) => m.ai_summary.is_none(),
                                 _ => true,
                             }
@@ -1122,7 +1142,7 @@ async fn process_sync_task(
                             let _ = ai_tx
                                 .send(SyncTask {
                                     account_id: task.account_id,
-                                    task_type: SyncTaskType::GenerateAiSummary(msg.uid),
+                                    task_type: SyncTaskType::GenerateAiSummary(msg.uid, folder_id.unwrap_or(-1)),
                                     created_at: tokio::time::Instant::now(),
                                     retries: 0,
                                     max_retries: 2,
@@ -1279,10 +1299,10 @@ async fn process_sync_task(
             }
             Ok(backfilled)
         }
-        SyncTaskType::GenerateAiSummary(uid) => {
+        SyncTaskType::GenerateAiSummary(uid, folder_id) => {
             // Handled by the dedicated AI worker (run_ai_summary_worker).
             // Kept for compatibility with tasks already in the queue.
-            process_ai_summary(state, task.account_id, *uid).await
+            process_ai_summary(state, task.account_id, *uid, Some(*folder_id)).await
         }
         SyncTaskType::AnalyzeDiff => {
             // Background: analyze queued diffs between AI draft and user's final text.
@@ -1786,7 +1806,11 @@ mod tests {
 }
 /// Generate the AI summary for one message (shared by the sync-queue
 /// compatibility arm and the dedicated worker).
-async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32) -> Result<usize, String> {
+///
+/// `folder_id` scopes the body lookup — IMAP uids are only unique per folder,
+/// so without it a uid shared with another folder could summarize (and store
+/// the summary for) the wrong message.
+async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_id: Option<i64>) -> Result<usize, String> {
     let (body_text, client_opt) = {
         let db_guard = state.cache_db.lock();
         let conn = db_guard
@@ -1797,6 +1821,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32) -> Resu
             conn,
             account_id as i64,
             uid as i64,
+            folder_id,
         )
         .map_err(|e| e.to_string())?;
 
@@ -1880,8 +1905,8 @@ async fn run_ai_summary_worker(state: Arc<AppState>, mut rx: mpsc::Receiver<Sync
     tracing::info!("AI-Summary-Worker gestartet");
     while let Some(task) = rx.recv().await {
         match &task.task_type {
-            SyncTaskType::GenerateAiSummary(uid) => {
-                if let Err(e) = process_ai_summary(&state, task.account_id, *uid).await {
+            SyncTaskType::GenerateAiSummary(uid, folder_id) => {
+                if let Err(e) = process_ai_summary(&state, task.account_id, *uid, Some(*folder_id)).await {
                     tracing::warn!(
                         "AI-Summary-Worker: uid {} (account {}) fehlgeschlagen: {}",
                         uid, task.account_id, e
