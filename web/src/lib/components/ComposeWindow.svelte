@@ -602,7 +602,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
           </svg>
         </span>
-        {#if voiceEnabled}
+        {#if false && voiceEnabled}
           <span class="mic-divider" aria-hidden="true"></span>
         {/if}
         <span class="btn-label">
@@ -937,12 +937,13 @@
   .btn-ai.primary .toggle-mic:hover { background: transparent; }
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
   .toggle-mic svg { width: 14px; height: 14px; }
+  /*
+   * DISABLED — Mic-Divider (deaktiviert, nicht gelöscht). Zum Wiederaktivieren
+   * den Markup-Block `{#if false && voiceEnabled}` auf `{#if voiceEnabled}`
+   * zurückstellen und diese Regeln einkommentieren.
+   *
   .mic-divider {
     width: 5px;
-    /* Cover the full button incl. padding + border: the flex-line height is
-       the content box (border-box button 34px − 2×5px padding − 2×1px border =
-       22px), so add 14px and pull it 7px beyond top/bottom. The 1px overhang
-       per side is invisible because the divider uses the background colour. */
     height: calc(100% + 14px);
     margin-top: -7px;
     margin-bottom: -7px;
@@ -952,6 +953,7 @@
     flex-shrink: 0;
     pointer-events: none;
   }
+   */
   .btn-label { pointer-events: none; }
   .label-short { display: none; }
 

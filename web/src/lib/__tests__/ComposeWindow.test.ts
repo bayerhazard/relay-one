@@ -326,20 +326,13 @@ describe("ComposeWindow - mic divider", () => {
     });
   });
 
-  it("renders the mic-divider when voice is enabled", async () => {
+  it("does not render the mic-divider (feature disabled) even when voice is enabled", async () => {
     const { getVoiceSettings } = await import("$lib/services/tauri");
     (getVoiceSettings as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ enabled: true });
 
     const { container } = render(ComposeWindow, dividerProps);
     await waitFor(() => {
-      const divider = container.querySelector(".mic-divider");
-      expect(divider).toBeTruthy();
-      const btn = container.querySelector(".btn-ai.primary");
-      // Divider sits between the mic toggle and the label.
-      const toggle = btn?.querySelector(".toggle-mic");
-      const label = btn?.querySelector(".btn-label");
-      expect(toggle && divider && label && toggle.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(divider!.compareDocumentPosition(label as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(container.querySelector(".mic-divider")).toBeNull();
     });
   });
 });
