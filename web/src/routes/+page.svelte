@@ -12,7 +12,7 @@
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
-  import { mailbox, type Message } from "$lib/stores/mailbox";
+  import { mailbox, getFolderCache, invalidateFolderCache, type Message } from "$lib/stores/mailbox";
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, sendMessage,
@@ -816,7 +816,11 @@ let sentFolderName = $state<string | null>(null);
     if (targetAccountId && targetAccountId !== selectedAccountId) {
       // Cross-account move
       moveMessageCrossAccount(selectedAccountId, uid, selectedFolder, targetAccountId, targetFolder)
-        .then(() => loadFolder())
+        .then(() => {
+          invalidateFolderCache(selectedAccountId, selectedFolder);
+          invalidateFolderCache(targetAccountId, targetFolder);
+          loadFolder();
+        })
         .catch((e) => {
           console.warn("Cross-Account-Verschieben fehlgeschlagen", e);
           mailbox.setError("Die Nachricht konnte nicht verschoben werden: " + (e instanceof Error ? e.message : String(e)));
@@ -827,7 +831,11 @@ let sentFolderName = $state<string | null>(null);
     const rawSource = folderRawNames[selectedFolder] || selectedFolder;
     const rawTarget = folderRawNames[targetFolder] || targetFolder;
     moveMessageCmd(selectedAccountId, uid, selectedFolder, targetFolder, rawSource, rawTarget)
-      .then(() => loadFolder())
+      .then(() => {
+        invalidateFolderCache(selectedAccountId, selectedFolder);
+        invalidateFolderCache(selectedAccountId, targetFolder);
+        loadFolder();
+      })
       .catch((e) => {
         console.warn("Verschieben fehlgeschlagen", e);
         mailbox.setError("Die Nachricht konnte nicht verschoben werden: " + (e instanceof Error ? e.message : String(e)));
@@ -1267,11 +1275,19 @@ let sentFolderName = $state<string | null>(null);
     mailbox.setLoading(true);
     mailbox.setError(null);
     const prevLastClicked = $mailbox.lastClickedUid;
+    // Instant cache-first: if a meta-only list for this (account, folder) is
+    // cached, render it immediately so switching back to a large folder feels
+    // instant. Bodies stay intact via the setMessages() merge; a background
+    // refresh below replaces the list with fresh metadata.
+    const cachedMsgs = getFolderCache(reqAccount, reqFolder);
+    if (cachedMsgs && cachedMsgs.length > 0) {
+      mailbox.setMessages(cachedMsgs, reqFolder, reqAccount);
+    }
     try {
       // Read from cache only — the sync scheduler keeps the cache up-to-date
-      // via periodic IMAP fetches. This avoids redundant IMAP calls that cause
-      // TagMismatch errors (imap crate bug) and blocks the sync scheduler.
-      const msgs = await fetchMessages(reqAccount, 10000, 0, reqFolder);
+      // via periodic IMAP fetches. list_only omits body_text/body_html so a
+      // 10k-message folder transfers as metadata-only JSON.
+      const msgs = await fetchMessages(reqAccount, 10000, 0, reqFolder, true);
       // Re-check after the await: only apply if still the active selection.
       if (reqFolder !== selectedFolder || reqAccount !== selectedAccountId) return;
       // Always update the store — setMessages() preserves body_text/body_html
@@ -1345,7 +1361,7 @@ let sentFolderName = $state<string | null>(null);
   async function loadInbox() {
     mailbox.setLoading(true);
     try {
-      const msgs = await fetchMessages(selectedAccountId, 10000, 0, selectedFolder);
+      const msgs = await fetchMessages(selectedAccountId, 10000, 0, selectedFolder, true);
       mailbox.setMessages(msgs, selectedFolder);
       updateBadgeCount(selectedAccountId).catch(() => {});
     } catch (e: unknown) {
@@ -1557,6 +1573,8 @@ let sentFolderName = $state<string | null>(null);
         }
       }
       mailbox.clearSelection();
+      invalidateFolderCache(selectedAccountId, selectedFolder);
+      invalidateFolderCache(selectedAccountId, targetFolder);
       await loadFolder();
     } finally {
       movingSelection = false;
@@ -1839,6 +1857,7 @@ let sentFolderName = $state<string | null>(null);
     try {
       await flagMessageCmd(selectedAccountId, uid, selectedFolder ?? "INBOX", !msg.is_flagged);
       mailbox.updateMessage(uid, { is_flagged: !msg.is_flagged });
+      invalidateFolderCache(selectedAccountId, selectedFolder ?? "INBOX");
     } catch (e) {
       console.warn("handleToggleFlag fehlgeschlagen fuer uid", uid, e);
     }
@@ -1859,6 +1878,7 @@ let sentFolderName = $state<string | null>(null);
           console.warn("Loeschen von uid", uid, "fehlgeschlagen", e);
         }
       }
+      invalidateFolderCache(selectedAccountId, selectedFolder);
       await loadFolder();
     } finally {
       isDeleting = false;

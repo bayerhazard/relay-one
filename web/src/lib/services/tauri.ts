@@ -249,11 +249,13 @@ export async function fetchMessages(
   limit?: number,
   offset?: number,
   folder?: string,
+  listOnly?: boolean,
 ): Promise<Message[]> {
   const q = new URLSearchParams({ account_id: String(accountId) });
   if (limit) q.set("limit", String(limit));
   if (offset) q.set("offset", String(offset));
   if (folder) q.set("folder", folder);
+  if (listOnly) q.set("list_only", "1");
   return get(`/messages?${q}`, "Die Nachrichten konnten nicht geladen werden.");
 }
 

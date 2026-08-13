@@ -20,6 +20,9 @@ pub struct ImapTestOverrideInner {
     pub fail_append: bool,
     pub fail_delete: bool,
     pub fail_list_folders: bool,
+    /// Incremented on every real `connect_inner()` invocation (i.e. every
+    /// physical connection attempt). Used to verify single-flight connect.
+    pub connect_count: std::sync::Mutex<u32>,
 }
 
 #[cfg(test)]
@@ -35,6 +38,13 @@ pub struct ImapClient {
     session: Arc<Mutex<Option<imap::Session<Connection>>>>,
     connected: Arc<Mutex<bool>>,
     operation_timeout: Duration,
+    /// Serializes connect/reconnect so concurrent callers (sync scheduler
+    /// flag_refresh / removal_check / health check + move API) never open
+    /// multiple IMAP connections to the same account simultaneously.
+    connect_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Serializes `with_session_blocking` operations per client so concurrent
+    /// IMAP ops queue instead of racing (see connect_limit fix).
+    op_lock: Arc<tokio::sync::Mutex<()>>,
     #[cfg(test)]
     pub test_override: Option<ImapTestOverride>,
 }
@@ -68,17 +78,35 @@ impl ImapClient {
             session: Arc::new(Mutex::new(None)),
             connected: Arc::new(Mutex::new(false)),
             operation_timeout: Duration::from_secs(60),
+            connect_lock: Arc::new(tokio::sync::Mutex::new(())),
+            op_lock: Arc::new(tokio::sync::Mutex::new(())),
             #[cfg(test)]
             test_override: None,
         }
     }
 
     pub async fn connect(&self) -> Result<(), AppError> {
+        // Single-flight: only one physical connection per client at a time.
+        // Without this, concurrent callers (sync scheduler + move API) all see
+        // is_connected()==false and each open a new IMAP connection, blowing
+        // through the provider's per-user connection limit.
+        let _guard = self.connect_lock.lock().await;
+        // Double-checked: another task may have connected while we waited.
+        if *self.connected.lock().await {
+            return Ok(());
+        }
+        self.connect_inner().await
+    }
+
+    /// Actually opens the TCP+TLS connection and logs in. Only called while
+    /// holding `connect_lock` (see `connect`).
+    async fn connect_inner(&self) -> Result<(), AppError> {
         #[cfg(test)]
         if let Some(ref o) = self.test_override {
             if o.fail_connect {
                 return Err(AppError::imap("simulierter Verbindungsfehler", "connect"));
             }
+            *o.connect_count.lock().unwrap() += 1;
             *self.connected.lock().await = true;
             return Ok(());
         }
@@ -802,17 +830,8 @@ impl ImapClient {
     pub async fn shutdown(&self) {
         let session_opt = self.session.lock().await.take();
         *self.connected.lock().await = false;
-        if let Some(mut session) = session_opt {
-            // logout() is blocking — run it off the async runtime with a short
-            // timeout so shutdown never hangs on an unresponsive server.
-            let _ = tokio::time::timeout(Duration::from_secs(5), async move {
-                tokio::task::spawn_blocking(move || match session.logout() {
-                    Ok(()) => tracing::info!("IMAP: Logout erfolgreich"),
-                    Err(e) => tracing::warn!("IMAP: Logout fehlgeschlagen: {}", e),
-                })
-                .await
-            })
-            .await;
+        if let Some(session) = session_opt {
+            logout_session(session).await;
         }
     }
 
@@ -865,9 +884,17 @@ impl ImapClient {
     }
 
     pub async fn reconnect(&self) -> Result<(), AppError> {
-        *self.session.lock().await = None;
+        // Serialize with connect(): only one physical connection per client.
+        let _guard = self.connect_lock.lock().await;
+        // Best-effort logout of the old session instead of dropping it — a
+        // dropped session leaves the TCP connection open at the provider until
+        // its timeout, accumulating connections until the per-user limit hits.
+        let old = self.session.lock().await.take();
         *self.connected.lock().await = false;
-        self.connect().await
+        if let Some(session) = old {
+            logout_session(session).await;
+        }
+        self.connect_inner().await
     }
 
     /// Runs a blocking IMAP session operation on a dedicated blocking thread,
@@ -894,6 +921,10 @@ impl ImapClient {
         T: Send + 'static,
         F: FnOnce(&mut imap::Session<Connection>) -> Result<T, AppError> + Send + 'static,
     {
+        // Serialize IMAP operations per client so concurrent callers (sync
+        // scheduler + move API) queue instead of interleaving on one session
+        // and racing auto-reconnects (see connect_limit fix).
+        let _op_guard = self.op_lock.lock().await;
         let mut guard = self.session.lock().await;
         let mut session = match guard.take() {
             Some(s) => {
@@ -933,7 +964,9 @@ impl ImapClient {
                                 "IMAP TagMismatch bei '{}' — Session zurückgesetzt, nächster Aufruf reconnectet automatisch",
                                 op_name
                             );
-                            drop(session);
+                            // Logout instead of dropping so the connection is
+                            // closed at the provider (prevents connection leaks).
+                            logout_session(session).await;
                             *self.connected.lock().await = false;
                         } else {
                             *self.session.lock().await = Some(session);
@@ -968,6 +1001,21 @@ impl ImapClient {
 /// Check if an AppError wraps an imap::Error::TagMismatch.
 fn is_tag_mismatch(e: &AppError) -> bool {
     matches!(e, AppError::Imap { msg, .. } if msg.contains("TagMismatch"))
+}
+
+/// Best-effort logout of an IMAP session. logout() is blocking, so it runs on
+/// a blocking thread with a short timeout — callers never hang on an
+/// unresponsive server, and the connection is cleanly closed at the provider
+/// instead of being leaked until the server-side timeout.
+async fn logout_session(mut session: imap::Session<Connection>) {
+    let _ = tokio::time::timeout(Duration::from_secs(5), async move {
+        tokio::task::spawn_blocking(move || match session.logout() {
+            Ok(()) => tracing::info!("IMAP: Logout erfolgreich"),
+            Err(e) => tracing::warn!("IMAP: Logout fehlgeschlagen: {}", e),
+        })
+        .await
+    })
+    .await;
 }
 
 #[cfg(test)]
@@ -1302,6 +1350,64 @@ mod tests {
         assert!(result.is_err());
         // After failed reconnect, connected flag must remain false
         assert!(!client.is_connected().await);
+    }
+
+    /// Builds a client whose `connect_inner()` is short-circuited by the test
+    /// override (counts real connection attempts via `connect_count`).
+    fn client_with_override() -> (ImapClient, ImapTestOverride) {
+        let override_ = ImapTestOverrideInner {
+            folders: Vec::new(),
+            appended: std::sync::Mutex::new(Vec::new()),
+            is_connected: true,
+            fail_connect: false,
+            fail_append: false,
+            fail_delete: false,
+            fail_list_folders: false,
+            connect_count: std::sync::Mutex::new(0),
+        };
+        let ov = ImapTestOverride::new(override_);
+        let mut client = ImapClient::new("localhost".into(), 143, "u".into(), "p".into(), false);
+        client.test_override = Some(ov.clone());
+        (client, ov)
+    }
+
+    #[tokio::test]
+    async fn test_connect_single_flight_only_one_connection() {
+        let (client, ov) = client_with_override();
+        // 8 concurrent connect() calls must result in exactly ONE physical
+        // connection attempt (single-flight lock + double-check).
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let c = ImapClient {
+                host: client.host.clone(),
+                port: client.port,
+                username: client.username.clone(),
+                password: client.password.clone(),
+                use_ssl: client.use_ssl,
+                insecure: client.insecure,
+                session: client.session.clone(),
+                connected: client.connected.clone(),
+                operation_timeout: client.operation_timeout,
+                connect_lock: client.connect_lock.clone(),
+                op_lock: client.op_lock.clone(),
+                test_override: client.test_override.clone(),
+            };
+            handles.push(tokio::spawn(async move { c.connect().await }));
+        }
+        for h in handles {
+            h.await.unwrap().expect("connect sollte ok sein");
+        }
+        assert_eq!(*ov.connect_count.lock().unwrap(), 1);
+        assert!(client.is_connected().await);
+    }
+
+    #[tokio::test]
+    async fn test_connect_after_success_is_noop() {
+        let (client, ov) = client_with_override();
+        client.connect().await.expect("connect ok");
+        client.connect().await.expect("zweiter connect ok (noop)");
+        client.connect().await.expect("dritter connect ok (noop)");
+        assert_eq!(*ov.connect_count.lock().unwrap(), 1);
     }
 
     #[tokio::test]

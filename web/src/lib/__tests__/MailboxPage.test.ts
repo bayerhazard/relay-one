@@ -103,6 +103,9 @@ vi.mock("$lib/stores/mailbox", () => ({
     setError: vi.fn(),
     reset: vi.fn(),
   },
+  getFolderCache: () => null,
+  invalidateFolderCache: vi.fn(),
+  resetFolderCache: vi.fn(),
 }));
 
 import { mailbox } from "$lib/stores/mailbox";

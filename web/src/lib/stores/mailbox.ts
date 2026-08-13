@@ -19,6 +19,84 @@ export interface Message {
   has_attachments?: boolean;
 }
 
+// ─── Persistent folder cache ─────────────────────────────────
+// Meta-only message lists per (account, folder), persisted in localStorage.
+// Purpose: switching back to an already-seen large folder is instant (no
+// server round-trip). Bodies are NOT cached here — they load on demand via
+// GET /messages/{uid}/body when a message is opened.
+
+const FOLDER_CACHE_KEY = "relay:folderCache:v1";
+const FOLDER_CACHE_MAX = 10000;
+
+type FolderCacheMap = Record<string, Message[]>;
+
+function loadFolderCache(): FolderCacheMap {
+  try {
+    const raw = localStorage.getItem(FOLDER_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistFolderCache(cache: FolderCacheMap) {
+  try {
+    localStorage.setItem(FOLDER_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Quota exceeded or unavailable (e.g. private mode) — cache stays in
+    // memory for the session and is simply not persisted.
+  }
+}
+
+let folderCache: FolderCacheMap = loadFolderCache();
+
+function cacheKey(accountId: number, folderId: string): string {
+  return `${accountId}:${folderId}`;
+}
+
+/** Meta-only message list for (account, folder), or `null` when not cached. */
+export function getFolderCache(accountId: number, folderId: string): Message[] | null {
+  return folderCache[cacheKey(accountId, folderId)] ?? null;
+}
+
+/** Store a meta-only list for (account, folder) and persist it. */
+export function setFolderCache(accountId: number, folderId: string, messages: Message[]) {
+  const key = cacheKey(accountId, folderId);
+  folderCache = {
+    ...folderCache,
+    [key]: messages.slice(0, FOLDER_CACHE_MAX),
+  };
+  persistFolderCache(folderCache);
+}
+
+/** Drop a cached (account, folder) list — used after delete/move/flag ops. */
+export function invalidateFolderCache(accountId: number, folderId: string) {
+  const key = cacheKey(accountId, folderId);
+  if (!(key in folderCache)) return;
+  const next = { ...folderCache };
+  delete next[key];
+  folderCache = next;
+  if (Object.keys(folderCache).length === 0) {
+    try {
+      localStorage.removeItem(FOLDER_CACHE_KEY);
+    } catch {
+      // ignore
+    }
+  } else {
+    persistFolderCache(folderCache);
+  }
+}
+
+/** Clear the in-memory folder cache (test isolation). */
+export function resetFolderCache() {
+  folderCache = {};
+  try {
+    localStorage.removeItem(FOLDER_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 interface MailboxState {
   accountId: number | null;
   messages: Message[];
@@ -62,6 +140,13 @@ function createMailboxStore() {
             body_html: oldBodies.get(key)?.body_html ?? m.body_html,
           };
         });
+        // Refresh the persistent folder cache (meta-only, no bodies) whenever
+        // a full folder list lands in the store. Search results call
+        // setMessages() without a folderLabel and must NOT overwrite it.
+        if (folderLabel !== undefined && fId) {
+          const metaOnly = merged.map(({ body_text: _bt, body_html: _bh, ...rest }) => rest);
+          setFolderCache(aId, fId, metaOnly);
+        }
         return {
           ...s,
           accountId: aId,

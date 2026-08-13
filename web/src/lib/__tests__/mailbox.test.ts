@@ -1,11 +1,20 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { get } from "svelte/store";
-import { mailbox } from "$lib/stores/mailbox";
+import {
+  mailbox,
+  getFolderCache,
+  setFolderCache,
+  invalidateFolderCache,
+  resetFolderCache,
+} from "$lib/stores/mailbox";
 import type { Message } from "$lib/stores/mailbox";
+
+const FOLDER_CACHE_KEY = "relay:folderCache:v1";
 
 describe("mailbox store", () => {
   beforeEach(() => {
     mailbox.reset();
+    localStorage.clear();
   });
 
   it("starts with empty state", () => {
@@ -112,5 +121,70 @@ describe("mailbox store", () => {
     expect(state.selectedUids).toEqual([]);
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
+  });
+});
+
+describe("folder cache", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetFolderCache();
+  });
+
+  const meta = (uid: number): Message => ({
+    uid,
+    subject: `Subj ${uid}`,
+    from: "a@b.c",
+    is_read: false,
+    is_flagged: false,
+  });
+
+  it("setFolderCache stores and getFolderCache returns it", () => {
+    setFolderCache(1, "INBOX", [meta(1), meta(2)]);
+    const cached = getFolderCache(1, "INBOX");
+    expect(cached).not.toBeNull();
+    expect(cached!.map((m) => m.uid)).toEqual([1, 2]);
+  });
+
+  it("persists to localStorage", () => {
+    setFolderCache(1, "INBOX", [meta(7)]);
+    const raw = localStorage.getItem(FOLDER_CACHE_KEY);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!);
+    expect(parsed["1:INBOX"].map((m: Message) => m.uid)).toEqual([7]);
+  });
+
+  it("is per (account, folder)", () => {
+    setFolderCache(1, "INBOX", [meta(1)]);
+    setFolderCache(2, "INBOX", [meta(9)]);
+    expect(getFolderCache(1, "INBOX")!.map((m) => m.uid)).toEqual([1]);
+    expect(getFolderCache(2, "INBOX")!.map((m) => m.uid)).toEqual([9]);
+    expect(getFolderCache(1, "Archive")).toBeNull();
+  });
+
+  it("invalidateFolderCache removes the entry", () => {
+    setFolderCache(1, "INBOX", [meta(1)]);
+    invalidateFolderCache(1, "INBOX");
+    expect(getFolderCache(1, "INBOX")).toBeNull();
+    expect(localStorage.getItem(FOLDER_CACHE_KEY)).toBeNull();
+  });
+
+  it("setMessages with a folder label refreshes the cache (meta-only)", () => {
+    const msgs: Message[] = [
+      { uid: 1, subject: "S", from: "a@b.c", body_text: "secret body", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(msgs, "INBOX", 1);
+    const cached = getFolderCache(1, "INBOX");
+    expect(cached!.length).toBe(1);
+    // Bodies must NOT be persisted in the cache (payload reduction).
+    expect(cached![0].body_text).toBeUndefined();
+    expect(cached![0].subject).toBe("S");
+  });
+
+  it("search results (no folder label) do not touch the cache", () => {
+    setFolderCache(1, "INBOX", [meta(1)]);
+    const search: Message[] = [meta(99)];
+    mailbox.setMessages(search);
+    // Cache for INBOX is untouched by the folder-less search set.
+    expect(getFolderCache(1, "INBOX")!.map((m) => m.uid)).toEqual([1]);
   });
 });

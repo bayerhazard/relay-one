@@ -27,9 +27,6 @@ fn decode_body_text(b: &str) -> String {
 
 /// Serialize a MessageRecord to JSON.
 fn message_to_json(m: &MessageRecord) -> serde_json::Value {
-    let body_preview = m.body_text.as_deref().map(|b| {
-        decode_body_text(b).chars().take(200).collect::<String>()
-    });
     serde_json::json!({
         "id": m.id,
         "uid": m.uid,
@@ -38,7 +35,7 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
         "from": m.from_addr,
         "to": m.to_addr,
         "date": m.date,
-        "body_preview": body_preview,
+        "body_preview": body_preview(m),
         "body_text": m.body_text.as_deref().map(decode_body_text),
         "body_html": m.body_html.clone(),
         "flags": m.flags,
@@ -46,6 +43,37 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
         "ai_priority": m.ai_priority,
         "ai_fraud_score": m.ai_fraud_score,
         "is_read": m.is_read,
+        "is_flagged": m.is_flagged,
+        "has_attachments": m.has_attachments,
+    })
+}
+
+/// Preview of a message body (first 200 chars, QP-decoded).
+fn body_preview(m: &MessageRecord) -> Option<String> {
+    m.body_text.as_deref().map(|b| {
+        decode_body_text(b).chars().take(200).collect::<String>()
+    })
+}
+
+/// Lightweight list serialization — omits `body_text`/`body_html` so large
+/// folders (up to 10k rows) transfer as metadata-only JSON. The full body is
+/// fetched on demand via `GET /messages/{uid}/body`.
+fn message_to_json_meta(m: &MessageRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": m.id,
+        "uid": m.uid,
+        "message_id": m.message_id,
+        "subject": m.subject.as_deref().map(client::decode_rfc2047),
+        "from": m.from_addr,
+        "to": m.to_addr,
+        "date": m.date,
+        "body_preview": body_preview(m),
+        "flags": m.flags,
+        "ai_summary": m.ai_summary,
+        "ai_priority": m.ai_priority,
+        "ai_fraud_score": m.ai_fraud_score,
+        "is_read": m.is_read,
+        "is_flagged": m.is_flagged,
         "has_attachments": m.has_attachments,
     })
 }
@@ -58,6 +86,9 @@ pub struct FetchMessagesQuery {
     pub folder: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    /// When set, the list response omits `body_text`/`body_html` (metadata-only).
+    /// The full body is loaded on demand via `GET /messages/{uid}/body`.
+    pub list_only: Option<bool>,
 }
 
 /// Query for single-message endpoints (uid + account in the query string).
@@ -217,7 +248,18 @@ pub async fn fetch_messages(
         )
         .map_err(|e| e.to_string())
     })?;
-    Ok(Json(messages.iter().map(message_to_json).collect()))
+    Ok(Json(
+        messages
+            .iter()
+            .map(|m| {
+                if q.list_only.unwrap_or(false) {
+                    message_to_json_meta(m)
+                } else {
+                    message_to_json(m)
+                }
+            })
+            .collect(),
+    ))
 }
 
 /// `GET /api/v1/messages/search?account_id=&query=&limit=`

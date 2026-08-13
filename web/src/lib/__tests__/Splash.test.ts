@@ -62,6 +62,9 @@ vi.mock("$lib/stores/mailbox", () => {
       setError: vi.fn(),
       selectSingle: vi.fn(),
     },
+    getFolderCache: () => null,
+    invalidateFolderCache: vi.fn(),
+    resetFolderCache: vi.fn(),
   };
 });
 
