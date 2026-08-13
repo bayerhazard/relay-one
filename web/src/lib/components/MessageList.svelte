@@ -14,6 +14,7 @@
     onselectToggle: (uid: number) => void;
     onselectRange: (fromIdx: number, toIdx: number) => void;
     onreply?: (uid: number) => void;
+    onforward?: (uid: number) => void;
     ondelete?: (uid: number) => void;
     ontoggleRead?: (uid: number) => void;
     ontoggleFlag?: (uid: number) => void;
@@ -25,7 +26,7 @@
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, ondelete, ontoggleRead, ontoggleFlag, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
 
   let pendingReadUids = $state(new Set<number>());
   let pendingReadTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -259,7 +260,7 @@
 
   function openContextMenu(x: number, y: number, uid: number) {
     const menuWidth = 180;
-    const menuHeight = 150;
+    const menuHeight = 180;
     const vw = typeof window !== "undefined" ? window.innerWidth : menuWidth;
     const vh = typeof window !== "undefined" ? window.innerHeight : menuHeight;
     contextMenu = {
@@ -354,7 +355,7 @@
             aria-selected={selectedSet.has(msg.uid)}
           >
             <div class="msg-header">
-              <span class="sender">{extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}{msg.is_flagged && " 🚩"}</span>
+              <span class="sender">{extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}{msg.is_flagged ? " 🚩" : ""}</span>
               <span class="msg-header-right">
                 {#if msg.has_attachments}
                   <span class="attach-indicator" title="Enthält einen Anhang" aria-label="Anhang">&#x1F4CE;</span>
@@ -401,6 +402,7 @@
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouch} role="presentation" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouch} style={isTouch ? "" : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`} role="menu">
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}>Antworten</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}>Weiterleiten</button>
       <div class="ctx-menu-separator" role="separator"></div>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleRead?.(uid))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleFlag?.(uid))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>

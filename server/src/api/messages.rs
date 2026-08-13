@@ -17,7 +17,14 @@ use super::{ApiError, ApiResult};
 // ─── Response helpers ─────────────────────────────────────────
 
 /// Decode body text: only allocates a String if QP-decoding is actually needed.
-fn decode_body_text(b: &str) -> String {
+///
+/// `synced` rows carry IMAP transfer-encoded bodies (parsed/decoded on read),
+/// while local-only rows (drafts, local folders) store plain text that must be
+/// returned verbatim — a draft containing e.g. `a=3Db` must not be re-encoded.
+fn decode_body_text(b: &str, synced: bool) -> String {
+    if !synced {
+        return b.to_string();
+    }
     if client::has_qp_pattern(b) {
         client::decode_transfer_encoding(b)
     } else {
@@ -36,7 +43,7 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
         "to": m.to_addr,
         "date": m.date,
         "body_preview": body_preview(m),
-        "body_text": m.body_text.as_deref().map(decode_body_text),
+        "body_text": m.body_text.as_deref().map(|b| decode_body_text(b, m.synced)),
         "body_html": m.body_html.clone(),
         "flags": m.flags,
         "ai_summary": m.ai_summary,
@@ -48,10 +55,10 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
     })
 }
 
-/// Preview of a message body (first 200 chars, QP-decoded).
+/// Preview of a message body (first 200 chars, QP-decoded for synced rows).
 fn body_preview(m: &MessageRecord) -> Option<String> {
     m.body_text.as_deref().map(|b| {
-        decode_body_text(b).chars().take(200).collect::<String>()
+        decode_body_text(b, m.synced).chars().take(200).collect::<String>()
     })
 }
 
@@ -316,7 +323,7 @@ pub async fn fetch_message_body(
                 "from": msg.from_addr,
                 "to": msg.to_addr,
                 "date": msg.date,
-                "body_text": msg.body_text.as_deref().map(decode_body_text),
+                "body_text": msg.body_text.as_deref().map(|b| decode_body_text(b, msg.synced)),
                 "body_html": msg.body_html,
                 "flags": msg.flags,
                 "ai_summary": msg.ai_summary,
@@ -351,7 +358,7 @@ pub async fn fetch_message_body(
             });
             Ok(Json(serde_json::json!({
                 "uid": uid as i64,
-                "body_text": decode_body_text(&body_text),
+                "body_text": decode_body_text(&body_text, true),
                 "body_html": body_html,
                 "is_read": false,
             })))
@@ -1547,5 +1554,21 @@ mod messages_query_tests {
         )
         .expect("empty value must deserialize");
         assert_eq!(q.list_only, None);
+    }
+
+    #[test]
+    fn decode_body_keeps_local_draft_text_verbatim() {
+        // A local (unsynced) draft containing a QP-looking pattern must not be
+        // re-encoded — fixes "saved draft text differs from what was written".
+        let draft_text = "Preis: 1=20 EUR und a=3Db als Literal";
+        assert_eq!(decode_body_text(draft_text, false), draft_text);
+        assert_eq!(decode_body_text("", false), "");
+    }
+
+    #[test]
+    fn decode_body_decodes_only_synced_rows() {
+        assert_eq!(decode_body_text("H=C3=A4llo", true), "Hällo");
+        assert_eq!(decode_body_text("H=C3=A4llo", false), "H=C3=A4llo");
+        assert_eq!(decode_body_text("plain text", true), "plain text");
     }
 }

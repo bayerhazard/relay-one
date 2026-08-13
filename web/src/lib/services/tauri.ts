@@ -361,8 +361,36 @@ export interface PickedFile {
 }
 
 export async function openFilePicker(): Promise<PickedFile[]> {
-  // Web version: HTML file input handled by the component; returns empty list.
-  return [];
+  // Web version: open a real HTML file input and read the selected files as
+  // base64 (mirrors the Tauri dialog used in the desktop build).
+  const picked = await new Promise<File[]>((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.onchange = () => {
+      const files = Array.from(input.files ?? []);
+      input.remove();
+      resolve(files);
+    };
+    input.click();
+  });
+  if (picked.length === 0) return [];
+
+  const out: PickedFile[] = [];
+  for (const file of picked) {
+    const content = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1] ?? "");
+      };
+      reader.readAsDataURL(file);
+    });
+    if (content) {
+      out.push({ filename: file.name, content, content_type: file.type || "application/octet-stream", size: file.size });
+    }
+  }
+  return out;
 }
 
 export async function fetchMessageBody(
@@ -477,10 +505,11 @@ export async function saveDraft(
   bodyText: string,
   bodyHtml?: string,
   cc?: string[],
-  bcc?: string[]
+  bcc?: string[],
+  uid?: number | null
 ): Promise<{ uid: number }> {
   return post("/draft/save", {
-    account_id: accountId, to, cc, bcc, subject, body_text: bodyText, body_html: bodyHtml,
+    account_id: accountId, uid: uid ?? null, to, cc, bcc, subject, body_text: bodyText, body_html: bodyHtml,
   }, "Der Entwurf konnte nicht gespeichert werden.");
 }
 

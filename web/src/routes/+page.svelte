@@ -141,7 +141,7 @@ import {
     if (showCompose) { showCompose = false; }
     mailbox.clearSelection();
   }
-  let composeMode = $state<"new" | "reply">("new");
+  let composeMode = $state<"new" | "reply" | "forward">("new");
   let replySubject = $state("");
   let replyTo = $state("");
   let recipientName = $state("");
@@ -1464,6 +1464,10 @@ let sentFolderName = $state<string | null>(null);
     recipientName = "";
     replySubject = "";
     mailChain = [];
+    draftUid = null;
+    draftTo = "";
+    draftSubject = "";
+    draftBody = "";
     showCompose = true;
   }
 
@@ -1505,8 +1509,53 @@ let sentFolderName = $state<string | null>(null);
     if (msg) handleReply(msg);
   }
 
+  async function handleForward(msg: Message) {
+    composeMode = "forward";
+    sendError = null;
+    replySubject = msg.subject ?? "";
+    replyTo = "";
+    recipientName = "";
+    mailChain = [];
+    draftUid = null;
+    draftTo = "";
+    draftSubject = "";
+    draftBody = "";
+    showCompose = true;
+
+    // Fetch the full body if not already loaded (same as reply).
+    let bodyText = msg.body_text;
+    let bodyHtml = msg.body_html;
+    if (!bodyText && !bodyHtml) {
+      try {
+        const full = await fetchMessageBody(selectedAccountId, msg.uid);
+        bodyText = full.body_text;
+        bodyHtml = full.body_html;
+      } catch (e) {
+        console.warn("handleForward: body fetch failed, falling back to preview", e);
+      }
+    }
+
+    const text = parsedContent.text || bodyText || msg.body_preview || "";
+    const html = parsedContent.html || bodyHtml || null;
+    if (text) {
+      mailChain = [{ text, html }];
+    } else {
+      mailChain = [];
+    }
+  }
+
+  function handleForwardMessage(uid: number) {
+    const msg = $mailbox.messages.find((m) => m.uid === uid);
+    if (msg) handleForward(msg);
+  }
+
   function closeCompose() {
     showCompose = false;
+    // Keep draftUid so a later "save again" still updates the same draft, but
+    // clear the pre-fill fields so a fresh compose doesn't resurrect stale text.
+    draftTo = "";
+    draftSubject = "";
+    draftBody = "";
   }
 
   function isInputFocused(): boolean {
@@ -1916,6 +1965,7 @@ let sentFolderName = $state<string | null>(null);
     onselectToggle={handleSelectToggle}
     onselectRange={handleSelectRange}
     onreply={handleReplyMessage}
+    onforward={handleForwardMessage}
     ondelete={handleDeleteMessage}
     ontoggleRead={handleToggleRead}
     ontoggleFlag={handleToggleFlag}
@@ -1942,6 +1992,7 @@ let sentFolderName = $state<string | null>(null);
       senderName={senderName}
       onclose={closeCompose}
       onsend={handleSend}
+      ondraftSaved={(uid) => { draftUid = uid; }}
       draftTo={draftUid ? draftTo : undefined}
       draftSubject={draftUid ? draftSubject : undefined}
       draftBody={draftUid ? draftBody : undefined}

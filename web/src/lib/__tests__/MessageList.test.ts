@@ -76,6 +76,7 @@ describe("MessageList", () => {
 
       expect(screen.getByRole("menu")).toBeTruthy();
       expect(screen.getByRole("menuitem", { name: "Antworten" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "Weiterleiten" })).toBeTruthy();
       expect(screen.getByRole("menuitem", { name: "Löschen" })).toBeTruthy();
     });
 
@@ -115,6 +116,24 @@ describe("MessageList", () => {
 
       expect(onreply).toHaveBeenCalledOnce();
       expect(onreply).toHaveBeenCalledWith(42);
+    });
+
+    it("triggers onforward callback with correct uid when forward is clicked", async () => {
+      const onforward = vi.fn();
+      render(MessageList, { ...defaultProps, onforward, messages: [makeMessage({ uid: 43 })] });
+
+      await fireEvent.contextMenu(getFirstItem());
+      await fireEvent.click(screen.getByRole("menuitem", { name: "Weiterleiten" }));
+
+      expect(onforward).toHaveBeenCalledOnce();
+      expect(onforward).toHaveBeenCalledWith(43);
+    });
+
+    it("does not crash when onforward is not provided", async () => {
+      render(MessageList, { ...defaultProps, onforward: undefined });
+
+      await fireEvent.contextMenu(getFirstItem());
+      expect(() => fireEvent.click(screen.getByRole("menuitem", { name: "Weiterleiten" }))).not.toThrow();
     });
 
     it("triggers ontoggleRead callback when the read toggle is clicked", async () => {

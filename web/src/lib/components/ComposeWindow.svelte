@@ -15,7 +15,7 @@
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
 
-  type ComposeMode = "new" | "reply";
+  type ComposeMode = "new" | "reply" | "forward";
   export type ToneValues = { seriositaet: number; textumfang: number };
 
   interface Props {
@@ -30,6 +30,8 @@
     recipientName?: string;
     onclose: () => void;
     onsend: (data: { to: string; subject: string; body: string; bodyHtml: string; cc?: string; bcc?: string; attachments?: { filename: string; content: string; contentType: string }[]; aiDraft?: string | null }) => Promise<void>;
+    /** Fired after a draft was persisted, so the parent can keep the edited draft uid. */
+    ondraftSaved?: (uid: number) => void;
     // Pre-filled draft data
     draftTo?: string;
     draftSubject?: string;
@@ -40,7 +42,7 @@
   let {
     mode, mailChain = [], sendError = null, replySubject = "", replyTo = "",
     accountId, recipientEmail, senderName = "", recipientName = "", onclose, onsend,
-    draftTo = "", draftSubject = "", draftBody = "", draftUid = null,
+    ondraftSaved, draftTo = "", draftSubject = "", draftBody = "", draftUid = null,
   }: Props = $props();
 
   let to = $state<string[]>([]);
@@ -112,8 +114,11 @@
         undefined,
         cc.trim() ? cc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         bcc.trim() ? bcc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        draftUid ?? localDraftUid,
       );
       localDraftUid = result.uid;
+      lastPropDraftUid = result.uid;
+      ondraftSaved?.(result.uid);
       return true;
     } catch (e: unknown) {
       console.warn("Entwurf speichern fehlgeschlagen", e);
@@ -258,6 +263,9 @@
   let lastPropDraftUid = $state<number | null>(null);
   $effect(() => {
     if (mode !== lastMode || replyTo !== lastReplyTo || draftUid !== lastPropDraftUid) {
+      // Pre-fill only when a *different* draft is being opened. `doSaveDraft`
+      // keeps `lastPropDraftUid` in sync after a save, so adopting the returned
+      // uid does not wipe the freshly typed content.
       if (draftUid != null && draftUid !== lastPropDraftUid) {
         // Pre-fill from draft data
         to = draftTo ? draftTo.split(",").map(s => s.trim()).filter(Boolean) : [];
@@ -267,7 +275,7 @@
         lastPropDraftUid = draftUid;
       } else {
         to = replyTo ? [replyTo] : [];
-        subject = mode === "reply" ? `Re: ${replySubject}` : "";
+        subject = mode === "reply" ? `Re: ${replySubject}` : mode === "forward" ? `Fwd: ${replySubject}` : "";
       }
       toneLoaded = false;
       lastMode = mode;
@@ -463,7 +471,7 @@
 
 <div class="compose-window">
   <div class="compose-header">
-    <h2>{mode === "new" ? "Neue Nachricht" : "Antworten"}</h2>
+    <h2>{mode === "new" ? "Neue Nachricht" : mode === "forward" ? "Weiterleiten" : "Antworten"}</h2>
     <button type="button" class="close-btn" onclick={handleClose} title="Schließen" aria-label="Schließen">
       <span class="close-icon-desktop">&#x2715;</span>
       <span class="close-icon-mobile">&#8592; Zurück</span>
@@ -519,7 +527,7 @@
       </div>
     </div>
 
-    {#if mode === "reply" && mailChain.length > 0}
+    {#if (mode === "reply" || mode === "forward") && mailChain.length > 0}
       <div class="chain-preview">
         <div class="chain-header">Urspr&uuml;ngliche Nachricht:</div>
         <div class="chain-scroll-area">

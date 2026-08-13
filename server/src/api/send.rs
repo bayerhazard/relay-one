@@ -40,6 +40,9 @@ pub struct SendMessageRequest {
 #[derive(Deserialize)]
 pub struct SaveDraftRequest {
     pub account_id: u32,
+    /// Optional existing draft uid — when present and the draft still exists,
+    /// the draft is updated in place instead of inserting a new row.
+    pub uid: Option<u32>,
     pub to: Vec<String>,
     pub cc: Option<Vec<String>>,
     pub bcc: Option<Vec<String>>,
@@ -69,20 +72,59 @@ pub async fn save_draft(
             .map_err(|e| e.to_string())
     })?;
 
-    // Insert the draft locally (uid = next draft uid for this account).
+    let drafts_folder_id: i64 = with_db(&state, |conn| {
+        conn.query_row(
+            "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'",
+            rusqlite::params![account_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())
+    })?;
+
     let now = chrono::Utc::now().to_rfc3339();
     let uid = with_db(&state, |conn| {
+        // If the client sent an existing draft uid that still exists in the
+        // "Entwürfe" folder, update it in place (fixes duplicate/stale drafts:
+        // every "save" used to INSERT a brand-new row).
+        if let Some(existing) = req.uid {
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3)",
+                rusqlite::params![account_id, existing as i64, drafts_folder_id],
+                |r| r.get(0),
+            ).unwrap_or(false);
+            if exists {
+                conn.execute(
+                    "UPDATE messages SET subject = ?3, to_addr = ?4, date = ?5, body_text = ?6, body_html = ?7, synced = 0
+                     WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?8",
+                    rusqlite::params![
+                        account_id,
+                        existing as i64,
+                        req.subject,
+                        req.to.join(", "),
+                        now,
+                        req.body_text,
+                        req.body_html,
+                        drafts_folder_id,
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+                return Ok(existing as i64);
+            }
+        }
+
+        // New draft — allocate the next uid and insert.
         let uid: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(uid), 0) + 1 FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe')",
-            rusqlite::params![account_id],
+            "SELECT COALESCE(MAX(uid), 0) + 1 FROM messages WHERE account_id = ?1 AND folder_id = ?2",
+            rusqlite::params![account_id, drafts_folder_id],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
         conn.execute(
             "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
-             VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'), ?2, ?3, '', ?4, ?5, ?6, ?7, 0)",
+             VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, ?7, ?8, 0)",
             rusqlite::params![
                 account_id,
+                drafts_folder_id,
                 uid,
                 req.subject,
                 req.to.join(", "),
