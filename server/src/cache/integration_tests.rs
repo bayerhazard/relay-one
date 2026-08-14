@@ -7,6 +7,7 @@ use crate::cache::accounts::{
 use crate::cache::db;
 use crate::cache::messages::{delete_message, delete_messages_not_in, fetch_inbox, fetch_message_body, save_message};
 use crate::imap::types::{CachedMessage, MailEnvelope};
+use base64::Engine as _;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -918,4 +919,299 @@ fn test_fetch_message_body_scoped_by_folder_on_uid_collision() {
         .body_text
         .unwrap();
     assert_eq!(drafts_body, "DRAFT BODY TEXT", "Drafts-scoped lookup returned the wrong message");
+}
+
+#[test]
+fn test_attachment_metadata_scoped_by_folder_on_uid_collision() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "attcollision");
+
+    // Two messages sharing uid 7 across folders, each with its own attachment.
+    // The sync path must attach metadata to the message inside the SAME folder
+    // (uid is only unique per folder) — an unscoped lookup would attach both
+    // attachment sets to the same message_id.
+    let mut inbox_msg = make_cached_message(7, "INBOX Att", "inbox@test.com", "INBOX BODY");
+    inbox_msg.has_attachments = true;
+    inbox_msg.attachments = vec![
+        crate::imap::types::AttachmentMeta {
+            filename: "inbox-file.pdf".into(),
+            content_type: "application/pdf".into(),
+            size: 100,
+        },
+    ];
+    save_message(&conn, account_id, &inbox_msg, "INBOX").unwrap();
+
+    let mut draft_msg = make_cached_message(7, "Draft Att", "draft@test.com", "DRAFT BODY");
+    draft_msg.has_attachments = true;
+    draft_msg.attachments = vec![
+        crate::imap::types::AttachmentMeta {
+            filename: "draft-file.pdf".into(),
+            content_type: "application/pdf".into(),
+            size: 200,
+        },
+    ];
+    save_message(&conn, account_id, &draft_msg, "Entwürfe").unwrap();
+
+    // Resolve both message ids.
+    let inbox_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id =
+            (SELECT id FROM folders WHERE account_id = ?1 AND name = 'INBOX')",
+        rusqlite::params![account_id, 7],
+        |r| r.get(0),
+    ).unwrap();
+    let drafts_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id =
+            (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe')",
+        rusqlite::params![account_id, 7],
+        |r| r.get(0),
+    ).unwrap();
+    assert_ne!(inbox_id, drafts_id, "both messages must be distinct rows");
+
+    // Each message must carry exactly its own attachment.
+    let inbox_attachments = crate::cache::attachments::get_attachments(&conn, inbox_id).unwrap();
+    assert_eq!(inbox_attachments.len(), 1, "INBOX must have exactly 1 attachment");
+    assert_eq!(inbox_attachments[0].filename, "inbox-file.pdf");
+
+    let drafts_attachments = crate::cache::attachments::get_attachments(&conn, drafts_id).unwrap();
+    assert_eq!(drafts_attachments.len(), 1, "Drafts must have exactly 1 attachment");
+    assert_eq!(drafts_attachments[0].filename, "draft-file.pdf");
+
+    // Regression guard: the pre-fix bug attached BOTH files to the first
+    // matched message (same uid). Verify no cross-contamination.
+    assert!(
+        inbox_attachments.iter().all(|a| a.filename != "draft-file.pdf"),
+        "INBOX message must not inherit the draft's attachment"
+    );
+    assert!(
+        drafts_attachments.iter().all(|a| a.filename != "inbox-file.pdf"),
+        "Draft message must not inherit the INBOX attachment"
+    );
+}
+
+#[test]
+fn test_reconcile_attachments_stable_ids_and_removes_stale() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "reconcile");
+
+    // First sync: message with two attachments.
+    let mut msg = make_cached_message(9, "Reconcile", "r@test.com", "BODY");
+    msg.has_attachments = true;
+    msg.attachments = vec![
+        crate::imap::types::AttachmentMeta { filename: "a.pdf".into(), content_type: "application/pdf".into(), size: 10 },
+        crate::imap::types::AttachmentMeta { filename: "b.pdf".into(), content_type: "application/pdf".into(), size: 20 },
+    ];
+    save_message(&conn, account_id, &msg, "INBOX").unwrap();
+
+    let message_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id =
+            (SELECT id FROM folders WHERE account_id = ?1 AND name = 'INBOX')",
+        rusqlite::params![account_id, 9],
+        |r| r.get(0),
+    ).unwrap();
+
+    let first = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(first.len(), 2);
+    let id_a = first[0].id;
+    let id_b = first[1].id;
+    assert_eq!(first[0].part_index, 0);
+    assert_eq!(first[1].part_index, 1);
+    assert_eq!(first[0].filename, "a.pdf");
+
+    // Second sync: identical list, same order. part_index is positional
+    // (BODYSTRUCTURE order), so identical positions must keep their ids —
+    // this is the invariant that replaces the old DELETE+re-INSERT churn.
+    save_message(&conn, account_id, &msg, "INBOX").unwrap();
+    let same = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(same.len(), 2);
+    assert_eq!(same[0].id, id_a, "part_index 0 must keep its id across a no-op re-sync");
+    assert_eq!(same[1].id, id_b, "part_index 1 must keep its id across a no-op re-sync");
+
+    // Third sync: new list [b, c] (a removed, c added). Positional identity
+    // means b moves to part_index 0 (new id is fine — its position changed)
+    // and the stale row 'a' is removed.
+    msg.attachments = vec![
+        crate::imap::types::AttachmentMeta { filename: "b.pdf".into(), content_type: "application/pdf".into(), size: 20 },
+        crate::imap::types::AttachmentMeta { filename: "c.pdf".into(), content_type: "application/pdf".into(), size: 30 },
+    ];
+    save_message(&conn, account_id, &msg, "INBOX").unwrap();
+
+    let third = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(third.len(), 2, "stale 'a.pdf' must be removed");
+    assert!(third.iter().all(|a| a.filename != "a.pdf"), "removed part must be gone");
+    assert!(third.iter().any(|a| a.filename == "c.pdf"), "new part must be present");
+    assert!(third.iter().any(|a| a.filename == "b.pdf"), "kept part must be present");
+
+    // Fourth sync: message loses ALL attachments (empty BODYSTRUCTURE).
+    // Stale rows must be removed entirely.
+    msg.has_attachments = false;
+    msg.attachments = vec![];
+    save_message(&conn, account_id, &msg, "INBOX").unwrap();
+
+    let fourth = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(fourth.len(), 0, "all attachment rows must be removed when the fresh list is empty");
+    let _ = id_a;
+    let _ = id_b;
+}
+
+#[test]
+fn test_draft_attachment_persistence_dedup_roundtrip() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "draftatt");
+
+    // Mirror save_draft: ensure local "Entwürfe" folder, insert a draft row,
+    // reconcile metadata, then persist content deduplicated to disk.
+    crate::cache::messages::create_local_folder(&conn, account_id, "Entwürfe").unwrap();
+    let drafts_id: i64 = conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'",
+        rusqlite::params![account_id],
+        |r| r.get(0),
+    ).unwrap();
+    let uid: i64 = 1;
+    conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
+         VALUES (?1, ?2, ?3, 'Draft', '', '', datetime('now'), 'body', NULL, 0)",
+        rusqlite::params![account_id, drafts_id, uid],
+    ).unwrap();
+    let message_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+        rusqlite::params![account_id, uid, drafts_id],
+        |r| r.get(0),
+    ).unwrap();
+
+    // Reconcile metadata like save_draft does.
+    let metas = vec![
+        crate::imap::types::AttachmentMeta { filename: "draft.pdf".into(), content_type: "application/pdf".into(), size: 4 },
+    ];
+    crate::cache::attachments::reconcile_attachments(&conn, message_id, &metas).unwrap();
+
+    // Persist content to a temp dedup store.
+    let dir = tempfile::tempdir().unwrap();
+    let data_root = dir.path();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(b"data");
+    let atts = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(atts.len(), 1);
+    assert_eq!(atts[0].part_index, 0);
+    let rel = crate::cache::attachments::cache_content_dedup(&conn, atts[0].id, &b64, data_root).unwrap();
+
+    // disk_path + sha256 recorded; the file exists on disk with the raw bytes.
+    let after = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    assert_eq!(after[0].sha256.as_deref().map(|s| s.len()), Some(64));
+    assert!(data_root.join(&rel).exists());
+    let raw = std::fs::read(data_root.join(&rel)).unwrap();
+    assert_eq!(raw, b"data");
+}
+
+#[test]
+fn test_gc_removes_only_orphaned_dedup_files() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "gc");
+    crate::cache::messages::create_local_folder(&conn, account_id, "Entwürfe").unwrap();
+    let drafts_id: i64 = conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'",
+        rusqlite::params![account_id],
+        |r| r.get(0),
+    ).unwrap();
+    let uid: i64 = 1;
+    conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
+         VALUES (?1, ?2, ?3, 'GC', '', '', datetime('now'), 'body', NULL, 0)",
+        rusqlite::params![account_id, drafts_id, uid],
+    ).unwrap();
+    let message_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+        rusqlite::params![account_id, uid, drafts_id],
+        |r| r.get(0),
+    ).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let data_root = dir.path();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(b"kept");
+    let metas = vec![crate::imap::types::AttachmentMeta { filename: "kept.pdf".into(), content_type: "application/pdf".into(), size: 4 }];
+    crate::cache::attachments::reconcile_attachments(&conn, message_id, &metas).unwrap();
+    let atts = crate::cache::attachments::get_attachments(&conn, message_id).unwrap();
+    let rel = crate::cache::attachments::cache_content_dedup(&conn, atts[0].id, &b64, data_root).unwrap();
+
+    // Drop a second orphaned file directly into the dedup store (no DB row).
+    let orphan = data_root.join("attachments").join("deadbeef".repeat(8));
+    std::fs::write(&orphan, b"orphan").unwrap();
+
+    let report = crate::cache::attachments::gc_orphaned_attachments(&conn, data_root).unwrap();
+    assert_eq!(report.removed_files, 1);
+    assert_eq!(report.freed_bytes, 6);
+    assert_eq!(report.kept_files, 1);
+    assert!(!orphan.exists());
+    assert!(data_root.join(&rel).exists());
+
+    // Referenced files survive; the row's disk_path still resolves.
+    let report2 = crate::cache::attachments::gc_orphaned_attachments(&conn, data_root).unwrap();
+    assert_eq!(report2.removed_files, 0);
+}
+
+#[test]
+fn test_repair_fixes_flag_and_orphaned_disk_path() {
+    let conn = setup_db();
+    let account_id = create_test_account(&conn, "repair");
+    crate::cache::messages::create_local_folder(&conn, account_id, "Entwürfe").unwrap();
+    let drafts_id: i64 = conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe'",
+        rusqlite::params![account_id],
+        |r| r.get(0),
+    ).unwrap();
+
+    // Message A: flagged with attachments, but has none.
+    let uid_a: i64 = 10;
+    conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced, has_attachments)
+         VALUES (?1, ?2, ?3, 'A', '', '', datetime('now'), 'body', NULL, 0, 1)",
+        rusqlite::params![account_id, drafts_id, uid_a],
+    ).unwrap();
+
+    // Message B: NOT flagged, but has an attachment row with a missing file.
+    let uid_b: i64 = 20;
+    conn.execute(
+        "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced, has_attachments)
+         VALUES (?1, ?2, ?3, 'B', '', '', datetime('now'), 'body', NULL, 0, 0)",
+        rusqlite::params![account_id, drafts_id, uid_b],
+    ).unwrap();
+    let msg_b_id: i64 = conn.query_row(
+        "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
+        rusqlite::params![account_id, uid_b],
+        |r| r.get(0),
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO message_attachments (message_id, part_index, filename, content_type, size, disk_path, sha256, content_cached)
+         VALUES (?1, 0, 'gone.pdf', 'application/pdf', 4, 'attachments/missing', NULL, 1)",
+        rusqlite::params![msg_b_id],
+    ).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+
+    // Check-only first: numbers are reported, nothing mutated.
+    let report = crate::cache::attachments::check_and_repair_attachments(&conn, dir.path(), false).unwrap();
+    assert_eq!(report.flagged_without_rows, 1);
+    assert_eq!(report.unflagged_with_rows, 1);
+    assert_eq!(report.rows_with_missing_file, 1);
+    assert_eq!(report.repaired_rows, 0);
+
+    // Repair mutates: has_attachments fixed, orphaned disk_path cleared.
+    let report = crate::cache::attachments::check_and_repair_attachments(&conn, dir.path(), true).unwrap();
+    assert_eq!(report.repaired_rows, 3); // 1 disk_path + 2 flag corrections
+    let flagged_a: i64 = conn.query_row(
+        "SELECT has_attachments FROM messages WHERE account_id = ?1 AND uid = ?2",
+        rusqlite::params![account_id, uid_a],
+        |r| r.get(0),
+    ).unwrap();
+    let flagged_b: i64 = conn.query_row(
+        "SELECT has_attachments FROM messages WHERE account_id = ?1 AND uid = ?2",
+        rusqlite::params![account_id, uid_b],
+        |r| r.get(0),
+    ).unwrap();
+    assert_eq!(flagged_a, 0);
+    assert_eq!(flagged_b, 1);
+    let disk_path: Option<String> = conn.query_row(
+        "SELECT disk_path FROM message_attachments WHERE message_id = ?1",
+        rusqlite::params![msg_b_id],
+        |r| r.get(0),
+    ).unwrap();
+    assert!(disk_path.is_none());
 }

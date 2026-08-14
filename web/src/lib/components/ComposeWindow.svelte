@@ -29,7 +29,7 @@
     senderName?: string;
     recipientName?: string;
     onclose: () => void;
-    onsend: (data: { to: string; subject: string; body: string; bodyHtml: string; cc?: string; bcc?: string; attachments?: { filename: string; content: string; contentType: string }[]; aiDraft?: string | null }) => Promise<void>;
+    onsend: (data: { to: string; subject: string; body: string; bodyHtml: string; cc?: string; bcc?: string; attachments?: { id?: number; filename: string; content: string; contentType: string }[]; aiDraft?: string | null }) => Promise<void>;
     /** Fired after a draft was persisted, so the parent can keep the edited draft uid. */
     ondraftSaved?: (uid: number) => void;
     // Pre-filled draft data
@@ -37,24 +37,43 @@
     draftSubject?: string;
     draftBody?: string;
     draftUid?: number | null;
+    /** Pre-filled attachments (drafts, forward). Each item carries base64 content. */
+    initialAttachments?: { id?: number; filename: string; content: string; contentType: string; size: number }[];
   }
 
   let {
     mode, mailChain = [], sendError = null, replySubject = "", replyTo = "",
     accountId, recipientEmail, senderName = "", recipientName = "", onclose, onsend,
     ondraftSaved, draftTo = "", draftSubject = "", draftBody = "", draftUid = null,
+    initialAttachments = [],
   }: Props = $props();
 
   let to = $state<string[]>([]);
   let cc = $state("");
   let bcc = $state("");
   interface ComposeAttachment {
+    id?: number;
     filename: string;
     content: string;
     contentType: string;
     size: number;
   }
   let attachments = $state<ComposeAttachment[]>([]);
+
+  // Pre-fill attachments from the prop (draft reopen, forward). Runs once per
+  // open; subsequent changes are driven by the user via add/removeAttachment.
+  $effect(() => {
+    const seed = initialAttachments ?? [];
+    if (seed.length > 0 && attachments.length === 0) {
+      attachments = seed.map((a) => ({
+        id: a.id,
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+        size: a.size,
+      }));
+    }
+  });
   // Cc and Bcc are independently toggled. Stays open if the field has content.
   let showCc = $state(false);
   let showBcc = $state(false);
@@ -115,6 +134,7 @@
         cc.trim() ? cc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         bcc.trim() ? bcc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         draftUid ?? localDraftUid,
+        attachments.length > 0 ? attachments : [],
       );
       localDraftUid = result.uid;
       lastPropDraftUid = result.uid;
@@ -417,6 +437,7 @@
         cc: cc.trim() || undefined,
         bcc: bcc.trim() || undefined,
         attachments: attachments.length > 0 ? attachments.map(a => ({
+          id: a.id,
           filename: a.filename,
           content: a.content,
           contentType: a.contentType,

@@ -124,17 +124,34 @@ pub async fn attachments_backfill(
             continue;
         }
         let ok = with_db(&state, |conn| {
-            for att in &attachments {
-                conn.execute(
-                    "INSERT OR IGNORE INTO message_attachments
-                     (message_id, filename, content_type, size, content, content_cached, cached_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'))",
-                    rusqlite::params![
-                        message_id, att.filename, att.content_type,
-                        att.size as i64, att.content,
-                    ],
-                )
+            // Reconcile metadata (with stable part_index) instead of a raw
+            // INSERT — the UNIQUE(message_id, part_index) constraint requires
+            // a per-part index, and reconcile removes stale rows.
+            let metas: Vec<crate::imap::types::AttachmentMeta> = attachments
+                .iter()
+                .map(|a| crate::imap::types::AttachmentMeta {
+                    filename: a.filename.clone(),
+                    content_type: a.content_type.clone(),
+                    size: a.size,
+                })
+                .collect();
+            crate::cache::attachments::reconcile_attachments(conn, message_id, &metas)
                 .map_err(|e| e.to_string())?;
+            // Persist content deduplicated to disk (base64 from the parsed raw).
+            for att in &attachments {
+                let att_row_id: Option<i64> = conn
+                    .query_row(
+                        "SELECT a.id FROM message_attachments a
+                         JOIN messages m ON m.id = a.message_id
+                         WHERE a.message_id = ?1 AND a.filename = ?2
+                         ORDER BY a.part_index ASC LIMIT 1",
+                        rusqlite::params![message_id, att.filename],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(aid) = att_row_id {
+                    let _ = crate::cache::attachments::cache_content_dedup(conn, aid, &att.content, &state.data_root);
+                }
             }
             Ok::<(), String>(())
         });
@@ -374,6 +391,8 @@ fn import_mbox_content(
                     |r| r.get(0),
                 )
                 .map_err(|e| e.to_string())?;
+            let mut metas = Vec::new();
+            let mut contents: Vec<(String, String, i64)> = Vec::new(); // (filename, base64, size)
             for part in parsed.attachments() {
                 use base64::Engine as _;
                 let filename = part.attachment_name().unwrap_or("anhang").to_string();
@@ -384,16 +403,37 @@ fn import_mbox_content(
                         format!("{}/{}", c.c_type, subtype)
                     })
                     .unwrap_or_else(|| "application/octet-stream".to_string());
-                let contents = part.contents();
-                let size = contents.len() as i64;
-                let content = base64::engine::general_purpose::STANDARD.encode(contents);
-                conn.execute(
-                    "INSERT OR IGNORE INTO message_attachments
-                     (message_id, filename, content_type, size, content, content_cached, cached_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'))",
-                    rusqlite::params![message_row_id, filename, content_type, size, content],
-                )
+                let contents_bytes = part.contents();
+                let size = contents_bytes.len() as i64;
+                metas.push(crate::imap::types::AttachmentMeta {
+                    filename: filename.clone(),
+                    content_type,
+                    size: size as usize,
+                });
+                contents.push((
+                    filename,
+                    base64::engine::general_purpose::STANDARD.encode(contents_bytes),
+                    size,
+                ));
+            }
+            // Reconcile metadata with stable part_index (the UNIQUE constraint
+            // forbids raw inserts without a part index), then persist content
+            // deduplicated to disk.
+            crate::cache::attachments::reconcile_attachments(conn, message_row_id, &metas)
                 .map_err(|e| e.to_string())?;
+            for (filename, b64, _size) in &contents {
+                let aid: Option<i64> = conn
+                    .query_row(
+                        "SELECT id FROM message_attachments
+                         WHERE message_id = ?1 AND filename = ?2
+                         ORDER BY part_index ASC LIMIT 1",
+                        rusqlite::params![message_row_id, filename],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(aid) = aid {
+                    let _ = crate::cache::attachments::cache_content_dedup(conn, aid, b64, &state.data_root);
+                }
             }
             Ok::<(), String>(())
         })?;

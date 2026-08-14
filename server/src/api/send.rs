@@ -49,7 +49,15 @@ pub struct SaveDraftRequest {
     pub subject: String,
     pub body_text: String,
     pub body_html: Option<String>,
+    /// Attachments to persist with the draft. `Some([])` clears all previous
+    /// attachments; `None` leaves them untouched (legacy clients).
+    pub attachments: Option<Vec<EmailAttachment>>,
 }
+
+/// Max total size (base64 length) of attachments in a saved draft.
+/// Chosen to match typical mail-provider limits; larger saves are rejected
+/// with a clear error instead of silently dropping the attachments.
+pub const DRAFT_ATTACHMENT_CAP_BYTES: usize = 25 * 1024 * 1024;
 
 /// Draft discard request.
 #[derive(Deserialize)]
@@ -137,6 +145,59 @@ pub async fn save_draft(
         Ok(uid)
     })?;
 
+    // Persist attachments: reconcile metadata with a stable part_index and
+    // store the content deduplicated under <data>/attachments/<sha256>. The
+    // draft's message row is the sole reference — content lives on disk.
+    if let Some(atts) = &req.attachments {
+        let total_b64: usize = atts.iter().map(|a| a.content.len()).sum();
+        if total_b64 > DRAFT_ATTACHMENT_CAP_BYTES {
+            return Err(ApiError(format!(
+                "Anhänge zu groß für einen Entwurf (max. {} MB).",
+                DRAFT_ATTACHMENT_CAP_BYTES / (1024 * 1024)
+            )));
+        }
+        let message_id: i64 = with_db(&state, |conn| {
+            conn.query_row(
+                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+                rusqlite::params![account_id, uid as i64, drafts_folder_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+        })?;
+
+        let metas: Vec<crate::imap::types::AttachmentMeta> = atts
+            .iter()
+            .map(|a| crate::imap::types::AttachmentMeta {
+                filename: a.filename.clone(),
+                content_type: a.content_type.clone(),
+                size: a.size,
+            })
+            .collect();
+        with_db(&state, |conn| {
+            crate::cache::attachments::reconcile_attachments(conn, message_id, &metas)
+                .map_err(|e| e.to_string())
+        })?;
+        // Persist content deduplicated to disk for each attachment, matched by
+        // its stable part_index.
+        with_db(&state, |conn| {
+            for (idx, att) in atts.iter().enumerate() {
+                let aid: i64 = conn
+                    .query_row(
+                        "SELECT id FROM message_attachments WHERE message_id = ?1 AND part_index = ?2",
+                        rusqlite::params![message_id, idx as i64],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(0);
+                if aid > 0 {
+                    let _ = crate::cache::attachments::cache_content_dedup(
+                        conn, aid, &att.content, &state.data_root,
+                    );
+                }
+            }
+            Ok::<(), String>(())
+        })?;
+    }
+
     Ok(Json(serde_json::json!({ "uid": uid })))
 }
 
@@ -149,7 +210,9 @@ pub async fn discard_draft(
     let uid = req.uid as i64;
     with_db(&state, |conn| {
         conn.execute(
-            "DELETE FROM messages WHERE account_id = ?1 AND uid = ?2",
+            "DELETE FROM messages
+             WHERE account_id = ?1 AND uid = ?2
+               AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Entwürfe')",
             rusqlite::params![account_id, uid],
         )
         .map_err(|e| e.to_string())

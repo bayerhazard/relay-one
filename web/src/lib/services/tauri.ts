@@ -279,6 +279,7 @@ export async function fetchRawMessage(
 
 export interface AttachmentInfo {
    id: number;
+   part_index: number;
    filename: string;
    content_type: string;
    size: number;
@@ -289,8 +290,11 @@ export interface AttachmentInfo {
 export async function fetchAttachments(
    accountId: number,
    uid: number,
+   folder?: string
  ): Promise<AttachmentInfo[]> {
-   return get(`/messages/attachments?account_id=${accountId}&uid=${uid}`,
+   const q = new URLSearchParams({ account_id: String(accountId), uid: String(uid) });
+   if (folder) q.set("folder", folder);
+   return get(`/messages/attachments?${q}`,
      "Die Anhänge konnten nicht geladen werden.");
  }
 
@@ -298,8 +302,11 @@ export async function fetchAttachments(
    accountId: number,
    uid: number,
    attachmentId: number,
+   folder?: string
  ): Promise<string> {
-   const res = await get<{ content?: string }>(`/messages/attachment?account_id=${accountId}&uid=${uid}&att_id=${attachmentId}`,
+   const q = new URLSearchParams({ account_id: String(accountId), uid: String(uid), att_id: String(attachmentId) });
+   if (folder) q.set("folder", folder);
+   const res = await get<{ content?: string }>(`/messages/attachment?${q}`,
      "Der Anhang konnte nicht geladen werden.");
    return res?.content ?? "";
  }
@@ -309,16 +316,58 @@ export async function getAttachmentCacheStats(): Promise<{
    cached_count: number;
    cached_size_mb: number;
  }> {
-   return { total_attachments: 0, cached_count: 0, cached_size_mb: 0 };
+   const res = await get<{ total_attachments?: number; cached_count?: number; cached_size_mb?: number }>(
+     "/attachments/stats",
+     "Die Anhang-Cache-Stats konnten nicht geladen werden."
+   );
+   return {
+     total_attachments: res?.total_attachments ?? 0,
+     cached_count: res?.cached_count ?? 0,
+     cached_size_mb: res?.cached_size_mb ?? 0,
+   };
  }
 
-export async function cleanupAttachmentCache(maxKeepMb: number): Promise<number> {
-   return 0;
+ export async function cleanupAttachmentCache(maxKeepMb: number): Promise<number> {
+   const res = await post<{ cleaned?: number }>("/attachments/cleanup", { max_keep_mb: maxKeepMb },
+     "Der Anhang-Cache konnte nicht bereinigt werden.");
+   return res?.cleaned ?? 0;
  }
 
-export async function clearAttachmentCache(): Promise<number> {
-   return 0;
-}
+ export async function clearAttachmentCache(): Promise<number> {
+   const res = await post<{ cleared?: number }>("/attachments/clear", {},
+     "Der Anhang-Cache konnte nicht geleert werden.");
+   return res?.cleared ?? 0;
+ }
+
+ /** `POST /attachments/gc` — run the dedup-store garbage collection on demand. */
+ export async function gcAttachments(): Promise<{ removed_files: number; freed_bytes: number; kept_files: number }> {
+   const res = await post<{ removed_files?: number; freed_bytes?: number; kept_files?: number }>(
+     "/attachments/gc", {},
+     "Die Attachment-Garbage-Collection konnte nicht ausgeführt werden."
+   );
+   return {
+     removed_files: res?.removed_files ?? 0,
+     freed_bytes: res?.freed_bytes ?? 0,
+     kept_files: res?.kept_files ?? 0,
+   };
+ }
+
+ /** `POST /attachments/repair` — fix has_attachments flags and orphaned disk_paths. */
+ export async function repairAttachments(repair = true): Promise<{
+   flagged_without_rows: number; unflagged_with_rows: number;
+   rows_with_missing_file: number; repaired_rows: number;
+ }> {
+   const res = await post<{ flagged_without_rows?: number; unflagged_with_rows?: number; rows_with_missing_file?: number; repaired_rows?: number }>(
+     "/attachments/repair", { repair },
+     "Die Attachment-Reparatur konnte nicht ausgeführt werden."
+   );
+   return {
+     flagged_without_rows: res?.flagged_without_rows ?? 0,
+     unflagged_with_rows: res?.unflagged_with_rows ?? 0,
+     rows_with_missing_file: res?.rows_with_missing_file ?? 0,
+     repaired_rows: res?.repaired_rows ?? 0,
+   };
+ }
 
 export async function clearAiSummaries(accountId?: number): Promise<number> {
   const res = await post<{ cleared?: number }>("/cache/clear-ai-summaries",
@@ -509,10 +558,17 @@ export async function saveDraft(
   bodyHtml?: string,
   cc?: string[],
   bcc?: string[],
-  uid?: number | null
+  uid?: number | null,
+  attachments?: { filename: string; content: string; contentType: string; size: number }[]
 ): Promise<{ uid: number }> {
   return post("/draft/save", {
     account_id: accountId, uid: uid ?? null, to, cc, bcc, subject, body_text: bodyText, body_html: bodyHtml,
+    attachments: attachments?.map(a => ({
+      filename: a.filename,
+      content: a.content,
+      content_type: a.contentType,
+      size: a.size,
+    })) ?? null,
   }, "Der Entwurf konnte nicht gespeichert werden.");
 }
 

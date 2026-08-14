@@ -311,6 +311,124 @@ describe("ComposeWindow - draft functionality", () => {
   });
 });
 
+describe("ComposeWindow - initial attachments", () => {
+  const draftProps = {
+    mode: "new" as const,
+    mailChain: [] as { text: string; html: string | null }[],
+    onclose: vi.fn(),
+    onsend: vi.fn().mockResolvedValue(undefined),
+  };
+
+  it("renders attachment pills pre-filled from initialAttachments", async () => {
+    render(ComposeWindow, {
+      ...draftProps,
+      initialAttachments: [
+        { filename: "draft.pdf", content: "bXlkYXRh", contentType: "application/pdf", size: 6 },
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/draft\.pdf/)).toBeTruthy();
+    });
+  });
+
+  it("passes current attachments when saving a draft", async () => {
+    const { saveDraft } = await import("$lib/services/tauri");
+    const saveDraftMock = saveDraft as ReturnType<typeof vi.fn>;
+    saveDraftMock.mockClear();
+    saveDraftMock.mockResolvedValue({ uid: 7 });
+
+    render(ComposeWindow, {
+      ...draftProps,
+      accountId: 1,
+      draftTo: "bob@example.com",
+      draftBody: "Inhalt",
+      draftUid: 5,
+      initialAttachments: [
+        { filename: "anhang.pdf", content: "aGFsbG8=", contentType: "application/pdf", size: 5 },
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/anhang\.pdf/)).toBeTruthy();
+    });
+    // draft pre-fill populates userInput, so the close dialog offers "Speichern".
+    await waitFor(() => {
+      const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
+      expect(bodyInput.value).toBe("Inhalt");
+    });
+
+    const closeBtn = screen.getByText("\u2715");
+    await fireEvent.click(closeBtn);
+    const saveBtn = screen.getByText("Speichern");
+    await fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(saveDraftMock).toHaveBeenCalled();
+    });
+    const lastCall = saveDraftMock.mock.calls.at(-1) as unknown[];
+    const attachmentsArg = lastCall[8] as { filename: string; content: string }[];
+    expect(Array.isArray(attachmentsArg)).toBe(true);
+    expect(attachmentsArg.length).toBe(1);
+    expect(attachmentsArg[0].filename).toBe("anhang.pdf");
+    expect(attachmentsArg[0].content).toBe("aGFsbG8=");
+  });
+});
+
+describe("ComposeWindow - forward mode with attachments", () => {
+  const forwardProps = {
+    mode: "forward" as const,
+    mailChain: [{ text: "Original mail body", html: null }],
+    onclose: vi.fn(),
+    onsend: vi.fn().mockResolvedValue(undefined),
+  };
+
+  it("renders original attachment pills in forward mode (lazy, no content)", async () => {
+    render(ComposeWindow, {
+      ...forwardProps,
+      replySubject: "Original Subject",
+      initialAttachments: [
+        { id: 11, filename: "scan.pdf", content: "", contentType: "application/pdf", size: 100 },
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/scan\.pdf/)).toBeTruthy();
+    });
+  });
+
+  it("passes the attachment id through on send (content resolved lazily by parent)", async () => {
+    const onsend = vi.fn().mockResolvedValue(undefined);
+    render(ComposeWindow, {
+      ...forwardProps,
+      onsend,
+      replySubject: "Original Subject",
+      initialAttachments: [
+        { id: 11, filename: "scan.pdf", content: "", contentType: "application/pdf", size: 100 },
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/scan\.pdf/)).toBeTruthy();
+    });
+
+    // Fill required fields so handleSend can run.
+    const toInput = screen.getByPlaceholderText("Name oder E-Mail-Adresse") as HTMLInputElement;
+    await fireEvent.input(toInput, { target: { value: "bob@example.com" } });
+    const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
+    await fireEvent.input(subjectInput, { target: { value: "Fwd: Original Subject" } });
+
+    const sendBtn = screen.getByText("Senden");
+    await fireEvent.click(sendBtn);
+
+    await waitFor(() => {
+      expect(onsend).toHaveBeenCalled();
+    });
+    const data = onsend.mock.calls.at(-1)![0] as { attachments?: { id?: number; filename: string; content: string }[] };
+    expect(data.attachments?.length).toBe(1);
+    expect(data.attachments![0].id).toBe(11);
+    // content is empty: the parent resolves it lazily at send time.
+    expect(data.attachments![0].content).toBe("");
+    expect(data.attachments![0].filename).toBe("scan.pdf");
+  });
+});
+
 describe("ComposeWindow - mic divider", () => {
   const dividerProps = {
     mode: "new" as const,

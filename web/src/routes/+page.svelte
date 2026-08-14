@@ -201,6 +201,10 @@ let sentFolderName = $state<string | null>(null);
   let draftTo = $state("");
   let draftSubject = $state("");
   let draftBody = $state("");
+  let draftInitialAttachments = $state<{ filename: string; content: string; contentType: string; size: number }[]>([]);
+  // Forward source message (lazy attachment content resolution at send time).
+  let forwardSourceUid = $state<number | null>(null);
+  let forwardSourceFolder = $state("");
 
   let showSplash = $state(false);
 
@@ -1417,6 +1421,12 @@ let sentFolderName = $state<string | null>(null);
         draftTo = full.to || "";
         draftSubject = full.subject || "";
         draftBody = full.body_text || full.body_preview || "";
+        draftInitialAttachments = (full.attachments ?? []).map((a: any) => ({
+          filename: a.filename,
+          content: a.content ?? "",
+          contentType: a.content_type,
+          size: a.size ?? 0,
+        }));
         composeMode = "new";
         sendError = null;
         replyTo = "";
@@ -1472,6 +1482,7 @@ let sentFolderName = $state<string | null>(null);
     draftTo = "";
     draftSubject = "";
     draftBody = "";
+    draftInitialAttachments = [];
     showCompose = true;
   }
 
@@ -1524,6 +1535,9 @@ let sentFolderName = $state<string | null>(null);
     draftTo = "";
     draftSubject = "";
     draftBody = "";
+    draftInitialAttachments = [];
+    forwardSourceUid = msg.uid;
+    forwardSourceFolder = selectedFolder;
     showCompose = true;
 
     // Fetch the full body if not already loaded (same as reply).
@@ -1546,6 +1560,25 @@ let sentFolderName = $state<string | null>(null);
     } else {
       mailChain = [];
     }
+
+    // Pre-fill attachment PILLS with metadata only (lazy content): the file
+    // contents are fetched per attachment on demand when the mail is sent
+    // (handleSend resolves missing content via loadAttachmentContent). This
+    // keeps the forward lightweight even for large attachments.
+    if (msg.has_attachments) {
+      try {
+        const atts = await fetchAttachments(selectedAccountId, msg.uid, selectedFolder);
+        draftInitialAttachments = atts.map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          content: "",
+          contentType: a.content_type,
+          size: a.size,
+        }));
+      } catch (e) {
+        console.warn("handleForward: attachment metadata fetch failed", e);
+      }
+    }
   }
 
   function handleForwardMessage(uid: number) {
@@ -1560,6 +1593,9 @@ let sentFolderName = $state<string | null>(null);
     draftTo = "";
     draftSubject = "";
     draftBody = "";
+    draftInitialAttachments = [];
+    forwardSourceUid = null;
+    forwardSourceFolder = "";
   }
 
   function isInputFocused(): boolean {
@@ -1713,11 +1749,27 @@ let sentFolderName = $state<string | null>(null);
 
   let isSending = $state(false);
 
-  async function handleSend(data: { to: string; subject: string; body: string; bodyHtml: string; cc?: string; bcc?: string; attachments?: { filename: string; content: string; contentType: string }[]; aiDraft?: string | null }) {
+  async function handleSend(data: { to: string; subject: string; body: string; bodyHtml: string; cc?: string; bcc?: string; attachments?: { id?: number; filename: string; content: string; contentType: string }[]; aiDraft?: string | null }) {
     if (isSending) return;
     isSending = true;
     sendError = null;
     try {
+      // Resolve lazy forward-attachment content (metadata-only pills) before
+      // building the SMTP payload. Per-attachment, folder-scoped.
+      let resolvedAttachments = data.attachments;
+      if (data.attachments && data.attachments.some((a) => a.id != null && !a.content)) {
+        resolvedAttachments = [];
+        for (const a of data.attachments) {
+          if (a.id != null && !a.content) {
+            const content = await loadAttachmentContent(
+              selectedAccountId, forwardSourceUid ?? selectedMessage!.uid, a.id, forwardSourceFolder || selectedFolder
+            ).catch(() => "");
+            resolvedAttachments.push({ ...a, content });
+          } else {
+            resolvedAttachments.push(a);
+          }
+        }
+      }
       const recipientEmail = extractEmail(data.to) || data.to.split(",")[0]?.trim() || "";
       const result = await sendMessage(
         selectedAccountId,
@@ -1730,7 +1782,7 @@ let sentFolderName = $state<string | null>(null);
         recipientEmail,
         data.cc ? data.cc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
         data.bcc ? data.bcc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-        data.attachments,
+        resolvedAttachments,
         data.aiDraft || undefined,
       );
 
@@ -1779,7 +1831,7 @@ let sentFolderName = $state<string | null>(null);
     if (uid == null || showCompose) return;
     let cancelled = false;
     attachmentsLoading = true;
-    fetchAttachments(acct, uid)
+    fetchAttachments(acct, uid, selectedFolder)
         .then((cached) => {
         if (cancelled) return;
         attachments = cached;
@@ -1810,7 +1862,7 @@ let sentFolderName = $state<string | null>(null);
   async function ensureAttachmentContent(att: AttachmentInfo): Promise<string | null> {
     if (att.content) return att.content;
     try {
-      const content = await loadAttachmentContent(selectedAccountId!, selectedMessage!.uid, att.id);
+      const content = await loadAttachmentContent(selectedAccountId!, selectedMessage!.uid, att.id, selectedFolder);
       if (content) {
         attachments = attachments.map(a =>
           a.id === att.id ? { ...a, content, content_cached: true } : a
@@ -2001,6 +2053,7 @@ let sentFolderName = $state<string | null>(null);
       draftSubject={draftUid ? draftSubject : undefined}
       draftBody={draftUid ? draftBody : undefined}
       draftUid={draftUid}
+      initialAttachments={draftInitialAttachments}
     />
   {:else if selectedMessage}
     <div class="preview-layout">

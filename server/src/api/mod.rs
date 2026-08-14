@@ -5,6 +5,7 @@
 
 pub mod accounts;
 pub mod ai;
+pub mod attachments;
 pub mod backup;
 pub mod delete_queue;
 pub mod export;
@@ -90,6 +91,12 @@ pub fn router() -> Router<AppState> {
         .route("/import/mbox", post(import::import_mbox))
         .route("/import/mbox-dir", post(import::import_mbox_dir))
         .route("/import/attachments-backfill", post(import::attachments_backfill))
+        // Attachment maintenance (GC / repair / cache stats)
+        .route("/attachments/gc", post(attachments::gc_attachments))
+        .route("/attachments/repair", post(attachments::repair_attachments))
+        .route("/attachments/stats", get(attachments::attachment_stats))
+        .route("/attachments/cleanup", post(attachments::cleanup_attachments))
+        .route("/attachments/clear", post(attachments::clear_attachments))
         .route("/cache/clear-ai-summaries", post(settings::clear_ai_summaries))
         // Backup snapshot
         .route("/archive/backup", post(backup::create_backup))

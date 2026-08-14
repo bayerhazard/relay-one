@@ -17,6 +17,8 @@ export interface Message {
   is_read: boolean;
   is_flagged: boolean;
   has_attachments?: boolean;
+  /** Attachments metadata, present on draft/body responses. */
+  attachments?: { id: number; part_index: number; filename: string; content_type: string; size: number; content?: string }[];
 }
 
 // ─── Persistent folder cache ─────────────────────────────────

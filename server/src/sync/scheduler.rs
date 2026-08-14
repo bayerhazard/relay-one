@@ -34,6 +34,7 @@ const IDLE_TIMEOUT_SECS: u64 = 20;
 /// How often to refresh IMAP flags (\Seen) for existing cached messages to
 /// detect read/unread changes made from other clients (phone, webmail, …).
 const FLAG_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
+const ATTACHMENT_GC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60); // daily
 
 /// Provider trash folders (by name, per provider locale) that are mapped onto
 /// the single local "Trash" folder. Prevents duplicate Papierkorb/Trash/
@@ -74,6 +75,8 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
     let mut last_removal_check: Option<Instant> = None;
     // Track last IMAP flag refresh (runs on FLAG_REFRESH_INTERVAL).
     let mut last_flag_refresh: Option<Instant> = None;
+    // Track last dedup-store GC (runs on ATTACHMENT_GC_INTERVAL, daily).
+    let mut last_attachment_gc: Option<Instant> = None;
     // Smart sync: exponential backoff when no new mail arrives (20s → 40s → 80s → 160s → 300s).
     // Resets to base_interval as soon as any new message is found.
     let mut consecutive_empty: u32 = 0;
@@ -127,6 +130,15 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
                 if flag_due {
                     last_flag_refresh = Some(Instant::now());
                     run_flag_refresh(&state).await;
+                }
+                // Daily dedup-store GC: removes files in <data>/attachments/
+                // no longer referenced by any attachment row.
+                let gc_due = last_attachment_gc
+                    .map(|t| Instant::now().duration_since(t) >= ATTACHMENT_GC_INTERVAL)
+                    .unwrap_or(false);
+                if gc_due {
+                    last_attachment_gc = Some(Instant::now());
+                    run_attachment_gc(&state);
                 }
                 // Delete-queue worker: verify → hard/soft provider delete.
                 run_delete_queue(&state).await;
@@ -207,10 +219,28 @@ fn run_retention(state: &AppState) {
     }
 }
 
+/// Daily dedup-store GC: removes files in `<data>/attachments/` that are no
+/// longer referenced by any `message_attachments.disk_path`. Content-addressed
+/// files are safe to delete — a later fetch re-materializes them.
+fn run_attachment_gc(state: &AppState) {
+    let db_guard = state.cache_db.lock();
+    let Some(conn) = db_guard.as_ref() else { return; };
+    match crate::cache::attachments::gc_orphaned_attachments(conn, &state.data_root) {
+        Ok(report) => {
+            if report.removed_files > 0 {
+                tracing::info!(
+                    "Attachment-GC (täglich): {} Dateien entfernt ({} bytes), {} behalten",
+                    report.removed_files, report.freed_bytes, report.kept_files
+                );
+            }
+        }
+        Err(e) => tracing::warn!("Attachment-GC fehlgeschlagen: {}", e),
+    }
+}
+
 /// Refresh IMAP \Seen flags for all cached messages to detect read/unread
 /// changes made from other clients (phone, webmail, …).
-async fn run_flag_refresh(state: &AppState) {
-    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
+async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crate::imap::client::ImapClient>)> = {
         let guard = state.imap_clients.read();
         guard.iter().map(|(k, v)| (*k, v.clone())).collect()
     };
@@ -1061,8 +1091,17 @@ async fn process_sync_task(
                                 let raw_sha256 = Some(crate::cache::archive::sha256_hex(&raw));
                                 let db_guard = state.cache_db.lock();
                                 if let Some(conn) = db_guard.as_ref() {
+                                    // Scope by folder_id: uid is only unique per
+                                    // folder — an unscoped update could write the
+                                    // body/raw into a row sharing the uid in a
+                                    // different folder (local-only folders reuse uids).
+                                    let folder_id: Option<i64> = conn.query_row(
+                                        "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                                        rusqlite::params![task.account_id as i64, folder_name],
+                                        |r| r.get(0),
+                                    ).ok();
                                     let _ = crate::cache::messages::update_body_with_raw(
-                                        conn, task.account_id as i64, msg.uid as i64,
+                                        conn, task.account_id as i64, msg.uid as i64, folder_id,
                                         &body_text, body_html.as_deref(),
                                         raw_path.as_deref().and_then(|p| p.to_str()),
                                         raw_sha256.as_deref(),

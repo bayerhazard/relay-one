@@ -131,6 +131,10 @@ pub struct AttachmentContentQuery {
     pub account_id: u32,
     pub uid: u32,
     pub att_id: u32,
+    /// Optional folder name to disambiguate uid collisions — mirror of
+    /// `MessageUidQuery.folder`. Without it, an attachment lookup could
+    /// resolve to a message that shares the uid in another folder.
+    pub folder: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -320,6 +324,27 @@ pub async fn fetch_message_body(
 
     if let Some((ref msg, _)) = cached_with_folder {
         if msg.body_text.is_some() {
+            // Attachments (metadata + inline base64 content where materialized).
+            // Draft attachments live in the dedup store (no IMAP needed), so
+            // they can be handed straight to the compose editor.
+            let attachments: Vec<serde_json::Value> = with_db(&state, |conn| {
+                let list = crate::cache::attachments::get_attachments(conn, msg.id)
+                    .map_err(|e| e.to_string())?;
+                let mut out = Vec::new();
+                for a in list {
+                    let content = attachment_inline_content(conn, &state, &a);
+                    out.push(serde_json::json!({
+                        "id": a.id,
+                        "part_index": a.part_index,
+                        "filename": a.filename,
+                        "content_type": a.content_type,
+                        "size": a.size,
+                        "content": content,
+                        "content_cached": a.content_cached,
+                    }));
+                }
+                Ok::<Vec<serde_json::Value>, String>(out)
+            })?;
             return Ok(Json(serde_json::json!({
                 "id": msg.id,
                 "uid": msg.uid,
@@ -334,6 +359,7 @@ pub async fn fetch_message_body(
                 "ai_priority": msg.ai_priority,
                 "ai_fraud_score": msg.ai_fraud_score,
                 "is_read": msg.is_read,
+                "attachments": attachments,
             })));
         }
     }
@@ -703,17 +729,66 @@ pub async fn fetch_attachments(
     let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
     let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
 
-    let message_id: i64 = conn
-        .query_row(
-            "SELECT id FROM messages WHERE account_id = ? AND uid = ?",
-            rusqlite::params![q.account_id as i64, uid as i64],
-            |r| r.get(0),
-        )
-        .map_err(|e| ApiError(e.to_string()))?;
+    // Scoped by folder (uid is only unique per folder). Falls back to the
+    // unscoped lookup when no folder is given, so legacy callers keep working.
+    let message_id: i64 = resolve_message_id(conn, q.account_id, uid as i64, q.folder.as_deref())
+        .ok_or_else(|| ApiError("Nachricht nicht gefunden".into()))?;
 
     crate::cache::attachments::get_attachments(conn, message_id)
         .map(Json)
         .map_err(|e| ApiError(e.to_string()))
+}
+
+/// Resolve the DB id of a message, optionally scoped to `folder`. When no
+/// folder is given, prefer "Entwürfe" first (matching `fetch_message_body`),
+/// then the lowest id — this keeps legacy unscoped callers deterministic.
+fn resolve_message_id(conn: &rusqlite::Connection, account_id: u32, uid: i64, folder: Option<&str>) -> Option<i64> {
+    match folder {
+        Some(f) => conn.query_row(
+            "SELECT m.id FROM messages m
+             JOIN folders f ON m.folder_id = f.id
+             WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3
+             LIMIT 1",
+            rusqlite::params![account_id as i64, uid, f],
+            |row| row.get(0),
+        ).ok(),
+        None => conn.query_row(
+            "SELECT m.id FROM messages m
+             JOIN folders f ON m.folder_id = f.id
+             WHERE m.account_id = ?1 AND m.uid = ?2
+             ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+             LIMIT 1",
+            rusqlite::params![account_id as i64, uid],
+            |row| row.get(0),
+        ).ok(),
+    }
+}
+
+/// Inline base64 content for an attachment, preferring the dedup disk store,
+/// then the legacy SQLite `content` column. Returns `None` when the content is
+/// not materialized locally (the caller falls back to the on-demand endpoint).
+fn attachment_inline_content(
+    conn: &rusqlite::Connection,
+    state: &crate::AppState,
+    a: &crate::cache::attachments::CachedAttachment,
+) -> Option<String> {
+    if let Some(content) = a.content.as_ref().filter(|c| !c.is_empty()) {
+        return Some(content.clone());
+    }
+    let rel: Option<String> = conn
+        .query_row(
+            "SELECT disk_path FROM message_attachments WHERE id = ?1",
+            rusqlite::params![a.id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    rel.and_then(|r| {
+        let abs = state.data_root.join(&r);
+        std::fs::read(&abs)
+            .ok()
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
+    })
 }
 
 /// `GET /api/v1/messages/{uid}/attachments/{att_id}/content?account_id=…`
@@ -731,13 +806,8 @@ pub async fn fetch_attachment_content(
     let filename = {
         let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
         let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
-        let message_id: i64 = conn
-            .query_row(
-                "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![q.account_id as i64, uid as i64],
-                |r| r.get(0),
-            )
-            .map_err(|e| ApiError(format!("Nachricht nicht gefunden: {e}")))?;
+        let message_id: i64 = resolve_message_id(conn, q.account_id, uid as i64, q.folder.as_deref())
+            .ok_or_else(|| ApiError("Nachricht nicht gefunden".into()))?;
         conn.query_row(
             "SELECT filename FROM message_attachments WHERE id = ?1 AND message_id = ?2",
             rusqlite::params![att_id as i64, message_id],
@@ -775,8 +845,13 @@ pub async fn fetch_attachment_content(
         let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
         let raw_rel: Option<String> = conn
             .query_row(
-                "SELECT raw_path FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![q.account_id as i64, uid as i64],
+                "SELECT raw_path FROM messages m
+                 JOIN folders f ON m.folder_id = f.id
+                 WHERE m.account_id = ?1 AND m.uid = ?2
+                   AND (?3 IS NULL OR f.name = ?3)
+                 ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+                 LIMIT 1",
+                rusqlite::params![q.account_id as i64, uid as i64, q.folder],
                 |r| r.get(0),
             )
             .ok();
@@ -789,30 +864,22 @@ pub async fn fetch_attachment_content(
         let attachments = client::parse_message_attachments(raw.as_bytes());
         // Match by filename; if the DB row carries no metadata (filename is
         // empty — happens when BODYSTRUCTURE provided no names), fall back to
-        // matching by position: the attachments are stored in parse order, so
-        // the k-th DB row corresponds to the k-th parsed attachment.
+        // the stable part_index (BODYSTRUCTURE/parse order) instead of the
+        // historical COUNT-by-id trick.
         let found = if !filename.is_empty() {
             attachments.iter().find(|a| a.filename == filename)
         } else {
-            // Determine our ordinal position among the message's attachments.
             let ordinal: Option<usize> = {
                 let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
                 let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
+                let message_id = resolve_message_id(conn, q.account_id, uid as i64, q.folder.as_deref()).unwrap_or(0);
                 conn.query_row(
-                    "SELECT COUNT(*) FROM message_attachments WHERE message_id = ?1 AND id <= ?2",
-                    rusqlite::params![
-                        conn.query_row(
-                            "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2",
-                            rusqlite::params![q.account_id as i64, uid as i64],
-                            |r| r.get::<_, i64>(0),
-                        )
-                        .unwrap_or(0),
-                        att_id as i64,
-                    ],
+                    "SELECT part_index FROM message_attachments WHERE message_id = ?1 AND id = ?2",
+                    rusqlite::params![message_id, att_id as i64],
                     |r| r.get::<_, i64>(0),
                 )
                 .ok()
-                .map(|c| c.saturating_sub(1) as usize)
+                .map(|pi| pi.max(0) as usize)
             };
             ordinal.and_then(|idx| attachments.get(idx))
         };

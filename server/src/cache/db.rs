@@ -172,12 +172,16 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         CREATE TABLE IF NOT EXISTS message_attachments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            part_index INTEGER NOT NULL DEFAULT 0,
             filename TEXT NOT NULL,
             content_type TEXT NOT NULL,
             size INTEGER NOT NULL DEFAULT 0,
             content TEXT,
             content_cached INTEGER NOT NULL DEFAULT 0,
-            cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+            cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+            disk_path TEXT,
+            sha256 TEXT,
+            UNIQUE(message_id, part_index)
         );
         CREATE INDEX IF NOT EXISTS idx_ma_message ON message_attachments(message_id);
 
@@ -236,6 +240,24 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
     // Migration: attachment dedup storage path (relative to data root).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN disk_path TEXT", []);
+    // Migration (Phase 2): stable per-message part index + content sha256.
+    // `part_index` gives attachments a stable identity across re-syncs (the old
+    // DELETE + re-INSERT approach changed ids on every sync and left stale rows).
+    let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN part_index INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN sha256 TEXT", []);
+    // Backfill part_index for pre-existing rows: ordinal position per message,
+    // ordered by id (id ascending == the historical insertion/BODYSTRUCTURE order).
+    let _ = conn.execute(
+        "UPDATE message_attachments SET part_index = (
+            SELECT COUNT(*) FROM message_attachments a2
+            WHERE a2.message_id = message_attachments.message_id AND a2.id <= message_attachments.id
+        ) - 1",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ma_message_part ON message_attachments(message_id, part_index)",
+        [],
+    );
     // Migration: local-only folders (no IMAP counterpart).
     let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
     // Migration: per-account sync mode (mirror/archive) + trash retention.

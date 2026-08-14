@@ -125,27 +125,20 @@ ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
         ],
     )?;
     
-    // Save attachment metadata
-    if !msg.attachments.is_empty() {
-        // Get the message ID
+    // Save attachment metadata. Reconcile on (message_id, part_index) instead
+    // of the historical DELETE + re-INSERT: ids stay stable across re-syncs and
+    // stale rows are removed even when the fresh BODYSTRUCTURE list is empty.
+    {
+        // Get the message ID — scoped by folder: uid is only unique per
+        // folder (IMAP vs local-only rows like "Entwürfe"/"Mama und Papa"
+        // can share a uid). An unscoped lookup would attach metadata to the
+        // wrong message when uids collide across folders.
         let message_id: i64 = conn.query_row(
-            "SELECT id FROM messages WHERE account_id = ? AND uid = ?",
-            params![account_id, msg.uid],
+            "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+            params![account_id, msg.uid, folder_id],
             |row| row.get(0),
         )?;
-        
-        // Clear old metadata and save new
-        conn.execute(
-            "DELETE FROM message_attachments WHERE message_id = ?",
-            params![message_id],
-        )?;
-        
-        for att in &msg.attachments {
-            conn.execute(
-                "INSERT INTO message_attachments (message_id, filename, content_type, size) VALUES (?, ?, ?, ?)",
-                params![message_id, att.filename, att.content_type, att.size],
-            )?;
-        }
+        crate::cache::attachments::reconcile_attachments(conn, message_id, &msg.attachments)?;
     }
     
     Ok(())
@@ -638,17 +631,26 @@ pub fn update_body_with_raw(
     conn: &Connection,
     account_id: i64,
     uid: i64,
+    folder_id: Option<i64>,
     body_text: &str,
     body_html: Option<&str>,
     raw_path: Option<&str>,
     raw_sha256: Option<&str>,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE messages SET body_text = ?1, body_html = ?2, raw_path = COALESCE(?3, raw_path),
-                raw_sha256 = COALESCE(?4, raw_sha256), updated_at = datetime('now')
-         WHERE account_id = ?5 AND uid = ?6",
-        params![body_text, body_html, raw_path, raw_sha256, account_id, uid],
-    )?;
+    match folder_id {
+        Some(fid) => conn.execute(
+            "UPDATE messages SET body_text = ?1, body_html = ?2, raw_path = COALESCE(?3, raw_path),
+                    raw_sha256 = COALESCE(?4, raw_sha256), updated_at = datetime('now')
+             WHERE account_id = ?5 AND uid = ?6 AND folder_id = ?7",
+            params![body_text, body_html, raw_path, raw_sha256, account_id, uid, fid],
+        )?,
+        None => conn.execute(
+            "UPDATE messages SET body_text = ?1, body_html = ?2, raw_path = COALESCE(?3, raw_path),
+                    raw_sha256 = COALESCE(?4, raw_sha256), updated_at = datetime('now')
+             WHERE account_id = ?5 AND uid = ?6",
+            params![body_text, body_html, raw_path, raw_sha256, account_id, uid],
+        )?,
+    };
     Ok(())
 }
 
