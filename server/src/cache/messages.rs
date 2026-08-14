@@ -358,6 +358,59 @@ pub fn mark_as_read(conn: &Connection, account_id: i64, uid: i64) -> Result<(), 
     Ok(())
 }
 
+/// Mark a message read, scoped to an optional folder_id. UID is only unique per
+/// folder (local-only folders reuse uids), so an unscoped UPDATE could hit a row
+/// in the wrong folder when the same uid exists in multiple folders.
+pub fn mark_as_read_in_folder(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_id: Option<i64>,
+) -> Result<(), rusqlite::Error> {
+    match folder_id {
+        Some(fid) => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_read = 1, updated_at = datetime('now')
+                 WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+                params![account_id, uid, fid],
+            )?;
+        }
+        None => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_read = 1, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
+                params![account_id, uid],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Mark a message unseen, scoped to an optional folder_id (see
+/// `mark_as_read_in_folder` for the UID-collision rationale).
+pub fn mark_as_unseen_in_folder(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_id: Option<i64>,
+) -> Result<(), rusqlite::Error> {
+    match folder_id {
+        Some(fid) => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_read = 0, updated_at = datetime('now')
+                 WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+                params![account_id, uid, fid],
+            )?;
+        }
+        None => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_read = 0, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
+                params![account_id, uid],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// Update the is_read flag for a message (used by flag refresh from IMAP server).
 pub fn update_is_read(conn: &Connection, account_id: i64, uid: i64, is_read: bool) -> Result<(), rusqlite::Error> {
     conn.execute(
@@ -1083,4 +1136,123 @@ pub fn prune_old_messages(
 pub fn vacuum(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch("VACUUM")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::db;
+
+    fn setup_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        db::init_db(&conn).unwrap();
+        conn
+    }
+
+    fn create_test_account(conn: &Connection) -> i64 {
+        crate::cache::accounts::create_account(
+            conn,
+            "Test",
+            "imap.test.com", 993, true, "smtp.test.com", 587, true,
+            "user@test.com", "pass", "smtp_user@test.com", "smtp_pass",
+            "Sender", "sender@test.com", false,
+        )
+        .unwrap()
+    }
+
+    fn insert_folder(conn: &Connection, account_id: i64, name: &str, local_only: bool) -> i64 {
+        conn.execute(
+            "INSERT INTO folders (account_id, name, imap_id, local_only) VALUES (?1, ?2, NULL, ?3)",
+            params![account_id, name, local_only as i32],
+        )
+        .unwrap();
+        conn.query_row("SELECT id FROM folders WHERE account_id = ?1 AND name = ?2", params![account_id, name], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn insert_message(conn: &Connection, account_id: i64, folder_id: i64, uid: i64) -> i64 {
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, ?3, 'Test', 'Body', 1)",
+            params![account_id, folder_id, uid],
+        )
+        .unwrap();
+        conn.query_row(
+            "SELECT id FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND uid = ?3",
+            params![account_id, folder_id, uid],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_mark_as_read_in_folder_only_hits_that_folder() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let imap = insert_folder(&conn, account, "INBOX", false);
+        let local = insert_folder(&conn, account, "Mama und Papa", true);
+        // Same uid in both folders (the local-only collision scenario).
+        let imap_msg = insert_message(&conn, account, imap, 42);
+        let local_msg = insert_message(&conn, account, local, 42);
+
+        mark_as_read_in_folder(&conn, account, 42, Some(imap)).unwrap();
+
+        let read: i64 = conn
+            .query_row("SELECT is_read FROM messages WHERE id = ?1", params![imap_msg], |r| r.get(0))
+            .unwrap();
+        assert_eq!(read, 1);
+        let local_read: i64 = conn
+            .query_row("SELECT is_read FROM messages WHERE id = ?1", params![local_msg], |r| r.get(0))
+            .unwrap();
+        assert_eq!(local_read, 0, "local-only row with same uid must NOT be touched");
+    }
+
+    #[test]
+    fn test_mark_as_read_in_folder_without_folder_falls_back_to_unscoped() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let folder = insert_folder(&conn, account, "INBOX", false);
+        let msg = insert_message(&conn, account, folder, 7);
+
+        mark_as_read_in_folder(&conn, account, 7, None).unwrap();
+
+        let read: i64 = conn
+            .query_row("SELECT is_read FROM messages WHERE id = ?1", params![msg], |r| r.get(0))
+            .unwrap();
+        assert_eq!(read, 1);
+    }
+
+    #[test]
+    fn test_is_local_only_folder() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        insert_folder(&conn, account, "INBOX", false);
+        insert_folder(&conn, account, "Auto", true);
+        assert!(!is_local_only_folder(&conn, account, "INBOX").unwrap());
+        assert!(is_local_only_folder(&conn, account, "Auto").unwrap());
+        // Unknown folder is not local-only.
+        assert!(!is_local_only_folder(&conn, account, "GibtEsNicht").unwrap());
+    }
+
+    #[test]
+    fn test_mark_as_unseen_in_folder_only_hits_that_folder() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let imap = insert_folder(&conn, account, "INBOX", false);
+        let local = insert_folder(&conn, account, "Entwürfe", true);
+        let imap_msg = insert_message(&conn, account, imap, 99);
+        let local_msg = insert_message(&conn, account, local, 99);
+
+        // Mark both read first, then unsee only the IMAP row.
+        mark_as_read_in_folder(&conn, account, 99, None).unwrap();
+        mark_as_unseen_in_folder(&conn, account, 99, Some(imap)).unwrap();
+
+        let imap_read: i64 = conn
+            .query_row("SELECT is_read FROM messages WHERE id = ?1", params![imap_msg], |r| r.get(0))
+            .unwrap();
+        assert_eq!(imap_read, 0);
+        let local_read: i64 = conn
+            .query_row("SELECT is_read FROM messages WHERE id = ?1", params![local_msg], |r| r.get(0))
+            .unwrap();
+        assert_eq!(local_read, 1, "local-only row with same uid must stay read");
+    }
 }

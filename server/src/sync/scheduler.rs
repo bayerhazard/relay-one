@@ -1248,7 +1248,8 @@ async fn process_sync_task(
                     .prepare(
                         "SELECT m.uid, f.name FROM messages m
                          JOIN folders f ON f.id = m.folder_id
-                         WHERE m.account_id = ?1 AND (m.raw_path IS NULL OR m.raw_path = '')
+                         WHERE m.account_id = ?1 AND f.local_only = 0
+                           AND (m.raw_path IS NULL OR m.raw_path = '')
                          ORDER BY m.date DESC LIMIT 20",
                     )
                     .map_err(|e| e.to_string())?;

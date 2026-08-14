@@ -364,7 +364,26 @@ pub async fn fetch_message_body(
         }
     }
 
-    // IMAP fallback
+    // IMAP fallback. Local-only folders (e.g. "Mama und Papa") don't exist on
+    // the IMAP server — a SELECT would fail and the user sees an incomplete
+    // preview. Skip the IMAP fallback entirely and return what we have cached.
+    let folder_name = cached_with_folder.as_ref().map(|(_, f)| f.clone());
+    let is_local_only = folder_name
+        .as_deref()
+        .map(|f| {
+            with_db(&state, |conn| {
+                Ok::<bool, String>(cache::messages::is_local_only_folder(conn, q.account_id as i64, f).unwrap_or(false))
+            })
+            .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    if is_local_only {
+        if let Some((msg, _)) = cached_with_folder {
+            return Ok(Json(message_to_json(&msg)));
+        }
+        return Err(ApiError("Nachricht nicht gefunden".into()));
+    }
+
     let client = state
         .imap_clients
         .read()
@@ -374,8 +393,6 @@ pub async fn fetch_message_body(
     if !client.is_connected().await {
         client.connect().await.map_err(|e| ApiError(e.to_string()))?;
     }
-
-    let folder_name = cached_with_folder.as_ref().map(|(_, f)| f.clone());
 
     match client.fetch_body_from_folder(uid, folder_name).await {
         Ok((body_text, body_html)) => {
@@ -931,17 +948,21 @@ pub async fn mark_as_read(
     Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
     let uid = req.uid;
+    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid);
     with_db(&state, |conn| {
-        cache::messages::mark_as_read(conn, req.account_id as i64, uid as i64)
+        cache::messages::mark_as_read_in_folder(conn, req.account_id as i64, uid as i64, folder_id)
             .map_err(|e| e.to_string())
     })?;
-    let client = {
-        let guard = state.imap_clients.read();
-        guard.get(&req.account_id).cloned()
-    };
-    if let Some(client) = client {
-        let folder = folder_for_message(&state, req.account_id, uid);
-        client.mark_flag(uid, "\\Seen", true, folder).await.map_err(|e| ApiError(e.to_string()))?;
+    // Local-only folders (e.g. "Mama und Papa") don't exist on the IMAP server:
+    // skip the remote flag entirely — the DB update above is authoritative.
+    if !local_only {
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&req.account_id).cloned()
+        };
+        if let Some(client) = client {
+            client.mark_flag(uid, "\\Seen", true, folder_name).await.map_err(|e| ApiError(e.to_string()))?;
+        }
     }
     Ok(Json(()))
 }
@@ -952,23 +973,19 @@ pub async fn mark_as_unseen(
     Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
     let uid = req.uid;
-    {
-        let db_guard = get_db(&state).map_err(ApiError)?;
-        if let Some(conn) = db_guard.as_ref() {
-            conn.execute(
-                "UPDATE messages SET is_read = 0, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![req.account_id as i64, uid as i64],
-            )
-            .map_err(|e| ApiError(e.to_string()))?;
+    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid);
+    with_db(&state, |conn| {
+        cache::messages::mark_as_unseen_in_folder(conn, req.account_id as i64, uid as i64, folder_id)
+            .map_err(|e| e.to_string())
+    })?;
+    if !local_only {
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&req.account_id).cloned()
+        };
+        if let Some(client) = client {
+            client.mark_flag(uid, "\\Seen", false, folder_name).await.map_err(|e| ApiError(e.to_string()))?;
         }
-    }
-    let client = {
-        let guard = state.imap_clients.read();
-        guard.get(&req.account_id).cloned()
-    };
-    if let Some(client) = client {
-        let folder = folder_for_message(&state, req.account_id, uid);
-        client.mark_flag(uid, "\\Seen", false, folder).await.map_err(|e| ApiError(e.to_string()))?;
     }
     Ok(Json(()))
 }
@@ -1007,23 +1024,34 @@ async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: boo
         return;
     };
     if client.is_connected().await {
-        let folder = folder_for_message(state, account_id, uid);
+        let (_folder_id, _folder_name, local_only) = message_folder_info(state, account_id, uid);
+        if local_only {
+            return;
+        }
         let _ = client.toggle_flagged(uid, flagged).await;
-        let _ = folder;
     }
 }
 
-/// Look up the folder a message currently lives in (for IMAP SELECT before
-/// UID STORE operations).
-fn folder_for_message(state: &AppState, account_id: u32, uid: u32) -> Option<String> {
+/// Resolve folder identity for a message. UID is only unique per folder, so
+/// the lookup is folder-agnostic but ordered like `fetch_message_body_with_folder`
+/// (drafts first, then lowest id). Returns (folder_id, folder_name, local_only).
+fn message_folder_info(state: &AppState, account_id: u32, uid: u32) -> (Option<i64>, Option<String>, bool) {
     let db_guard = state.cache_db.lock();
-    let conn = db_guard.as_ref()?;
+    let Some(conn) = db_guard.as_ref() else {
+        return (None, None, false);
+    };
     conn.query_row(
-        "SELECT f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.account_id = ?1 AND m.uid = ?2",
+        "SELECT f.id, f.name, f.local_only
+         FROM messages m
+         JOIN folders f ON f.id = m.folder_id
+         WHERE m.account_id = ?1 AND m.uid = ?2
+           AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
+         ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+         LIMIT 1",
         rusqlite::params![account_id as i64, uid as i64],
-        |r| r.get::<_, String>(0),
+        |r| Ok((r.get::<_, i64>(0).ok(), r.get::<_, String>(1).ok(), r.get::<_, i64>(2).unwrap_or(0) != 0)),
     )
-    .ok()
+    .unwrap_or((None, None, false))
 }
 
 /// `POST /api/v1/messages/move-cross-account` — move a message between two
