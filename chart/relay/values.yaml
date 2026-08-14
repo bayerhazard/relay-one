@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.09.75
+  tag: 26.09.76
   pullPolicy: IfNotPresent
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed
