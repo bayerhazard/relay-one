@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.80
+  version: 26.09.81
   categories:
     - Utilities
 entrances:
@@ -24,7 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.80
+  versionName: 26.09.81
+  upgradeDescription: |
+    v26.09.81: Fix — E-Mails ohne HTML-Teil verlieren nicht mehr die Zeilenumbrüche (Fließtext). Alte betroffene Nachrichten werden beim Start automatisch bereinigt. Built for Olares 1.12.6.
   fullDescription: |
     - **AI Email Generation** – quickly draft precise emails and replies in your individual tone. It learns automatically to adapt generated email texts for different recipient groups (work, private) and even for individual recipients.
     - **Voice-to-Mail** – voice input that automatically becomes a finished email. It recognizes recipients and subject lines to generate complete templates.

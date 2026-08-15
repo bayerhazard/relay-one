@@ -1279,6 +1279,45 @@ mod tests {
         assert!(!is_local_only_folder(&conn, account, "GibtEsNicht").unwrap());
     }
 
+    /// The legacy "plain text in body_html" rows must be cleaned on boot.
+    /// This replicates the cleanup UPDATE from `db::init_db` so the semantics
+    /// are pinned by a test: a row whose body_html equals its body_text (both
+    /// non-empty) is plain text that the UI would wrongly render as HTML —
+    /// it must be reset to NULL so the message renders from body_text.
+    #[test]
+    fn test_init_db_cleans_plain_text_from_body_html() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let folder = insert_folder(&conn, account, "Auto", true);
+
+        // Body_html == body_text (the corrupted legacy pattern).
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, body_html, synced)
+             VALUES (?1, ?2, 100, 'Flow', 'Klartext\nZeile 2', 'Klartext\nZeile 2', 1)",
+            params![account, folder],
+        )
+        .unwrap();
+        // Real HTML must survive (body_html differs from body_text).
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, body_html, synced)
+             VALUES (?1, ?2, 101, 'Html', 'plain', '<p>HTML</p>', 1)",
+            params![account, folder],
+        )
+        .unwrap();
+
+        // Re-run init_db (idempotent) to apply the cleanup migration.
+        db::init_db(&conn).unwrap();
+
+        let flow_html: Option<String> = conn
+            .query_row("SELECT body_html FROM messages WHERE uid = 100", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(flow_html, None, "plain text in body_html must be NULLed");
+        let html_kept: Option<String> = conn
+            .query_row("SELECT body_html FROM messages WHERE uid = 101", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(html_kept.as_deref(), Some("<p>HTML</p>"), "real HTML must be preserved");
+    }
+
     #[test]
     fn test_mark_as_unseen_in_folder_only_hits_that_folder() {
         let conn = setup_db();

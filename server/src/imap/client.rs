@@ -2093,6 +2093,12 @@ pub fn parse_message_bodies(raw: &[u8]) -> (String, Option<String>) {
             .body_html(0)
             .map(|c| c.into_owned())
             .filter(|s| !s.trim().is_empty())
+            // Defense in depth: never let plain text leak into body_html. Some
+            // senders declare a text/html part whose content carries no markup
+            // at all; storing that in body_html makes the UI render raw text
+            // through the HTML branch and collapse the line breaks into a flow
+            // paragraph. When there is no real markup, treat the mail as text.
+            .filter(|s| contains_html_markup(s))
     } else {
         None
     };
@@ -2116,6 +2122,38 @@ pub fn parse_message_bodies(raw: &[u8]) -> (String, Option<String>) {
     };
 
     (text, html)
+}
+
+/// Heuristic: does the (already decoded) HTML part actually contain markup?
+/// Returns false for bare text / whitespace so it is never stored as
+/// body_html (which would make the UI render plain text through the HTML
+/// branch and lose the line breaks). Mirrors the frontend `isHtmlContent`.
+pub fn contains_html_markup(s: &str) -> bool {
+    let s = s.trim().to_ascii_lowercase();
+    [
+        "<!doctype html",
+        "<html",
+        "<body",
+        "<p",
+        "<div",
+        "<br",
+        "<table",
+        "<span",
+        "<a ",
+        "<img",
+        "<ul",
+        "<ol",
+        "<li",
+        "<h1",
+        "<h2",
+        "<h3",
+        "<strong",
+        "<style",
+        "<font",
+        "<center",
+    ]
+    .iter()
+    .any(|tag| s.contains(tag))
 }
 
 fn decode_quoted_printable(input: &str) -> String {

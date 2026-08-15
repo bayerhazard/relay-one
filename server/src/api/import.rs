@@ -308,9 +308,14 @@ fn import_mbox_content(
             .text_part(0)
             .map(|p| String::from_utf8_lossy(p.contents()).to_string())
             .unwrap_or_default();
+        // Only keep body_html when it really carries markup. html_part(0) can
+        // return a text/html part whose content is bare text — storing that
+        // makes the UI render raw text through the HTML branch (line breaks
+        // collapse → the mail shows as one flow paragraph).
         let body_html = parsed
             .html_part(0)
             .map(|p| String::from_utf8_lossy(p.contents()).to_string())
+            .filter(|s| crate::imap::client::contains_html_markup(s))
             .unwrap_or_default();
         let has_attachments = parsed.attachments().next().is_some();
 

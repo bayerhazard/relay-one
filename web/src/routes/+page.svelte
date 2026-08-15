@@ -860,7 +860,12 @@ let sentFolderName = $state<string | null>(null);
     const html = msg.body_html || null;
     const txt = msg.body_text || null;
 
-    if (html) return { html, text: txt };
+    // Only treat body_html as HTML when it really contains markup. Older sync
+    // paths could store the plain-text body into body_html instead of NULL, and
+    // rendering that raw text through the HTML branch loses the line breaks
+    // (HTML collapses "\n" to whitespace → the mail shows as a single flow
+    // paragraph). Falling back to the text branch keeps readable formatting.
+    if (html && isHtmlContent(html)) return { html, text: txt };
 
     if (txt) {
       const parsedHtml = extractHtmlFromMime(txt);
@@ -873,7 +878,7 @@ let sentFolderName = $state<string | null>(null);
       }
     }
 
-    return { html: null, text: txt };
+    return { html: null, text: html || txt };
   }
 
   // Async worker-based parsing: uses mime-parser worker when available,

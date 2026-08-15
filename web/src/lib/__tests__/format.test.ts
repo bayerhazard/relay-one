@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { extractEmail, extractName, formatDate, _resetNowCache } from "$lib/utils/format";
+import { extractEmail, extractName, formatDate, isHtmlContent, _resetNowCache } from "$lib/utils/format";
 
 // ---------------------------------------------------------------------------
 // extractEmail
@@ -110,6 +110,31 @@ describe("extractName", () => {
 
   it("handles quoted name", () => {
     expect(extractName('"John Doe" <john@example.com>')).toBe('"John Doe"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isHtmlContent
+// ---------------------------------------------------------------------------
+describe("isHtmlContent", () => {
+  it("detects real HTML markup", () => {
+    expect(isHtmlContent("<!doctype html><html><body><p>Hallo</p></body></html>")).toBe(true);
+    expect(isHtmlContent("<div>Zeile</div>")).toBe(true);
+    expect(isHtmlContent("<table><tr><td>x</td></tr></table>")).toBe(true);
+    expect(isHtmlContent('<a href="https://x.de">Link</a>')).toBe(true);
+    expect(isHtmlContent("<br/>")).toBe(true);
+  });
+
+  it("rejects plain text (even multi-line)", () => {
+    expect(isHtmlContent("Diese Email wurde maschinell erstellt.\n\nHallo Marc Bayer,\n\nwir haben Ihren Änderungsantrag erhalten.")).toBe(false);
+    expect(isHtmlContent("Guten Morgen Herr Bayer,\r\n\r\nwir haben Ihre Maschine per UPS erhalten.")).toBe(false);
+    expect(isHtmlContent("Rechnung Nr. 1234")).toBe(false);
+  });
+
+  it("rejects empty / null", () => {
+    expect(isHtmlContent("")).toBe(false);
+    expect(isHtmlContent(null)).toBe(false);
+    expect(isHtmlContent(undefined)).toBe(false);
   });
 });
 

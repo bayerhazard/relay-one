@@ -306,6 +306,19 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // up in a different folder than the one displayed as "Papierkorb".
     migrate_provider_trash_folders(conn);
 
+    // Migration: legacy sync paths could store the plain-text body into
+    // body_html instead of NULL. The UI treats any non-empty body_html as
+    // HTML, so rendering that raw text through the HTML branch collapses the
+    // line breaks and the mail shows as one flow paragraph. Where the two
+    // columns are identical the stored "html" is just the text — drop it so
+    // the message renders from body_text (readable line structure).
+    let _ = conn.execute(
+        "UPDATE messages SET body_html = NULL
+         WHERE body_html IS NOT NULL AND body_html != ''
+           AND body_html = body_text AND body_text IS NOT NULL AND body_text != ''",
+        [],
+    );
+
     init_fts(conn);
 
     Ok(())

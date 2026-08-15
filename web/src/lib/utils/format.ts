@@ -65,10 +65,23 @@ export function isHtmlContent(str: string | null | undefined): boolean {
     s.includes("<!doctype html") ||
     s.includes("<html") ||
     s.includes("<body") ||
-    s.includes("<p>") ||
+    s.includes("<p") ||
     s.includes("<div") ||
     s.includes("<br") ||
-    s.includes("<style")
+    s.includes("<table") ||
+    s.includes("<span") ||
+    s.includes("<a ") ||
+    s.includes("<img") ||
+    s.includes("<ul") ||
+    s.includes("<ol") ||
+    s.includes("<li") ||
+    s.includes("<h1") ||
+    s.includes("<h2") ||
+    s.includes("<h3") ||
+    s.includes("<strong") ||
+    s.includes("<style") ||
+    s.includes("<font") ||
+    s.includes("<center")
   );
 }
 
