@@ -455,17 +455,19 @@ export async function fetchMessageBody(
 
 export async function markAsRead(
   accountId: number,
-  uid: number
+  uid: number,
+  sourceFolder?: string
 ): Promise<void> {
-  return post("/messages/read", { account_id: accountId, uid },
+  return post("/messages/read", { account_id: accountId, uid, source_folder: sourceFolder },
     "Die Nachricht konnte nicht als gelesen markiert werden.");
 }
 
 export async function markAsUnseen(
   accountId: number,
-  uid: number
+  uid: number,
+  sourceFolder?: string
 ): Promise<void> {
-  return post("/messages/unread", { account_id: accountId, uid },
+  return post("/messages/unread", { account_id: accountId, uid, source_folder: sourceFolder },
     "Die Nachricht konnte nicht als ungelesen markiert werden.");
 }
 

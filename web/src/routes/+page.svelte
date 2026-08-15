@@ -1446,7 +1446,7 @@ let sentFolderName = $state<string | null>(null);
     }
 
     try {
-      await markAsRead(selectedAccountId, uid);
+      await markAsRead(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
       const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
@@ -1612,14 +1612,14 @@ let sentFolderName = $state<string | null>(null);
       if (!msg) continue;
       if (msg.is_read) {
         try {
-          await markAsUnseen(selectedAccountId, uid);
+          await markAsUnseen(selectedAccountId, uid, selectedFolder);
           mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
         } catch (e) {
           console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
         }
       } else {
         try {
-          await markAsRead(selectedAccountId, uid);
+          await markAsRead(selectedAccountId, uid, selectedFolder);
           mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
         } catch (e) {
           console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
@@ -1636,7 +1636,7 @@ let sentFolderName = $state<string | null>(null);
       const msg = $mailbox.messages.find((m) => m.uid === uid);
       if (!msg || msg.is_read) continue;
       try {
-        await markAsRead(selectedAccountId, uid);
+        await markAsRead(selectedAccountId, uid, selectedFolder);
         mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
       } catch (e) {
         console.warn("markSelectedRead fehlgeschlagen fuer uid", uid, e);
@@ -1940,14 +1940,14 @@ let sentFolderName = $state<string | null>(null);
     if (!msg) return;
     if (msg.is_read) {
       try {
-        await markAsUnseen(selectedAccountId, uid);
+        await markAsUnseen(selectedAccountId, uid, selectedFolder);
         mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
       } catch (e) {
         console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
       }
     } else {
       try {
-        await markAsRead(selectedAccountId, uid);
+        await markAsRead(selectedAccountId, uid, selectedFolder);
         mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
       } catch (e) {
         console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
