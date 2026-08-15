@@ -383,8 +383,7 @@ pub async fn fetch_message_body(
         .ok()
         .flatten();
         if let Some(rp) = raw_path.filter(|p| !p.is_empty()) {
-            let rel = rp.trim_start_matches('/');
-            if let Some(raw) = crate::cache::archive::read_eml(&state.data_root, rel) {
+            if let Some(raw) = crate::cache::archive::read_eml(&state.data_root, &rp) {
                 let (text, html) = client::parse_message_bodies(&raw);
                 if !text.trim().is_empty() || html.as_deref().map_or(false, |h| !h.trim().is_empty()) {
                     let _: Result<(), String> = with_db(&state, |conn| {
@@ -830,9 +829,9 @@ pub async fn reparse_eml_bodies(
     let mut skipped_parse_fail = 0usize;
 
     for (id, raw_path, existing_body) in rows {
-        // Defense in depth: only accept data-root-relative archive paths.
-        let rel = raw_path.trim_start_matches('/');
-        let Some(raw) = crate::cache::archive::read_eml(&data_root, &rel) else {
+        // Defense in depth: read_eml() only accepts paths that resolve inside
+        // data_root (absolute container paths or archive-relative paths).
+        let Some(raw) = crate::cache::archive::read_eml(&data_root, &raw_path) else {
             skipped_missing += 1;
             continue;
         };

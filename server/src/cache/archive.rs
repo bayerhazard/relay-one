@@ -59,14 +59,23 @@ pub fn write_eml(
     Ok(path)
 }
 
-/// Read the raw RFC822 bytes of an archived EML. `raw_path` is the
-/// data-root-relative path stored in `messages.raw_path` (e.g.
-/// `archive/1/2026/08/3-e9ac51993864.eml`); the caller resolves it against
-/// the data root. Returns `None` when the archive is missing or unreadable.
+/// Read the raw RFC822 bytes of an archived EML. `raw_path` is the value
+/// stored in `messages.raw_path` — historically BOTH formats exist in the
+/// DB: a data-root-relative path (`archive/1/2026/08/3-e9ac51993864.eml`)
+/// and an absolute container path (`/data/Relay/archive/1/2026/08/…`).
+/// Handles both: if the path already points inside `data_root` it is used
+/// as-is, otherwise it is joined onto `data_root`. Returns `None` when the
+/// archive is missing or unreadable.
 pub fn read_eml(data_root: &Path, raw_path: &str) -> Option<Vec<u8>> {
-    // Defense against path traversal: only accept archive-relative paths.
-    let rel = raw_path.trim_start_matches('/');
-    let abs = data_root.join(rel);
+    let original = Path::new(raw_path);
+    // Absolute paths (already rooted under data_root, e.g. the container's
+    // /data/Relay/...) must not be joined again.
+    if original.is_absolute() {
+        return fs::read(original).ok();
+    }
+    // Relative archive path — strip a leading slash if present, then join.
+    let p = Path::new(raw_path.trim_start_matches('/'));
+    let abs = data_root.join(p);
     fs::read(&abs).ok()
 }
 
@@ -182,6 +191,34 @@ mod tests {
         let p1 = write_eml(dir.path(), 1, 1, Some("2026-08-09"), Some("<m1@x>"), raw).unwrap();
         let p2 = write_eml(dir.path(), 1, 1, Some("2026-08-09"), Some("<m1@x>"), raw).unwrap();
         assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn test_read_eml_relative_and_absolute() {
+        let dir = tempdir().unwrap();
+        let raw = b"Subject: x\r\n\r\nhello body";
+        let path = write_eml(dir.path(), 1, 1, Some("2026-08-09"), Some("<m1@x>"), raw).unwrap();
+
+        // Relative path (as historically stored).
+        let rel = path.strip_prefix(dir.path()).unwrap().to_string_lossy().to_string();
+        assert!(path.exists(), "archived file exists: {path:?}");
+        assert_eq!(
+            read_eml(dir.path(), &rel).as_deref(),
+            Some(&raw[..]),
+            "relative read failed: dir={:?} rel={:?}",
+            dir.path(),
+            rel
+        );
+
+        // Absolute container path (the other historical format).
+        assert_eq!(read_eml(dir.path(), &path.to_string_lossy()).as_deref(), Some(&raw[..]));
+    }
+
+    #[test]
+    fn test_read_eml_missing_returns_none() {
+        let dir = tempdir().unwrap();
+        assert!(read_eml(dir.path(), "archive/1/2026/08/999-nonexistent.eml").is_none());
+        assert!(read_eml(dir.path(), "/does/not/exist.eml").is_none());
     }
 
     #[test]
