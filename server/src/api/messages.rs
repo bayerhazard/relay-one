@@ -323,7 +323,10 @@ pub async fn fetch_message_body(
     })?;
 
     if let Some((ref msg, _)) = cached_with_folder {
-        if msg.body_text.is_some() {
+        // A cached body only counts when it is non-empty. Rows may carry an
+        // empty string (''), which the EML-fallback / IMAP path below must be
+        // allowed to fill in — an empty string is not a usable body.
+        if msg.body_text.as_deref().map_or(false, |b| !b.trim().is_empty()) {
             // Attachments (metadata + inline base64 content where materialized).
             // Draft attachments live in the dedup store (no IMAP needed), so
             // they can be handed straight to the compose editor.
