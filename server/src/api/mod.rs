@@ -51,6 +51,7 @@ pub fn router() -> Router<AppState> {
         .route("/messages", get(messages::fetch_messages))
         .route("/messages/search", get(messages::search_messages))
         .route("/messages/body", get(messages::fetch_message_body))
+        .route("/messages/reparse", post(messages::reparse_eml_bodies))
         .route("/messages/raw", get(messages::fetch_raw_message))
         .route("/messages/attachments", get(messages::fetch_attachments))
 .route("/messages/attachment", get(messages::fetch_attachment_content))

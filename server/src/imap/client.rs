@@ -1177,6 +1177,28 @@ mod tests {
         assert!(html.is_none());
     }
 
+    #[test]
+    fn test_parse_bodies_html_part_with_plain_content_stays_none() {
+        // A sender can declare a text/html part whose content carries no
+        // markup at all (bare text). Storing that in body_html would make the
+        // UI render raw text through the HTML branch and collapse the line
+        // breaks — the contains_html_markup guard must drop it to None.
+        let raw = b"Content-Type: text/html; charset=utf-8\r\n\r\nHallo Herr Bayer,\r\n\r\nwir haben Ihre Maschine per UPS erhalten.\r\n\r\nMit freundlichen Gruessen";
+        let (text, html) = parse_message_bodies(raw);
+        assert!(html.is_none());
+        assert!(text.contains("Hallo Herr Bayer"));
+    }
+
+    #[test]
+    fn test_contains_html_markup() {
+        assert!(contains_html_markup("<p>Text</p>"));
+        assert!(contains_html_markup("<div>Text</div>"));
+        assert!(contains_html_markup("<table><tr><td>X</td></tr></table>"));
+        assert!(contains_html_markup("Hallo <b>fett</b>"));
+        assert!(!contains_html_markup("Guten Morgen,\n\nkein HTML hier."));
+        assert!(!contains_html_markup(""));
+    }
+
     // --- has_qp_pattern tests ---
 
     #[test]
@@ -2148,6 +2170,10 @@ pub fn contains_html_markup(s: &str) -> bool {
         "<h2",
         "<h3",
         "<strong",
+        "<b",
+        "<i",
+        "<u",
+        "<em",
         "<style",
         "<font",
         "<center",

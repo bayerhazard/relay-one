@@ -102,6 +102,11 @@ export function resetFolderCache() {
 interface MailboxState {
   accountId: number | null;
   messages: Message[];
+  /** Folder the current `messages` array belongs to (data state). Distinct
+   *  from `folderId` (the UI-selected folder): the UI label is switched BEFORE
+   *  the new list lands, so a body-merge keyed on `folderId` alone could paste
+   *  the previous folder's mail body into the new folder's same-uid row. */
+  messagesFolder: string | null;
   selectedUids: number[];
   lastClickedUid: number | null;
   folderId: string;
@@ -113,6 +118,7 @@ function createMailboxStore() {
   const { subscribe, set, update } = writable<MailboxState>({
     accountId: null,
     messages: [],
+    messagesFolder: null,
     selectedUids: [],
     lastClickedUid: null,
     folderId: '',
@@ -128,11 +134,19 @@ function createMailboxStore() {
         // Key by (accountId, folderId, uid) to prevent cross-account UID collisions
         const fId = folderLabel ?? s.folderId;
         const aId = accountId ?? s.accountId ?? 0;
+        // Only carry over existing bodies when the incoming list belongs to the
+        // SAME folder as the current store contents. Local folders assign uids
+        // independently (uid=3 exists in both "Auto" and "Ecommerce"), so a
+        // cross-folder uid-keyed merge would paste one folder's mail body into
+        // another's row. A refresh of the same folder must keep loaded bodies.
+        const sameFolder = folderLabel !== undefined && folderLabel === s.messagesFolder;
         const oldBodies = new Map(
-          s.messages.map((m) => [
-            `${aId}:${fId}:${m.uid}`,
-            { body_text: m.body_text, body_html: m.body_html },
-          ])
+          sameFolder
+            ? s.messages.map((m) => [
+                `${aId}:${fId}:${m.uid}`,
+                { body_text: m.body_text, body_html: m.body_html },
+              ])
+            : []
         );
         const merged = messages.map((m) => {
           const key = `${aId}:${fId}:${m.uid}`;
@@ -153,6 +167,7 @@ function createMailboxStore() {
           ...s,
           accountId: aId,
           messages: merged,
+          messagesFolder: folderLabel ?? null,
           loading: false,
           selectedUids: s.selectedUids.filter((uid) => uidSet.has(uid)),
           lastClickedUid: uidSet.has(s.lastClickedUid ?? -1) ? s.lastClickedUid : null,
@@ -210,6 +225,7 @@ function createMailboxStore() {
       set({
         accountId: null,
         messages: [],
+        messagesFolder: null,
         selectedUids: [],
         lastClickedUid: null,
         folderId: '',

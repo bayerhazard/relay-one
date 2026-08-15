@@ -1455,17 +1455,12 @@ let sentFolderName = $state<string | null>(null);
       if (lastClickedUid !== uid) return;
       const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
-      // Check if a concurrent loadFolder() already delivered body_text
-      // (Fix 1 ensures message_to_json includes body_text in list responses).
-      // Only overwrite if the store doesn't already have body_text for this uid.
-      const existing = $mailbox.messages.find((m) => m.uid === uid);
-      if (!existing?.body_text || existing.body_text.length < (full.body_text?.length ?? 0)) {
-        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
-      } else {
-        // body already in the store (put there by setMessages with Fix 1);
-        // still mark as read but don't wipe the full body.
-        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
-      }
+      // Always take the fresh body from fetchMessageBody. A uid-keyed lookup
+      // into the store is ambiguous (uid is only unique per folder), and a
+      // "keep whichever body is longer" heuristic can permanently show another
+      // mail's text. updateMessage() itself is folder-scoped, so this only
+      // touches the row for the currently viewed folder.
+      mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
       loadingBodyUid = null;
       selectingUid = null;
       updateBadgeCount(selectedAccountId).catch(() => {});
@@ -1814,9 +1809,17 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
-  let selectedMessage = $derived($mailbox.lastClickedUid
-    ? $mailbox.messages.find((msg) => msg.uid === $mailbox.lastClickedUid) ?? null
-    : null);
+  // The message list in the store always belongs to exactly one folder
+  // (mailbox.messagesFolder). Guard that the UI-selected folder matches the
+  // data currently in the store: during a folder switch the UI label changes
+  // BEFORE the new list arrives, and uid is only unique per folder — showing
+  // the stale row would display the previous folder's mail under the new one.
+  let selectedMessage = $derived(
+    $mailbox.lastClickedUid != null &&
+      $mailbox.folderId === $mailbox.messagesFolder
+      ? $mailbox.messages.find((msg) => msg.uid === $mailbox.lastClickedUid) ?? null
+      : null
+  );
 
   $effect(() => {
     if ($mailbox.lastClickedUid != null && selectedMessage === null) {

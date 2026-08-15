@@ -59,6 +59,17 @@ pub fn write_eml(
     Ok(path)
 }
 
+/// Read the raw RFC822 bytes of an archived EML. `raw_path` is the
+/// data-root-relative path stored in `messages.raw_path` (e.g.
+/// `archive/1/2026/08/3-e9ac51993864.eml`); the caller resolves it against
+/// the data root. Returns `None` when the archive is missing or unreadable.
+pub fn read_eml(data_root: &Path, raw_path: &str) -> Option<Vec<u8>> {
+    // Defense against path traversal: only accept archive-relative paths.
+    let rel = raw_path.trim_start_matches('/');
+    let abs = data_root.join(rel);
+    fs::read(&abs).ok()
+}
+
 /// SHA-256 of raw content (for attachment dedup / verify).
 pub fn sha256_hex(raw: &[u8]) -> String {
     use sha2::Digest as _;

@@ -79,6 +79,10 @@ export function isHtmlContent(str: string | null | undefined): boolean {
     s.includes("<h2") ||
     s.includes("<h3") ||
     s.includes("<strong") ||
+    s.includes("<b") ||
+    s.includes("<i") ||
+    s.includes("<u") ||
+    s.includes("<em") ||
     s.includes("<style") ||
     s.includes("<font") ||
     s.includes("<center")

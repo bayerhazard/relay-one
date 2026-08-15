@@ -364,6 +364,54 @@ pub async fn fetch_message_body(
         }
     }
 
+    // EML-archive fallback: only INBOX gets its body during sync, and local-only
+    // folders never reach the IMAP fallback below. If the mail has an archived
+    // EML, re-parse it now and write the full body back (also caches it for the
+    // next open). Missing body + missing archive → falls through to IMAP.
+    if let Some((msg, _)) = &cached_with_folder {
+        let raw_path: Option<String> = with_db(&state, |conn| {
+            Ok::<_, String>(
+                conn.query_row(
+                    "SELECT raw_path FROM messages WHERE id = ?1",
+                    [msg.id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten(),
+            )
+        })
+        .ok()
+        .flatten();
+        if let Some(rp) = raw_path.filter(|p| !p.is_empty()) {
+            let rel = rp.trim_start_matches('/');
+            if let Some(raw) = crate::cache::archive::read_eml(&state.data_root, rel) {
+                let (text, html) = client::parse_message_bodies(&raw);
+                if !text.trim().is_empty() || html.as_deref().map_or(false, |h| !h.trim().is_empty()) {
+                    let _: Result<(), String> = with_db(&state, |conn| {
+                        cache::messages::update_body_by_id(conn, msg.id, &text, html.as_deref())
+                            .map_err(|e| e.to_string())
+                    });
+                    return Ok(Json(serde_json::json!({
+                        "id": msg.id,
+                        "uid": msg.uid,
+                        "subject": msg.subject.as_deref().map(client::decode_rfc2047),
+                        "from": msg.from_addr,
+                        "to": msg.to_addr,
+                        "date": msg.date,
+                        "body_text": decode_body_text(&text, true),
+                        "body_html": html,
+                        "flags": msg.flags,
+                        "ai_summary": msg.ai_summary,
+                        "ai_priority": msg.ai_priority,
+                        "ai_fraud_score": msg.ai_fraud_score,
+                        "is_read": msg.is_read,
+                        "attachments": [],
+                    })));
+                }
+            }
+        }
+    }
+
     // IMAP fallback. Local-only folders (e.g. "Mama und Papa") don't exist on
     // the IMAP server — a SELECT would fail and the user sees an incomplete
     // preview. Skip the IMAP fallback entirely and return what we have cached.
@@ -744,6 +792,70 @@ pub async fn fetch_raw_message(
         .await
         .map(Json)
         .map_err(|e| ApiError(e.to_string()))
+}
+
+/// `POST /api/v1/messages/reparse` — offline backfill of message bodies from
+/// the EML archive. Only INBOX gets its body fetched during sync; every other
+/// folder stores at most the preview. Local-only folders skip the IMAP body
+/// fallback entirely, so mails without a cached body would stay empty. This
+/// endpoint reparses every archived EML whose body is missing or preview-only
+/// and writes the full text/html into the DB. No IMAP access needed.
+///
+/// Body is only written when it is genuinely missing or shorter than the
+/// parsed content (a preview). Rows without an EML archive are skipped.
+pub async fn reparse_eml_bodies(
+    State(state): State<AppState>,
+) -> ApiResult<serde_json::Value> {
+    let data_root = state.data_root.clone();
+    let db_guard = get_db(&state).map_err(ApiError)?;
+    let conn = db_guard.as_ref().ok_or_else(|| ApiError("Datenbank nicht initialisiert".into()))?;
+
+    // Rows with an archive but empty / missing body, plus preview-only rows.
+    let rows = conn
+        .prepare(
+            "SELECT id, raw_path, body_text FROM messages
+             WHERE raw_path IS NOT NULL AND raw_path != ''
+               AND (body_text IS NULL OR body_text = '' OR LENGTH(body_text) < 250)",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
+            })
+            .and_then(|it| it.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|e| ApiError(format!("Reparse: Query fehlgeschlagen: {e}")))?;
+
+    let mut updated = 0usize;
+    let mut skipped_missing = 0usize;
+    let mut skipped_parse_fail = 0usize;
+
+    for (id, raw_path, existing_body) in rows {
+        // Defense in depth: only accept data-root-relative archive paths.
+        let rel = raw_path.trim_start_matches('/');
+        let Some(raw) = crate::cache::archive::read_eml(&data_root, &rel) else {
+            skipped_missing += 1;
+            continue;
+        };
+        let (text, html) = client::parse_message_bodies(&raw);
+        if text.trim().is_empty() && html.as_deref().map_or(true, |h| h.trim().is_empty()) {
+            skipped_parse_fail += 1;
+            continue;
+        }
+        // Never clobber a full existing body with a shorter re-parse.
+        let existing_len = existing_body.as_deref().map(|b| b.len()).unwrap_or(0);
+        if existing_len >= text.len() && existing_len >= 250 {
+            continue;
+        }
+        cache::messages::update_body_by_id(conn, id, &text, html.as_deref())
+            .map_err(|e| ApiError(format!("Reparse: Update id={id} fehlgeschlagen: {e}")))?;
+        updated += 1;
+    }
+
+    Ok(Json(serde_json::json!({
+        "updated": updated,
+        "skipped_missing_archive": skipped_missing,
+        "skipped_parse_failed": skipped_parse_fail,
+    })))
 }
 
 /// `GET /api/v1/messages/{uid}/attachments?account_id=…`

@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.81
+  version: 26.09.82
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.81
+  versionName: 26.09.82
   upgradeDescription: |
+    v26.09.82: Fix — vertauschte E-Mail-Inhalte zwischen Ordnern (UID-Kollisionen bei lokalen Ordnern): Frontend-Store übernimmt keine Bodies mehr über Ordnerwechsel, ausgewählte Nachricht folder-sicher aufgelöst. Fix — leere E-Mail-Inhalte: Body-Backfill per EML-Reparse (offline) + On-demand-Body aus dem Archiv für lokale Ordner. Built for Olares 1.12.6.
     v26.09.81: Fix — E-Mails ohne HTML-Teil verlieren nicht mehr die Zeilenumbrüche (Fließtext). Alte betroffene Nachrichten werden beim Start automatisch bereinigt. Built for Olares 1.12.6.
   fullDescription: |
     - **AI Email Generation** – quickly draft precise emails and replies in your individual tone. It learns automatically to adapt generated email texts for different recipient groups (work, private) and even for individual recipients.

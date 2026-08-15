@@ -148,6 +148,43 @@ describe("mailbox store", () => {
     expect(get(mailbox).error).toBeNull();
   });
 
+  it("does NOT carry over a body across folder switches (uid collision)", () => {
+    // Regression test for the body-mixup bug: switching from "Ecommerce" to
+    // "Auto" must not paste Ecommerce's body into the Auto row with the same uid.
+    const ecommerce: Message[] = [
+      { uid: 3, subject: "AW: Reparatur Bezerra", from: "shop@example.com", body_text: "Ecommerce-Body-Text", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(ecommerce, "Ecommerce", 1);
+    mailbox.setFolderId("Ecommerce");
+
+    const auto: Message[] = [
+      { uid: 3, subject: "Ihre Vertragsänderung", from: "huk@example.com", body_text: "Auto-Body-Text", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(auto, "Auto", 1);
+    mailbox.setFolderId("Auto");
+
+    const state = get(mailbox);
+    expect(state.messages).toHaveLength(1);
+    // The Auto row must keep ITS OWN body, not the Ecommerce one.
+    expect(state.messages[0].body_text).toBe("Auto-Body-Text");
+  });
+
+  it("keeps existing bodies when refreshing the SAME folder", () => {
+    const first: Message[] = [
+      { uid: 1, subject: "A", from: "a@b.c", body_text: "full body", is_read: false, is_flagged: false },
+    ];
+    mailbox.setMessages(first, "INBOX", 1);
+    mailbox.setFolderId("INBOX");
+
+    // Refresh returns meta-only (no body) for the same folder — the loaded
+    // body must be preserved.
+    const refresh: Message[] = [
+      { uid: 1, subject: "A", from: "a@b.c", is_read: true, is_flagged: false },
+    ];
+    mailbox.setMessages(refresh, "INBOX", 1);
+    expect(get(mailbox).messages[0].body_text).toBe("full body");
+  });
+
   it("resets to initial state", () => {
     mailbox.setMessages([{ uid: 1, subject: "Test", from: "test@example.com", is_read: false, is_flagged: false }]);
     mailbox.selectSingle(1);
