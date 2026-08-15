@@ -397,10 +397,19 @@ pub async fn fetch_message_body(
     match client.fetch_body_from_folder(uid, folder_name).await {
         Ok((body_text, body_html)) => {
             let _: Result<(), String> = with_db(&state, |conn| {
-                cache::messages::update_body(
-                    conn, q.account_id as i64, uid as i64,
-                    &body_text, body_html.as_deref(),
-                )
+                match &cached_with_folder {
+                    // Prefer the primary-key update: the folder-scoped lookup
+                    // above resolved the correct row, and an unscoped
+                    // account_id+uid update could hit a row in a different
+                    // folder when the same uid exists in multiple folders.
+                    Some((msg, _)) => cache::messages::update_body_by_id(
+                        conn, msg.id, &body_text, body_html.as_deref(),
+                    ),
+                    None => cache::messages::update_body(
+                        conn, q.account_id as i64, uid as i64,
+                        &body_text, body_html.as_deref(),
+                    ),
+                }
                 .map_err(|e| e.to_string())
             });
             Ok(Json(serde_json::json!({
@@ -948,7 +957,7 @@ pub async fn mark_as_read(
     Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
     let uid = req.uid;
-    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid);
+    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid, req.source_folder.as_deref());
     with_db(&state, |conn| {
         cache::messages::mark_as_read_in_folder(conn, req.account_id as i64, uid as i64, folder_id)
             .map_err(|e| e.to_string())
@@ -973,7 +982,7 @@ pub async fn mark_as_unseen(
     Json(req): Json<MessageActionRequest>,
 ) -> ApiResult<()> {
     let uid = req.uid;
-    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid);
+    let (folder_id, folder_name, local_only) = message_folder_info(&state, req.account_id, uid, req.source_folder.as_deref());
     with_db(&state, |conn| {
         cache::messages::mark_as_unseen_in_folder(conn, req.account_id as i64, uid as i64, folder_id)
             .map_err(|e| e.to_string())
@@ -1003,10 +1012,10 @@ pub async fn flag_message(
     State(state): State<AppState>,
     Json(req): Json<FlagRequest>,
 ) -> ApiResult<()> {
+    let (folder_id, _folder_name, _local_only) = message_folder_info(&state, req.account_id, req.uid, Some(&req.folder_name));
     with_db(&state, |conn| {
-        conn.execute(
-            "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
-            rusqlite::params![req.flagged as i32, req.account_id as i64, req.uid as i64],
+        cache::messages::update_is_flagged_in_folder(
+            conn, req.account_id as i64, req.uid as i64, folder_id, req.flagged,
         )
         .map_err(|e| e.to_string())
     })?;
@@ -1015,16 +1024,17 @@ pub async fn flag_message(
     let account_id = req.account_id;
     let uid = req.uid;
     let flagged = req.flagged;
-    set_imap_flag(&state, account_id, uid, flagged).await;
+    let folder_name = req.folder_name.clone();
+    set_imap_flag(&state, account_id, uid, flagged, Some(&folder_name)).await;
     Ok(Json(()))
 }
 
-async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: bool) {
+async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: bool, source_folder: Option<&str>) {
     let Some(client) = state.imap_clients.read().get(&account_id).cloned() else {
         return;
     };
     if client.is_connected().await {
-        let (_folder_id, _folder_name, local_only) = message_folder_info(state, account_id, uid);
+        let (_folder_id, _folder_name, local_only) = message_folder_info(state, account_id, uid, source_folder);
         if local_only {
             return;
         }
@@ -1035,20 +1045,46 @@ async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: boo
 /// Resolve folder identity for a message. UID is only unique per folder, so
 /// the lookup is folder-agnostic but ordered like `fetch_message_body_with_folder`
 /// (drafts first, then lowest id). Returns (folder_id, folder_name, local_only).
-fn message_folder_info(state: &AppState, account_id: u32, uid: u32) -> (Option<i64>, Option<String>, bool) {
+fn message_folder_info(
+    state: &AppState,
+    account_id: u32,
+    uid: u32,
+    folder: Option<&str>,
+) -> (Option<i64>, Option<String>, bool) {
     let db_guard = state.cache_db.lock();
     let Some(conn) = db_guard.as_ref() else {
         return (None, None, false);
     };
+    let sql_folder = match folder {
+        Some(_f) => format!(
+            "SELECT f.id, f.name, f.local_only
+             FROM messages m
+             JOIN folders f ON f.id = m.folder_id
+             WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3
+               AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
+             ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+             LIMIT 1"
+        ),
+        None => format!(
+            "SELECT f.id, f.name, f.local_only
+             FROM messages m
+             JOIN folders f ON f.id = m.folder_id
+             WHERE m.account_id = ?1 AND m.uid = ?2
+               AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
+             ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+             LIMIT 1"
+        ),
+    };
+    let account_id_i64 = account_id as i64;
+    let uid_i64 = uid as i64;
+    let params: Vec<Box<dyn rusqlite::types::ToSql>> = match folder {
+        Some(f) => vec![Box::new(account_id_i64), Box::new(uid_i64), Box::new(f.to_string())],
+        None => vec![Box::new(account_id_i64), Box::new(uid_i64)],
+    };
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     conn.query_row(
-        "SELECT f.id, f.name, f.local_only
-         FROM messages m
-         JOIN folders f ON f.id = m.folder_id
-         WHERE m.account_id = ?1 AND m.uid = ?2
-           AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
-         ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
-         LIMIT 1",
-        rusqlite::params![account_id as i64, uid as i64],
+        &sql_folder,
+        rusqlite::params_from_iter(params_ref.iter()),
         |r| Ok((r.get::<_, i64>(0).ok(), r.get::<_, String>(1).ok(), r.get::<_, i64>(2).unwrap_or(0) != 0)),
     )
     .unwrap_or((None, None, false))

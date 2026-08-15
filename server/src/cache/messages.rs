@@ -429,6 +429,34 @@ pub fn update_is_flagged(conn: &Connection, account_id: i64, uid: i64, is_flagge
     Ok(())
 }
 
+/// Toggle the \Flagged star, scoped to an optional folder_id. UID is only unique
+/// per folder, so an unscoped UPDATE could flip the wrong row when the same uid
+/// exists in multiple folders.
+pub fn update_is_flagged_in_folder(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_id: Option<i64>,
+    is_flagged: bool,
+) -> Result<(), rusqlite::Error> {
+    match folder_id {
+        Some(fid) => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_flagged = ?, updated_at = datetime('now')
+                 WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+                params![is_flagged as i32, account_id, uid, fid],
+            )?;
+        }
+        None => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_flagged = ?, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
+                params![is_flagged as i32, account_id, uid],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// Get all UIDs for messages in a specific folder (used by flag refresh).
 pub fn get_messages_with_uids_for_folder(
     conn: &Connection,
@@ -675,6 +703,24 @@ pub fn update_body(
         "UPDATE messages SET body_text = ?1, body_html = ?2, updated_at = datetime('now')
          WHERE account_id = ?3 AND uid = ?4",
         params![body_text, body_html, account_id, uid],
+    )?;
+    Ok(())
+}
+
+/// Update body by primary key. UID is only unique per folder, so an unscoped
+/// account_id+uid update could overwrite the body of a row in a different folder
+/// when the same uid exists in multiple folders. The caller resolves the correct
+/// row first (folder-scoped lookup) and passes its id.
+pub fn update_body_by_id(
+    conn: &Connection,
+    id: i64,
+    body_text: &str,
+    body_html: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE messages SET body_text = ?1, body_html = ?2, updated_at = datetime('now')
+         WHERE id = ?3",
+        params![body_text, body_html, id],
     )?;
     Ok(())
 }
@@ -1254,5 +1300,102 @@ mod tests {
             .query_row("SELECT is_read FROM messages WHERE id = ?1", params![local_msg], |r| r.get(0))
             .unwrap();
         assert_eq!(local_read, 1, "local-only row with same uid must stay read");
+    }
+
+    #[test]
+    fn test_fetch_message_body_with_folder_disambiguates_uid_collision() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let ecommerce = insert_folder(&conn, account, "Ecommerce", true);
+        let auto = insert_folder(&conn, account, "Auto", true);
+        // Same uid 42 in both local-only folders — the collision that made the
+        // preview show a body from "Auto" while the header came from "Ecommerce".
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Ecommerce-Mail', 'Ecommerce-Body', 1)",
+            params![account, ecommerce],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Auto-Mail', 'Auto-Body', 1)",
+            params![account, auto],
+        )
+        .unwrap();
+
+        // Folder-scoped lookup must return the Ecommerce row.
+        let (eco_msg, eco_folder) = fetch_message_body_with_folder(&conn, account, 42, Some("Ecommerce"))
+            .unwrap()
+            .expect("Ecommerce row must be found");
+        assert_eq!(eco_msg.subject.as_deref(), Some("Ecommerce-Mail"));
+        assert_eq!(eco_msg.body_text.as_deref(), Some("Ecommerce-Body"));
+        assert_eq!(eco_folder, "Ecommerce");
+
+        // The same call for the other folder must return the Auto row.
+        let (auto_msg, auto_folder) = fetch_message_body_with_folder(&conn, account, 42, Some("Auto"))
+            .unwrap()
+            .expect("Auto row must be found");
+        assert_eq!(auto_msg.subject.as_deref(), Some("Auto-Mail"));
+        assert_eq!(auto_msg.body_text.as_deref(), Some("Auto-Body"));
+        assert_eq!(auto_folder, "Auto");
+    }
+
+    #[test]
+    fn test_fetch_message_body_without_folder_picks_lowest_id() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let ecommerce = insert_folder(&conn, account, "Ecommerce", true);
+        let auto = insert_folder(&conn, account, "Auto", true);
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Auto-Mail', 'Auto-Body', 1)",
+            params![account, auto],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Ecommerce-Mail', 'Ecommerce-Body', 1)",
+            params![account, ecommerce],
+        )
+        .unwrap();
+
+        // Unscoped lookup is ambiguous: it orders by lowest id (Auto inserted
+        // first here). Callers MUST pass the folder to get the right row.
+        let (msg, _folder) = fetch_message_body_with_folder(&conn, account, 42, None)
+            .unwrap()
+            .expect("a row must be found");
+        assert_eq!(msg.subject.as_deref(), Some("Auto-Mail"));
+    }
+
+    #[test]
+    fn test_update_body_by_id_only_updates_target_row() {
+        let conn = setup_db();
+        let account = create_test_account(&conn);
+        let ecommerce = insert_folder(&conn, account, "Ecommerce", true);
+        let auto = insert_folder(&conn, account, "Auto", true);
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Auto-Mail', 'Auto-Body', 1)",
+            params![account, auto],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, body_text, synced) VALUES (?1, ?2, 42, 'Ecommerce-Mail', 'Ecommerce-Body', 1)",
+            params![account, ecommerce],
+        )
+        .unwrap();
+
+        // Resolve the Ecommerce row via folder-scoped lookup, then write the
+        // IMAP-fetched body by primary key — must not touch the Auto row.
+        let (eco_msg, _) = fetch_message_body_with_folder(&conn, account, 42, Some("Ecommerce"))
+            .unwrap()
+            .unwrap();
+        update_body_by_id(&conn, eco_msg.id, "Frisch vom IMAP", None).unwrap();
+
+        let eco_body: String = conn
+            .query_row("SELECT body_text FROM messages WHERE id = ?1", params![eco_msg.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(eco_body, "Frisch vom IMAP");
+        let auto_body: String = conn.query_row(
+            "SELECT body_text FROM messages WHERE subject = 'Auto-Mail'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(auto_body, "Auto-Body", "Auto row must keep its body");
     }
 }

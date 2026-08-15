@@ -1448,7 +1448,7 @@ let sentFolderName = $state<string | null>(null);
     try {
       await markAsRead(selectedAccountId, uid);
       if (lastClickedUid !== uid) return;
-      const full = await fetchMessageBody(selectedAccountId, uid);
+      const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
       // Check if a concurrent loadFolder() already delivered body_text
       // (Fix 1 ensures message_to_json includes body_text in list responses).
@@ -1502,7 +1502,7 @@ let sentFolderName = $state<string | null>(null);
     let bodyHtml = msg.body_html;
     if (!bodyText && !bodyHtml) {
       try {
-        const full = await fetchMessageBody(selectedAccountId, msg.uid);
+        const full = await fetchMessageBody(selectedAccountId, msg.uid, selectedFolder);
         bodyText = full.body_text;
         bodyHtml = full.body_html;
       } catch (e) {
@@ -1545,7 +1545,7 @@ let sentFolderName = $state<string | null>(null);
     let bodyHtml = msg.body_html;
     if (!bodyText && !bodyHtml) {
       try {
-        const full = await fetchMessageBody(selectedAccountId, msg.uid);
+        const full = await fetchMessageBody(selectedAccountId, msg.uid, selectedFolder);
         bodyText = full.body_text;
         bodyHtml = full.body_html;
       } catch (e) {
