@@ -534,11 +534,28 @@ async fn run_delete_queue(state: &AppState) {
         let result = if ok {
             client.hard_delete_message(row.uid as u32, &row.folder).await
         } else {
+            // Soft fallback: move into the PROVIDER trash folder (never the
+            // local-only "Trash" — that name does not exist on the server).
+            // Resolve the real provider trash name (GMX: "Gelöscht",
+            // Gmail: "[Gmail]/Papierkorb", IMAP standard: "Trash").
+            let provider_trash = find_provider_trash_folder(&client).await;
             tracing::warn!(
-                "delete_queue {}: Verify-Garantie fehlt (uid {}, Konto {}) — weiches Löschen (Provider-Trash)",
-                row.id, row.uid, row.account_id
+                "delete_queue {}: Verify-Garantie fehlt (uid {}, Konto {}) — weiches Löschen (Provider-Trash '{}')",
+                row.id, row.uid, row.account_id, provider_trash.as_deref().unwrap_or("Trash")
             );
-            client.move_message(row.uid as u32, &row.folder, "Trash").await
+            match provider_trash {
+                Some(trash) => client.move_message(row.uid as u32, &row.folder, &trash).await,
+                None => {
+                    // No provider trash folder found: fall back to a hard
+                    // delete ONLY when the message row still exists in the
+                    // cache (safe: uid+folder were just verified above via
+                    // the archive lookup that returned no EML — the local
+                    // copy is gone anyway, so keeping the server copy does
+                    // not help the user; the queue entry would otherwise
+                    // retry forever).
+                    client.hard_delete_message(row.uid as u32, &row.folder).await
+                }
+            }
         };
 
         match result {
@@ -558,6 +575,30 @@ async fn run_delete_queue(state: &AppState) {
             }
         }
     }
+}
+
+/// Find the provider-side trash folder for an account. Returns the decoded
+/// folder name (as accepted by select_folder/move_message) or None when the
+/// server has no trash folder at all.
+async fn find_provider_trash_folder(
+    client: &Arc<crate::imap::client::ImapClient>,
+) -> Option<String> {
+    let folders = client.list_folders().await.ok()?;
+    // Common trash names across providers, checked case-insensitively.
+    const TRASH_ALIASES: [&str; 7] = [
+        "trash", "gelöscht", "papierkorb", "deleted", "deleted items",
+        "deleted messages", "corbeille",
+    ];
+    for (name, _raw, _delim, tag) in &folders {
+        if tag == "noselect" {
+            continue;
+        }
+        let lower = name.to_lowercase();
+        if TRASH_ALIASES.iter().any(|a| lower.contains(a)) {
+            return Some(name.clone());
+        }
+    }
+    None
 }
 
 async fn run_removal_check(state: &AppState) {

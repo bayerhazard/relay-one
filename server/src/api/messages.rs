@@ -1622,7 +1622,7 @@ async fn delete_message_archive_trash(
     let message_id: Option<i64> = with_db(state, |conn| {
         let sql = match source_folder_hint {
             Some(_) => format!(
-                "SELECT id FROM messages m \
+                "SELECT m.id FROM messages m \
                  JOIN folders f ON m.folder_id = f.id \
                  WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
             ),
@@ -1729,7 +1729,7 @@ async fn delete_message_permanent_delete(
     let message_id: Option<i64> = with_db(state, |conn| {
         let sql = match source_folder_hint {
             Some(_) => format!(
-                "SELECT id FROM messages m \
+                "SELECT m.id FROM messages m \
                  JOIN folders f ON m.folder_id = f.id \
                  WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1"
             ),
