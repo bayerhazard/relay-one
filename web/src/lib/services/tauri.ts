@@ -379,6 +379,7 @@ export async function clearAiSummaries(accountId?: number): Promise<number> {
  export async function saveAttachment(
   filename: string,
   contentBase64: string,
+  contentType?: string,
 ): Promise<string | null> {
   // Web: trigger a browser download (Blob + <a download>). Returns null on
   // failure, otherwise a placeholder (the download itself is side-effectful).
@@ -386,7 +387,7 @@ export async function clearAiSummaries(accountId?: number): Promise<number> {
     const byteChars = atob(contentBase64);
     const bytes = new Uint8Array(byteChars.length);
     for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([bytes]);
+    const blob = new Blob([bytes], { type: contentType || "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

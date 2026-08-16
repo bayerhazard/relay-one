@@ -1948,6 +1948,7 @@ let sentFolderName = $state<string | null>(null);
 
   // ─── Attachment context menu (right-click: Open / Save as) ───────────
   let attCtxMenu = $state<{ x: number; y: number; att: AttachmentInfo } | null>(null);
+  let attPreview = $state<{ url: string; filename: string; contentType: string } | null>(null);
 
   function handleAttachmentContextMenu(e: MouseEvent, att: AttachmentInfo) {
     e.preventDefault();
@@ -1984,13 +1985,29 @@ let sentFolderName = $state<string | null>(null);
       const byteChars = atob(content);
       const bytes = new Uint8Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([bytes]);
+      const blob = new Blob([bytes], { type: att.content_type || "application/octet-stream" });
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      attPreview = { url, filename: att.filename, contentType: att.content_type || "application/octet-stream" };
     } catch (e) {
       mailbox.setError("Anhang konnte nicht geöffnet werden: " + (e instanceof Error ? e.message : String(e)));
     }
+  }
+
+  function closeAttPreview() {
+    if (attPreview) {
+      URL.revokeObjectURL(attPreview.url);
+      attPreview = null;
+    }
+  }
+
+  function downloadAttPreview() {
+    if (!attPreview) return;
+    const a = document.createElement("a");
+    a.href = attPreview.url;
+    a.download = attPreview.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function handleSaveAsAttachment(att: AttachmentInfo) {
@@ -2000,16 +2017,23 @@ let sentFolderName = $state<string | null>(null);
       mailbox.setError("Anhanginhalt nicht verfügbar.");
       return;
     }
-    const saved = await saveAttachment(att.filename, content);
+    const saved = await saveAttachment(att.filename, content, att.content_type || undefined);
     if (!saved) {
       mailbox.setError("Anhang konnte nicht gespeichert werden.");
     }
   }
 
   $effect(() => {
-    if (!attCtxMenu) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeAttCtxMenu(); };
-    const onBlur = () => closeAttCtxMenu();
+    if (!attCtxMenu && !attPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (attPreview) closeAttPreview();
+        else closeAttCtxMenu();
+      }
+    };
+    const onBlur = () => {
+      if (attCtxMenu) closeAttCtxMenu();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("blur", onBlur);
     return () => {
@@ -2245,7 +2269,40 @@ let sentFolderName = $state<string | null>(null);
             <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
             <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu.x}px; top: ${attCtxMenu.y}px;`} role="menu">
               <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu.att)}>Öffnen</button>
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu.att)}>Speichern als…</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu.att)}>Download</button>
+            </div>
+          {/if}
+
+          {#if attPreview}
+            <div class="att-preview-overlay" role="dialog" aria-modal="true" aria-label="Anhang-Vorschau">
+              <div class="att-preview-scrim" role="presentation" onclick={closeAttPreview}></div>
+              <div class="att-preview-modal">
+                <div class="att-preview-header">
+                  <span class="att-preview-name" title={attPreview.filename}>{attPreview.filename}</span>
+                  <div class="att-preview-actions">
+                    <button type="button" class="att-preview-btn" onclick={downloadAttPreview} title="Herunterladen" aria-label="Herunterladen">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+                    </button>
+                    <button type="button" class="att-preview-btn" onclick={closeAttPreview} title="Schließen (Esc)" aria-label="Schließen">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="att-preview-body">
+                  {#if attPreview.contentType.startsWith("image/")}
+                    <img src={attPreview.url} alt={attPreview.filename} class="att-preview-image" />
+                  {:else if attPreview.contentType.startsWith("text/") || attPreview.contentType.includes("json") || attPreview.contentType.includes("xml") || attPreview.contentType.includes("javascript")}
+                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame" />
+                  {:else if attPreview.contentType === "application/pdf"}
+                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame" />
+                  {:else}
+                    <div class="att-preview-unsupported">
+                      <span>Vorschau für diesen Dateityp nicht möglich.</span>
+                      <button type="button" class="att-preview-download-btn" onclick={downloadAttPreview}>Download</button>
+                    </div>
+                  {/if}
+                </div>
+              </div>
             </div>
           {/if}
 
@@ -3660,6 +3717,129 @@ let sentFolderName = $state<string | null>(null);
   .ctx-menu-item.danger:hover {
     background: rgba(220, 38, 38, 0.10);
     color: var(--color-danger);
+  }
+
+  /* ── Attachment preview overlay ─────────────────────────── */
+  .att-preview-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .att-preview-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .att-preview-modal {
+    position: relative;
+    width: min(920px, 100%);
+    max-height: 90vh;
+    background: var(--color-list);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .att-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-list);
+    flex-shrink: 0;
+  }
+  .att-preview-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .att-preview-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .att-preview-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: none;
+    color: var(--color-text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .att-preview-btn:hover {
+    background: var(--color-active-wash);
+    border-color: var(--color-accent);
+  }
+  .att-preview-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1b1e24;
+  }
+  .att-preview-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    min-height: 55vh;
+  }
+  .att-preview-image {
+    max-width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
+  }
+  .att-preview-unsupported {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 40px;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    text-align: center;
+  }
+  .att-preview-download-btn {
+    padding: 9px 22px;
+    border: none;
+    border-radius: 8px;
+    background: var(--color-accent);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  @media (max-width: 600px) {
+    .att-preview-overlay {
+      padding: 0;
+    }
+    .att-preview-modal {
+      width: 100%;
+      max-height: 100vh;
+      height: 100%;
+      border: none;
+      border-radius: 0;
+    }
+    .att-preview-frame {
+      min-height: 0;
+    }
   }
 
   /* iOS-style bottom sheet (touch devices): slides up from the bottom edge,

@@ -1216,14 +1216,16 @@
     .btn-ai {
       flex: 1 1 0;
       min-width: 0;
-      height: 45px;
-      padding: 10px 8px;
+      height: auto;
+      min-height: 45px;
+      padding: 15px 8px;
       justify-content: center;
     }
     .btn-send {
       flex: 0 0 auto;
-      height: 45px;
-      padding: 10px 16px;
+      height: auto;
+      min-height: 45px;
+      padding: 15px 16px;
     }
     .label-long { display: none; }
     .label-short { display: inline; }
