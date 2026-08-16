@@ -1609,8 +1609,12 @@ async fn delete_message_archive_trash(
                  WHERE m.account_id = ?1 AND m.uid = ?2 LIMIT 1"
             ),
         };
+        let params: Vec<&dyn rusqlite::ToSql> = match source_folder_hint {
+            Some(_) => vec![&account_id_i64, &uid_i64, &source_folder_hint],
+            None => vec![&account_id_i64, &uid_i64],
+        };
         Ok(conn
-            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
+            .query_row(&sql, params.as_slice(), |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1626,8 +1630,12 @@ async fn delete_message_archive_trash(
                 "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 LIMIT 1"
             ),
         };
+        let params: Vec<&dyn rusqlite::ToSql> = match source_folder_hint {
+            Some(_) => vec![&account_id_i64, &uid_i64, &source_folder_hint],
+            None => vec![&account_id_i64, &uid_i64],
+        };
         Ok(conn
-            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
+            .query_row(&sql, params.as_slice(), |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1655,17 +1663,33 @@ async fn delete_message_archive_trash(
     })?;
 
     // 2. Enqueue provider deletion (verified by the worker before hard delete).
-    if let (Some(mid), Some(ref f)) = (message_id, source_folder) {
-        let _ = with_db(state, |conn| {
-            crate::cache::delete_queue::enqueue(conn, mid, account_id_i64, uid_i64, f, "delete")
-                .map_err(|e| e.to_string())
-        });
+    match (message_id, source_folder.clone()) {
+        (Some(mid), Some(f)) => {
+            match with_db(state, |conn| {
+                crate::cache::delete_queue::enqueue(conn, mid, account_id_i64, uid_i64, &f, "delete")
+                    .map_err(|e| e.to_string())
+            }) {
+                Ok(_) => {
+                    tracing::info!(
+                        "delete_message (archive): uid {} (Konto {}) → lokaler Papierkorb, Provider-Löschung in Queue (row {})",
+                        uid, account_id, mid
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "delete_message (archive): uid {} (Konto {}) lokal in Papierkorb verschoben, ABER enqueue FEHLGESCHLAGEN: {} — Mail bleibt auf dem Provider",
+                        uid, account_id, e
+                    );
+                }
+            }
+        }
+        _ => {
+            tracing::error!(
+                "delete_message (archive): uid {} (Konto {}) — message_id oder source_folder nicht auflösbar (mid={:?}, folder={:?}), Provider-Löschung NICHT in Queue",
+                uid, account_id, message_id, source_folder
+            );
+        }
     }
-
-    tracing::info!(
-        "delete_message (archive): uid {} (Konto {}) → lokaler Papierkorb, Provider-Löschung in Queue",
-        uid, account_id
-    );
     Ok(Json(()))
 }
 
@@ -1692,8 +1716,12 @@ async fn delete_message_permanent_delete(
                  WHERE m.account_id = ?1 AND m.uid = ?2 LIMIT 1"
             ),
         };
+        let params: Vec<&dyn rusqlite::ToSql> = match source_folder_hint {
+            Some(_) => vec![&account_id_i64, &uid_i64, &source_folder_hint],
+            None => vec![&account_id_i64, &uid_i64],
+        };
         Ok(conn
-            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
+            .query_row(&sql, params.as_slice(), |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1709,8 +1737,12 @@ async fn delete_message_permanent_delete(
                 "SELECT id FROM messages WHERE account_id = ?1 AND uid = ?2 LIMIT 1"
             ),
         };
+        let params: Vec<&dyn rusqlite::ToSql> = match source_folder_hint {
+            Some(_) => vec![&account_id_i64, &uid_i64, &source_folder_hint],
+            None => vec![&account_id_i64, &uid_i64],
+        };
         Ok(conn
-            .query_row(&sql, rusqlite::params![account_id_i64, uid_i64, source_folder_hint], |row| row.get(0))
+            .query_row(&sql, params.as_slice(), |row| row.get(0))
             .ok())
     })
     .unwrap_or(None);
@@ -1737,15 +1769,32 @@ async fn delete_message_permanent_delete(
     }
 
     // 2. Enqueue provider deletion — verified by the worker before touching IMAP.
-    if let (Some(mid), Some(ref f)) = (message_id, folder) {
-        let _ = with_db(state, |conn| {
-            crate::cache::delete_queue::enqueue(conn, mid, account_id_i64, uid_i64, f, "delete")
-                .map_err(|e| e.to_string())
-        });
-        tracing::info!(
-            "delete_message: uid {} (Konto {}) lokal entfernt, Provider-Löschung in Queue",
-            uid, account_id
-        );
+    match (message_id, folder.clone()) {
+        (Some(mid), Some(f)) => {
+            match with_db(state, |conn| {
+                crate::cache::delete_queue::enqueue(conn, mid, account_id_i64, uid_i64, &f, "delete")
+                    .map_err(|e| e.to_string())
+            }) {
+                Ok(_) => {
+                    tracing::info!(
+                        "delete_message: uid {} (Konto {}) lokal entfernt, Provider-Löschung in Queue (row {})",
+                        uid, account_id, mid
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "delete_message: uid {} (Konto {}) lokal entfernt, ABER enqueue FEHLGESCHLAGEN: {} — Mail bleibt auf dem Provider",
+                        uid, account_id, e
+                    );
+                }
+            }
+        }
+        _ => {
+            tracing::error!(
+                "delete_message: uid {} (Konto {}) — message_id oder folder nicht auflösbar (mid={:?}, folder={:?}), Provider-Löschung NICHT in Queue",
+                uid, account_id, message_id, folder
+            );
+        }
     }
 
     Ok(Json(()))

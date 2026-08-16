@@ -423,7 +423,7 @@ pub fn update_is_read(conn: &Connection, account_id: i64, uid: i64, is_read: boo
 /// Update the is_flagged flag for a message (used by flag refresh from IMAP server).
 pub fn update_is_flagged(conn: &Connection, account_id: i64, uid: i64, is_flagged: bool) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE messages SET is_flagged = ?, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
+        "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
         params![is_flagged as i32, account_id, uid],
     )?;
     Ok(())
@@ -442,14 +442,14 @@ pub fn update_is_flagged_in_folder(
     match folder_id {
         Some(fid) => {
             let _ = conn.execute(
-                "UPDATE messages SET is_flagged = ?, updated_at = datetime('now')
-                 WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3",
+                "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now')
+                 WHERE account_id = ?2 AND uid = ?3 AND folder_id = ?4",
                 params![is_flagged as i32, account_id, uid, fid],
             )?;
         }
         None => {
             let _ = conn.execute(
-                "UPDATE messages SET is_flagged = ?, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
+                "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
                 params![is_flagged as i32, account_id, uid],
             )?;
         }

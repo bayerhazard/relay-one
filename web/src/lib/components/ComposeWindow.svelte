@@ -616,37 +616,37 @@
       <ErrorBanner message={sendError} onretry={handleSend} retryLabel="Erneut senden" />
     {/if}
 
-    <div class="editor-toolbar">
-      <button type="button" class="btn-ai primary" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
-        <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? "Aufnahme stoppen" : "Diktat starten"}>
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-          </svg>
-        </span>
-        {#if false && voiceEnabled}
-          <span class="mic-divider" aria-hidden="true"></span>
-        {/if}
-        <span class="btn-label">
-          {#if isGenerating}
-            {generationStep === 1 ? "Generiere Text..." : "Ermittle Felder..."}
-          {:else if isRecording}
-            Aufnahme
-          {:else if mode === "reply"}
-            <span class="label-long">Antwort generieren</span><span class="label-short">Generieren</span>
-          {:else}
-            Generieren
-          {/if}
-        </span>
-      </button>
-      <button type="button" class="btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
-        Formatieren
-      </button>
-      <div class="spacer"></div>
-      <button type="button" class="btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
-        Senden
-      </button>
-    </div>
+  </div>
 
+  <div class="editor-toolbar">
+    <button type="button" class="btn-ai primary" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
+      <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? "Aufnahme stoppen" : "Diktat starten"}>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+        </svg>
+      </span>
+      {#if false && voiceEnabled}
+        <span class="mic-divider" aria-hidden="true"></span>
+      {/if}
+      <span class="btn-label">
+        {#if isGenerating}
+          {generationStep === 1 ? "Generiere Text..." : "Ermittle Felder..."}
+        {:else if isRecording}
+          Aufnahme
+        {:else if mode === "reply"}
+          <span class="label-long">Antwort generieren</span><span class="label-short">Generieren</span>
+        {:else}
+          Generieren
+        {/if}
+      </span>
+    </button>
+    <button type="button" class="btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
+      Formatieren
+    </button>
+    <div class="spacer"></div>
+    <button type="button" class="btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
+      Senden
+    </button>
   </div>
 </div>
 
@@ -913,16 +913,12 @@
   .editor-toolbar {
     display: flex;
     gap: 10px;
-    margin-top: 16px;
     align-items: center;
     flex-wrap: wrap;
-    /* Pinned to the bottom of the scrollable body so "Senden" is always
-       reachable without scrolling (esp. on phones). */
-    position: sticky;
-    bottom: 0;
-    margin-left: -20px;
-    margin-right: -20px;
-    margin-bottom: -20px;
+    /* Fixed flex child of .compose-window (below the scrollable body), so
+       "Senden" is ALWAYS reachable without scrolling — same as the header
+       stays pinned at the top. */
+    flex-shrink: 0;
     padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
     background: var(--color-list);
     border-top: 1px solid var(--color-border);
@@ -1212,9 +1208,6 @@
     .editor-toolbar {
       flex-wrap: nowrap;
       gap: 8px;
-      margin-left: -16px;
-      margin-right: -16px;
-      margin-bottom: -16px;
       padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
     }
     .editor-toolbar .spacer {

@@ -182,6 +182,30 @@ import {
       folderRawNames = f.raw;
       folderDelimiters = f.delim;
     }
+    // Default: subfolders COLLAPSED on first run. Only when the user has no
+    // persisted collapsed state yet, seed it with every folder that has
+    // children (folders with subfolders start hidden; double-click expands).
+    if (!collapsedFoldersMap[accountId]) {
+      try {
+        const raw = localStorage.getItem(`relay_folder_collapsed_${accountId}`);
+        if (raw === null) {
+          const tree = buildFolderTree(f.names, f.delim);
+          const seeded = new Set<string>();
+          const visit = (nodes: FolderNode[]) => {
+            for (const n of nodes) {
+              if (n.children.length > 0) {
+                seeded.add(n.name);
+                visit(n.children);
+              }
+            }
+          };
+          visit(tree.children);
+          collapsedFoldersMap = { ...collapsedFoldersMap, [accountId]: seeded };
+        } else {
+          collapsedFoldersMap = { ...collapsedFoldersMap, [accountId]: new Set(JSON.parse(raw) as string[]) };
+        }
+      } catch { /* ignore */ }
+    }
   }
   let selectedFolder = $state("INBOX");
   let theme = $state("blue");
@@ -1354,6 +1378,26 @@ let sentFolderName = $state<string | null>(null);
         return;
       }
     } catch { /* ignore */ }
+    // Olares-Desktop (Electron) kann Navigation an die eingebettete Web-App
+    // per postMessage senden (Menüpunkt "Relay → Einstellungen"). Bekannte
+    // Payloads: { type: "navigate", path: "/settings" } /
+    // { type: "navigate-to", path: "/settings" } / { navigate: "/settings" }.
+    try {
+      const handleNavMessage = (event: MessageEvent) => {
+        if (!event.data || typeof event.data !== "object") return;
+        const d = event.data as Record<string, unknown>;
+        const path =
+          (typeof d.path === "string" && d.path.startsWith("/") && d.path) ||
+          (typeof d.navigate === "string" && d.navigate.startsWith("/") && d.navigate) ||
+          (typeof d.url === "string" && d.url.startsWith("/") && d.url);
+        if (!path) return;
+        const t = typeof d.type === "string" ? d.type.toLowerCase() : "";
+        if (t.includes("navigate") || t.includes("settings") || t === "") {
+          if (path !== window.location.pathname) goto(path);
+        }
+      };
+      window.addEventListener("message", handleNavMessage);
+    } catch { /* ignore */ }
     let accts: AccountInfo[] = [];
     try {
       accts = await listAccounts();
@@ -1754,6 +1798,12 @@ let sentFolderName = $state<string | null>(null);
         case "n":
           e.preventDefault();
           handleNewMail();
+          return;
+        case ",":
+          // macOS-Standard "Einstellungen…" (Cmd+,) — auch vom Olares-Desktop
+          // als App-Menüpunkt "Relay → Einstellungen" ausgelöst.
+          e.preventDefault();
+          goto("/settings");
           return;
         case "i":
           if (e.shiftKey) {
