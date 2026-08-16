@@ -1123,15 +1123,15 @@ pub fn search_messages(
     if let Some(_) = &fts_terms {
         sql.push_str(" JOIN messages_fts f ON m.id = f.rowid");
     }
-    sql.push_str(" WHERE m.account_id = ?1");
+    sql.push_str(" WHERE m.account_id = ?");
     if let Some(_) = &fts_terms {
-        sql.push_str(" AND f.messages_fts MATCH ?2");
+        sql.push_str(" AND f.messages_fts MATCH ?");
     }
     if flag_only {
         sql.push_str(" AND m.is_flagged = 1");
     }
     sql.push_str(" AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)");
-    sql.push_str(" ORDER BY m.date DESC LIMIT ?3");
+    sql.push_str(" ORDER BY m.date DESC LIMIT ?");
 
     let mut stmt = conn.prepare(&sql)?;
 

@@ -1202,13 +1202,13 @@
     .editor-resize {
       min-height: 120px;
     }
-    /* Toolbar: all three actions in ONE row, 44px touch targets. Padding
-       above the buttons stays generous (8px) so they don't hug the top
-       border — the editor is scrollable above, the toolbar stays pinned. */
+    /* Toolbar: all three actions in ONE row, 58px touch targets (44px +33%).
+       Padding above the buttons stays generous (10px) so they don't hug the
+       top border — the editor is scrollable above, the toolbar stays pinned. */
     .editor-toolbar {
       flex-wrap: nowrap;
       gap: 8px;
-      padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+      padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
     }
     .editor-toolbar .spacer {
       display: none;
@@ -1216,14 +1216,14 @@
     .btn-ai {
       flex: 1 1 0;
       min-width: 0;
-      height: 44px;
-      padding: 5px 8px;
+      height: 58px;
+      padding: 7px 8px;
       justify-content: center;
     }
     .btn-send {
       flex: 0 0 auto;
-      height: 44px;
-      padding: 5px 16px;
+      height: 58px;
+      padding: 7px 16px;
     }
     .label-long { display: none; }
     .label-short { display: inline; }

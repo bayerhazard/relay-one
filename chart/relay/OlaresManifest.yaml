@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.85
+  version: 26.09.86
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.85
+  versionName: 26.09.86
   upgradeDescription: |
+    v26.09.86: NEU Markiert-Stern — (1) Suchfeld: Stern-Shortcut (Umriss=inaktiv, gefüllt=aktiv) filtert auf markierte E-Mails (is:flagged); die is:flagged-Suche war durch einen Parameter-Bug defekt (LIMIT ?3 mit 2 gebundenen Params → "Got 2, needed 3") und funktioniert jetzt (auch manuell tippbar, kombinierbar mit Text). (2) Markierte Mails zeigen den gleichen stilisierten Stern als Markierung (statt 🚩-Emoji), normale Schriftfarbe. (3) Mobile Compose: Fußzeilen-Toolbar um 33% erhöht (Touch-Ziele 44px → 58px, Padding 5→7px, Toolbar-Padding 8→10px). Built for Olares 1.12.6.
     v26.09.85: Fix — Soft-Fallback beim Löschen findet jetzt den echten Provider-Papierkorb (GMX: "Gelöscht", Gmail: "[Gmail]/Papierkorb") statt hart "Trash" zu verwenden (existiert auf dem Server nicht → Delete-Queue-Einträge schlugen fehl). Kein Trash-Ordner auf dem Server: harter Delete als letzte Option. Built for Olares 1.12.6.
     v26.09.84: Fixes — (1) Löschen → IMAP: Provider-Löschung wurde nie in die Lösch-Queue geschrieben (SELECT id mit JOIN folders = "ambiguous column name: id" → message_id unauflösbar; enqueue-Fehler still verschluckt) — Mails blieben auf dem Server. Jetzt: m.id qualifiziert, Queries korrekt gebunden, enqueue-Fehler werden geloggt, Log erst nach erfolgreichem Queue-Eintrag. (2) Markieren: is_flagged-SQL hatte kollidierende Parameter (? = ?1) — das Flag wurde nie in der DB geschrieben. (3) Unterordner standardmäßig zugeklappt (erst per Doppelklick aufklappen). (4) Mobile Compose: Fußzeile (Generieren/Formatieren/Senden) jetzt fixiert wie der Header — nicht mehr nur sticky im Scroll-Body. (5) MacOS: Cmd+, (Einstellungen) + Olares-Desktop-postMessage-Navigation führen jetzt zu /settings. Built for Olares 1.12.6.
     v26.09.82: Fix — vertauschte E-Mail-Inhalte zwischen Ordnern (UID-Kollisionen bei lokalen Ordnern): Frontend-Store übernimmt keine Bodies mehr über Ordnerwechsel, ausgewählte Nachricht folder-sicher aufgelöst. Fix — leere E-Mail-Inhalte: Body-Backfill per EML-Reparse (offline) + On-demand-Body aus dem Archiv für lokale Ordner. Built for Olares 1.12.6.
