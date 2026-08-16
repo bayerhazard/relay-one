@@ -620,7 +620,11 @@ async fn run_removal_check(state: &AppState) {
                 continue;
             }
 
-            let server_uids = match client.fetch_all_uids().await {
+            // Atomically SELECT the folder + fetch its UIDs. A plain
+            // fetch_all_uids() would read whatever folder a parallel API
+            // operation left selected on the shared session and prune the
+            // wrong mailbox.
+            let server_uids = match client.fetch_all_uids_in_folder(folder_name).await {
                 Ok(uids) => uids,
                 Err(e) => {
                     tracing::warn!(
@@ -963,7 +967,7 @@ async fn process_sync_task(
                     continue;
                 }
 
-                let messages = match client.fetch_recent(max_uid as u32, 50).await {
+                let messages = match client.fetch_recent_in_folder(folder_name, max_uid as u32, 50).await {
                     Ok(msgs) => msgs,
                     Err(e) => {
                         tracing::warn!(
@@ -1007,7 +1011,11 @@ async fn process_sync_task(
 
                 // Cleanup: Remove locally cached messages that no longer exist on the IMAP server.
                 // This handles the case where messages were deleted in another app (e.g., GMX Webmail).
-                let server_uids = match client.fetch_all_uids().await {
+                // fetch_all_uids_in_folder SELECTs the folder atomically under the session lock —
+                // a plain fetch_all_uids() would read whatever folder a parallel API operation
+                // (fetch_body/move/delete) left selected, pruning the WRONG folder (observed live:
+                // every new INBOX mail was deleted right after being saved).
+                let server_uids = match client.fetch_all_uids_in_folder(folder_name).await {
                     Ok(uids) => uids,
                     Err(e) => {
                         tracing::warn!(
@@ -1077,7 +1085,11 @@ async fn process_sync_task(
                 let is_inbox = folder_name.eq_ignore_ascii_case("INBOX");
                 if is_inbox {
                     for msg in &messages {
-                        match client.fetch_body_with_raw(msg.uid).await {
+                        // Folder-scoped body fetch: without the explicit folder
+                        // the session could be on a different mailbox (parallel
+                        // API ops), making the UID lookup fail or read the
+                        // wrong message.
+                        match client.fetch_body_with_raw_from_folder(msg.uid, Some(folder_name.to_string())).await {
                             Ok((body_text, body_html, raw)) => {
                                 let raw_path = crate::cache::archive::write_eml(
                                     &state.data_root,

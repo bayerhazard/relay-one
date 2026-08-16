@@ -222,7 +222,36 @@ impl ImapClient {
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
+        self.fetch_recent_impl(None, since_uid, limit).await
+    }
+
+    /// SELECT `folder` + fetch recent messages atomically under the session
+    /// lock. Without the SELECT, a parallel API operation (fetch_body, move,
+    /// delete, flag) can switch the session to a different folder between our
+    /// select_folder and the UID SEARCH — the fetch would then read the wrong
+    /// mailbox (or the subsequent cleanup would prune the wrong folder).
+    pub async fn fetch_recent_in_folder(
+        &self,
+        folder: &str,
+        since_uid: u32,
+        limit: u32,
+    ) -> Result<Vec<CachedMessage>, AppError> {
+        self.fetch_recent_impl(Some(folder), since_uid, limit).await
+    }
+
+    async fn fetch_recent_impl(
+        &self,
+        folder: Option<&str>,
+        since_uid: u32,
+        limit: u32,
+    ) -> Result<Vec<CachedMessage>, AppError> {
+        let folder = folder.map(|f| encode_imap_utf7(f));
         self.with_session_blocking("fetch_recent", move |session| {
+        if let Some(f) = &folder {
+            session
+                .select(f)
+                .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+        }
         // Server-side UID filtering: only fetch UIDs newer than since_uid.
         // "UID {N}:*" means UIDs from N to the highest UID on the server.
         // Initial sync (since_uid == 0) uses "ALL" to discover all messages.

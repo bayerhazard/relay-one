@@ -867,6 +867,14 @@
     flex-direction: column;
     min-height: 200px;
   }
+  /* Cap the editor so the sticky send toolbar never gets pushed out of the
+     viewport by an overgrown textarea — the textarea scrolls internally
+     instead (fixed toolbar + scrollable input, incl. reply/forward chains). */
+  .editor {
+    max-height: min(55vh, 480px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   .editor-header {
     font-size: 0.875rem;
     font-weight: 700;
@@ -1198,14 +1206,16 @@
     .editor-resize {
       min-height: 120px;
     }
-    /* Toolbar: all three actions in ONE row, 44px touch targets. */
+    /* Toolbar: all three actions in ONE row, 44px touch targets. Padding
+       above the buttons stays generous (8px) so they don't hug the top
+       border — the editor is scrollable above, the toolbar stays pinned. */
     .editor-toolbar {
       flex-wrap: nowrap;
       gap: 8px;
       margin-left: -16px;
       margin-right: -16px;
       margin-bottom: -16px;
-      padding: 3px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+      padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
     }
     .editor-toolbar .spacer {
       display: none;

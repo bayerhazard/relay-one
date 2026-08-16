@@ -1068,6 +1068,10 @@ fn build_fts_query(raw: &str) -> Option<String> {
     let terms: Vec<String> = raw
         .split_whitespace()
         .filter_map(|t| {
+            // `is:flagged` is a search operator, not an FTS term.
+            if t.eq_ignore_ascii_case("is:flagged") || t.eq_ignore_ascii_case("is:flag") {
+                return None;
+            }
             // Strip characters that are meaningless inside a quoted token and
             // escape embedded double quotes per FTS5 rules ("" = literal ").
             let cleaned = t.replace('"', "\"\"");
@@ -1086,6 +1090,12 @@ fn build_fts_query(raw: &str) -> Option<String> {
     }
 }
 
+/// Does the query contain the `is:flagged` operator?
+fn query_has_flag_operator(raw: &str) -> bool {
+    raw.split_whitespace()
+        .any(|t| t.eq_ignore_ascii_case("is:flagged") || t.eq_ignore_ascii_case("is:flag"))
+}
+
 /// Full-text search over cached messages (subject, sender, recipient, body)
 /// for one account, newest first. Returns up to `limit` results.
 pub fn search_messages(
@@ -1094,23 +1104,38 @@ pub fn search_messages(
     query: &str,
     limit: i64,
 ) -> Result<Vec<MessageRecord>, rusqlite::Error> {
-    let Some(match_expr) = build_fts_query(query) else {
-        return Ok(Vec::new());
-    };
+    // `is:flagged` is a metadata filter, not an FTS term: it must be applied
+    // even when the rest of the query has no text terms (e.g. "is:flagged"
+    // alone should return all flagged mail).
+    let flag_only = query_has_flag_operator(query);
+    let fts_terms = build_fts_query(query);
 
-    let mut stmt = conn.prepare(
+    if fts_terms.is_none() && !flag_only {
+        return Ok(Vec::new());
+    }
+
+    let mut sql = String::from(
         "SELECT m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr,
                 m.date, m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority,
                 m.ai_fraud_score, m.is_read, m.is_flagged, m.synced, m.has_attachments
-         FROM messages_fts f
-         JOIN messages m ON m.id = f.rowid
-         WHERE f.messages_fts MATCH ?1 AND m.account_id = ?2
-           AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)
-         ORDER BY m.date DESC
-         LIMIT ?3",
-    )?;
+         FROM messages m",
+    );
+    if let Some(_) = &fts_terms {
+        sql.push_str(" JOIN messages_fts f ON m.id = f.rowid");
+    }
+    sql.push_str(" WHERE m.account_id = ?1");
+    if let Some(_) = &fts_terms {
+        sql.push_str(" AND f.messages_fts MATCH ?2");
+    }
+    if flag_only {
+        sql.push_str(" AND m.is_flagged = 1");
+    }
+    sql.push_str(" AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)");
+    sql.push_str(" ORDER BY m.date DESC LIMIT ?3");
 
-    let rows = stmt.query_map(params![match_expr, account_id, limit], |row| {
+    let mut stmt = conn.prepare(&sql)?;
+
+    let mapper = |row: &rusqlite::Row| {
         Ok(MessageRecord {
             id: row.get(0)?,
             account_id: row.get(1)?,
@@ -1131,7 +1156,12 @@ pub fn search_messages(
             synced: row.get::<_, i32>(16)? != 0,
             has_attachments: row.get::<_, i32>(17)? != 0,
         })
-    })?;
+    };
+
+    let rows = match &fts_terms {
+        Some(match_expr) => stmt.query_map(params![account_id, match_expr, limit], mapper)?,
+        None => stmt.query_map(params![account_id, limit], mapper)?,
+    };
 
     let mut result = Vec::new();
     for row in rows {

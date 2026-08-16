@@ -343,7 +343,7 @@ pub async fn send_message(
         let subject = req.subject.clone();
         let to_addr = req.to.join(", ");
         let date = chrono::Utc::now().to_rfc3339();
-        let _ = with_db(&state, |conn| {
+        let message_row_id: Option<i64> = with_db(&state, |conn| {
             crate::cache::messages::create_local_folder(conn, account_id, "Gesendet").map_err(|e| e.to_string())?;
             let uid: i64 = conn.query_row(
                 "SELECT COALESCE(MAX(uid), 0) + 1 FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Gesendet')",
@@ -357,8 +357,56 @@ pub async fn send_message(
                 rusqlite::params![account_id, uid, subject, to_addr, date, req.body_text, req.body_html],
             )
             .map_err(|e| e.to_string())?;
-            Ok::<(), String>(())
-        });
+            Ok::<i64, String>(conn.last_insert_rowid())
+        })
+        .ok();
+        // Persist attachment metadata + content for the sent copy so the
+        // "Gesendet" list shows attachments (mirror mode gets this via the
+        // provider sync; the local archive copy has no BODYSTRUCTURE pass).
+        if let Some(message_row_id) = message_row_id {
+            let attachments = crate::imap::client::parse_message_attachments(&raw_bytes);
+            if !attachments.is_empty() {
+                let meta: Vec<crate::imap::types::AttachmentMeta> = attachments
+                    .iter()
+                    .map(|a| crate::imap::types::AttachmentMeta {
+                        filename: a.filename.clone(),
+                        content_type: a.content_type.clone(),
+                        size: a.size,
+                    })
+                    .collect();
+                let _ = with_db(&state, |conn| {
+                    crate::cache::attachments::reconcile_attachments(conn, message_row_id, &meta)
+                        .map_err(|e| e.to_string())?;
+                    conn.execute(
+                        "UPDATE messages SET has_attachments = 1 WHERE id = ?1",
+                        rusqlite::params![message_row_id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                    // Cache base64 content so attachments are viewable
+                    // without an IMAP round-trip.
+                    for (idx, att) in attachments.iter().enumerate() {
+                        let att_id: Option<i64> = conn
+                            .query_row(
+                                "SELECT id FROM message_attachments WHERE message_id = ?1 AND part_index = ?2",
+                                rusqlite::params![message_row_id, idx as i64],
+                                |r| r.get(0),
+                            )
+                            .ok();
+                        if let Some(att_id) = att_id {
+                            let _ = crate::cache::attachments::cache_content_dedup(
+                                conn, att_id, &att.content, &state.data_root,
+                            );
+                        }
+                    }
+                    Ok(())
+                });
+                tracing::info!(
+                    "send_message (archive): {} Anhänge für 'Gesendet'-Kopie (message row {}) persistiert",
+                    attachments.len(),
+                    message_row_id
+                );
+            }
+        }
         // Persist the raw RFC822 copy as an EML archive file (Concept §3.1).
         // The uid is stable per message_id, so re-sending the same mail does
         // not create duplicates.

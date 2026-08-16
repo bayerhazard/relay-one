@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use axum::Router;
+use axum::{Router, extract::DefaultBodyLimit};
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -89,8 +89,12 @@ async fn main() {
     });
 
     // Build the axum app: API under /api/v1.
+    // DefaultBodyLimit: axum caps JSON bodies at 2 MB by default — base64
+    // attachment uploads from the compose window exceed that quickly and the
+    // send would fail with 413 (observed: attachments > ~1.5 MB never sent).
     let app = Router::new()
         .nest("/api/v1", api::router())
+        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state((*state).clone());

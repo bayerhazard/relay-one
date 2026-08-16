@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.82
+  version: 26.09.83
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.82
+  versionName: 26.09.83
   upgradeDescription: |
+    v26.09.83: Fixes — (1) Sync-Session-Race: UID-SEARCH/UID-FETCH liefen ohne SELECT des Zielordners auf der geteilten IMAP-Session; parallele API-Operationen schalteten den Ordner um, sodass der Cleanup frische INBOX-Mails fälschlich löschte (Mails blieben auf dem Server, Posteingang leer). Jetzt atomare folder-scoped Operationen (fetch_recent_in_folder, fetch_all_uids_in_folder, Body-Fetch mit Ordner). (2) Flagging: IMAP-Flag wird jetzt im Quellordner der Mail gesetzt (vorher im zuletzt selektierten Ordner). (3) Suchen: neuer is:flagged-Operator. (4) Anhänge: Body-Limit 64 MB (vorher 2 MB → 413 bei >1.5 MB); gesendete Mails im lokalen Gesendet-Ordner speichern jetzt Attachment-Metadaten + Inhalt. (5) Ordner-Reihenfolge: gespeicherte Drag-Reihenfolge wird jetzt auch beim App-Start auf die Sidebar angewendet. (6) Mobile Compose: Editor intern scrollbar, Toolbar bleibt unten fixiert. Built for Olares 1.12.6.
     v26.09.82: Fix — vertauschte E-Mail-Inhalte zwischen Ordnern (UID-Kollisionen bei lokalen Ordnern): Frontend-Store übernimmt keine Bodies mehr über Ordnerwechsel, ausgewählte Nachricht folder-sicher aufgelöst. Fix — leere E-Mail-Inhalte: Body-Backfill per EML-Reparse (offline) + On-demand-Body aus dem Archiv für lokale Ordner. Built for Olares 1.12.6.
     v26.09.81: Fix — E-Mails ohne HTML-Teil verlieren nicht mehr die Zeilenumbrüche (Fließtext). Alte betroffene Nachrichten werden beim Start automatisch bereinigt. Built for Olares 1.12.6.
   fullDescription: |

@@ -228,10 +228,15 @@ let sentFolderName = $state<string | null>(null);
       if (cached) {
         const parsed = JSON.parse(cached) as string[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          folderNames = parsed;
+          // Apply the saved reorder BEFORE seeding the sidebar store — the
+          // tree renders from foldersByAccount, so an unordered seed would
+          // show the server order until the IMAP fetch completes (or forever
+          // if the fetch fails).
+          const ordered = applySavedFolderOrder(acct.id, parsed);
+          folderNames = ordered;
           // Seed the per-account cache too (raw/delim defaults to "."), so
           // other account groups render their trees immediately.
-          setAccountFolders(acct.id, { names: parsed, local: new Set(), raw: {}, delim: {} });
+          setAccountFolders(acct.id, { names: ordered, local: new Set(), raw: {}, delim: {} });
         }
       }
     } catch { /* ignore stale cache */ }
@@ -270,25 +275,18 @@ let sentFolderName = $state<string | null>(null);
             sentFolderName = x.name;
           }
         }
-        folderNames = names;
+        // Apply saved folder order BEFORE seeding the sidebar store — the
+        // tree renders from foldersByAccount (account-id scoped), so an
+        // unordered names list would keep the server order in the sidebar.
+        const orderedNames = applySavedFolderOrder(acct.id, names);
+        folderNames = orderedNames;
         folderRawNames = rawMap;
         folderDelimiters = delimMap;
         localFolderNames = localSet;
        // Persist to localStorage cache for fast recovery on navigation
         const cacheKey = `relay_folder_cache_${acct.id}`;
-        localStorage.setItem(cacheKey, JSON.stringify(names));
-        setAccountFolders(acct.id, { names, local: localSet, raw: rawMap, delim: delimMap });
-        // Apply saved folder order
-        try {
-          const orderKey = `relay_folder_order_${acct.id}`;
-          const saved = localStorage.getItem(orderKey);
-          if (saved) {
-            const order = JSON.parse(saved) as string[];
-            const ordered = order.filter((n) => names.includes(n));
-            const remaining = names.filter((n) => !ordered.includes(n));
-            folderNames = [...ordered, ...remaining];
-          }
-        } catch (e) { console.warn("Folder order parse failed", e); }
+        localStorage.setItem(cacheKey, JSON.stringify(orderedNames));
+        setAccountFolders(acct.id, { names: orderedNames, local: localSet, raw: rawMap, delim: delimMap });
         foldersFetched = true;
         break;
       } catch (e: unknown) {
@@ -329,6 +327,24 @@ let sentFolderName = $state<string | null>(null);
   // Helper: per-account localStorage keys
   function getStoreKey(base: string): string {
     return `relay_${base}_${selectedAccountId}`;
+  }
+
+  // Apply the saved drag-reorder order (relay_folder_order_<acct>) on top of a
+  // freshly fetched server list. New folders (not in the saved order) are
+  // appended at the end, removed folders dropped. The sidebar renders from
+  // `foldersByAccount`, so the order MUST be applied before setAccountFolders.
+  function applySavedFolderOrder(accountId: number, names: string[]): string[] {
+    try {
+      const saved = localStorage.getItem(`relay_folder_order_${accountId}`);
+      if (!saved) return names;
+      const order = JSON.parse(saved) as string[];
+      if (!Array.isArray(order)) return names;
+      const ordered = order.filter((n) => names.includes(n));
+      const remaining = names.filter((n) => !ordered.includes(n));
+      return [...ordered, ...remaining];
+    } catch {
+      return names;
+    }
   }
 
   function loadFolderCustomization() {
@@ -1329,6 +1345,15 @@ let sentFolderName = $state<string | null>(null);
   }
 
   onMount(async () => {
+    // Olares-Desktop öffnet Apps ggf. mit `?pathto=<route>` (z.B. beim
+    // Öffnen der App-Einstellungen) — Route direkt anspringen.
+    try {
+      const pathto = new URLSearchParams(window.location.search).get("pathto");
+      if (pathto && pathto.startsWith("/")) {
+        goto(pathto);
+        return;
+      }
+    } catch { /* ignore */ }
     let accts: AccountInfo[] = [];
     try {
       accts = await listAccounts();
@@ -1965,12 +1990,21 @@ let sentFolderName = $state<string | null>(null);
   }
 
   async function handleToggleFlag(uid: number) {
+    // Folder-scoped lookup: UIDs are only unique per folder, and the store's
+    // message list can briefly belong to the PREVIOUS folder while a new
+    // folder loads (messagesFolder vs folderId). Only act when the list still
+    // matches the folder the user is looking at.
+    const folder = selectedFolder ?? "INBOX";
+    if ($mailbox.messagesFolder !== null && $mailbox.messagesFolder !== folder) {
+      console.warn("handleToggleFlag uebersprungen: Ordnerwechsel im Gange (uid", uid, ")");
+      return;
+    }
     const msg = $mailbox.messages.find((m) => m.uid === uid);
     if (!msg) return;
     try {
-      await flagMessageCmd(selectedAccountId, uid, selectedFolder ?? "INBOX", !msg.is_flagged);
+      await flagMessageCmd(selectedAccountId, uid, folder, !msg.is_flagged);
       mailbox.updateMessage(uid, $mailbox.folderId, { is_flagged: !msg.is_flagged });
-      invalidateFolderCache(selectedAccountId, selectedFolder ?? "INBOX");
+      invalidateFolderCache(selectedAccountId, folder);
     } catch (e) {
       console.warn("handleToggleFlag fehlgeschlagen fuer uid", uid, e);
     }

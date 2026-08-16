@@ -1148,11 +1148,17 @@ async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: boo
         return;
     };
     if client.is_connected().await {
-        let (_folder_id, _folder_name, local_only) = message_folder_info(state, account_id, uid, source_folder);
+        let (_folder_id, folder_name, local_only) = message_folder_info(state, account_id, uid, source_folder);
         if local_only {
             return;
         }
-        let _ = client.toggle_flagged(uid, flagged).await;
+        // Folder-scoped mark: the IMAP session is shared with the sync
+        // scheduler and other API calls, so the flag must be set on the
+        // message's OWN folder — an unscoped mark_flag writes to whichever
+        // folder the session happens to have selected.
+        let _ = client
+            .mark_flag(uid, "\\Flagged", flagged, folder_name)
+            .await;
     }
 }
 
