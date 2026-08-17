@@ -1161,11 +1161,15 @@ async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> 
     let account_id = req.account_id;
     let folder_name = req.source_folder.clone();
     // Resolve the folder once (all UIDs live in the same source folder).
-    let folder_id = {
+    let (folder_id, local_only) = {
         let db_guard = get_db(state).map_err(|e| ApiError(e))?;
         let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
-        cache::messages::folder_id_for_name(conn, account_id as i64, folder_name.as_deref().unwrap_or("INBOX"))
-            .map_err(|e| ApiError(e.to_string()))?
+        conn.query_row(
+            "SELECT id, local_only FROM folders WHERE account_id = ?1 AND name = ?2",
+            rusqlite::params![account_id as i64, folder_name.as_deref().unwrap_or("INBOX")],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i32>(1)? != 0)),
+        )
+        .map_err(|e| ApiError(e.to_string()))?
     };
 
     with_db(state, |conn| {
@@ -1184,14 +1188,19 @@ async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> 
 
     // Remote \Seen sync: run after the DB writes; the per-UID client call is
     // cheap and failures are only logged (the DB state is authoritative).
-    let client = {
-        let guard = state.imap_clients.read();
-        guard.get(&account_id).cloned()
-    };
-    if let Some(client) = client {
-        for uid in &req.uids {
-            if let Err(e) = client.mark_flag(*uid, "\\Seen", read, Some(folder_name.clone().unwrap_or_else(|| "INBOX".to_string()))).await {
-                tracing::warn!("batch_set_read: IMAP-Flag uid {} fehlgeschlagen: {}", uid, e);
+    // Local-only folders (e.g. "Mama und Papa", archived Sent) don't exist on
+    // the IMAP server — skip the remote flag entirely, mirroring the singular
+    // handlers.
+    if !local_only {
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&account_id).cloned()
+        };
+        if let Some(client) = client {
+            for uid in &req.uids {
+                if let Err(e) = client.mark_flag(*uid, "\\Seen", read, Some(folder_name.clone().unwrap_or_else(|| "INBOX".to_string()))).await {
+                    tracing::warn!("batch_set_read: IMAP-Flag uid {} fehlgeschlagen: {}", uid, e);
+                }
             }
         }
     }

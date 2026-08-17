@@ -401,14 +401,6 @@ pub fn mark_as_read(conn: &Connection, account_id: i64, uid: i64) -> Result<(), 
 /// Mark a message read, scoped to an optional folder_id. UID is only unique per
 /// folder (local-only folders reuse uids), so an unscoped UPDATE could hit a row
 /// in the wrong folder when the same uid exists in multiple folders.
-pub fn folder_id_for_name(conn: &Connection, account_id: i64, folder_name: &str) -> Result<i64, rusqlite::Error> {
-    conn.query_row(
-        "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
-        params![account_id, folder_name],
-        |row| row.get(0),
-    )
-}
-
 pub fn mark_as_read_in_folder(
     conn: &Connection,
     account_id: i64,
