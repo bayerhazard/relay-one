@@ -472,6 +472,24 @@ export async function markAsUnseen(
     "Die Nachricht konnte nicht als ungelesen markiert werden.");
 }
 
+export async function markBatchAsRead(
+  accountId: number,
+  uids: number[],
+  sourceFolder?: string
+): Promise<void> {
+  return post("/messages/read-batch", { account_id: accountId, uids, source_folder: sourceFolder },
+    "Die Nachrichten konnten nicht als gelesen markiert werden.");
+}
+
+export async function markBatchAsUnseen(
+  accountId: number,
+  uids: number[],
+  sourceFolder?: string
+): Promise<void> {
+  return post("/messages/unread-batch", { account_id: accountId, uids, source_folder: sourceFolder },
+    "Die Nachrichten konnten nicht als ungelesen markiert werden.");
+}
+
 export async function flagMessageCmd(
   accountId: number,
   uid: number,

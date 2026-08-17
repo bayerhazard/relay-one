@@ -425,7 +425,7 @@ async function handleSaveCardDav() {
   async function handlePhotoUpload() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp';
+    input.accept = 'image/jpeg,image/png,image/webp,image/svg+xml';
     input.onchange = async (e: Event) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;

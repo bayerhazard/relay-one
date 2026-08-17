@@ -6,6 +6,7 @@ export interface Message {
   subject?: string;
   from?: string;
   to?: string;
+  cc?: string;
   date?: string;
   body_preview?: string;
   body_text?: string;

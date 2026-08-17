@@ -12,6 +12,7 @@ pub struct MessageRecord {
     pub subject: Option<String>,
     pub from_addr: Option<String>,
     pub to_addr: Option<String>,
+    pub cc_addr: Option<String>,
     pub date: Option<String>,
     pub body_text: Option<String>,
     pub body_html: Option<String>,
@@ -83,15 +84,16 @@ fn save_message_inner(conn: &Connection, account_id: i64, msg: &CachedMessage, f
 
     conn.execute(
         "INSERT INTO messages (
-            account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
+            account_id, folder_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
             body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
             is_read, is_flagged, has_attachments, synced
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 1)
 ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             folder_id = excluded.folder_id,
             subject = excluded.subject,
             from_addr = excluded.from_addr,
             to_addr = excluded.to_addr,
+            cc_addr = excluded.cc_addr,
             date = excluded.date,
             body_text = COALESCE(excluded.body_text, messages.body_text),
             body_html = COALESCE(excluded.body_html, messages.body_html),
@@ -112,6 +114,7 @@ ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             msg.envelope.subject,
             msg.envelope.from,
             msg.envelope.to,
+            msg.envelope.cc,
             msg.envelope.date,
             msg.body_preview,
             msg.body_structure,
@@ -151,6 +154,31 @@ pub fn fetch_inbox(
     offset: Option<i64>,
     folder: &str,
 ) -> Result<Vec<MessageRecord>, rusqlite::Error> {
+    fetch_inbox_impl(conn, account_id, limit, offset, folder, false)
+}
+
+/// Meta-only variant of `fetch_inbox`: omits `body_text`/`body_html` from the
+/// SELECT so large folders (up to 10k rows) transfer as lightweight JSON. The
+/// body preview is computed server-side from a `substr()` over the stored
+/// column, avoiding the full-body I/O that made folder switches take seconds.
+pub fn fetch_inbox_meta(
+    conn: &Connection,
+    account_id: i64,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    folder: &str,
+) -> Result<Vec<MessageRecord>, rusqlite::Error> {
+    fetch_inbox_impl(conn, account_id, limit, offset, folder, true)
+}
+
+fn fetch_inbox_impl(
+    conn: &Connection,
+    account_id: i64,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    folder: &str,
+    list_only: bool,
+) -> Result<Vec<MessageRecord>, rusqlite::Error> {
     let limit = limit.unwrap_or(50);
     let offset = offset.unwrap_or(0);
 
@@ -175,16 +203,25 @@ pub fn fetch_inbox(
         Err(e) => return Err(e),
     };
 
-    let mut stmt = conn.prepare(
-        "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
-                body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+    // In list_only mode select a server-side preview instead of the full body
+    // columns. The MessageRecord still carries `body_text` (the preview) so the
+    // existing `body_preview()` serializer keeps working unchanged.
+    let body_cols = if list_only {
+        "substr(body_text, 1, 200), NULL"
+    } else {
+        "body_text, body_html"
+    };
+    let sql = format!(
+        "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
+                {body_cols}, flags, ai_summary, ai_priority, ai_fraud_score,
                 is_read, is_flagged, synced, has_attachments
          FROM messages
          WHERE account_id = ?1 AND folder_id = ?2
            AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
          ORDER BY date DESC
-         LIMIT ?3 OFFSET ?4",
-    )?;
+         LIMIT ?3 OFFSET ?4"
+    );
+    let mut stmt = conn.prepare(&sql)?;
 
     let rows = stmt.query_map(params![account_id, folder_id, limit, offset], |row| {
         Ok(MessageRecord {
@@ -195,17 +232,18 @@ pub fn fetch_inbox(
             subject: row.get(4)?,
             from_addr: row.get(5)?,
             to_addr: row.get(6)?,
-            date: row.get(7)?,
-            body_text: row.get(8)?,
-            body_html: row.get(9)?,
-            flags: row.get(10)?,
-            ai_summary: row.get(11)?,
-            ai_priority: row.get(12)?,
-            ai_fraud_score: row.get(13)?,
-            is_read: row.get::<_, i32>(14)? != 0,
-            is_flagged: row.get::<_, i32>(15)? != 0,
-            synced: row.get::<_, i32>(16)? != 0,
-            has_attachments: row.get::<_, i32>(17)? != 0,
+            cc_addr: row.get(7)?,
+            date: row.get(8)?,
+            body_text: row.get(9)?,
+            body_html: row.get(10)?,
+            flags: row.get(11)?,
+            ai_summary: row.get(12)?,
+            ai_priority: row.get(13)?,
+            ai_fraud_score: row.get(14)?,
+            is_read: row.get::<_, i32>(15)? != 0,
+            is_flagged: row.get::<_, i32>(16)? != 0,
+            synced: row.get::<_, i32>(17)? != 0,
+            has_attachments: row.get::<_, i32>(18)? != 0,
         })
     })?;
 
@@ -224,7 +262,7 @@ pub fn fetch_message_body(
 ) -> Result<Option<MessageRecord>, rusqlite::Error> {
     let result = match folder_id {
         Some(fid) => conn.query_row(
-            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
+            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                     body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
                     is_read, is_flagged, synced, has_attachments
              FROM messages
@@ -234,7 +272,7 @@ pub fn fetch_message_body(
             |row| row_to_message_record(row),
         ),
         None => conn.query_row(
-            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, date,
+            "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                     body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
                     is_read, is_flagged, synced, has_attachments
              FROM messages
@@ -261,17 +299,18 @@ fn row_to_message_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRec
         subject: row.get(4)?,
         from_addr: row.get(5)?,
         to_addr: row.get(6)?,
-        date: row.get(7)?,
-        body_text: row.get(8)?,
-        body_html: row.get(9)?,
-        flags: row.get(10)?,
-        ai_summary: row.get(11)?,
-        ai_priority: row.get(12)?,
-        ai_fraud_score: row.get(13)?,
-        is_read: row.get::<_, i32>(14)? != 0,
-        is_flagged: row.get::<_, i32>(15)? != 0,
-        synced: row.get::<_, i32>(16)? != 0,
-        has_attachments: row.get::<_, i32>(17)? != 0,
+        cc_addr: row.get(7)?,
+        date: row.get(8)?,
+        body_text: row.get(9)?,
+        body_html: row.get(10)?,
+        flags: row.get(11)?,
+        ai_summary: row.get(12)?,
+        ai_priority: row.get(13)?,
+        ai_fraud_score: row.get(14)?,
+        is_read: row.get::<_, i32>(15)? != 0,
+        is_flagged: row.get::<_, i32>(16)? != 0,
+        synced: row.get::<_, i32>(17)? != 0,
+        has_attachments: row.get::<_, i32>(18)? != 0,
     })
 }
 
@@ -282,7 +321,7 @@ pub fn fetch_message_body_with_folder(
     uid: i64,
     folder: Option<&str>,
 ) -> Result<Option<(MessageRecord, String)>, rusqlite::Error> {
-    const COLS: &str = "m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.date,
+    const COLS: &str = "m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.cc_addr, m.date,
                 m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority, m.ai_fraud_score,
                 m.is_read, m.is_flagged, m.synced, m.has_attachments, f.name";
     let result = match folder {
@@ -296,7 +335,7 @@ pub fn fetch_message_body_with_folder(
                  LIMIT 1"
             ),
             params![account_id, uid, f],
-            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(18)?)),
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(19)?)),
         ),
         None => conn.query_row(
             &format!(
@@ -309,7 +348,7 @@ pub fn fetch_message_body_with_folder(
                  LIMIT 1"
             ),
             params![account_id, uid],
-            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(18)?)),
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(19)?)),
         ),
     };
     match result {
@@ -330,17 +369,18 @@ fn message_record_from_row(row: &rusqlite::Row<'_>) -> Result<MessageRecord, rus
         subject: row.get(4)?,
         from_addr: row.get(5)?,
         to_addr: row.get(6)?,
-        date: row.get(7)?,
-        body_text: row.get(8)?,
-        body_html: row.get(9)?,
-        flags: row.get(10)?,
-        ai_summary: row.get(11)?,
-        ai_priority: row.get(12)?,
-        ai_fraud_score: row.get(13)?,
-        is_read: row.get::<_, i32>(14)? != 0,
-        is_flagged: row.get::<_, i32>(15)? != 0,
-        synced: row.get::<_, i32>(16)? != 0,
-        has_attachments: row.get::<_, i32>(17)? != 0,
+        cc_addr: row.get(7)?,
+        date: row.get(8)?,
+        body_text: row.get(9)?,
+        body_html: row.get(10)?,
+        flags: row.get(11)?,
+        ai_summary: row.get(12)?,
+        ai_priority: row.get(13)?,
+        ai_fraud_score: row.get(14)?,
+        is_read: row.get::<_, i32>(15)? != 0,
+        is_flagged: row.get::<_, i32>(16)? != 0,
+        synced: row.get::<_, i32>(17)? != 0,
+        has_attachments: row.get::<_, i32>(18)? != 0,
     })
 }
 
@@ -361,6 +401,14 @@ pub fn mark_as_read(conn: &Connection, account_id: i64, uid: i64) -> Result<(), 
 /// Mark a message read, scoped to an optional folder_id. UID is only unique per
 /// folder (local-only folders reuse uids), so an unscoped UPDATE could hit a row
 /// in the wrong folder when the same uid exists in multiple folders.
+pub fn folder_id_for_name(conn: &Connection, account_id: i64, folder_name: &str) -> Result<i64, rusqlite::Error> {
+    conn.query_row(
+        "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+        params![account_id, folder_name],
+        |row| row.get(0),
+    )
+}
+
 pub fn mark_as_read_in_folder(
     conn: &Connection,
     account_id: i64,
@@ -417,6 +465,22 @@ pub fn update_is_read(conn: &Connection, account_id: i64, uid: i64, is_read: boo
         "UPDATE messages SET is_read = ?, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",
         params![is_read as i32, account_id, uid],
     )?;
+    Ok(())
+}
+
+/// IMAP flag refresh variant: only downgrades read → unread when the local row
+/// was NOT touched within the cooldown window. Otherwise a message the user
+/// just read locally would be flipped back by a stale server flag (the \Seen
+/// round-trip can lag). Upgrades (unread → read) are always applied.
+pub fn update_is_read_guarded(conn: &Connection, account_id: i64, uid: i64, is_read: bool) -> Result<(), rusqlite::Error> {
+    let sql = if is_read {
+        "UPDATE messages SET is_read = 1, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2"
+    } else {
+        "UPDATE messages SET is_read = 0, updated_at = datetime('now')
+         WHERE account_id = ?1 AND uid = ?2
+           AND (updated_at IS NULL OR updated_at <= datetime('now', '-30 seconds'))"
+    };
+    conn.execute(sql, params![account_id, uid])?;
     Ok(())
 }
 
@@ -1115,7 +1179,7 @@ pub fn search_messages(
     }
 
     let mut sql = String::from(
-        "SELECT m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr,
+        "SELECT m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.cc_addr,
                 m.date, m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority,
                 m.ai_fraud_score, m.is_read, m.is_flagged, m.synced, m.has_attachments
          FROM messages m",
@@ -1144,17 +1208,18 @@ pub fn search_messages(
             subject: row.get(4)?,
             from_addr: row.get(5)?,
             to_addr: row.get(6)?,
-            date: row.get(7)?,
-            body_text: row.get(8)?,
-            body_html: row.get(9)?,
-            flags: row.get(10)?,
-            ai_summary: row.get(11)?,
-            ai_priority: row.get(12)?,
-            ai_fraud_score: row.get(13)?,
-            is_read: row.get::<_, i32>(14)? != 0,
-            is_flagged: row.get::<_, i32>(15)? != 0,
-            synced: row.get::<_, i32>(16)? != 0,
-            has_attachments: row.get::<_, i32>(17)? != 0,
+            cc_addr: row.get(7)?,
+            date: row.get(8)?,
+            body_text: row.get(9)?,
+            body_html: row.get(10)?,
+            flags: row.get(11)?,
+            ai_summary: row.get(12)?,
+            ai_priority: row.get(13)?,
+            ai_fraud_score: row.get(14)?,
+            is_read: row.get::<_, i32>(15)? != 0,
+            is_flagged: row.get::<_, i32>(16)? != 0,
+            synced: row.get::<_, i32>(17)? != 0,
+            has_attachments: row.get::<_, i32>(18)? != 0,
         })
     };
 

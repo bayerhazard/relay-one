@@ -22,6 +22,19 @@ export function extractEmail(from: string | undefined | null): string {
   return match ? match[1] : from;
 }
 
+/** Extract every address from one or more comma-separated recipient strings. */
+export function extractEmails(...parts: (string | undefined | null)[]): string[] {
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (!part) continue;
+    for (const chunk of part.split(",")) {
+      const email = extractEmail(chunk.trim());
+      if (email && !seen.has(email)) seen.add(email);
+    }
+  }
+  return Array.from(seen);
+}
+
 export function extractName(from: string | undefined | null): string {
   if (!from) return "";
   const match = from.match(/^([^<]+)\s*</);

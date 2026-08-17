@@ -1,53 +1,90 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
-> Stand: 2026-08-15
+> Stand: 2026-08-15 (6 neue Issues offen)
 
 ---
 
 ## Offen
 
-### Einstellungen-Menü unter Top-Down → Relay → Einstellungen verlinken
-- **Status:** ⬜ offen
-- **Kategorie:** UX / Navigation
-- **Priorität:** medium
-- **Beschreibung:** Unter dem obersten Top-Down-Menü → `relay` → `einstellungen` soll das Einstellungen-Menü von Relay verlinkt werden (direkter Zugriff auf die Relay-Einstellungen aus dem Menü).
-
-### Ordner-Neuanordnung in der Sidebar bleibt nicht persistent
-- **Status:** ⬜ offen
-- **Kategorie:** UX / Frontend
-- **Priorität:** medium
-- **Beschreibung:** Neuanordnungen der Verzeichnisse in der linken Sidebar überleben den App-Neustart nicht. Die Reihenfolge soll persistent gespeichert werden (z. B. localStorage/Settings), damit sie nach einem Restart erhalten bleibt.
-
-### Markieren von Mails funktioniert nicht
-- **Status:** ⬜ offen
-- **Kategorie:** UX / Backend
-- **Priorität:** high
-- **Beschreibung:** Das Markieren von Mails funktioniert derzeit nicht. Erwartetes Systemverhalten:
-  - Markierungen sind an der Mail sichtbar (Indikator).
-  - Über die rechte Maustaste / Kontextmenü kann eine Markierung gelöscht werden.
-  - Über die Suche lassen sich markierte Mails finden (Suchbegriff „Markierung" bzw. entsprechendes Flag).
-- **Hinweis:** In der alten `relay-repo` (Tauri-App) existiert bereits eine Markierungs-Funktion (is_flagged, toggle_flagged, Kontextmenü) — als Referenz prüfen. In relay-one ist das Flagging offenbar defekt/unvollständig.
-
-### Löschen von Mails entfernt diese nicht vom IMAP-Server
+### Account 2: Mails verschieben schlägt fehl (IMAP-Login-Limit)
 - **Status:** ⬜ offen
 - **Kategorie:** Backend / IMAP
 - **Priorität:** high
-- **Beschreibung:** Werden Mails aus dem Posteingang in Relay gelöscht, verbleiben diese dennoch auf dem IMAP-Server. Es muss sichergestellt werden, dass Löschen wirklich Löschen bedeutet (d. h. die Mails werden auch auf dem IMAP-Server entfernt bzw. entsprechend markiert/archiviert).
+- **Beschreibung:** Innerhalb von Account 2 lassen sich keine Mails verschieben. Fehler: „Die Nachricht konnte nicht verschoben werden: Die Nachricht konnte nicht verschoben werden. ([login] Auth: IMAP login fehlgeschlagen: No Response: [UNAVAILABLE] Maximum number of connections from user+IP exceeded (mail_max_userip_connections=25))". Ursache prüfen: zu viele offene IMAP-Verbindungen des Kontos (Connection-Pool/Leak?), Login-Limit des Providers (25 Verbindungen pro User+IP).
 
-### Anhänge werden nicht versendet / nicht angezeigt
-- **Status:** ⬜ offen
-- **Kategorie:** Backend / Frontend
-- **Priorität:** high (kritisch)
-- **Beschreibung:** Es werden keine Anhänge an den Mailausgängen angezeigt. Vermutlich werden die Mails sogar ohne Anhänge versendet. Bitte ausführlich prüfen — kritischer Fehler. Zu untersuchen: Attachment-Anzeige in der MessageList/Detailansicht, Sende-Pipeline (Compose → Server → SMTP), Attachment-Upload/Encoding.
-
-### Mobile Compose: Buttons zu dicht an der Begrenzungslinie + Ansicht korrumpiert
+### Account 2: Unterverzeichnisse lassen sich nicht in der Reihenfolge verschieben
 - **Status:** ⬜ offen
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** In der Mobile-Ansicht der Mail-Komposition (sowohl „Neue Mail" als auch „Antworten") sitzen die drei Buttons am unteren Ende zu dicht an der Begrenzungslinie darüber. Es soll ein kleines Padding (3–5 px) eingefügt werden.
-- **Zusatz (Antwort-Mail):** Nach unten ist kaum noch Platz. Vermutlich rücken die drei Buttons durch die Elemente darüber weiter nach unten und korrumpieren dadurch die Gesamtansicht.
-- **Lösungsvorschlag:** Den unteren Teilbereich mit den drei Buttons in der Höhe fixieren. Andere Elemente (z. B. das Eingabefeld für die Mail) verschwinden dahinter, wenn sie nicht passen, und können durch Scrollen angeschaut werden. Dies stellt sicher, dass die Mail-Compose-Ansicht auch bei kleineren Bildschirmen sauber ist.
+- **Beschreibung:** Die Unterverzeichnisse von Account 2 lassen sich nicht in der Reihenfolge verschieben (Drag-and-Drop-Reorder schlägt fehl bzw. wird nicht gespeichert). Siehe auch Issue „Ordner-Neuanordnung persistent" (erledigt) — hier speziell für Unterverzeichnisse von Account 2.
+
+### Empfänger-Anzeige: nur einer statt aller (Absender + CC)
+- **Status:** ⬜ offen
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+- **Beschreibung:** Bei Mails mit mehreren Empfängern wird immer nur einer bzw. der Absender angezeigt. Es sollen alle angezeigt werden (Absender und CC).
+
+### Antworten: Rückfrage „An alle oder nur an den Absender?"
+- **Status:** ⬜ offen
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+- **Beschreibung:** Wenn mehrere Empfänger vorhanden sind (Absender und CC), soll beim Klick auf „Antworten" eine Rückfrage kommen, ob an alle oder nur an den Absender geantwortet werden soll.
+
+### Ungelesen-Markierung trotz gelesen (z. B. ECommerce, store@ui.com)
+- **Status:** ⬜ offen
+- **Kategorie:** Backend / Sync
+- **Priorität:** high
+- **Beschreibung:** Manche Mails haben eine Ungelesen-Markierung, obwohl sie bereits gelesen sind (Beispiel: ECommerce, Absender store@ui.com). Bitte bereinigen (DB-Repair) und analysieren, woher es kommt (Flag-Sync/Scheduler?).
+- **Zusatz:** Frisch verschickte Mails erscheinen im Gesendet-Ordner immer als ungelesen → im Gesendet-Ordner können keine Mails ungelesen sein (Send-Pipeline markiert versendete Mails nicht als gelesen bzw. setzt is_read nicht korrekt).
+
+### Mobile Compose: Toolbar-Buttons nicht vertikal zentriert
+- **Status:** ⬜ offen
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+- **Beschreibung:** In der Mobile-Ansicht bei „Compose New Mail" sind die Buttons in der Toolbar unten falsch positioniert: Sie scheinen mit dem unteren Rand abzuschließen und sind zu hoch.
+- **Gewünscht:** Die Buttons sollen zum unteren Bildschirmrand UND zum oberen Trennbereich einen exakt gleichen Abstand haben — also im Toolbereich vertikal zentriert sein.
+- **Verifikation:** Screenshot erstellen und analysieren, um sicherzustellen, dass die Korrektur richtig ist.
+
+### Batch: Mehrere Mails gelesen/ungelesen markieren funktioniert nicht
+- **Status:** ⬜ offen
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+- **Beschreibung:** Mehrere Mails markieren (Mehrfachauswahl) und als Batch gelesen oder ungelesen markieren funktioniert nicht.
+
+---
+
+## Erledigt
+
+### Einstellungen-Menü unter Top-Down → Relay → Einstellungen verlinken
+- **Status:** ✅ erledigt
+- **Kategorie:** UX / Navigation
+- **Priorität:** medium
+
+### Ordner-Neuanordnung in der Sidebar bleibt nicht persistent
+- **Status:** ✅ erledigt
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+
+### Markieren von Mails funktioniert nicht
+- **Status:** ✅ erledigt
+- **Kategorie:** UX / Backend
+- **Priorität:** high
+
+### Löschen von Mails entfernt diese nicht vom IMAP-Server
+- **Status:** ✅ erledigt
+- **Kategorie:** Backend / IMAP
+- **Priorität:** high
+
+### Anhänge werden nicht versendet / nicht angezeigt
+- **Status:** ✅ erledigt
+- **Kategorie:** Backend / Frontend
+- **Priorität:** high (kritisch)
+
+### Mobile Compose: Buttons zu dicht an der Begrenzungslinie + Ansicht korrumpiert
+- **Status:** ✅ erledigt
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
 
 ---
 

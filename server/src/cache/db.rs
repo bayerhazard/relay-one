@@ -229,6 +229,7 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     )?;
 
     // Migration: add smtp columns to existing accounts tables
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN cc_addr TEXT", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_password TEXT NOT NULL DEFAULT ''", []);
     // Migration: attachment indicator (derived from BODYSTRUCTURE).

@@ -337,6 +337,20 @@ impl ImapClient {
                 }).collect::<Vec<_>>().join(", ")
             }).unwrap_or_default();
 
+            let cc = msg.envelope().map(|e| {
+                e.cc.as_deref().unwrap_or(&[]).iter().map(|addr| {
+                    let name = std::str::from_utf8(addr.name.as_deref().unwrap_or(b"")).unwrap_or("");
+                    let name = decode_rfc2047(name);
+                    let mb = std::str::from_utf8(addr.mailbox.as_deref().unwrap_or(b"")).unwrap_or("");
+                    let host = std::str::from_utf8(addr.host.as_deref().unwrap_or(b"")).unwrap_or("");
+                    if !name.is_empty() {
+                        format!("{} <{}@{}>", name, mb, host)
+                    } else {
+                        format!("{}@{}", mb, host)
+                    }
+                }).collect::<Vec<_>>().join(", ")
+            }).unwrap_or_default();
+
             let date = msg
                 .internal_date()
                 .map(|d| d.to_rfc3339())
@@ -366,6 +380,7 @@ impl ImapClient {
                     subject,
                     from,
                     to,
+                    cc,
                     date,
                     message_id,
                 },
@@ -1006,6 +1021,13 @@ impl ImapClient {
             }
             Ok(Err(join_err)) => {
                 *self.connected.lock().await = false;
+                // The blocking closure returned a JoinError — the session was
+                // handed into it and is now unreachable. Log it out if it is
+                // still alive so the provider doesn't hold the connection open
+                // until its own timeout (per-user connection limit).
+                if let Some(s) = self.session.lock().await.take() {
+                    logout_session(s).await;
+                }
                 Err(AppError::imap(
                     format!("IMAP-Operation '{}' abgebrochen: {}", op_name, join_err),
                     op_name,
@@ -1018,6 +1040,13 @@ impl ImapClient {
                     op_name,
                     timeout.as_secs()
                 );
+                // Timeout: the session variable was moved into the timed-out
+                // async block and dropped there; the provider keeps the TCP
+                // connection until its timeout. Nothing we can recover here,
+                // but make sure no stale session object survives in the slot.
+                if let Some(s) = self.session.lock().await.take() {
+                    logout_session(s).await;
+                }
                 Err(AppError::imap(
                     format!("IMAP-Operation '{}' Zeitüberschreitung", op_name),
                     "timeout",

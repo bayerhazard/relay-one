@@ -15,14 +15,14 @@
   import { mailbox, getFolderCache, invalidateFolderCache, type Message } from "$lib/stores/mailbox";
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
-    fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, sendMessage,
+    fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
     listAccounts, fetchFromImap, listImapFolders, createLocalFolder, deleteFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream,
   } from "$lib/services/tauri";
-  import { formatDate, extractEmail, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, type MailAttachment } from "$lib/utils/format";
+  import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, type MailAttachment } from "$lib/utils/format";
   import type { MailChainEntry } from "$lib/types/mail";
 
   let sidebarWidth = $state(220);
@@ -213,6 +213,9 @@ import {
   let showDeleteConfirm = $state(false);
   let showDeleteFolderConfirm = $state(false);
   let pendingDeleteFolder = $state<string | null>(null);
+  let showReplyAllDialog = $state(false);
+  let pendingReplyMessage = $state<Message | null>(null);
+  let replyAllDecision = $state<"sender" | "all" | null>(null);
   let pendingDeleteUid = $state<number | null>(null);
   let isDeleting = $state(false);
   let moveToTrash = $state(true);
@@ -369,6 +372,56 @@ let sentFolderName = $state<string | null>(null);
     } catch {
       return names;
     }
+  }
+
+  // Parent path of a folder ("" for top-level), using its delimiter. IMAP
+  // subfolders are stored as "<parent><delim><child>" full names, so the flat
+  // folder list is NOT a linear sort order: reordering a child must only move
+  // it relative to its own siblings, never across parents.
+  function folderParent(name: string, delimMap: Record<string, string>): string {
+    const delim = (delimMap[name] || "").length > 0 ? delimMap[name] : ".";
+    const idx = name.lastIndexOf(delim);
+    return idx > 0 ? name.slice(0, idx) : "";
+  }
+
+  // Tree-aware folder reorder: moves `source` to the position of `target`
+  // within their shared sibling group (same parent). Returns null when the two
+  // folders belong to different parents (cross-parent moves are not supported
+  // by drag-drop) or when a folder is missing.
+  function reorderFolderSiblings(
+    names: string[],
+    delimMap: Record<string, string>,
+    source: string,
+    target: string,
+  ): string[] | null {
+    const sourceParent = folderParent(source, delimMap);
+    const targetParent = folderParent(target, delimMap);
+    if (sourceParent !== targetParent) return null;
+
+    // Sibling order within a parent is their relative order in the flat list.
+    // Extract the sibling group, splice within it, then re-insert preserving
+    // the position of every non-sibling folder.
+    const siblings: string[] = [];
+    const positions: number[] = [];
+    for (let i = 0; i < names.length; i++) {
+      if (folderParent(names[i], delimMap) === sourceParent) {
+        siblings.push(names[i]);
+        positions.push(i);
+      }
+    }
+    const fromIdx = siblings.indexOf(source);
+    const toIdx = siblings.indexOf(target);
+    if (fromIdx < 0 || toIdx < 0) return null;
+
+    const reorderedSiblings = [...siblings];
+    const [moved] = reorderedSiblings.splice(fromIdx, 1);
+    reorderedSiblings.splice(toIdx, 0, moved);
+
+    const result = [...names];
+    positions.forEach((pos, i) => {
+      result[pos] = reorderedSiblings[i];
+    });
+    return result;
   }
 
   function loadFolderCustomization() {
@@ -1156,12 +1209,8 @@ let sentFolderName = $state<string | null>(null);
       ac.abort();
       requestAnimationFrame(() => {
         if (moved && dragSource && dragTarget && dragSource !== dragTarget) {
-          const fromIdx = folderNames.indexOf(dragSource);
-          const toIdx = folderNames.indexOf(dragTarget);
-          if (fromIdx >= 0 && toIdx >= 0) {
-            const reordered = [...folderNames];
-            const [movedName] = reordered.splice(fromIdx, 1);
-            reordered.splice(toIdx, 0, movedName);
+          const reordered = reorderFolderSiblings(folderNames, folderDelimiters, dragSource, dragTarget);
+          if (reordered) {
             folderNames = reordered;
             localStorage.setItem(getStoreKey("folder_order"), JSON.stringify(reordered));
             // The sidebar renders from the per-account store — keep it in sync
@@ -1572,10 +1621,38 @@ let sentFolderName = $state<string | null>(null);
   }
 
   async function handleReply(msg: Message) {
+    // Ask whether to reply to everyone when the original mail went to
+    // multiple recipients (To has several addresses, or there is a CC).
+    const toList = (msg.to ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const ccList = (msg.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const multiRecipient = toList.length > 1 || ccList.length > 0;
+    if (multiRecipient && !replyAllDecision) {
+      pendingReplyMessage = msg;
+      showReplyAllDialog = true;
+      return;
+    }
+    doHandleReply(msg, false);
+  }
+
+  function handleReplyToSender() {
+    const msg = pendingReplyMessage;
+    showReplyAllDialog = false;
+    pendingReplyMessage = null;
+    if (msg) doHandleReply(msg, false);
+  }
+
+  function handleReplyAll() {
+    const msg = pendingReplyMessage;
+    showReplyAllDialog = false;
+    pendingReplyMessage = null;
+    if (msg) doHandleReply(msg, true);
+  }
+
+  async function doHandleReply(msg: Message, replyAll: boolean) {
     composeMode = "reply";
     sendError = null;
     replySubject = msg.subject ?? "";
-    replyTo = extractEmail(msg.from ?? "");
+    replyTo = replyAll ? extractEmails([msg.from ?? "", msg.to ?? "", msg.cc ?? ""]).join(", ") : extractEmail(msg.from ?? "");
     recipientName = extractName(msg.from ?? "");
     showCompose = true;
 
@@ -1690,26 +1767,24 @@ let sentFolderName = $state<string | null>(null);
   }
 
   async function toggleReadStatus() {
-    const uids = $mailbox.selectedUids;
+    const uids = [...$mailbox.selectedUids];
     if (uids.length === 0) return;
-    for (const uid of uids) {
-      const msg = $mailbox.messages.find((m) => m.uid === uid);
-      if (!msg) continue;
-      if (msg.is_read) {
-        try {
-          await markAsUnseen(selectedAccountId, uid, selectedFolder);
-          mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
-        } catch (e) {
-          console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
-        }
+    // Determine the desired state from the first selected message (they share
+    // one toolbar action). Batch the request so large selections (e.g. whole
+    // folders) don't fire one HTTP round-trip per message.
+    const first = $mailbox.messages.find((m) => m.uid === uids[0]);
+    const targetRead = first ? !first.is_read : false;
+    try {
+      if (targetRead) {
+        await markBatchAsRead(selectedAccountId, uids, selectedFolder);
       } else {
-        try {
-          await markAsRead(selectedAccountId, uid, selectedFolder);
-          mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
-        } catch (e) {
-          console.warn("toggleReadStatus fehlgeschlagen fuer uid", uid, e);
-        }
+        await markBatchAsUnseen(selectedAccountId, uids, selectedFolder);
       }
+      for (const uid of uids) {
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: targetRead });
+      }
+    } catch (e) {
+      console.warn("toggleReadStatus fehlgeschlagen", e);
     }
     updateBadgeCount(selectedAccountId).catch(() => {});
   }
@@ -1717,15 +1792,14 @@ let sentFolderName = $state<string | null>(null);
   // Mark all selected messages as read (toolbar action).
   async function markSelectedRead() {
     const uids = [...$mailbox.selectedUids];
-    for (const uid of uids) {
-      const msg = $mailbox.messages.find((m) => m.uid === uid);
-      if (!msg || msg.is_read) continue;
-      try {
-        await markAsRead(selectedAccountId, uid, selectedFolder);
+    if (uids.length === 0) return;
+    try {
+      await markBatchAsRead(selectedAccountId, uids, selectedFolder);
+      for (const uid of uids) {
         mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
-      } catch (e) {
-        console.warn("markSelectedRead fehlgeschlagen fuer uid", uid, e);
       }
+    } catch (e) {
+      console.warn("markSelectedRead fehlgeschlagen", e);
     }
     updateBadgeCount(selectedAccountId).catch(() => {});
   }
@@ -2210,6 +2284,16 @@ let sentFolderName = $state<string | null>(null);
         <div class="preview-content-area">
           <h1 class="preview-subject-large">{selectedMessage.subject || "(Kein Betreff)"}</h1>
           <div class="preview-date-line">{formatDate(selectedMessage.date)}</div>
+          {#if selectedMessage.to || selectedMessage.cc}
+            <div class="preview-recipients">
+              {#if selectedMessage.to}
+                <span class="preview-recipient-line"><strong>An:</strong> {selectedMessage.to}</span>
+              {/if}
+              {#if selectedMessage.cc}
+                <span class="preview-recipient-line"><strong>CC:</strong> {selectedMessage.cc}</span>
+              {/if}
+            </div>
+          {/if}
           
           <div class="preview-body">
             {#if loadingBodyUid === selectedMessage.uid}
@@ -2432,7 +2516,7 @@ let sentFolderName = $state<string | null>(null);
             </div>
           </div>
           
-          <span class="version">Relay 2.1</span>
+          <span class="version">AImighty Relay 3.0</span>
         </div>
       </div>
     </aside>
@@ -2543,6 +2627,20 @@ let sentFolderName = $state<string | null>(null);
       danger={true}
       onconfirm={confirmDeleteFolder}
       oncancel={() => { showDeleteFolderConfirm = false; pendingDeleteFolder = null; }}
+    />
+  {/if}
+
+  {#if showReplyAllDialog}
+    <ConfirmationDialog
+      open={showReplyAllDialog}
+      title="Antworten"
+      message={`Diesen Empfänger betrifft der Thread mehrere Personen. Antwort nur an den Absender oder an alle?`}
+      confirmLabel="An alle antworten"
+      altLabel="Nur an Absender"
+      cancelLabel="Abbrechen"
+      onconfirm={handleReplyAll}
+      onalt={handleReplyToSender}
+      oncancel={() => { showReplyAllDialog = false; pendingReplyMessage = null; }}
     />
   {/if}
 
@@ -3120,6 +3218,18 @@ let sentFolderName = $state<string | null>(null);
 .preview-date-line {
     font-size: 0.75rem;
     color: var(--color-text-secondary);
+  }
+  .preview-recipients {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 8px 0 4px;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+  }
+  .preview-recipient-line strong {
+    color: var(--color-text);
+    font-weight: 600;
   }
   .mail-iframe-container {
     background: var(--color-list);

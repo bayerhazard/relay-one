@@ -41,6 +41,7 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
         "subject": m.subject.as_deref().map(client::decode_rfc2047),
         "from": m.from_addr,
         "to": m.to_addr,
+        "cc": m.cc_addr,
         "date": m.date,
         "body_preview": body_preview(m),
         "body_text": m.body_text.as_deref().map(|b| decode_body_text(b, m.synced)),
@@ -73,6 +74,7 @@ fn message_to_json_meta(m: &MessageRecord) -> serde_json::Value {
         "subject": m.subject.as_deref().map(client::decode_rfc2047),
         "from": m.from_addr,
         "to": m.to_addr,
+        "cc": m.cc_addr,
         "date": m.date,
         "body_preview": body_preview(m),
         "flags": m.flags,
@@ -268,29 +270,57 @@ pub async fn fetch_messages(
     State(state): State<AppState>,
     Query(q): Query<FetchMessagesQuery>,
 ) -> ApiResult<Vec<serde_json::Value>> {
+    let folder_name = q.folder.clone().unwrap_or_else(|| "INBOX".to_string());
+    let list_only = q.list_only.unwrap_or(false);
+
+    // Meta-only list requests hit the server-side cache first so repeated
+    // folder switches are instant (no DB query + JSON re-serialization).
+    if list_only {
+        if let Some(cached) = state.folder_cache.read().get(q.account_id as i64, &folder_name) {
+            return Ok(Json(cached));
+        }
+    }
+
     let messages = with_db(&state, |conn| {
-        let folder_name = q.folder.as_deref().unwrap_or("INBOX");
-        cache::messages::fetch_inbox(
-            conn,
-            q.account_id as i64,
-            q.limit.map(|v| v as i64),
-            q.offset.map(|v| v as i64),
-            folder_name,
-        )
-        .map_err(|e| e.to_string())
+        if list_only {
+            cache::messages::fetch_inbox_meta(
+                conn,
+                q.account_id as i64,
+                q.limit.map(|v| v as i64),
+                q.offset.map(|v| v as i64),
+                &folder_name,
+            )
+            .map_err(|e| e.to_string())
+        } else {
+            cache::messages::fetch_inbox(
+                conn,
+                q.account_id as i64,
+                q.limit.map(|v| v as i64),
+                q.offset.map(|v| v as i64),
+                &folder_name,
+            )
+            .map_err(|e| e.to_string())
+        }
     })?;
-    Ok(Json(
-        messages
-            .iter()
-            .map(|m| {
-                if q.list_only.unwrap_or(false) {
-                    message_to_json_meta(m)
-                } else {
-                    message_to_json(m)
-                }
-            })
-            .collect(),
-    ))
+
+    let json: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| {
+            if list_only {
+                message_to_json_meta(m)
+            } else {
+                message_to_json(m)
+            }
+        })
+        .collect();
+
+    if list_only {
+        state
+            .folder_cache
+            .write()
+            .put(q.account_id as i64, &folder_name, json.clone());
+    }
+    Ok(Json(json))
 }
 
 /// `GET /api/v1/messages/search?account_id=&query=&limit=`
@@ -1111,6 +1141,75 @@ pub async fn mark_as_unseen(
         }
     }
     Ok(Json(()))
+}
+
+/// `POST /api/v1/messages/read-batch` / `unread-batch` body:
+/// `{"account_id": N, "uids": [...], "source_folder": "INBOX"}`
+#[derive(Deserialize)]
+pub struct BatchReadRequest {
+    pub account_id: u32,
+    pub uids: Vec<u32>,
+    #[serde(default)]
+    pub source_folder: Option<String>,
+}
+
+/// Shared implementation for marking many UIDs read/unread in one request.
+async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> ApiResult<()> {
+    if req.uids.is_empty() {
+        return Ok(Json(()));
+    }
+    let account_id = req.account_id;
+    let folder_name = req.source_folder.clone();
+    // Resolve the folder once (all UIDs live in the same source folder).
+    let folder_id = {
+        let db_guard = get_db(state).map_err(|e| ApiError(e))?;
+        let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
+        cache::messages::folder_id_for_name(conn, account_id as i64, folder_name.as_deref().unwrap_or("INBOX"))
+            .map_err(|e| ApiError(e.to_string()))?
+    };
+
+    with_db(state, |conn| {
+        for uid in &req.uids {
+            let res = if read {
+                cache::messages::mark_as_read_in_folder(conn, account_id as i64, *uid as i64, Some(folder_id))
+            } else {
+                cache::messages::mark_as_unseen_in_folder(conn, account_id as i64, *uid as i64, Some(folder_id))
+            };
+            if let Err(e) = res {
+                tracing::warn!("batch_set_read: uid {} fehlgeschlagen: {}", uid, e);
+            }
+        }
+        Ok::<_, String>(())
+    })?;
+
+    // Remote \Seen sync: run after the DB writes; the per-UID client call is
+    // cheap and failures are only logged (the DB state is authoritative).
+    let client = {
+        let guard = state.imap_clients.read();
+        guard.get(&account_id).cloned()
+    };
+    if let Some(client) = client {
+        for uid in &req.uids {
+            if let Err(e) = client.mark_flag(*uid, "\\Seen", read, Some(folder_name.clone().unwrap_or_else(|| "INBOX".to_string()))).await {
+                tracing::warn!("batch_set_read: IMAP-Flag uid {} fehlgeschlagen: {}", uid, e);
+            }
+        }
+    }
+    Ok(Json(()))
+}
+
+pub async fn mark_batch_as_read(
+    State(state): State<AppState>,
+    Json(req): Json<BatchReadRequest>,
+) -> ApiResult<()> {
+    batch_set_read(&state, req, true).await
+}
+
+pub async fn mark_batch_as_unseen(
+    State(state): State<AppState>,
+    Json(req): Json<BatchReadRequest>,
+) -> ApiResult<()> {
+    batch_set_read(&state, req, false).await
 }
 
 /// `POST /api/v1/messages/flag` — toggle the \Flagged (star) flag.

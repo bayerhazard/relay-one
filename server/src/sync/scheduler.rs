@@ -332,7 +332,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
                     }
                 };
                 for (uid, is_read, is_flagged) in &fetched {
-                    if let Err(e) = crate::cache::messages::update_is_read(
+                    if let Err(e) = crate::cache::messages::update_is_read_guarded(
                         &tx, *account_id as i64, *uid as i64, *is_read,
                     ) {
                         tracing::warn!("flag_refresh: update_is_read uid={} fehlgeschlagen: {}", uid, e);

@@ -352,8 +352,8 @@ pub async fn send_message(
             )
             .map_err(|e| e.to_string())?;
             conn.execute(
-                "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
-                 VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Gesendet'), ?2, ?3, '', ?4, ?5, ?6, ?7, 0)",
+                "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced, is_read)
+                 VALUES (?1, (SELECT id FROM folders WHERE account_id = ?1 AND name = 'Gesendet'), ?2, ?3, '', ?4, ?5, ?6, ?7, 0, 1)",
                 rusqlite::params![account_id, uid, subject, to_addr, date, req.body_text, req.body_html],
             )
             .map_err(|e| e.to_string())?;
@@ -436,7 +436,10 @@ pub async fn send_message(
                 match imap_client.list_folders_detailed().await {
                     Ok(folders) => {
                         if let Some(sent_folder) = find_special_folder(&folders, SpecialFolder::Sent) {
-                            match imap_client.append_message(&sent_folder, &raw_bytes, None).await {
+                            // APPEND with \Seen so freshly sent messages are
+                            // not "unread" on the server and stay in sync with
+                            // the local Sent list.
+                            match imap_client.append_message(&sent_folder, &raw_bytes, Some(&["\\Seen"])).await {
                                 Ok(()) => {
                                     sent_copy_saved = true;
                                     tracing::info!("send_message: Kopie nach '{}' gespeichert", sent_folder);

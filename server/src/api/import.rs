@@ -302,6 +302,9 @@ fn import_mbox_content(
         let subject = parsed.subject().map(|s| s.to_string()).unwrap_or_default();
         let from_addr = parsed.from().and_then(|a| a.first()).and_then(|a| a.address()).map(|s| s.to_string()).unwrap_or_default();
         let to_addr = parsed.to().and_then(|a| a.first()).and_then(|a| a.address()).map(|s| s.to_string()).unwrap_or_default();
+        let cc_addr = parsed.cc().map(|addrs| {
+            addrs.iter().filter_map(|a| a.address().map(|s| s.to_string())).collect::<Vec<_>>().join(", ")
+        }).unwrap_or_default();
         let date = parsed.date().map(|d| d.to_string()).unwrap_or_default();
         let message_id = parsed.message_id().map(|s| s.to_string()).unwrap_or_default();
         let body_text = parsed
@@ -370,14 +373,14 @@ fn import_mbox_content(
         with_db(state, |conn| {
             conn.execute(
                 "INSERT OR IGNORE INTO messages
-                 (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, date,
+                 (account_id, folder_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                   body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
                   is_read, is_flagged, has_attachments, synced, raw_path, raw_sha256)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                         ?9, ?10, ?11, NULL, NULL, NULL, 0, 0, ?12, 0, ?13, ?14)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                         ?10, ?11, ?12, NULL, NULL, NULL, 0, 0, ?13, 0, ?14, ?15)",
                 rusqlite::params![
                     account_id as i64, folder_id, uid,
-                    message_id, subject, from_addr, to_addr, date,
+                    message_id, subject, from_addr, to_addr, cc_addr, date,
                     body_text, body_html, "[]", has_attachments as i32,
                     rel, raw_sha,
                 ],

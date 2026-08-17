@@ -51,6 +51,9 @@ pub struct AppState {
     pub data_root: std::path::PathBuf,
     /// Background migration status (started via /migrate/start).
     pub migration: Arc<parking_lot::RwLock<Option<crate::api::migrate::MigrationStatus>>>,
+    /// Meta-only folder list cache (account_id → folder → last list), so
+    /// repeated folder switches render instantly without re-reading the DB.
+    pub folder_cache: Arc<parking_lot::RwLock<crate::cache::FolderListCache>>,
 }
 
 impl AppState {
@@ -73,6 +76,9 @@ impl AppState {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| std::path::PathBuf::from("/data/Relay")),
             migration: Arc::new(parking_lot::RwLock::new(None)),
+            folder_cache: Arc::new(parking_lot::RwLock::new(
+                crate::cache::FolderListCache::new(),
+            )),
         }
     }
 

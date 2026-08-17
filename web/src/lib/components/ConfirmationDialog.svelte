@@ -5,8 +5,10 @@
       message: string;
       confirmLabel?: string;
       cancelLabel?: string;
+      altLabel?: string;
       onconfirm: () => void;
       oncancel: () => void;
+      onalt?: () => void;
       danger?: boolean;
     }
 
@@ -16,8 +18,10 @@
       message,
       confirmLabel = "Bestätigen",
       cancelLabel = "Abbrechen",
+      altLabel = "",
       onconfirm,
       oncancel,
+      onalt,
       danger = false,
     }: Props = $props();
 
@@ -55,6 +59,11 @@
           <h2 id="dialog-title" class="dialog-title">{title}</h2>
           <p id="dialog-message" class="dialog-message">{message}</p>
           <div class="dialog-actions">
+            {#if altLabel && onalt}
+              <button type="button" class="btn-alt" onclick={onalt}>
+                {altLabel}
+              </button>
+            {/if}
             <button
               type="button"
               class="btn-cancel"
@@ -137,6 +146,7 @@
       display: flex;
       justify-content: flex-end;
       gap: 10px;
+      flex-wrap: wrap;
     }
 
     .btn-cancel {
@@ -157,6 +167,28 @@
     }
 
     .btn-cancel:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    .btn-alt {
+      padding: 8px 18px;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: var(--color-list);
+      color: var(--color-text);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+    }
+
+    .btn-alt:hover {
+      background: var(--color-sidebar);
+      border-color: var(--color-text-secondary);
+    }
+
+    .btn-alt:focus-visible {
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }

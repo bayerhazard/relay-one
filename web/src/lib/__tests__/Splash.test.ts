@@ -110,7 +110,7 @@ describe("Splash Screen Integration in +page.svelte", () => {
 
     await waitFor(() => {
       // The app-container has the sidebar version info
-      expect(screen.getByText("Relay 2.1")).toBeTruthy();
+      expect(screen.getByText("AImighty Relay 3.0")).toBeTruthy();
     });
 
     // Splash screen header should NOT be present

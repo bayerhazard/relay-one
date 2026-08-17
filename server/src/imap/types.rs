@@ -6,6 +6,7 @@ pub struct MailEnvelope {
     pub subject: String,
     pub from: String,
     pub to: String,
+    pub cc: String,
     pub date: String,
     pub message_id: String,
 }

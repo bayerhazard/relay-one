@@ -57,6 +57,8 @@ pub fn router() -> Router<AppState> {
 .route("/messages/attachment", get(messages::fetch_attachment_content))
         .route("/messages/read", post(messages::mark_as_read))
         .route("/messages/unread", post(messages::mark_as_unseen))
+        .route("/messages/read-batch", post(messages::mark_batch_as_read))
+        .route("/messages/unread-batch", post(messages::mark_batch_as_unseen))
         .route("/messages/flag", post(messages::flag_message))
         .route("/messages/move-cross-account", post(messages::move_cross_account))
         .route("/messages/delete", post(messages::delete_message))
