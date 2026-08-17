@@ -197,7 +197,7 @@
   .range-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-text-secondary, #8e8e93);
+    color: var(--color-text-secondary);
     letter-spacing: 0.01em;
   }
 
@@ -217,7 +217,7 @@
   .slider-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-accent, #007aff);
+    color: var(--color-accent);
     background: var(--color-list);
     border: 1px solid var(--color-border);
     padding: 2px 10px;
@@ -249,7 +249,7 @@
     right: 0;
     height: 4px;
     border-radius: 2px;
-    background: var(--color-border, #e5e5ea);
+    background: var(--color-border);
   }
 
   .track-fill {
@@ -257,7 +257,7 @@
     left: 0;
     height: 4px;
     border-radius: 2px;
-    background: linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 80%, #000000));
+    background: var(--color-accent);
     transition: width 0.05s linear;
     pointer-events: none;
     z-index: 1;
@@ -279,8 +279,7 @@
     border-radius: 50%;
     background: #fff;
     box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.15),
-      0 0 0 1px rgba(0, 0, 0, 0.04);
+0 0 0 1px rgba(0, 0, 0, 0.04);
     transition:
       transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
       box-shadow 0.15s ease;
@@ -290,8 +289,7 @@
   .thumb.dragging .thumb-ring {
     transform: scale(1.25);
     box-shadow:
-      0 3px 8px rgba(0, 0, 0, 0.2),
-      0 0 0 2px color-mix(in srgb, var(--color-accent, #007aff) 30%, transparent);
+0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
   }
 
   .track:active .thumb-ring {
@@ -304,8 +302,7 @@
 
   .track:focus-visible .thumb-ring {
     box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.15),
-      0 0 0 2px var(--color-accent, #007aff);
+0 0 0 2px var(--color-accent);
   }
 
   @container (max-width: 480px) {

@@ -1710,7 +1710,7 @@ async function handleSaveCardDav() {
     border-radius: 12px;
     padding: 24px;
     margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    box-shadow: none;
   }
 
   .card-header {
@@ -1815,7 +1815,7 @@ async function handleSaveCardDav() {
     border-radius: 4px;
     overflow: hidden;
     border: 1px solid var(--color-border);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    box-shadow: none;
   }
 
   .mock-sidebar {
@@ -1865,7 +1865,7 @@ async function handleSaveCardDav() {
   }
 
   .light-dot { background: var(--color-accent); }
-  .dark-dot { background: #C9A45C; }
+  .dark-dot { background: #caa960; }
 
   .theme-label {
     font-size: 0.8125rem;
@@ -1913,7 +1913,7 @@ async function handleSaveCardDav() {
     background-color: #FFFFFF;
     border-radius: 50%;
     transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    box-shadow: none;
   }
 
   input:checked + .switch-slider {
@@ -2094,7 +2094,7 @@ async function handleSaveCardDav() {
     height: 16px;
     border-radius: 50%;
     background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    box-shadow: none;
     transition: transform 0.2s ease;
   }
   .toggle-label .toggle:checked + .toggle-track {
@@ -2298,7 +2298,7 @@ async function handleSaveCardDav() {
     justify-content: center;
     font-weight: 700;
     font-size: 1rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    box-shadow: none;
     flex-shrink: 0;
   }
 

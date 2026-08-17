@@ -6,12 +6,9 @@
    Typo: Geist / Geist Mono (selbst gehostet, OFL)
    ============================================================ */
 
-/* --- Geist / Geist Mono (lokal, font-display:swap) --- */
-@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url('./fonts/Geist-Regular.woff2') format('woff2')}
-@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url('./fonts/Geist-Medium.woff2') format('woff2')}
-@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url('./fonts/Geist-SemiBold.woff2') format('woff2')}
-@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url('./fonts/Geist-Bold.woff2') format('woff2')}
-@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url('./fonts/GeistMono-Regular.woff2') format('woff2')}
+/* --- Geist / Geist Mono (lokal, Variable Fonts, font-display:swap) --- */
+@font-face{font-family:'Geist';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/Geist.woff2') format('woff2')}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/GeistMono.woff2') format('woff2')}
 
 /* ============================================================
    Helles Theme (Default) — Hanseatenblau
@@ -21,7 +18,7 @@
   --b-100:#051729; --b-150:#0a2238; --b-200:#142e47;
   --b-300:#294766; --b-400:#3f6082; --b-500:#6683a2;
   --b-600:#8ca1b7; --b-700:#b2bfcd; --b-800:#d3dae1; --b-900:#ebeff3;
-  --gold:#c9a45c; --gold-hell:#d5b371; --gold-tief:#b28b42;
+  --gold:#caa960; --gold-hell:#d8bd7d; --gold-tief:#8c6c1f;
 
   /* App-Flächen */
   --color-sidebar: #f4f7fa;
@@ -32,9 +29,9 @@
   --color-accent-hover: var(--b-200);
   --color-text: var(--b-150);
   --color-text-secondary: var(--b-500);
-  --color-danger: #c0403a;
-  --color-warning: #a06a1f;
-  --color-success: #2e7d5b;
+  --color-danger: #ad3f38;
+  --color-warning: #9f5100;
+  --color-success: #007e46;
   --color-unread: var(--b-400);
   --color-active-wash: var(--b-900);
   --color-unread-wash: rgba(63, 96, 130, 0.10);
@@ -45,6 +42,18 @@
   --radius-l: 12px;
   --fokus-ring: 2px solid var(--color-accent);
   --fokus-offset: 3px;
+
+  /* AImighty-Raster (Designguide): Grundeinheit 4 px, Dichte-Hebel */
+  --am-skalierung: 1; /* kompakt 0,9 · weit 1,1 */
+  --am-einheit: 0.25rem;
+  --am-raum-4: calc(var(--am-einheit) * 4 * var(--am-skalierung));
+  --am-raum-8: calc(var(--am-einheit) * 8 * var(--am-skalierung));
+  --am-raum-12: calc(var(--am-einheit) * 12 * var(--am-skalierung));
+  --am-raum-16: calc(var(--am-einheit) * 16 * var(--am-skalierung));
+  --am-raum-24: calc(var(--am-einheit) * 24 * var(--am-skalierung));
+  --am-raum-32: calc(var(--am-einheit) * 32 * var(--am-skalierung));
+  --am-raum-48: calc(var(--am-einheit) * 48 * var(--am-skalierung));
+  --am-raum-64: calc(var(--am-einheit) * 64 * var(--am-skalierung));
 
   color-scheme: light;
 }
@@ -62,12 +71,12 @@
   --color-accent-hover: var(--gold-hell);
   --color-text: var(--b-800);
   --color-text-secondary: var(--b-500);
-  --color-danger: #e0605a;
-  --color-warning: #e0a04a;
-  --color-success: #4caf80;
+  --color-danger: #f6857a;
+  --color-warning: #ed914c;
+  --color-success: #55c483;
   --color-unread: var(--gold);
-  --color-active-wash: rgba(201, 164, 92, 0.10);
-  --color-unread-wash: rgba(201, 164, 92, 0.07);
+  --color-active-wash: rgba(202, 169, 96, 0.10);
+  --color-unread-wash: rgba(202, 169, 96, 0.07);
 
   --fokus-ring: 2px solid var(--color-accent);
 

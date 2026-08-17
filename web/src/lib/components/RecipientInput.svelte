@@ -262,7 +262,7 @@
     max-height: 200px;
     overflow-y: auto;
     z-index: 1000;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    box-shadow: none;
     padding: 4px 0;
   }
 

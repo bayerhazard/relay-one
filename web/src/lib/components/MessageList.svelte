@@ -590,7 +590,7 @@
     background: var(--color-list);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    box-shadow: none;
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -640,7 +640,7 @@
     overflow-y: auto;
     border: none;
     border-radius: 16px 16px 0 0;
-    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+    box-shadow: none;
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
     animation: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   }
@@ -736,9 +736,9 @@
     white-space: nowrap;
   }
   /* iOS system colours (Mail.app conventions). */
-  .swipe-action.flag { background: #ff9500; }
-  .swipe-action.read { background: #007aff; }
-  .swipe-action.delete { background: #ff3b30; }
+  .swipe-action.flag { background: var(--color-warning); }
+  .swipe-action.read { background: var(--color-accent); }
+  .swipe-action.delete { background: var(--color-danger); }
 
   @media (pointer: coarse) {
     .message-item {

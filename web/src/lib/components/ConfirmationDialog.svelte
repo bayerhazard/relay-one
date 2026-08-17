@@ -98,7 +98,7 @@
       background: var(--color-list);
       border: 1px solid var(--color-border);
       border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      box-shadow: none;
       max-width: 400px;
       width: 90vw;
       animation: panelIn 0.15s ease-out;

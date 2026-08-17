@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.88
+  version: 26.09.89
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.88
+  versionName: 26.09.89
   upgradeDescription: |
+    v26.09.89: Designguide-Konformitaet — Hanseatenblau/Gold-Palette (#caa960), keine Apple-Farben/SF-Fonts, Geist als Variable Fonts (100-900), keine dekorativen Schatten/Verlaeufe, Zustandsfarben an Guide-Palette, konformes App-Icon (Hanseatenblau + goldener Punkt). Built for Olares 1.12.6.
     v26.09.88: NEU Anhang-Vorschau — (1) "Öffnen" zeigt das Dokument jetzt in einem In-App-Overlay (Root-Cause vorher: Blob ohne MIME-Type + window.open im WebView-Kontext → leeres Fenster). Blob trägt jetzt den content_type, Overlay rendert PDFs/Bilder/Text im iframe/img, Download-Button im Overlay, Esc/Scrim schließt, revokeObjectURL beim Schließen. (2) Kontextmenü: "Speichern als…" → "Download" (Verhalten war bereits direkter Download; Label irreführend); saveAttachment nutzt jetzt ebenfalls den MIME-Type. (3) Mobile Compose: Button-Padding oben/unten 10px → 15px (height auto, min-height 45px — verhindert Label-Überlauf bei border-box), vertikale Zentrierung per Browser-Messung bestätigt (0px Abweichung zur Toolbar-Mitte). Built for Olares 1.12.6.
     v26.09.87: Mobile Compose: Fußzeilen-Toolbar korrigiert — Buttons 58px → 45px, Button-Padding oben/unten 10px, Toolbar-Padding 10px; vertikale Zentrierung per Browser-Messung verifiziert (Button-Mitte = Toolbar-Mitte, 0px Abweichung). Built for Olares 1.12.6.
     v26.09.86: NEU Markiert-Stern — (1) Suchfeld: Stern-Shortcut (Umriss=inaktiv, gefüllt=aktiv) filtert auf markierte E-Mails (is:flagged); die is:flagged-Suche war durch einen Parameter-Bug defekt (LIMIT ?3 mit 2 gebundenen Params → "Got 2, needed 3") und funktioniert jetzt (auch manuell tippbar, kombinierbar mit Text). (2) Markierte Mails zeigen den gleichen stilisierten Stern als Markierung (statt 🚩-Emoji), normale Schriftfarbe. (3) Mobile Compose: Fußzeilen-Toolbar um 33% erhöht (Touch-Ziele 44px → 58px, Padding 5→7px, Toolbar-Padding 8→10px). Built for Olares 1.12.6.

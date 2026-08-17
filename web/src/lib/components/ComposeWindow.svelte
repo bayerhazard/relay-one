@@ -677,7 +677,7 @@
     background: var(--color-list);
     overflow: hidden;
     margin: 16px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 12px 36px rgba(0, 0, 0, 0.06);
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -1007,7 +1007,7 @@
   }
 
   .error-banner {
-    background: #ffeef0; color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent); color: var(--color-danger);
     padding: 10px 14px; border-radius: 8px; font-size: 0.75rem; margin-top: 12px;
   }
   .generation-status {
@@ -1093,7 +1093,7 @@
     border-radius: 12px;
     padding: 24px 28px;
     min-width: 280px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
+    box-shadow: none;
     animation: scaleIn 0.15s ease-out;
   }
   .close-dialog-title {

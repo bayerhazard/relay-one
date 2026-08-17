@@ -992,7 +992,7 @@ let sentFolderName = $state<string | null>(null);
     const bg = isDark ? "#0a2238" : "#ffffff";
     const fg = isDark ? "#d3dae1" : "#0a2238";
     const muted = isDark ? "#6683a2" : "#6683a2";
-    const linkColor = isDark ? "#c9a45c" : "#3f6082";
+    const linkColor = isDark ? "#caa960" : "#3f6082";
     const quoteBar = isDark ? "#294766" : "#d3dae1";
 
     // Check auto-download images setting
@@ -1020,7 +1020,7 @@ let sentFolderName = $state<string | null>(null);
       <style>
         html, body { margin: 0; padding: 0; }
         body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-family: "Geist", sans-serif;
           font-size: 15px;
           line-height: 1.65;
           color: ${fg};
@@ -1193,7 +1193,7 @@ let sentFolderName = $state<string | null>(null);
       const msg = $mailbox.messages.find(m => m.uid === uid);
       if (msg) {
         const ghost = document.createElement("div");
-        ghost.style.cssText = `position:absolute;left:-9999px;width:200px;padding:6px 10px;background:var(--color-list);color:var(--color-text);border-radius:8px;font-size:12px;box-shadow:0 2px 12px rgba(0,0,0,0.2);line-height:1.4;`;
+        ghost.style.cssText = `position:absolute;left:-9999px;width:200px;padding:6px 10px;background:var(--color-list);color:var(--color-text);border-radius:8px;font-size:12px;box-shadow:none;line-height:1.4;`;
         const sender = document.createElement("div");
         sender.style.cssText = "font-weight:600;margin-bottom:2px;";
         sender.textContent = extractName(msg.from) || "Unbekannt";
@@ -2704,7 +2704,7 @@ let sentFolderName = $state<string | null>(null);
     justify-content: center;
     font-weight: 700;
     font-size: 0.8125rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    box-shadow: none;
     flex-shrink: 0;
     overflow: hidden;
   }
@@ -2752,7 +2752,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .account-header-dot.connected {
     background: var(--color-success);
-    box-shadow: 0 0 6px var(--color-success);
+    box-shadow: none;
   }
 
   .sidebar-nav {
@@ -3264,7 +3264,7 @@ let sentFolderName = $state<string | null>(null);
     padding: 48px;
     width: 100%;
     max-width: 720px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03);
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     animation: fadeIn 0.25s ease-out;
@@ -3443,7 +3443,7 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.875rem;
     color: var(--color-text);
     background: var(--color-list);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.01), 0 1px 2px rgba(0, 0, 0, 0.01);
+    box-shadow: none;
     transition: all 0.15s ease-in-out;
   }
   .splash-form .form-group input:focus {
@@ -3686,7 +3686,7 @@ let sentFolderName = $state<string | null>(null);
     background: var(--color-list);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    box-shadow: none;
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -3741,7 +3741,7 @@ let sentFolderName = $state<string | null>(null);
     background: var(--color-list);
     border: 1px solid var(--color-border);
     border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -3859,7 +3859,7 @@ let sentFolderName = $state<string | null>(null);
     max-height: 65vh;
     border: none;
     border-radius: 16px 16px 0 0;
-    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+    box-shadow: none;
     padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
     animation: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   }

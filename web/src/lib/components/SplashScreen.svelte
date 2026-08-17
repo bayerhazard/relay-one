@@ -282,7 +282,7 @@
     padding: 48px;
     width: 100%;
     max-width: 720px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03);
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     animation: fadeIn 0.25s ease-out;
@@ -444,7 +444,7 @@
     height: 16px;
     border-radius: 50%;
     background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    box-shadow: none;
     transition: transform 0.2s ease;
   }
   .toggle-label .toggle:checked + .toggle-track {
@@ -476,7 +476,7 @@
     font-size: 0.875rem;
     color: var(--color-text);
     background: var(--color-list);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.01), 0 1px 2px rgba(0, 0, 0, 0.01);
+    box-shadow: none;
     transition: all 0.15s ease-in-out;
   }
   .splash-form .form-group input:focus {

@@ -47,7 +47,7 @@
     justify-content: center;
     height: 100vh;
     color: var(--color-danger);
-    font-family: -apple-system, sans-serif;
+    font-family: "Geist", sans-serif;
   }
   .fatal-error h2 { margin-bottom: 8px; }
 
