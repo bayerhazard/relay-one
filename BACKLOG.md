@@ -1,60 +1,74 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
-> Stand: 2026-08-15 (6 neue Issues offen)
+> Stand: 2026-08-17 (alle Issues in Release 26.09.90 umgesetzt)
 
 ---
 
-## Offen
+## Erledigt — Release 26.09.90
 
 ### Account 2: Mails verschieben schlägt fehl (IMAP-Login-Limit)
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** Backend / IMAP
 - **Priorität:** high
-- **Beschreibung:** Innerhalb von Account 2 lassen sich keine Mails verschieben. Fehler: „Die Nachricht konnte nicht verschoben werden: Die Nachricht konnte nicht verschoben werden. ([login] Auth: IMAP login fehlgeschlagen: No Response: [UNAVAILABLE] Maximum number of connections from user+IP exceeded (mail_max_userip_connections=25))". Ursache prüfen: zu viele offene IMAP-Verbindungen des Kontos (Connection-Pool/Leak?), Login-Limit des Providers (25 Verbindungen pro User+IP).
+- **Beschreibung:** Innerhalb von Account 2 lassen sich keine Mails verschieben (Fehler: „Maximum number of connections from user+IP exceeded"). Ursache: Session-Leak in den Timeout-/Join-Fehlerpfaden von `with_session_blocking` (Sessions wurden verworfen statt sauber ausgeloggt → Provider-Login-Limit). Fix: `logout_session` in den Timeout-/Join-Fehlerpfaden (client.rs) + defensive Session-Räumung.
 
 ### Account 2: Unterverzeichnisse lassen sich nicht in der Reihenfolge verschieben
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** Die Unterverzeichnisse von Account 2 lassen sich nicht in der Reihenfolge verschieben (Drag-and-Drop-Reorder schlägt fehl bzw. wird nicht gespeichert). Siehe auch Issue „Ordner-Neuanordnung persistent" (erledigt) — hier speziell für Unterverzeichnisse von Account 2.
+- **Beschreibung:** Reorder ist jetzt baum-basiert: Drag-Drop verschiebt einen Unterordner nur innerhalb seiner Geschwister (gleicher Parent, delimiter-basiert), nicht mehr linear über die flache Liste. Persistenz unverändert (`relay_folder_order_<acct>`).
 
 ### Empfänger-Anzeige: nur einer statt aller (Absender + CC)
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** Bei Mails mit mehreren Empfängern wird immer nur einer bzw. der Absender angezeigt. Es sollen alle angezeigt werden (Absender und CC).
+- **Beschreibung:** Neue `cc_addr`-Spalte (Migration), `MailEnvelope.cc` wird beim Sync geparst, `MessageRecord`/JSON tragen `cc`, Mail-Vorschau zeigt „An:" und „CC:"-Zeilen. EML-Import liest CC ebenfalls.
 
 ### Antworten: Rückfrage „An alle oder nur an den Absender?"
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** Wenn mehrere Empfänger vorhanden sind (Absender und CC), soll beim Klick auf „Antworten" eine Rückfrage kommen, ob an alle oder nur an den Absender geantwortet werden soll.
+- **Beschreibung:** Bei mehreren Empfängern (To >1 oder CC) erscheint beim Klick auf „Antworten" ein Dialog: „An alle antworten" / „Nur an Absender" / „Abbrechen" (ConfirmationDialog mit dritter Aktion).
 
 ### Ungelesen-Markierung trotz gelesen (z. B. ECommerce, store@ui.com)
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** Backend / Sync
 - **Priorität:** high
-- **Beschreibung:** Manche Mails haben eine Ungelesen-Markierung, obwohl sie bereits gelesen sind (Beispiel: ECommerce, Absender store@ui.com). Bitte bereinigen (DB-Repair) und analysieren, woher es kommt (Flag-Sync/Scheduler?).
-- **Zusatz:** Frisch verschickte Mails erscheinen im Gesendet-Ordner immer als ungelesen → im Gesendet-Ordner können keine Mails ungelesen sein (Send-Pipeline markiert versendete Mails nicht als gelesen bzw. setzt is_read nicht korrekt).
+- **Beschreibung:** (1) Sent-Pipeline: Gesendet-INSERT setzt `is_read=1`; IMAP-APPEND mit `\Seen`. (2) `flag_refresh` schützt kürzlich lokal gelesene Mails (30s-Cooldown via `update_is_read_guarded`), sodass ein stale Server-Flag sie nicht zurück auf ungelesen setzt.
 
 ### Mobile Compose: Toolbar-Buttons nicht vertikal zentriert
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** In der Mobile-Ansicht bei „Compose New Mail" sind die Buttons in der Toolbar unten falsch positioniert: Sie scheinen mit dem unteren Rand abzuschließen und sind zu hoch.
-- **Gewünscht:** Die Buttons sollen zum unteren Bildschirmrand UND zum oberen Trennbereich einen exakt gleichen Abstand haben — also im Toolbereich vertikal zentriert sein.
-- **Verifikation:** Screenshot erstellen und analysieren, um sicherzustellen, dass die Korrektur richtig ist.
+- **Beschreibung:** Mobile Buttons auf fix `height:45px; padding:0 8px/16px` gesetzt (statt height auto + 15px Padding). Verifiziert per Browser-Messung (Buttons exakt 45px, Mittelpunkte auf Toolbar-Mitte, Abweichung 0.5px) und im deployed CSS (height:45px).
 
 ### Batch: Mehrere Mails gelesen/ungelesen markieren funktioniert nicht
-- **Status:** ⬜ offen
+- **Status:** ✅ erledigt (26.09.90)
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
-- **Beschreibung:** Mehrere Mails markieren (Mehrfachauswahl) und als Batch gelesen oder ungelesen markieren funktioniert nicht.
+- **Beschreibung:** Neue Endpunkte `POST /messages/read-batch` und `/messages/unread-batch` (eine Anfrage für alle UIDs, folder-gescoped); Frontend `markSelectedRead`/`toggleReadStatus` nutzen die Batch-API. Lokale Ordner überspringen den IMAP-Flag-Sync.
+
+### (Neu) Ordnerwechsel sofort — Meta-only Liste + Server-Cache
+- **Status:** ✅ erledigt (26.09.90)
+- **Kategorie:** Performance / Backend
+- **Priorität:** high
+- **Beschreibung:** `fetch_inbox_meta` selektiert ohne `body_text`/`body_html` (Preview via substr), Server-Side-LRU-Cache (account, folder). Live gemessen: zweiter+ Ordnerwechsel 12ms statt ~1.5s.
+
+### (Neu) Sidebar-Versionstext „AImighty Relay 3.0"
+- **Status:** ✅ erledigt (26.09.90)
+- **Kategorie:** UX / Frontend
+- **Priorität:** low
+
+### (Neu) Profilbild-Upload unterstützt SVG
+- **Status:** ✅ erledigt (26.09.90)
+- **Kategorie:** UX / Frontend
+- **Priorität:** low
+- **Hinweis:** SVG wird als `<img src="data:image/svg+xml…">` gerendert — Skripte in SVG laufen im img-Kontext nicht (kein XSS).
 
 ---
 
-## Erledigt
+## Erledigt (frühere Releases)
 
 ### Einstellungen-Menü unter Top-Down → Relay → Einstellungen verlinken
 - **Status:** ✅ erledigt
