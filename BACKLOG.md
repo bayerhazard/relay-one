@@ -182,10 +182,11 @@
 - **Problem:** `let dragging` als Plain-`let` mutiert → `class:dragging` (Z. 118/154) aktualisiert nie → visueller Dragging-Zustand (thumb-ring) greift nicht. Compiler warnt.
 - **Fix:** `let dragging = $state<keyof ToneValues | null>(null)`.
 
-### CR-16 🔵 ✅ gefixt (2. Runde) A11y: interaktive Elemente ohne Keyboard-Handler/ARIA (WCAG 2.2 AA)
+### CR-16 🔵 ✅ gefixt (2. Runde, teilweise zurückgerollt) A11y: interaktive Elemente ohne Keyboard-Handler/ARIA (WCAG 2.2 AA)
 - **Dateien:** `ComposeWindow.svelte:623,654,655`; `+page.svelte:2524,2575`; `MessageList.svelte:341`; `RecipientInput.svelte:153,155`; `AccountGroup.svelte:210`; `ConfirmationDialog.svelte:48`
 - **Problem:** Click-Handler auf `div`/`span` ohne `tabindex`/Keyboard/ARIA-Role; `alertdialog` ohne tabindex.
-- **Fix:** **Alle 14 A11y-Warnungen von svelte-check auf 0 reduziert:** `MessageList`-Mailrow (`role=option`, `aria-selected` vorhanden, + `tabindex` + Enter/Space-Keydown), `RecipientInput`-Vorschläge (analog), `AccountGroup`-Chevron (`tabindex=0` + Enter/Space), `ComposeWindow`-Mic-Toggle (`role=button` + Keydown), Dialog-Overlays (`role=presentation` für Backdrop — echte Buttons existieren daneben), `ConfirmationDialog` (`tabindex="-1"` auf `alertdialog`), Drag-Resize-Handles (`role=separator` + begründetes `svelte-ignore`).
+- **Fix:** **12 von 14 A11y-Warnungen behoben:** `MessageList`-Mailrow (`role=option`, `aria-selected` vorhanden, + `tabindex` + Enter/Space-Keydown), `RecipientInput`-Vorschläge (analog), `AccountGroup`-Chevron (`tabindex=0` + Enter/Space), Dialog-Overlays (`role=presentation` für Backdrop — echte Buttons existieren daneben), `ConfirmationDialog` (`tabindex="-1"` auf `alertdialog`), Drag-Resize-Handles (`role=separator` + begründetes `svelte-ignore`).
+- **Zurückgerollt (Nutzer-Entscheid):** Der `toggle-mic`-Span in `ComposeWindow.svelte:623` bleibt **bewusst nested im Generate-Button** (kein `role`/`tabindex`/`onkeydown`) → 2 verbleibende A11y-Warnungen (bewusst akzeptiert, strukturgegeben).
 
 ### CR-17 🔵 ✅ gefixt (2. Runde) Dead Code / Restnamen
 - **Dateien:** `+page.svelte:218` (`replyAllDecision` wird nie gesetzt), `FolderList.svelte:88` (`{@html folder.icon}` — Sink wird nie befüllt), `tauri.ts` (Name + Kommentare Tauri-Rest, 979 Zeilen)

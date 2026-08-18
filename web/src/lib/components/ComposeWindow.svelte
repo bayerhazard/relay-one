@@ -620,12 +620,7 @@
 
   <div class="editor-toolbar">
     <button type="button" class="btn-ai primary" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
-      <span class="toggle-mic" class:voice-enabled={voiceEnabled} role="button" tabindex="0" onclick={handleMicToggle} onkeydown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleMicToggle(e as unknown as MouseEvent);
-        }
-      }} title={isRecording ? "Aufnahme stoppen" : "Diktat starten"}>
+      <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? "Aufnahme stoppen" : "Diktat starten"}>
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
         </svg>
