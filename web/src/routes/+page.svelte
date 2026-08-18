@@ -2278,12 +2278,10 @@ let sentFolderName = $state<string | null>(null);
         </div>
         <div class="preview-header-actions">
           <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
-            <span class="pill-icon" aria-hidden="true">&#x21A9;</span>
-            <span class="pill-label">Antworten</span>
+            Antworten
           </button>
           <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title="Löschen (⌫)">
-            <span class="pill-icon" aria-hidden="true">&#x1F5D1;</span>
-            <span class="pill-label">Löschen</span>
+            Löschen
           </button>
         </div>
       </div>
@@ -3181,10 +3179,8 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease-in-out;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-  }
-  .pill-icon {
-    line-height: 1;
+    justify-content: center;
+    min-width: 100px;
   }
   .action-btn-pill:hover {
     border-color: var(--color-accent);
@@ -3754,10 +3750,7 @@ let sentFolderName = $state<string | null>(null);
     min-height: 48px;
     line-height: 1;
   }
-  /* Preview action pills: text only (no icons) on phones. */
-  .app-container.narrow .action-btn-pill .pill-icon {
-    display: none;
-  }
+  /* Preview action pills: text only (no icons). */
   /* Compact preview header on phones. */
   .app-container.narrow .preview-pane-header {
     height: auto;
