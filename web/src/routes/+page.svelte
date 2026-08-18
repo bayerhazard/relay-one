@@ -1348,7 +1348,16 @@ let sentFolderName = $state<string | null>(null);
       // untrack(): loadFolder() reads $mailbox.lastClickedUid internally; without
       // this, the effect depends on the mailbox store and its own setMessages()
       // notification re-triggers the effect → infinite reload loop (OOM).
-      untrack(() => loadFolder());
+      untrack(() => {
+        // Sync the store's folderId with the UI-selected folder. On cold start
+        // selectedFolder defaults to "INBOX" but the store initializes with
+        // folderId="" — without this, selectedMessage stays null (its guard
+        // requires folderId === messagesFolder, and setMessages() only sets
+        // messagesFolder) and no mail can be opened until the user manually
+        // switches folders. Done inside untrack() so it adds no dependency.
+        if ($mailbox.folderId !== selectedFolder) mailbox.setFolderId(selectedFolder);
+        loadFolder();
+      });
     }
   });
 

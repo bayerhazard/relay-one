@@ -54,12 +54,13 @@ vi.mock("$lib/stores/mailbox", () => {
   return {
     mailbox: {
       subscribe: (fn: any) => {
-        fn({ messages: [], selectedUids: [], lastClickedUid: null, loading: false, error: null });
+        fn({ messages: [], selectedUids: [], lastClickedUid: null, folderId: "", messagesFolder: null, loading: false, error: null });
         return () => {};
       },
       setLoading: vi.fn(),
       setMessages: vi.fn(),
       setError: vi.fn(),
+      setFolderId: vi.fn(),
       selectSingle: vi.fn(),
     },
     getFolderCache: () => null,
