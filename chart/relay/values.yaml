@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.09.90
+  tag: 26.09.91
   pullPolicy: IfNotPresent
 
 # Host-Suffix der Olares-Entrance (CR-05-Härtung): Browser-Traffic wird nur
