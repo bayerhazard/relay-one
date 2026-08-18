@@ -3,3 +3,4 @@ build/
 core
 .svelte-kit/
 *.log
+coverage/

@@ -10,7 +10,7 @@
   } from "$lib/services/tauri";
   import { get } from "svelte/store";
   import { showDiffEnabled } from "$lib/stores/settings";
-  import { textToHtml, wrapHtmlQuote } from "$lib/utils/format";
+  import { textToHtml, wrapHtmlQuote, sanitizeHtml } from "$lib/utils/format";
   import { blobToWavBase64 } from "$lib/utils/wav";
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
@@ -424,7 +424,7 @@
     if (mailChain.length > 0) {
       body += "\n\n" + mailChain.map(m => "> " + m.text.replace(/\n/g, "\n> ")).join("\n\n");
       const htmlQuotes = mailChain.map(m =>
-        m.html ? wrapHtmlQuote(m.html) : wrapHtmlQuote(textToHtml(m.text))
+        m.html ? wrapHtmlQuote(sanitizeHtml(m.html)) : wrapHtmlQuote(textToHtml(m.text))
       ).join("\n");
       bodyHtml += "\n" + htmlQuotes;
     }
@@ -555,7 +555,7 @@
           {#each mailChain as msg}
             <div class="chain-msg">
               {#if msg.html}
-                <div class="chain-body-html">{@html msg.html.slice(0, 1000)}{msg.html.length > 1000 ? "..." : ""}</div>
+                <div class="chain-body-html">{@html sanitizeHtml(msg.html).slice(0, 1000)}{msg.html.length > 1000 ? "..." : ""}</div>
               {:else}
                 <pre class="chain-body">{msg.text.slice(0, 1000)}{msg.text.length > 1000 ? "..." : ""}</pre>
               {/if}

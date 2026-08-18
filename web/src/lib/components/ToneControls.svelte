@@ -11,7 +11,7 @@
     onchange
   }: Props = $props();
 
-  let dragging: keyof ToneValues | null = null;
+  let dragging = $state<keyof ToneValues | null>(null);
   let trackEls: Record<string, HTMLDivElement> = {};
 
    let seriositaetPct = $derived(((values.seriositaet - 1) / 6) * 100);

@@ -78,12 +78,46 @@ pub struct RestoreRequest {
     pub backup_name: String,
 }
 
+/// A valid snapshot name is a bare filename matching the `index-*.db`
+/// pattern produced by `create_backup`/`list_backups`. Anything else (path
+/// separators, `..`, absolute paths, foreign extensions) is rejected to
+/// prevent path traversal out of the backups directory.
+fn is_valid_backup_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 256
+        && name.starts_with("index-")
+        && name.ends_with(".db")
+        && std::path::Path::new(name)
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
 pub async fn restore_backup(
     State(state): State<AppState>,
     Json(req): Json<RestoreRequest>,
 ) -> ApiResult<serde_json::Value> {
+    if !is_valid_backup_name(&req.backup_name) {
+        return Err(crate::api::ApiError(format!(
+            "Ungültiger Backup-Name '{}' (nur 'index-*.db' erlaubt)",
+            req.backup_name
+        )));
+    }
     let backups_dir = state.data_root.join("backups");
     let src = backups_dir.join(&req.backup_name);
+    // Defense in depth: canonicalize and re-verify the snapshot stays inside
+    // the backups directory (guards against symlink/edge cases).
+    let src = src.canonicalize().map_err(|_| {
+        crate::api::ApiError(format!("Backup '{}' nicht gefunden", req.backup_name))
+    })?;
+    let backups_dir_canonical = backups_dir.canonicalize().map_err(|e| {
+        crate::api::ApiError(format!("Backup-Verzeichnis: {e}"))
+    })?;
+    if !src.starts_with(&backups_dir_canonical) {
+        return Err(crate::api::ApiError(format!(
+            "Backup '{}' liegt außerhalb des Backup-Verzeichnisses",
+            req.backup_name
+        )));
+    }
     if !src.exists() {
         return Err(crate::api::ApiError(format!("Backup '{}' nicht gefunden", req.backup_name)));
     }
@@ -124,4 +158,35 @@ pub async fn restore_backup(
         "safety_copy": safety.file_name().unwrap_or_default().to_string_lossy().to_string(),
         "note": "Server wird neu gestartet, um die wiederhergestellte DB zu laden",
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_backup_names() {
+        assert!(is_valid_backup_name("index-20260818-120000.db"));
+        assert!(is_valid_backup_name("index-x.db"));
+    }
+
+    #[test]
+    fn rejects_traversal_and_foreign_names() {
+        for name in [
+            "..",
+            "../index-2026.db",
+            "../../etc/passwd",
+            "sub/index-2026.db",
+            "index-2026.db/..",
+            "/etc/passwd",
+            "index-2026.tgz",
+            "foo.db",
+            "index-2026.db.backup",
+            "index-",
+            "",
+            "index-2026.db/x",
+        ] {
+            assert!(!is_valid_backup_name(name), "should reject {name:?}");
+        }
+    }
 }

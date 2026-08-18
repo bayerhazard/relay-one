@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { extractEmail, extractName, formatDate, isHtmlContent, _resetNowCache } from "$lib/utils/format";
+import { extractEmail, extractName, formatDate, isHtmlContent, sanitizeHtml, _resetNowCache } from "$lib/utils/format";
 
 // ---------------------------------------------------------------------------
 // extractEmail
@@ -230,5 +230,45 @@ describe("formatDate", () => {
     expect(result).toBeTruthy();
     expect(result.length).toBeLessThanOrEqual(5);
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeHtml (CR-13 Stored-XSS)
+// ---------------------------------------------------------------------------
+describe("sanitizeHtml", () => {
+  it("returns empty string for empty input", () => {
+    expect(sanitizeHtml("")).toBe("");
+  });
+
+  it("keeps benign formatting", () => {
+    const out = sanitizeHtml("<p>Hallo <b>Welt</b></p>");
+    expect(out).toContain("<p>");
+    expect(out).toContain("<b>Welt</b>");
+  });
+
+  it("strips script tags", () => {
+    const out = sanitizeHtml("<script>alert(1)</script><p>ok</p>");
+    expect(out).not.toContain("script");
+    expect(out).not.toContain("alert");
+    expect(out).toContain("ok");
+  });
+
+  it("strips event-handler attributes", () => {
+    const out = sanitizeHtml('<img src="x" onerror="alert(1)">');
+    expect(out).not.toContain("onerror");
+  });
+
+  it("strips javascript: URLs", () => {
+    const out = sanitizeHtml('<a href="javascript:alert(1)">klick</a>');
+    expect(out.toLowerCase()).not.toContain("javascript:");
+    expect(out).toContain("klick");
+  });
+
+  it("strips inline event handlers in nested markup", () => {
+    const out = sanitizeHtml('<div onclick="steal()"><span onmouseover="x()">text</span></div>');
+    expect(out).not.toContain("onclick");
+    expect(out).not.toContain("onmouseover");
+    expect(out).toContain("text");
   });
 });

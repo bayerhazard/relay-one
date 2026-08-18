@@ -477,9 +477,16 @@ pub fn update_is_read_guarded(conn: &Connection, account_id: i64, uid: i64, is_r
 }
 
 /// Update the is_flagged flag for a message (used by flag refresh from IMAP server).
+///
+/// Only touches the row when the flag actually changed: an unconditional
+/// `updated_at = datetime('now')` would defeat the 30s read-cooldown in
+/// [`update_is_read_guarded`] (flag_refresh runs every 5 min for every
+/// message, so a perpetual bump would make the unread-direction guard fire
+/// forever and real server-side unread changes would never be applied).
 pub fn update_is_flagged(conn: &Connection, account_id: i64, uid: i64, is_flagged: bool) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
+        "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now')
+         WHERE account_id = ?2 AND uid = ?3 AND is_flagged != ?1",
         params![is_flagged as i32, account_id, uid],
     )?;
     Ok(())

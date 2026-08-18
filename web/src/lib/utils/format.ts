@@ -1,4 +1,6 @@
 // Cache "now" for 60s — relative date formatting doesn't need second precision.
+import DOMPurify from "dompurify";
+
 let cachedNowVal = 0;
 let cachedNowDate = new Date();
 function cachedNow(): Date {
@@ -14,6 +16,31 @@ function cachedNow(): Date {
 export function _resetNowCache(): void {
     cachedNowVal = 0;
     cachedNowDate = new Date();
+}
+
+/**
+ * Sanitize untrusted email HTML (CR-13 / Stored-XSS).
+ *
+ * Email bodies are attacker-controlled: rendering them via `{@html}` or
+ * embedding them into an outgoing reply without sanitization lets a sender
+ * execute scripts/event handlers in the recipient's session. DOMPurify strips
+ * scripts, event-handler attributes and `javascript:` URLs while keeping
+ * benign formatting. Falls back to a tag-stripping regex when the DOM
+ * (DOMPurify) is unavailable.
+ */
+export function sanitizeHtml(html: string): string {
+  if (!html) return "";
+  try {
+    return DOMPurify.sanitize(html);
+  } catch {
+    // Last-resort fallback: strip everything that could carry code.
+    return html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\shref\s*=\s*(["'])\s*javascript:[^"']*\1/gi, " href=\"#\"")
+      .replace(/\ssrc\s*=\s*(["'])\s*javascript:[^"']*\1/gi, "")
+      .replace(/<\/?[^>]+>/g, " ");
+  }
 }
 
 export function extractEmail(from: string | undefined | null): string {

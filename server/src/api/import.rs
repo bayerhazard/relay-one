@@ -179,6 +179,19 @@ pub async fn import_mbox_dir(
     State(state): State<AppState>,
     Json(req): Json<MboxDirRequest>,
 ) -> crate::api::ApiResult<serde_json::Value> {
+    // Only relative subdirectories of the data root are importable. Absolute
+    // paths, "..", and path separators are rejected (path traversal guard).
+    let rel = std::path::Path::new(&req.dir);
+    if rel.is_absolute()
+        || rel.components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+        || req.dir.is_empty()
+    {
+        return Err(crate::api::ApiError(format!(
+            "Ungültiges Verzeichnis '{}' (nur relative Pfade ohne '..' erlaubt)",
+            req.dir
+        )));
+    }
     let dir = state.data_root.join(&req.dir);
     if !dir.exists() {
         return Err(crate::api::ApiError(format!(
