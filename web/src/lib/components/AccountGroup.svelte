@@ -178,7 +178,7 @@
     class="tree-row"
     class:active={selectedFolder === node.name}
     class:drag-over={dragTarget === node.name}
-    style={`padding-left: ${14 + (depth + 1) * 20}px`}
+    style={`padding-left: ${14 + (depth + 1) * 15}px`}
     data-folder={node.name}
     role="button"
     tabindex="0"
