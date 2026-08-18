@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use axum::{Router, extract::DefaultBodyLimit};
 use tokio::sync::mpsc;
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use relay_server::api;
@@ -95,7 +94,6 @@ async fn main() {
     let app = Router::new()
         .nest("/api/v1", api::router())
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
-        .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state((*state).clone());
 

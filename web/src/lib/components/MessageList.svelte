@@ -255,7 +255,7 @@
   // ─── Plain HTML context menu (replaces the Tauri native menu) ──────────
   let contextMenu = $state<{ x: number; y: number; uid: number } | null>(null);
   let contextMsg = $derived(
-    contextMenu ? (messages.find((m) => m.uid === contextMenu.uid) ?? null) : null
+    contextMenu ? (messages.find((m) => m.uid === contextMenu!.uid) ?? null) : null
   );
 
   function openContextMenu(x: number, y: number, uid: number) {
@@ -353,6 +353,13 @@
             ontouchcancel={() => touchCancel(msg.uid)}
             role="option"
             aria-selected={selectedSet.has(msg.uid)}
+            tabindex="-1"
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleClick(e as unknown as MouseEvent, msg.uid, startIndex + i);
+              }
+            }}
           >
             <div class="msg-header">
               <span class="sender">

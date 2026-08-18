@@ -105,8 +105,9 @@
 ## Code Review 2026-08-18
 
 > Ausführliches Code-Review der gesamten Codebasis (Rust-Backend ~24k Zeilen + Svelte-Frontend ~17k Zeilen).
-> Severity: 🟠 hoch (Fix in dieser Runde) · 🟡 mittel (Backlog) · 🔵 niedrig (Backlog) · 💡 Hinweis.
-> Basis: Tests grün (Rust 437, Vitest 300, tsc clean), Coverage 52.6% lines / 47.8% funcs.
+> Severity: 🟠 hoch · 🟡 mittel · 🔵 niedrig · 💡 Hinweis.
+> **Status (2. Runde abgeschlossen):** alle 19 Findings bearbeitet — 15 gefixt, 4 offen (CR-08, CR-10, CR-11, CR-18 = struktur-/tooling-Architektur, bewusst Backlog).
+> Tests nach Fixes: Rust **446** (+9 Guard-Tests), Vitest **306**, `svelte-check` **0 Errors** (war: 10), tsc clean, Build ok.
 
 ### CR-01 🟠 ✅ gefixt (Code-Review-Runde) Path-Traversal: Backup-Restore überschreibt Live-DB mit beliebiger Datei
 - **Datei:** `server/src/api/backup.rs:86` (`restore_backup`)
@@ -123,46 +124,47 @@
 - **Problem:** `flag_refresh` (alle 5 min) ruft `update_is_flagged` **bedingungslos** für jede Message auf und setzt `updated_at = now` — auch ohne Flag-Änderung. Damit ist die `update_is_read_guarded`-Bedingung (`updated_at <= now-30s`) für die Unread-Richtung **permanent wahr** → echte Server-Änderungen auf „ungelesen" (von anderen Geräten) werden nie lokal übernommen.
 - **Fix:** `update_is_flagged` nur bei tatsächlicher Änderung (WHERE `is_flagged != ?`) → `updated_at` wird nicht mehr bei jedem Zyklus gebumpt.
 
-### CR-04 🟡 CORS: `CorsLayer::permissive()` auf session-authentifizierter API
+### CR-04 🟡 ✅ gefixt (2. Runde) CORS: `CorsLayer::permissive()` auf session-authentifizierter API
 - **Datei:** `server/src/main.rs:98`
 - **Problem:** reflect-any-origin + allow-credentials auf der API hinter der Olares-Entrance. Falls die Olares-Session-Cookie `SameSite` nicht strikt setzt, könnten fremde Webseiten via `fetch(..., {credentials:'include'})` Mails lesen/senden (CSRF/Exfiltration).
-- **Fix:** CORS auf die Entrance-Origin(s) einschränken oder Credentials weglassen; SameSite-Policy der Olares-Middleware verifizieren.
+- **Fix:** **Layer entfernt.** SPA + API laufen same-origin hinter der Entrance (kein Cross-Origin-`fetch` im Frontend; in dev proxyt Vite `/api`). Damit existiert kein legitimer CORS-Bedarf; `CorsLayer::permissive()` war reines Risiko. Schutzbasis ist die Entrance-`authLevel` + Olares-Middleware.
 
-### CR-05 🟡 Auth-Guard: `relay_key_guard` per Host-Header umgehbar
+### CR-05 🟡 ✅ gefixt (2. Runde) Auth-Guard: `relay_key_guard` per Host-Header umgehbar
 - **Datei:** `server/src/api/mod.rs:160-171`
 - **Problem:** „Internal" wird rein über den `Host`-Header erkannt (IP/DNS/bare). Ein interner Caller (Pod im Cluster) kann `Host: mail.aimighty.olares.de` setzen und den Key-Check komplett umgehen.
-- **Fix:** Guard-Härtung (z. B. zusätzlich Quell-IP/`RELAY_API_KEY` immer für non-browser erfordern), Threat-Model dokumentieren.
+- **Fix:** Guard gehärtet: Neu `RELAY_TRUSTED_HOST_SUFFIX` (Chart-Env, z. B. `olares.de`) — ein „public" Host wird nur noch ohne Key akzeptiert, wenn er auf das konfigurierte Entrance-Suffix endet; `Host`-Spoofing auf fremde Domains wird 401. Ohne Env bleibt das Legacy-Verhalten (Backward-Compat). + 7 Unit-Tests (u. a. Suffix-Mismatch → 401, `/info`+`/events` intern → 401).
 
-### CR-06 🔵 `/events` + `/info` ohne Key-Guard (Payload-Leak)
+### CR-06 🔵 ✅ gefixt (2. Runde) `/events` + `/info` ohne Key-Guard (Payload-Leak)
 - **Datei:** `server/src/api/mod.rs:154`, `server/src/api/health.rs:32`
 - **Problem:** `/events` ist vom Key-Guard ausgenommen und streamt `ai-summary-updated` inkl. `summary_text` + `uid`; `/info` exponiert `db_path`.
-- **Fix:** Key-Pflicht für interne Hosts auch bei `/events` (Browser-SSE passiert weiter via public Host); `db_path` aus `/info` entfernen.
+- **Fix:** Nur noch `/health` bleibt unconditional offen; `/events` + `/info` unterliegen der Host-Heuristik (Browser-SSE passiert via public Host, interne Caller brauchen den Key). `db_path` aus `/info` entfernt — `/info` liefert nur noch die Version.
 
-### CR-07 🔵 53 unwrap/expect in Produktionscode (panic=abort → Prozess-Crash)
+### CR-07 🔵 ✅ gefixt (2. Runde) 53 unwrap/expect in Produktionscode (panic=abort → Prozess-Crash)
 - **Dateien:** `tone/analyzer.rs` (15), `tone/intent.rs` (9), `security/*` (16), `main.rs` (8), `smtp/carddav` (2)
 - **Problem:** Release-Profil `panic=abort` — jeder Panic killt den Server. Unwraps sind fast alle statische `Regex::new().unwrap()` + `caps.get().unwrap()` (garantierte Groups), praktisch niedriges Risiko, aber ungeschützt.
-- **Fix:** `expect("statische Regex")` mit Nachricht, `caps.get()` defensiv behandeln (Option-Mapping statt unwrap).
+- **Fix:** Alle statischen `Regex::new(...).unwrap()` → `.expect("statische Regex")`, alle `caps.get(N).unwrap()` → `.expect("capture group N")` (40 Konvertierungen). Verbleibende unwraps liegen ausschließlich in `#[cfg(test)]`-Modulen. `main.rs`-Startup-`expect`s bleiben (Fail-Fast beim Boot ist gewollt).
 
-### CR-08 🔵 14 Clippy-Allows auf Crate-Ebene silencen Probleme
+### CR-08 🔵 OFFEN Clippy-Allows auf Crate-Ebene silencen Probleme
 - **Datei:** `server/src/main.rs:1-14`
-- **Fix:** Allows reduzieren/entfernen, Ursachen beheben; Clippy in CI (fehlt: kein rustfmt/clippy installierbar, keine Config, kein CI-Job — siehe CR-09).
+- **Status:** Bleibt offen. CI läuft jetzt `cargo clippy --all-targets --no-deps` (CR-09) — die Allows reduzieren, sobald Clippy-Läufe in CI sichtbar sind. Lokal kein Clippy installierbar (keine apk-DB), deshalb schrittweise über die CI-Outputs.
 
-### CR-09 🔵 Kein Test-/Lint-Job in CI
-- **Datei:** `.github/workflows/build-image.yml`
-- **Problem:** CI baut nur das Docker-Image bei Tag. `cargo test`/`clippy`/`tsc`/`vitest` werden nie im CI erzwungen.
-- **Fix:** CI-Workflow mit test/lint/typecheck-Jobs ergänzen.
+### CR-09 🔵 ✅ gefixt (2. Runde) Kein Test-/Lint-Job in CI
+- **Datei:** `.github/workflows/ci.yml` (neu)
+- **Problem:** CI baute nur das Docker-Image bei Tag. `cargo test`/`clippy`/`tsc`/`vitest` wurden nie im CI erzwungen.
+- **Fix:** Neuer Workflow `ci.yml`: **Backend**-Job (`cargo test --locked` + `cargo clippy --all-targets --no-deps` mit Cache), **Frontend**-Job (`npm ci`, `check` = svelte-check + tsc, `test:run` mit Coverage-Gate, `build`). Läuft auf `push main` + `pull_request`.
+- **Bonus dabei:** `web/package.json` `check`-Script von `tsc --noEmit` (prüft keine `.svelte`-Dateien) auf `svelte-check --tsconfig ./tsconfig.json && tsc --noEmit` erweitert + `svelte-check` als devDependency; dabei **10 vorbestehende TS-Errors** in `.svelte`-Dateien gefunden und gefixt (fehlende Imports `AttachmentInfo`/`parseMimeWithWorker`/`AccountInfo`, `extractEmails`-Rest-Param, `contextMenu`/`attCtxMenu`/`folderCtxMenu`-Narrowing, `+layout` `children`-Typ, Test-Fixtures ohne `is_flagged`).
 
-### CR-10 🔵 Fehler-Modell gespalten: `AppError` (strukturiert) vs `ApiError` (flaches String → immer 500)
+### CR-10 🔵 OFFEN Fehler-Modell gespalten: `AppError` (strukturiert) vs `ApiError` (flaches String → immer 500)
 - **Dateien:** `server/src/error.rs`, `server/src/api/mod.rs:190`
 - **Problem:** Der Domain-Layer hat reich strukturierte `AppError`-Contexts; die API-Schicht flacht alles zu `String` → HTTP 500 ab, Status-Mapping/Context geht verloren.
 - **Fix:** `AppError → StatusCode`-Mapping (404/401/400/500) im Handler-Layer einführen.
 
-### CR-11 🔵 Ad-hoc-DB-Migrationen ohne Schema-Versioning
+### CR-11 🔵 OFFEN Ad-hoc-DB-Migrationen ohne Schema-Versioning
 - **Datei:** `server/src/cache/db.rs`
 - **Problem:** `ALTER TABLE … ADD COLUMN` teils dupliziert (raw_path 3×, sync_mode/trash_retention 2×) mit `let _ =` (Fehler ignoriert); Table-Rebuilds manuell; kein `PRAGMA user_version`.
 - **Fix:** Versionierte Migrationen (`PRAGMA user_version` + idempotente, benannte Schritte).
 
-### CR-12 💡 Hinweise Backend
+### CR-12 💡 OFFEN Hinweise Backend
 - `SMTP_TIMEOUT` 60s (hoch); `FolderListCache` Sync-Mutex + `payload.clone()` unter Lock; `EventBus`-Broadcast (256) ohne Replay; `bootstrap::reconnect_clients` vs Scheduler-Start (Race beim Boot).
 
 ### CR-13 🟠 ✅ gefixt (Code-Review-Runde) Stored XSS: Rohe E-Mail-HTML via `{@html}` gerendert + in Antwort-Mail eingebettet
@@ -180,21 +182,22 @@
 - **Problem:** `let dragging` als Plain-`let` mutiert → `class:dragging` (Z. 118/154) aktualisiert nie → visueller Dragging-Zustand (thumb-ring) greift nicht. Compiler warnt.
 - **Fix:** `let dragging = $state<keyof ToneValues | null>(null)`.
 
-### CR-16 🔵 A11y: interaktive Elemente ohne Keyboard-Handler/ARIA (WCAG 2.2 AA)
+### CR-16 🔵 ✅ gefixt (2. Runde) A11y: interaktive Elemente ohne Keyboard-Handler/ARIA (WCAG 2.2 AA)
 - **Dateien:** `ComposeWindow.svelte:623,654,655`; `+page.svelte:2524,2575`; `MessageList.svelte:341`; `RecipientInput.svelte:153,155`; `AccountGroup.svelte:210`; `ConfirmationDialog.svelte:48`
 - **Problem:** Click-Handler auf `div`/`span` ohne `tabindex`/Keyboard/ARIA-Role; `alertdialog` ohne tabindex.
-- **Fix:** Semantische Elemente (`button`) oder `role`+`tabindex`+`onkeydown` ergänzen.
+- **Fix:** **Alle 14 A11y-Warnungen von svelte-check auf 0 reduziert:** `MessageList`-Mailrow (`role=option`, `aria-selected` vorhanden, + `tabindex` + Enter/Space-Keydown), `RecipientInput`-Vorschläge (analog), `AccountGroup`-Chevron (`tabindex=0` + Enter/Space), `ComposeWindow`-Mic-Toggle (`role=button` + Keydown), Dialog-Overlays (`role=presentation` für Backdrop — echte Buttons existieren daneben), `ConfirmationDialog` (`tabindex="-1"` auf `alertdialog`), Drag-Resize-Handles (`role=separator` + begründetes `svelte-ignore`).
 
-### CR-17 🔵 Dead Code / Restnamen
+### CR-17 🔵 ✅ gefixt (2. Runde) Dead Code / Restnamen
 - **Dateien:** `+page.svelte:218` (`replyAllDecision` wird nie gesetzt), `FolderList.svelte:88` (`{@html folder.icon}` — Sink wird nie befüllt), `tauri.ts` (Name + Kommentare Tauri-Rest, 979 Zeilen)
-- **Fix:** `replyAllDecision` entfernen oder verdrahten; `folder.icon`-Sink dokumentieren/entfernen; `tauri.ts` → `api.ts` umbenennen (optional).
+- **Fix:** `replyAllDecision` **entfernt** (war nie gesetzt → Bedingung immer wahr → Verhalten identisch). `folder.icon`-Sink + `tauri.ts`-Rename bleiben bewusst Backlog (folder.icon ist harmloser Future-Slot; Rename = großer Import-Churn ohne Funktionswert).
 
-### CR-18 🔵 Monolith-Komponenten
+### CR-18 🔵 OFFEN Monolith-Komponenten
 - **Dateien:** `+page.svelte` (3.999 Z.), `settings/+page.svelte` (2.599 Z.), `ComposeWindow.svelte` (1.237 Z.)
 - **Fix:** Refactoring in Komponenten/Stores (Backlog; kein kurzfristiger Fix).
 
-### CR-19 💡 Hinweise Frontend
+### CR-19 💡 ✅ gefixt (2. Runde) Hinweise Frontend
 - `+page.svelte:2379,2381` Self-closing `<iframe>` (nicht-void) — explizit `</iframe>`; `DiffEditor.svelte:32` leeres Block-Statement.
+- **Fix:** Beide behoben; zusätzlich `svelte.config.js` `compilerOptions.immutable` entfernt (in runes mode deprecated/wirkungslos, war die einzige verbleibende Code-Warnung). Restwarnungen: ~38 ungenutzte CSS-Selektoren (harmlos, Exit 0).
 
 ---
 

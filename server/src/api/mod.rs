@@ -138,20 +138,25 @@ pub fn router() -> Router<AppState> {
 /// entrance arrives with a public Host header (e.g. mail.aimighty.olares.de)
 /// and is already protected by the entrance authLevel — it passes through
 /// without the key (Concept: "the web app does not set the header itself").
-/// `/health` and `/info` stay open for K8s probes.
+/// `/health` stays open for K8s probes.
+///
+/// Hardening (CR-05/CR-06): only `/health` is unconditionally open; `/info`
+/// and `/events` now fall under the same Host heuristic. When
+/// `RELAY_TRUSTED_HOST_SUFFIX` is set (e.g. `olares.de`), a "public-looking"
+/// Host must also end with that suffix — otherwise the key is required even
+/// for a public Host (an internal caller cannot bypass by faking an arbitrary
+/// public Host header).
 async fn relay_key_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    use axum::http::StatusCode;
-
     let configured = std::env::var("RELAY_API_KEY").unwrap_or_default();
     if configured.is_empty() {
         return next.run(req).await;
     }
 
     let path = req.uri().path().to_string();
-    if path == "/health" || path == "/info" || path == "/events" {
+    if path == "/health" {
         return next.run(req).await;
     }
 
@@ -167,6 +172,14 @@ async fn relay_key_guard(
         || !host.contains('.');
 
     if !looks_internal {
+        // A public Host is only trusted when it matches the configured
+        // entrance domain suffix. Without the env var we keep the legacy
+        // behavior for backward compatibility.
+        if let Ok(suffix) = std::env::var("RELAY_TRUSTED_HOST_SUFFIX") {
+            if !suffix.is_empty() && !host.ends_with(suffix.as_str()) {
+                return reject_key();
+            }
+        }
         return next.run(req).await;
     }
 
@@ -180,9 +193,13 @@ async fn relay_key_guard(
     if has_key {
         next.run(req).await
     } else {
-        let body = axum::Json(serde_json::json!({ "error": "X-Relay-Key fehlt oder ungültig" }));
-        (StatusCode::UNAUTHORIZED, body).into_response()
+        reject_key()
     }
+}
+
+fn reject_key() -> axum::response::Response {
+    let body = axum::Json(serde_json::json!({ "error": "X-Relay-Key fehlt oder ungültig" }));
+    (StatusCode::UNAUTHORIZED, body).into_response()
 }
 
 /// Shared error type: turns a `String` error into `500 {"error": "…"}`.
@@ -208,4 +225,96 @@ pub type ApiResult<T> = Result<Json<T>, ApiError>;
 /// Wrap a `Result<T, String>` into an `ApiResult`.
 pub fn ok<T: Serialize>(r: Result<T, String>) -> ApiResult<T> {
     r.map(Json).map_err(ApiError)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn test_router() -> Router {
+        Router::new()
+            .route("/health", axum::routing::get(|| async { "ok" }))
+            .route("/info", axum::routing::get(|| async { "info" }))
+            .route("/events", axum::routing::get(|| async { "events" }))
+            .route_layer(axum::middleware::from_fn(relay_key_guard))
+    }
+
+    fn get(uri: &str, host: &str, key: Option<&str>) -> axum::http::Request<Body> {
+        let mut b = axum::http::Request::builder().uri(uri).header(axum::http::header::HOST, host);
+        if let Some(k) = key {
+            b = b.header("x-relay-key", k);
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    fn status(uri: &str, host: &str, key: Option<&str>) -> axum::http::StatusCode {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(test_router().oneshot(get(uri, host, key)))
+            .unwrap()
+            .status()
+    }
+
+    #[test]
+    fn health_is_always_open() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/health", "10.0.0.1:8080", None), 200);
+    }
+
+    #[test]
+    fn internal_host_requires_key() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/events", "10.0.0.1:8080", None), 401);
+        assert_eq!(status("/events", "10.0.0.1:8080", Some("wrong")), 401);
+        assert_eq!(status("/events", "10.0.0.1:8080", Some("secret")), 200);
+    }
+
+    #[test]
+    fn info_and_events_are_not_unconditionally_open() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/info", "10.0.0.1:8080", None), 401);
+        assert_eq!(status("/events", "10.0.0.1:8080", None), 401);
+    }
+
+    #[test]
+    fn public_host_passes_legacy_without_suffix() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/info", "mail.example.com", None), 200);
+    }
+
+    #[test]
+    fn suffix_mismatch_rejects_spoofed_public_host() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::set_var("RELAY_TRUSTED_HOST_SUFFIX", "olares.de");
+        assert_eq!(status("/info", "mail.evil.example.com", None), 401);
+    }
+
+    #[test]
+    fn suffix_match_passes_browser_traffic() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::set_var("RELAY_TRUSTED_HOST_SUFFIX", "olares.de");
+        assert_eq!(status("/events", "mail.aimighty.olares.de", None), 200);
+    }
+
+    #[test]
+    fn no_key_configured_opens_everything() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("RELAY_API_KEY");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/events", "10.0.0.1:8080", None), 200);
+    }
 }

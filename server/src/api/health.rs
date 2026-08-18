@@ -16,12 +16,11 @@ pub async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "status": "ok", "service": "relay-one" }))
 }
 
-/// `GET /api/v1/info` — version + data root (for debugging).
-pub async fn info(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
-    let db_path = state.db_path.lock().clone();
+/// `GET /api/v1/info` — version (for debugging). The data-root path is
+/// deliberately NOT exposed (CR-06: no internal layout leakage).
+pub async fn info() -> ApiResult<serde_json::Value> {
     Ok(Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "db_path": db_path.map(|p| p.to_string_lossy().to_string()),
     })))
 }
 

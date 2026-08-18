@@ -20,9 +20,9 @@ import {
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
-    getOwnPhoto, openEventStream,
+    getOwnPhoto, openEventStream, type AttachmentInfo,
   } from "$lib/services/tauri";
-  import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, type MailAttachment } from "$lib/utils/format";
+  import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import type { MailChainEntry } from "$lib/types/mail";
 
   let sidebarWidth = $state(220);
@@ -215,7 +215,6 @@ import {
   let pendingDeleteFolder = $state<string | null>(null);
   let showReplyAllDialog = $state(false);
   let pendingReplyMessage = $state<Message | null>(null);
-  let replyAllDecision = $state<"sender" | "all" | null>(null);
   let pendingDeleteUid = $state<number | null>(null);
   let isDeleting = $state(false);
   let moveToTrash = $state(true);
@@ -1626,7 +1625,7 @@ let sentFolderName = $state<string | null>(null);
     const toList = (msg.to ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const ccList = (msg.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const multiRecipient = toList.length > 1 || ccList.length > 0;
-    if (multiRecipient && !replyAllDecision) {
+    if (multiRecipient) {
       pendingReplyMessage = msg;
       showReplyAllDialog = true;
       return;
@@ -1652,7 +1651,7 @@ let sentFolderName = $state<string | null>(null);
     composeMode = "reply";
     sendError = null;
     replySubject = msg.subject ?? "";
-    replyTo = replyAll ? extractEmails([msg.from ?? "", msg.to ?? "", msg.cc ?? ""]).join(", ") : extractEmail(msg.from ?? "");
+    replyTo = replyAll ? extractEmails(msg.from ?? "", msg.to ?? "", msg.cc ?? "").join(", ") : extractEmail(msg.from ?? "");
     recipientName = extractName(msg.from ?? "");
     showCompose = true;
 
@@ -2351,9 +2350,9 @@ let sentFolderName = $state<string | null>(null);
 
           {#if attCtxMenu}
             <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
-            <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu.x}px; top: ${attCtxMenu.y}px;`} role="menu">
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu.att)}>Öffnen</button>
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu.att)}>Download</button>
+            <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu!.x}px; top: ${attCtxMenu!.y}px;`} role="menu">
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu!.att)}>Öffnen</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu!.att)}>Download</button>
             </div>
           {/if}
 
@@ -2376,9 +2375,9 @@ let sentFolderName = $state<string | null>(null);
                   {#if attPreview.contentType.startsWith("image/")}
                     <img src={attPreview.url} alt={attPreview.filename} class="att-preview-image" />
                   {:else if attPreview.contentType.startsWith("text/") || attPreview.contentType.includes("json") || attPreview.contentType.includes("xml") || attPreview.contentType.includes("javascript")}
-                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame" />
+                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame"></iframe>
                   {:else if attPreview.contentType === "application/pdf"}
-                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame" />
+                    <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame"></iframe>
                   {:else}
                     <div class="att-preview-unsupported">
                       <span>Vorschau für diesen Dateityp nicht möglich.</span>
@@ -2521,7 +2520,8 @@ let sentFolderName = $state<string | null>(null);
       </div>
     </aside>
     {#if !isNarrow}
-      <div class="resize-handle" onmousedown={(e) => startResize(e, 'sidebar')}></div>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={(e) => startResize(e, 'sidebar')}></div>
     {/if}
     <main class="list-pane" style={isCompact ? "" : `width: ${listWidth}px; min-width: ${listWidth}px;`}>
       <div class="list-header-container">
@@ -2572,7 +2572,8 @@ let sentFolderName = $state<string | null>(null);
       </div>
     </main>
     {#if !isCompact}
-      <div class="resize-handle" onmousedown={(e) => startResize(e, 'list')}></div>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={(e) => startResize(e, 'list')}></div>
     {/if}
     <section class="preview-pane">
       {#if isCompact && previewOpen && !showCompose}
@@ -2668,20 +2669,20 @@ let sentFolderName = $state<string | null>(null);
 
   {#if folderCtxMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
-    <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu.x}px; top: ${folderCtxMenu.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu.folderName); }}>Neuer Ordner...</button>
-      {#if folderCtxMenu.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu.folderName); closeMenus(); }}>Umbenennen...</button>
+    <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu!.x}px; top: ${folderCtxMenu!.y}px;`} role="menu">
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}>Neuer Ordner...</button>
+      {#if folderCtxMenu!.folderName !== "INBOX"}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}>Umbenennen...</button>
       {/if}
-      {#if customFolderNames[folderCtxMenu.folderName]}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu.folderName)}>Name zurücksetzen</button>
+      {#if customFolderNames[folderCtxMenu!.folderName]}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}>Name zurücksetzen</button>
       {/if}
-      {#if folderCtxMenu.folderName !== "INBOX"}
+      {#if folderCtxMenu!.folderName !== "INBOX"}
         <div class="ctx-menu-separator" role="separator"></div>
-        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu.folderName)}>Löschen</button>
+        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}>Löschen</button>
       {/if}
-      {#if folderCtxMenu.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu.folderName)}>Ausblenden</button>
+      {#if folderCtxMenu!.folderName !== "INBOX"}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu!.folderName)}>Ausblenden</button>
       {/if}
       {#if hiddenFolderNames.length > 0}
         <div class="ctx-menu-separator" role="separator"></div>

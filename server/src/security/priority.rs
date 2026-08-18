@@ -31,15 +31,15 @@ pub fn detect_priority(subject: &str, body: &str) -> f32 {
 }
 
 static URGENT_SUBJECT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(dringend|wichtig|eilig|urgent|frist|sofort|asap|attention)").unwrap()
+    Regex::new(r"(?i)(dringend|wichtig|eilig|urgent|frist|sofort|asap|attention)").expect("statische Regex")
 });
 
 static URGENT_BODY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(sofortige\s+Rueckmeldung|bitte\s+umgehend|unverzueglich|zeitnah|heute\s+noch|deadline)").unwrap()
+    Regex::new(r"(?i)(sofortige\s+Rueckmeldung|bitte\s+umgehend|unverzueglich|zeitnah|heute\s+noch|deadline)").expect("statische Regex")
 });
 
 static ACTION_REQUEST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(bitte\s+(beantworten|reagieren|antworten|bestätigen|prüfen)|Ihre\s+Rückmeldung|Rückmeldung\s+bis)").unwrap()
+    Regex::new(r"(?i)(bitte\s+(beantworten|reagieren|antworten|bestätigen|prüfen)|Ihre\s+Rückmeldung|Rückmeldung\s+bis)").expect("statische Regex")
 });
 
 #[cfg(test)]

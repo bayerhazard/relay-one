@@ -50,6 +50,8 @@ spec:
                 secretKeyRef:
                   name: relay-api-key
                   key: api-key
+            - name: RELAY_TRUSTED_HOST_SUFFIX
+              value: "{{ .Values.trustedHostSuffix }}"
           ports:
             - containerPort: 3000
               name: http

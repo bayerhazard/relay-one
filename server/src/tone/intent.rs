@@ -33,10 +33,10 @@ fn extract_recipient_name(text: &str) -> Option<String> {
         Regex::new(
             r"(?i)(?:Schreibe|Mail\s+an|Sende\s+an|E-Mail\s+an|Nachricht\s+an)\s+((?:[A-Z\u{00C4}\u{00D6}\u{00DC}][a-z\u{00E4}\u{00F6}\u{00FC}\u{00DF}]+\s*)+)",
         )
-        .unwrap()
+        .expect("statische Regex")
     });
     if let Some(caps) = TO_NAME.captures(text) {
-        return Some(caps.get(1).unwrap().as_str().trim().to_string());
+        return Some(caps.get(1).expect("capture group 1").as_str().trim().to_string());
     }
     None
 }
@@ -46,10 +46,10 @@ fn extract_organization(text: &str) -> Option<String> {
         Regex::new(
             r"(?i)(?:Firma|Unternehmen|GmbH|AG|UG)\s+([A-Z\u{00C4}\u{00D6}\u{00DC}][a-z\u{00E4}\u{00F6}\u{00FC}\u{00DF}]+(?:\s+[A-Z\u{00C4}\u{00D6}\u{00DC}][a-z\u{00E4}\u{00F6}\u{00FC}\u{00DF}]+)*)",
         )
-        .unwrap()
+        .expect("statische Regex")
     });
     if let Some(caps) = FIRMA.captures(text) {
-        return Some(caps.get(1).unwrap().as_str().trim().to_string());
+        return Some(caps.get(1).expect("capture group 1").as_str().trim().to_string());
     }
     None
 }
@@ -62,7 +62,7 @@ fn extract_tone_hints(text: &str) -> ToneHints {
         Regex::new(
             r"(?i)(liebe[rn]?\s+Gru\u{00df}|privat|pers\u{00f6}nlich|herzlich|ganz\s+lieb|vertraut|famili\u{00e4}r|freundschaftlich)",
         )
-        .unwrap()
+        .expect("statische Regex")
     });
     if PRIVATE_SIGNALS.is_match(&lower) {
         hints.implied_formality = Some(0.1);
@@ -73,7 +73,7 @@ fn extract_tone_hints(text: &str) -> ToneHints {
         Regex::new(
             r"(?i)(Firma|GmbH|AG|Gesch\u{00e4}ftlich|Business|Kunde|Mandant|offiziell|formell|Bewerbung|Angebot|Rechnung)",
         )
-        .unwrap()
+        .expect("statische Regex")
     });
     if BUSINESS_SIGNALS.is_match(&lower) {
         hints.implied_formality = Some(0.9);
@@ -84,17 +84,17 @@ fn extract_tone_hints(text: &str) -> ToneHints {
         Regex::new(
             r"(?i)(Weihnacht|Geburtstag|Jubil\u{00e4}um|Hochzeit|Neujahr|Ostern|Feiertag)",
         )
-        .unwrap()
+        .expect("statische Regex")
     });
     if let Some(caps) = FESTIVAL.captures(&lower) {
-        hints.occasion = Some(caps.get(1).unwrap().as_str().to_string());
+        hints.occasion = Some(caps.get(1).expect("capture group 1").as_str().to_string());
         if hints.implied_friendliness.is_none() {
             hints.implied_friendliness = Some(0.6);
         }
     }
 
     static URGENT_TERMS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(dringend|sofort|eilig|asap|schnell|wichtig)").unwrap()
+        Regex::new(r"(?i)(dringend|sofort|eilig|asap|schnell|wichtig)").expect("statische Regex")
     });
     if URGENT_TERMS.is_match(&lower) {
         if hints.implied_friendliness.is_none() {

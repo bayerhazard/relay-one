@@ -9,6 +9,7 @@ function makeMessage(overrides: Partial<import("$lib/stores/mailbox").Message> =
     from: "Alice <alice@example.com>",
     date: "2026-01-15T10:00:00Z",
     is_read: true,
+    is_flagged: false,
     ...overrides,
   };
 }

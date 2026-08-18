@@ -48,6 +48,7 @@
     <div
       class="dialog-overlay"
       role="alertdialog"
+      tabindex="-1"
       aria-labelledby="dialog-title"
       aria-describedby="dialog-message"
       aria-modal="true"

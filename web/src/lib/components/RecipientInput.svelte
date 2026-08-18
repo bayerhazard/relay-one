@@ -153,7 +153,15 @@
         <div
           class="suggestion"
           role="option"
+          aria-selected={false}
+          tabindex="-1"
           onclick={() => selectContact(contact)}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              selectContact(contact);
+            }
+          }}
         >
           <span class="suggestion-name">{formatDisplay(contact)}</span>
           {#if contact.email}

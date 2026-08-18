@@ -65,33 +65,33 @@ pub fn detect_fraud(subject: &str, body: &str) -> FraudResult {
 }
 
 static URGENCY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(dringend|sofort|eilig|urgent|sofortiges\s+Handeln|letzte\s+Warnung|Konto\s+wird\s+gesperrt|Frist\s+laeuft)").unwrap()
+    Regex::new(r"(?i)(dringend|sofort|eilig|urgent|sofortiges\s+Handeln|letzte\s+Warnung|Konto\s+wird\s+gesperrt|Frist\s+laeuft)").expect("statische Regex")
 });
 
 static SUSPICIOUS_TLD: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"https?://[^\s/]+\.(tk|ml|ga|cf|gq|top|win|buzz|club)([/\s]|$)").unwrap()
+    Regex::new(r"https?://[^\s/]+\.(tk|ml|ga|cf|gq|top|win|buzz|club)([/\s]|$)").expect("statische Regex")
 });
 
 static CREDENTIAL_REQUEST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(Passwort|Login|Zugangsdaten|verifizieren\s+Sie\s+Ihr|Konto\s+bestaetigen|Anmeldeinformationen)").unwrap()
+    Regex::new(r"(?i)(Passwort|Login|Zugangsdaten|verifizieren\s+Sie\s+Ihr|Konto\s+bestaetigen|Anmeldeinformationen)").expect("statische Regex")
 });
 
 static SHORTENER: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"https?://(bit\.ly|t\.co|tinyurl\.com|ow\.ly|is\.gd|buff\.ly|goo\.gl|short\.est)/").unwrap()
+    Regex::new(r"https?://(bit\.ly|t\.co|tinyurl\.com|ow\.ly|is\.gd|buff\.ly|goo\.gl|short\.est)/").expect("statische Regex")
 });
 
 static HIDDEN_LINK: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<a\s+[^>]*href\s*=\s*["'][^"']+["'][^>]*>\s*</a>"#).unwrap()
+    Regex::new(r#"<a\s+[^>]*href\s*=\s*["'][^"']+["'][^>]*>\s*</a>"#).expect("statische Regex")
 });
 
 fn has_link_text_mismatch(body: &str) -> bool {
     static LINK_TAG: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"<a\s+[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([^<]*)</a>"#).unwrap()
+        Regex::new(r#"<a\s+[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([^<]*)</a>"#).expect("statische Regex")
     });
 
     for caps in LINK_TAG.captures_iter(body) {
-        let url = caps.get(1).unwrap().as_str();
-        let text = caps.get(2).unwrap().as_str().trim();
+        let url = caps.get(1).expect("capture group 1").as_str();
+        let text = caps.get(2).expect("capture group 2").as_str().trim();
         if !text.is_empty() && !url.contains(text) {
             return true;
         }

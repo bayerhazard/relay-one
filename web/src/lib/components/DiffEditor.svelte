@@ -29,7 +29,7 @@
         class:removed={line.type === "removed"}
       >
         <span class="line-prefix">
-          {#if line.type === "added"}+{:else if line.type === "removed"}&minus;{:else} {/if}
+          {#if line.type === "added"}+{:else if line.type === "removed"}&minus;{/if}
         </span>
         <span class="line-text">{line.content}</span>
       </div>

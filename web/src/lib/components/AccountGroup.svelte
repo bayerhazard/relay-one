@@ -210,9 +210,16 @@
       <span
         class="chevron"
         role="button"
-        tabindex="-1"
+        tabindex="0"
         aria-label={collapsedFolders.has(node.name) ? "Unterordner einblenden" : "Unterordner ausblenden"}
         onclick={(e) => { e.stopPropagation(); onToggleFolder(account.id, node.name); }}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleFolder(account.id, node.name);
+          }
+        }}
       >
         {@html chevronSVG(!collapsedFolders.has(node.name))}
       </span>

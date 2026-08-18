@@ -14,22 +14,22 @@ pub fn mask_pii(text: &str) -> String {
 }
 
 static EMAIL_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap());
+    Lazy::new(|| Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").expect("statische Regex"));
 
 static PHONE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"((?:\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})").unwrap()
+    Regex::new(r"((?:\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})").expect("statische Regex")
 });
 
 static CC_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(?:\d[ -]*?){13,16}\b").unwrap()
+    Regex::new(r"\b(?:\d[ -]*?){13,16}\b").expect("statische Regex")
 });
 
 static SSN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap()
+    Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("statische Regex")
 });
 
 static IP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap()
+    Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").expect("statische Regex")
 });
 
 #[cfg(test)]

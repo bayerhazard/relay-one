@@ -42,16 +42,16 @@ pub fn analyze_mail(text: &str) -> ToneSignals {
 
 fn detect_formality(text: &str, salutation: &str, closing: &str, pronoun: &str) -> f32 {
     static FORMAL_SALUTATIONS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)^(Sehr\s+geehrte[rn]|Guten\s+Tag\s+Herr|Guten\s+Tag\s+Frau|Werter|Werte)").unwrap()
+        Regex::new(r"(?i)^(Sehr\s+geehrte[rn]|Guten\s+Tag\s+Herr|Guten\s+Tag\s+Frau|Werter|Werte)").expect("statische Regex")
     });
     static INFORMAL_SALUTATIONS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)^(Hallo|Hey|Hi|Moin|Servus)").unwrap()
+        Regex::new(r"(?i)^(Hallo|Hey|Hi|Moin|Servus)").expect("statische Regex")
     });
     static FORMAL_CLOSINGS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(Mit\s+freundlichen\s+Gr\u{00fc}\u{00df}en|Hochachtungsvoll|Mit\s+besten\s+Gr\u{00fc}\u{00df}en|Ihr\s+)").unwrap()
+        Regex::new(r"(?i)(Mit\s+freundlichen\s+Gr\u{00fc}\u{00df}en|Hochachtungsvoll|Mit\s+besten\s+Gr\u{00fc}\u{00df}en|Ihr\s+)").expect("statische Regex")
     });
     static INFORMAL_CLOSINGS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(LG|Liebe\s+Gr\u{00fc}\u{00df}e|Ciao|Bis\s+bald|Tsch\u{00fc}ss|Mach's\s+gut)").unwrap()
+        Regex::new(r"(?i)(LG|Liebe\s+Gr\u{00fc}\u{00df}e|Ciao|Bis\s+bald|Tsch\u{00fc}ss|Mach's\s+gut)").expect("statische Regex")
     });
 
     let mut score = 0.5f32;
@@ -81,10 +81,10 @@ fn detect_formality(text: &str, salutation: &str, closing: &str, pronoun: &str) 
 
 fn detect_friendliness(text: &str, closing: &str) -> f32 {
     static WARM_WORDS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(danke|liebe[rn]?|freundlich|gerne|sch\u{00f6}n|wunderbar|herzlich|froh|freue\s+mich|hoffe\s+es\s+geht|alles\s+Gute)").unwrap()
+        Regex::new(r"(?i)(danke|liebe[rn]?|freundlich|gerne|sch\u{00f6}n|wunderbar|herzlich|froh|freue\s+mich|hoffe\s+es\s+geht|alles\s+Gute)").expect("statische Regex")
     });
     static WARM_CLOSINGS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(Liebe\s+Gr\u{00fc}\u{00df}e|Herzlichst|Alles\s+Liebe|Bis\s+bald|Ganz\s+lieb)").unwrap()
+        Regex::new(r"(?i)(Liebe\s+Gr\u{00fc}\u{00df}e|Herzlichst|Alles\s+Liebe|Bis\s+bald|Ganz\s+lieb)").expect("statische Regex")
     });
 
     let mut score = 0.3f32;
@@ -109,11 +109,11 @@ fn detect_address_mode(text: &str) -> String {
     }
 
     static HELLO_FIRST: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)^(Hallo|Hey|Hi|Liebe[rn]?)\s+(\p{L}+)").unwrap()
+        Regex::new(r"(?i)^(Hallo|Hey|Hi|Liebe[rn]?)\s+(\p{L}+)").expect("statische Regex")
     });
     if let Some(caps) = HELLO_FIRST.captures(first_line) {
-        let name = caps.get(2).unwrap().as_str();
-        static NAME_COUNT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b\p{Lu}\p{Ll}+\b").unwrap());
+        let name = caps.get(2).expect("capture group 2").as_str();
+        static NAME_COUNT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b\p{Lu}\p{Ll}+\b").expect("statische Regex"));
         let full_text_names: Vec<&str> = NAME_COUNT.find_iter(text).map(|m| m.as_str()).collect();
         if full_text_names.iter().filter(|n| **n == name).count() == 1 {
             return "first_name".into();
@@ -168,10 +168,10 @@ fn detect_closing(text: &str) -> String {
 
 fn detect_pronoun(text: &str) -> String {
     static SIE_COUNT: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"\b(Sie|Ihnen|Ihr|Ihre|Ihrem|Ihren)\b").unwrap()
+        Regex::new(r"\b(Sie|Ihnen|Ihr|Ihre|Ihrem|Ihren)\b").expect("statische Regex")
     });
     static DU_COUNT: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)\b(Du|Dein|Dir|Dich|Deine|Deinem|Deinen)\b").unwrap()
+        Regex::new(r"(?i)\b(Du|Dein|Dir|Dich|Deine|Deinem|Deinen)\b").expect("statische Regex")
     });
 
     let sie = SIE_COUNT.find_iter(text).count();
@@ -191,7 +191,7 @@ fn detect_emotion(text: &str, _pronoun: &str) -> String {
 
     // --- Anger signals ---
     static ANGER_WORDS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(inakzeptabel|unakzeptabel|unverzeihlich|empörend|skandalös|furchtbar|enttäuschend|unfassbar|widerspenstig|grotesk|absurd|unverschämt|arrogant|respektlos)").unwrap()
+        Regex::new(r"(?i)(inakzeptabel|unakzeptabel|unverzeihlich|empörend|skandalös|furchtbar|enttäuschend|unfassbar|widerspenstig|grotesk|absurd|unverschämt|arrogant|respektlos)").expect("statische Regex")
     });
     let anger_words = ANGER_WORDS.find_iter(&lower).count();
 
@@ -214,7 +214,7 @@ fn detect_emotion(text: &str, _pronoun: &str) -> String {
 
     // --- Urgency signals ---
     static URGENT_WORDS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(sofort|dringend|asap|unverzüglich|umgehend|bitte\s+sofort|frist|deadline|bis\s+(heute|morgen|diesen\s+woche|diesen\s+monat)|spätestens|dringend|akut|kritisch|notfall|unmittelbar|sofortige\s+aktion)").unwrap()
+        Regex::new(r"(?i)(sofort|dringend|asap|unverzüglich|umgehend|bitte\s+sofort|frist|deadline|bis\s+(heute|morgen|diesen\s+woche|diesen\s+monat)|spätestens|dringend|akut|kritisch|notfall|unmittelbar|sofortige\s+aktion)").expect("statische Regex")
     });
     let urgent_words = URGENT_WORDS.find_iter(&lower).count();
 
@@ -225,7 +225,7 @@ fn detect_emotion(text: &str, _pronoun: &str) -> String {
 
     // --- Friendly signals (reuse warm word detection) ---
     static WARM_WORDS: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)(danke|liebe|freundlich|gerne|schön|wunderbar|herzlich|froh|freu|lieb|nett|tolle|super|klasse|wunderbar|herrlich|genial|fantastisch|perfekt|superb)").unwrap()
+        Regex::new(r"(?i)(danke|liebe|freundlich|gerne|schön|wunderbar|herzlich|froh|freu|lieb|nett|tolle|super|klasse|wunderbar|herrlich|genial|fantastisch|perfekt|superb)").expect("statische Regex")
     });
     let warm_count = WARM_WORDS.find_iter(&lower).count();
 
@@ -246,7 +246,7 @@ fn detect_emotion(text: &str, _pronoun: &str) -> String {
 #[inline]
 fn contains_emoji(text: &str) -> bool {
     static EMOJI: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]").unwrap()
+        Regex::new(r"[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]").expect("statische Regex")
     });
     EMOJI.is_match(text)
 }

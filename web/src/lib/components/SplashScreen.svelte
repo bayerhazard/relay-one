@@ -1,5 +1,6 @@
   <script lang="ts">
     import { connectAccount, deleteAccount, saveSettings } from "$lib/services/tauri";
+    import type { AccountInfo } from "$lib/stores/accounts";
 
     interface Props {
       oncomplete: (acct: AccountInfo) => void;
