@@ -1,7 +1,7 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
-> Stand: 2026-08-17 (alle Issues in Release 26.09.90 umgesetzt)
+> Stand: 2026-08-18 — Release 26.09.91 (Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
 
 ---
 
@@ -199,6 +199,28 @@
 ### CR-19 💡 ✅ gefixt (2. Runde) Hinweise Frontend
 - `+page.svelte:2379,2381` Self-closing `<iframe>` (nicht-void) — explizit `</iframe>`; `DiffEditor.svelte:32` leeres Block-Statement.
 - **Fix:** Beide behoben; zusätzlich `svelte.config.js` `compilerOptions.immutable` entfernt (in runes mode deprecated/wirkungslos, war die einzige verbleibende Code-Warnung). Restwarnungen: ~38 ungenutzte CSS-Selektoren (harmlos, Exit 0).
+
+---
+
+## Offen — neu gemeldet 2026-08-18
+
+### Reply-All: eigene Adresse + ursprüngliche Empfänger-Adresse im Antwortverteiler
+- **Status:** 🔵 offen
+- **Kategorie:** Backend / Reply-All-Verteiler
+- **Priorität:** high
+- **Beschreibung:** Bei „An alle antworten" landen die eigene Adresse sowie die ursprüngliche Empfänger-Adresse (Absender der ursprünglichen Mail) mit im Antwortverteiler (To/CC). Falsch: Die eigene Adresse darf die Antwortmail nicht erhalten; die Empfänger-Zusammenstellung muss die eigene Adresse herausfiltern und To/CC sauber trennen.
+
+### Reply-All: mehrere Adressen als ein Block → Senden schlägt fehl (parse_to)
+- **Status:** 🔵 offen
+- **Kategorie:** Backend / SMTP (parse_to)
+- **Priorität:** high
+- **Beschreibung:** Bei „An alle antworten" mit mehreren Empfängern werden die Adressen zu **einem Block** zusammengefasst, den Relay nicht verarbeiten kann. Senden bricht ab: `[parse_to] SMTP: Ungültige Empfänger-E-Mail-Adresse`. Die Adressen müssen einzeln getrennt geparst/übermittelt werden.
+
+### Mail Compose: „Ursprüngliche Nachricht" zu früh abgeschnitten
+- **Status:** 🔵 offen
+- **Kategorie:** UX / Frontend
+- **Priorität:** medium
+- **Beschreibung:** In der Antwort-/Weiterleitungs-Ansicht wird die zitierte Mail bei **1000 Zeichen** hart gekappt (`ComposeWindow.svelte:558` `sanitizeHtml(msg.html).slice(0,1000)` und `:560` `msg.text.slice(0,1000)`, jeweils mit „…"). Gewünscht: den **vollen Mailverlauf** anzeigen. Der Container ist scrollbar (`.chain-scroll-area`), daher besteht kein Overflow-/Anzeigeproblem — das 1000-Zeichen-Limit kann entfallen (ggf. nur `sanitizeHtml` beibehalten).
 
 ---
 
