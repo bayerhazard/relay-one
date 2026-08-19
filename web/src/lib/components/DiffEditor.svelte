@@ -1,5 +1,6 @@
 <script lang="ts">
   import { computeDiff } from "$lib/utils/diff";
+  import { t } from "$lib/i18n";
 
   interface Props {
     original: string;
@@ -15,10 +16,10 @@
 
 <div class="diff-editor">
   <div class="diff-toolbar">
-    <span class="diff-title">KI-Vorschlag (&Auml;nderungen anzeigen)</span>
+    <span class="diff-title">{$t("diff.title")}</span>
     <div class="diff-actions">
-      <button type="button" class="btn-reject" onclick={onreject}>&#x2715; Ablehnen</button>
-      <button type="button" class="btn-accept" onclick={onaccept}>&#x2713; &Uuml;bernehmen</button>
+      <button type="button" class="btn-reject" onclick={onreject}>&#x2715; {$t("diff.reject")}</button>
+      <button type="button" class="btn-accept" onclick={onaccept}>&#x2713; {$t("diff.accept")}</button>
     </div>
   </div>
   <div class="diff-content">

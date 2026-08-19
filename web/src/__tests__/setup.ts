@@ -1,4 +1,17 @@
-import { vi } from "vitest";
+import { vi, beforeEach } from "vitest";
+import { setLang } from "$lib/i18n";
+
+// i18n state isolation: every test starts with German (the app default) so
+// component tests that assert German UI text stay deterministic even when a
+// previous test switched to English via setLang().
+beforeEach(() => {
+  try {
+    localStorage.removeItem("relay_lang");
+  } catch {
+    /* ignore */
+  }
+  setLang("de");
+});
 
 // Mock the svelte module to provide mount function for SSR compatibility
 vi.mock("svelte", async () => {

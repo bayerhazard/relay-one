@@ -1,4 +1,6 @@
   <script lang="ts">
+    import { t } from "$lib/i18n";
+
     interface Props {
       message: string;
       onretry?: () => void;
@@ -8,7 +10,7 @@
     let {
       message,
       onretry,
-      retryLabel = "Erneut versuchen",
+      retryLabel = "",
     }: Props = $props();
   </script>
 
@@ -19,7 +21,7 @@
     </div>
     {#if onretry}
       <button type="button" class="retry-btn" onclick={onretry}>
-        {retryLabel}
+        {retryLabel || $t("error.retry")}
       </button>
     {/if}
   </div>

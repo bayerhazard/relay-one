@@ -1,6 +1,8 @@
 <script lang="ts">
   // In-app text-input dialog. Replaces window.prompt(), which silently
   // returns null and renders nothing inside the Tauri macOS WKWebView.
+  import { t } from "$lib/i18n";
+
   interface Props {
     open: boolean;
     title?: string;
@@ -15,12 +17,12 @@
 
   let {
     open,
-    title = "Eingabe",
+    title = "",
     message = "",
     value = "",
     placeholder = "",
-    confirmLabel = "OK",
-    cancelLabel = "Abbrechen",
+    confirmLabel = "",
+    cancelLabel = "",
     onconfirm,
     oncancel,
   }: Props = $props();
@@ -74,7 +76,7 @@
   >
     <div class="dialog-panel">
       <div class="dialog-content">
-        <h2 id="prompt-dialog-title" class="dialog-title">{title}</h2>
+        <h2 id="prompt-dialog-title" class="dialog-title">{title || $t("prompt.title")}</h2>
         {#if message}
           <p class="dialog-message">{message}</p>
         {/if}
@@ -88,10 +90,10 @@
         />
         <div class="dialog-actions">
           <button type="button" class="btn-cancel" onclick={oncancel}>
-            {cancelLabel}
+            {cancelLabel || $t("prompt.cancel")}
           </button>
           <button type="button" class="btn-confirm" onclick={confirm} disabled={!inputValue.trim()}>
-            {confirmLabel}
+            {confirmLabel || $t("prompt.ok")}
           </button>
         </div>
       </div>

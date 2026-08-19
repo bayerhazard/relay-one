@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.91
+  version: 26.09.92
   categories:
     - Utilities
 entrances:
@@ -17,15 +17,16 @@ entrances:
     title: Relay
     icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
     openMethod: window
-    authLevel: public
+    authLevel: internal
     # Custom Route-ID "mail": NICHT im Chart setzbar (Olares legt
     # spec.settings.customDomain.<entrance>.third_level_domain erst nach
     # Install im Application-CR an). Nach der Installation setzen:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.91
+  versionName: 26.09.92
   upgradeDescription: |
+    v26.09.92: ZWEISPRACHIG — Relay ist jetzt komplett auf Deutsch UND Englisch umstellbar (Buttons, Labels, Menues, Dialoge, Zustandsmeldungen). Der Splash-Screen startet auf Deutsch mit kleinem DE/EN-Toggle; unter Einstellungen → Allgemein → Sprache laesst sich die Sprache jederzeit wechseln (wird im Browser gespeichert). FIX X-Relay-Key-Fehler beim Konto-Verbinden — der API-Key-Guard (RELAY_API_KEY/RELAY_TRUSTED_HOST_SUFFIX) ist deaktiviert; der Zugriffsschutz liegt auf dem Olares-Entrance (authLevel: internal, Zugriff via Olares-VPN unterwegs). Die haeufigsten Server-Fehlermeldungen (Konto-Verbindung, IMAP/SMTP) werden sprachabhaengig angezeigt. Built for Olares 1.12.6.
     v26.09.91: FIX Mails nach Kaltstart nicht oeffenbar — die Start-Synchronisation liess folderId leer, wodurch der selectedMessage-Guard (folderId === messagesFolder) jede Mail verwarf; erst ein Ordnerwechsel+Zurueck half. Jetzt wird folderId beim Start mit dem UI-Ordner synchronisiert. SECURITY Code-Review: Path-Traversal bei Backup-Wiederherstellung und mbox-Import geschlossen (Pfadvalidierung), Stored-XSS beim Rendern roher Mail-HTML entschaerft (DOMPurify-Sanitizer), CORS-Layer entfernt (App laeuft same-origin), API-Key-Guard gehaertet (RELAY_TRUSTED_HOST_SUFFIX gegen Host-Spoofing), /info und /events nur noch per Key fuer interne Hosts, db_path aus /info entfernt, 40 unwrap→expect in Tone/Security. TEST/LINT: CI-Workflow (cargo test+clippy, svelte-check+tsc+vitest+build), 10 vorbestehende svelte-check-Typeerrors gefixt, A11y (Keyboard/ARIA) fuer Toolbar und Mail-Liste, Vitest-Coverage-Gate gruen, dead code entfernt. UI: Unterordner-Einrueckung -25%, Antworten/Loeschen-Buttons ohne Icons und gleich breit (min-width 100px). Built for Olares 1.12.6.
     v26.09.90: NEU Sofortiger Ordnerwechsel (Meta-only Liste + Server-Side-Cache — grosse Ordner laden in Millisekunden statt Sekunden). FIX IMAP-Session-Leak (Timeout/Join-Fehler loggen jetzt die Session sauber aus → kein Login-Limit mehr). FIX Sent-Ordner: gesendete Mails sind gelesen (is_read=1 + APPEND \Seen), flag_refresh schuetzt kuerzlich lokal gelesene Mails (30s-Cooldown). NEU Empfaenger-Anzeige (An:/CC:) in der Mail-Vorschau. NEU Reply-All-Rueckfrage (An alle / nur Absender) bei mehreren Empfaengern. NEU Batch gelesen/ungelesen (eine Anfrage fuer alle markierten). FIX Unterordner-Drag-Reihenfolge baum-basiert (innerhalb der eigenen Geschwister, persistiert). FIX Mobile Compose Toolbar-Buttons vertikal zentriert (45px, kein Padding-Overlauf). Sidebar: "AImighty Relay 3.0". Profilbild-Upload unterstuetzt SVG. Built for Olares 1.12.6.
     v26.09.89: Designguide-Konformitaet — Hanseatenblau/Gold-Palette (#caa960), keine Apple-Farben/SF-Fonts, Geist als Variable Fonts (100-900), keine dekorativen Schatten/Verlaeufe, Zustandsfarben an Guide-Palette, konformes App-Icon (Hanseatenblau + goldener Punkt). Built for Olares 1.12.6.

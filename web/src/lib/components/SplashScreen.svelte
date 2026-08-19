@@ -1,6 +1,7 @@
   <script lang="ts">
     import { connectAccount, deleteAccount, saveSettings } from "$lib/services/tauri";
     import type { AccountInfo } from "$lib/stores/accounts";
+    import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
 
     interface Props {
       oncomplete: (acct: AccountInfo) => void;
@@ -37,7 +38,7 @@
 
     async function handleSplashConnectAccount() {
       if (!splashAcctName || !splashImapHost || !splashSmtpHost || !splashAcctUser || !splashSenderMail) {
-        splashAcctError = "Bitte alle Pflichtfelder ausfüllen.";
+        splashAcctError = translate("error.fillRequired");
         return;
       }
       splashAcctConnecting = true;
@@ -64,7 +65,7 @@
         splashCreatedAccount = acct;
         splashStep = "setup_llm";
       } catch (e: unknown) {
-        splashAcctError = e instanceof Error ? e.message : String(e);
+        splashAcctError = localizeError(e instanceof Error ? e.message : String(e));
       } finally {
         splashAcctConnecting = false;
       }
@@ -100,67 +101,71 @@
 
   <div class="splash-screen">
     <div class="splash-card">
+      <div class="lang-toggle" role="group" aria-label={$t("splash.language")}>
+        <button type="button" class:active={$lang === "de"} onclick={() => setLang("de")}>DE</button>
+        <button type="button" class:active={$lang === "en"} onclick={() => setLang("en")}>EN</button>
+      </div>
       {#if splashStep === "intro"}
         <div class="splash-intro">
-          <h1>Willkommen bei Relay</h1>
-          <p class="splash-subtitle">Der intelligente, lokale E-Mail-Client.</p>
+          <h1>{$t("splash.welcome")}</h1>
+          <p class="splash-subtitle">{$t("splash.subtitle")}</p>
           
           <div class="feature-grid">
             <div class="feature-card">
-              <h3>KI-Überwachung</h3>
-              <p>Smarte Posteingangs-Analyse auf kritische Inhalte, Phishing und automatische Zusammenfassungen.</p>
+              <h3>{$t("splash.featureMonitoring")}</h3>
+              <p>{$t("splash.featureMonitoringDesc")}</p>
             </div>
             
             <div class="feature-card">
-              <h3>KI-Mail-Generierung</h3>
-              <p>Schnelles Verfassen präziser E-Mails und Antworten in deiner individuellen Tonalität.</p>
+              <h3>{$t("splash.featureGeneration")}</h3>
+              <p>{$t("splash.featureGenerationDesc")}</p>
             </div>
             
             <div class="feature-card">
-              <h3>Lokal & Sicher</h3>
-              <p>Volle Datenhoheit. E-Mails und KI-Modelle verbleiben ausschließlich lokal auf deinem Gerät.</p>
+              <h3>{$t("splash.featureLocal")}</h3>
+              <p>{$t("splash.featureLocalDesc")}</p>
             </div>
           </div>
           
           <button type="button" class="btn-splash-primary" onclick={() => (splashStep = "setup_mail")}>
-            Jetzt einrichten
+            {$t("splash.setupNow")}
           </button>
         </div>
       {:else if splashStep === "setup_mail"}
         <div class="splash-form-view">
-          <h2>E-Mail-Konto verbinden</h2>
-          <p class="splash-subtitle">Schritt 1 von 2: Zugangsdaten deines bestehenden Postfachs</p>
+          <h2>{$t("splash.connectTitle")}</h2>
+          <p class="splash-subtitle">{$t("splash.step1Of2")}</p>
           
           <div class="splash-form">
             <div class="form-group span-2">
-              <label for="splash-acct-name">Anzeigename</label>
-              <input id="splash-acct-name" bind:value={splashAcctName} placeholder="z.B. Privat-Mail" />
+              <label for="splash-acct-name">{$t("splash.displayName")}</label>
+              <input id="splash-acct-name" bind:value={splashAcctName} placeholder={$t("splash.displayNamePlaceholder")} />
             </div>
 
             <div class="form-group">
-              <label for="splash-acct-user">Benutzername (E-Mail)</label>
+              <label for="splash-acct-user">{$t("splash.username")}</label>
               <input id="splash-acct-user" bind:value={splashAcctUser} placeholder="max@gmx.de" />
             </div>
             <div class="form-group">
-              <label for="splash-acct-pass">Passwort</label>
+              <label for="splash-acct-pass">{$t("splash.password")}</label>
               <input id="splash-acct-pass" type="password" bind:value={splashAcctPass} />
             </div>
 
             <div class="form-group">
-              <label for="splash-sender-name">Absendername</label>
+              <label for="splash-sender-name">{$t("splash.senderName")}</label>
               <input id="splash-sender-name" bind:value={splashSenderName} placeholder="Max Mustermann" />
             </div>
             <div class="form-group">
-              <label for="splash-sender-mail">Absender-E-Mail</label>
+              <label for="splash-sender-mail">{$t("splash.senderMail")}</label>
               <input id="splash-sender-mail" type="text" inputmode="email" bind:value={splashSenderMail} placeholder="max@gmx.de" />
             </div>
 
             <div class="form-group">
-              <label for="splash-imap-host">IMAP-Server</label>
+              <label for="splash-imap-host">{$t("splash.imapServer")}</label>
               <input id="splash-imap-host" bind:value={splashImapHost} placeholder="imap.gmx.net" />
             </div>
             <div class="form-group">
-              <label for="splash-imap-port">IMAP-Port / SSL</label>
+              <label for="splash-imap-port">{$t("splash.imapPort")}</label>
               <div class="port-ssl-row">
                 <input id="splash-imap-port" type="number" bind:value={splashImapPort} />
                 <label class="toggle-label">
@@ -174,16 +179,16 @@
               <label class="toggle-label">
                 <input type="checkbox" class="toggle" bind:checked={splashImapInsecure} />
                 <span class="toggle-track" aria-hidden="true"></span>
-                <span class="toggle-text">Ungültiges IMAP-Zertifikat erlauben (lokale Server)</span>
+                <span class="toggle-text">{$t("splash.allowInsecure")}</span>
               </label>
             </div>
 
             <div class="form-group">
-              <label for="splash-smtp-host">SMTP-Server</label>
+              <label for="splash-smtp-host">{$t("splash.smtpServer")}</label>
               <input id="splash-smtp-host" bind:value={splashSmtpHost} placeholder="mail.gmx.net" />
             </div>
             <div class="form-group">
-              <label for="splash-smtp-port">SMTP-Port / TLS</label>
+              <label for="splash-smtp-port">{$t("splash.smtpPort")}</label>
               <div class="port-ssl-row">
                 <input id="splash-smtp-port" type="number" bind:value={splashSmtpPort} />
                 <label class="toggle-label">
@@ -196,17 +201,17 @@
 
             <div class="form-group span-2">
               <button type="button" class="btn-link" onclick={() => (splashAdvancedMail = !splashAdvancedMail)}>
-                {splashAdvancedMail ? "▲ Erweiterte SMTP-Zugangsdaten ausblenden" : "▼ Erweiterte SMTP-Zugangsdaten"}
+                {splashAdvancedMail ? $t("splash.hideAdvanced") : $t("splash.showAdvanced")}
               </button>
             </div>
             {#if splashAdvancedMail}
               <div class="form-group">
-                <label for="splash-smtp-user">SMTP-Benutzername</label>
-                <input id="splash-smtp-user" bind:value={splashSmtpUser} placeholder="(optional, sonst IMAP-User)" />
+                <label for="splash-smtp-user">{$t("splash.smtpUsername")}</label>
+                <input id="splash-smtp-user" bind:value={splashSmtpUser} placeholder={$t("splash.optionalImapUser")} />
               </div>
               <div class="form-group">
-                <label for="splash-smtp-pass">SMTP-Passwort</label>
-                <input id="splash-smtp-pass" type="password" bind:value={splashSmtpPass} placeholder="(optional, sonst IMAP-Passwort)" />
+                <label for="splash-smtp-pass">{$t("splash.smtpPassword")}</label>
+                <input id="splash-smtp-pass" type="password" bind:value={splashSmtpPass} placeholder={$t("splash.optionalImapPassword")} />
               </div>
             {/if}
 
@@ -216,30 +221,30 @@
 
             <div class="splash-actions span-2">
               <button type="button" class="btn-splash-secondary" onclick={() => (splashStep = "intro")}>
-                Zurück
+                {$t("common.back")}
               </button>
               <button type="button" class="btn-splash-primary" onclick={handleSplashConnectAccount} disabled={splashAcctConnecting}>
-                {splashAcctConnecting ? "Verbinde..." : "Weiter"}
+                {splashAcctConnecting ? $t("splash.connecting") : $t("common.next")}
               </button>
             </div>
           </div>
         </div>
       {:else if splashStep === "setup_llm"}
         <div class="splash-form-view">
-          <h2>KI-Modell konfigurieren</h2>
-          <p class="splash-subtitle">Schritt 2 von 2: Lokales LLM (Ollama, LiteLLM, vLLM)</p>
+          <h2>{$t("splash.llmTitle")}</h2>
+          <p class="splash-subtitle">{$t("splash.step2Of2")}</p>
           
           <div class="splash-form">
             <div class="form-group span-2">
-              <label for="splash-ai-url">API-URL</label>
+              <label for="splash-ai-url">{$t("splash.apiUrl")}</label>
               <input id="splash-ai-url" type="text" inputmode="url" bind:value={splashAiUrl} placeholder="https://llm.aimighty.de/v1" />
             </div>
             <div class="form-group">
-              <label for="splash-ai-key">API-Key</label>
+              <label for="splash-ai-key">{$t("splash.apiKey")}</label>
               <input id="splash-ai-key" type="password" bind:value={splashAiKey} placeholder="ollama" />
             </div>
             <div class="form-group">
-              <label for="splash-ai-model">Model-ID</label>
+              <label for="splash-ai-model">{$t("splash.modelId")}</label>
               <input id="splash-ai-model" type="text" bind:value={splashAiModel} placeholder="chat" />
             </div>
 
@@ -249,10 +254,10 @@
 
             <div class="splash-actions span-2">
               <button type="button" class="btn-splash-secondary" onclick={handleSplashBackToMail}>
-                Zurück
+                {$t("common.back")}
               </button>
               <button type="button" class="btn-splash-primary" onclick={handleSplashCompleteSetup} disabled={splashAiSaving}>
-                {splashAiSaving ? "Speichere..." : "Einrichtung abschließen"}
+                {splashAiSaving ? $t("common.saving") : $t("splash.finish")}
               </button>
             </div>
           </div>
@@ -286,7 +291,38 @@
     box-shadow: none;
     display: flex;
     flex-direction: column;
+    position: relative;
     animation: fadeIn 0.25s ease-out;
+  }
+  .lang-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 2px;
+    background: var(--color-sidebar);
+  }
+  .lang-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+  }
+  .lang-toggle button.active {
+    background: var(--color-accent);
+    color: #ffffff;
+  }
+  .lang-toggle button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
   }
   @keyframes fadeIn {
     from { opacity: 0; transform: scale(0.98); }

@@ -12,6 +12,7 @@
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
+  import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
   import { mailbox, getFolderCache, invalidateFolderCache, type Message } from "$lib/stores/mailbox";
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
@@ -324,7 +325,7 @@ let sentFolderName = $state<string | null>(null);
       }
     }
     if (!foldersFetched && folderNames.length === 0) {
-      initError = "Ordnerliste konnte nicht geladen werden. Bitte prüfe deine Internetverbindung.";
+      initError = translate("mail.folderListError");
     }
 
     try {
@@ -594,7 +595,7 @@ let sentFolderName = $state<string | null>(null);
         delim: folderDelimiters,
       });
     } catch (e: unknown) {
-      mailbox.setError("Server-Umbenennung fehlgeschlagen: " + (e instanceof Error ? e.message : String(e)));
+      mailbox.setError(translate("mail.renameFailed") + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -661,7 +662,7 @@ let sentFolderName = $state<string | null>(null);
       }
     } catch (e) {
       console.error("deleteFolder failed", e);
-      mailbox.setError("Ordner konnte nicht gelöscht werden: " + (e instanceof Error ? e.message : String(e)));
+      mailbox.setError(translate("mail.deleteFolderFailed") + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -698,7 +699,7 @@ let sentFolderName = $state<string | null>(null);
 
     const targets = folderNames
       .filter((name) => name !== selectedFolder)
-      .map((name) => ({ name, label: customFolderNames[name] || translateFolder(name) }));
+      .map((name) => ({ name, label: customFolderNames[name] || translate(translateFolder(name)) }));
     if (targets.length === 0) return;
 
     const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
@@ -803,7 +804,7 @@ let sentFolderName = $state<string | null>(null);
       const parts = name.split(delimiter);
       if (parts.length === 1) {
         const leafName = getLeafName(name, delimiter);
-        const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
+        const label = customFolderNames[name] || customFolderNames[leafName] || translate(translateFolder(leafName));
         const node: FolderNode = { name, label, children: [], local_only: localFolderNames.has(name) };
         root.children.push(node);
         level1Map.set(lowerName, node);
@@ -819,14 +820,14 @@ let sentFolderName = $state<string | null>(null);
       const parts = name.split(delimiter);
       if (parts.length < 2) continue;
       const leafName = getLeafName(name, delimiter);
-      const label = customFolderNames[name] || customFolderNames[leafName] || translateFolder(leafName);
+      const label = customFolderNames[name] || customFolderNames[leafName] || translate(translateFolder(leafName));
       const parentName = parts[0];
       let parent = level1Map.get(parentName.toLowerCase());
       if (!parent) {
         // Parent folder is not a standalone entry (e.g. only exists as a
         // prefix) — synthesize it so the hierarchy stays intact.
         const parentLeaf = getLeafName(parentName, delimiter);
-        const parentLabel = customFolderNames[parentName] || customFolderNames[parentLeaf] || translateFolder(parentLeaf);
+        const parentLabel = customFolderNames[parentName] || customFolderNames[parentLeaf] || translate(translateFolder(parentLeaf));
         parent = { name: parentName, label: parentLabel, children: [] };
         root.children.push(parent);
         level1Map.set(parentName.toLowerCase(), parent);
@@ -923,7 +924,7 @@ let sentFolderName = $state<string | null>(null);
         })
         .catch((e) => {
           console.warn("Cross-Account-Verschieben fehlgeschlagen", e);
-          mailbox.setError("Die Nachricht konnte nicht verschoben werden: " + (e instanceof Error ? e.message : String(e)));
+          mailbox.setError(translate("mail.moveFailed") + (e instanceof Error ? e.message : String(e)));
         });
       return;
     }
@@ -938,7 +939,7 @@ let sentFolderName = $state<string | null>(null);
       })
       .catch((e) => {
         console.warn("Verschieben fehlgeschlagen", e);
-        mailbox.setError("Die Nachricht konnte nicht verschoben werden: " + (e instanceof Error ? e.message : String(e)));
+        mailbox.setError(translate("mail.moveFailed") + (e instanceof Error ? e.message : String(e)));
       });
   }
 
@@ -1123,7 +1124,7 @@ let sentFolderName = $state<string | null>(null);
       processed = inner.replace(imgRe, (_m, before, _q, url, after) => {
         const safeUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         const shortUrl = url.length > 60 ? url.slice(0, 57) + '...' : url;
-        return `<span class="img-placeholder" data-src="${safeUrl}" onclick="loadImage(this)">&#x1F5BC; ${shortUrl}<br><small>Bild laden</small></span>`;
+        return `<span class="img-placeholder" data-src="${safeUrl}" onclick="loadImage(this)">&#x1F5BC; ${shortUrl}<br><small>${translate('mail.loadImage')}</small></span>`;
       });
     }
 
@@ -1244,10 +1245,10 @@ let sentFolderName = $state<string | null>(null);
         ghost.style.cssText = `position:absolute;left:-9999px;width:200px;padding:6px 10px;background:var(--color-list);color:var(--color-text);border-radius:8px;font-size:12px;box-shadow:none;line-height:1.4;`;
         const sender = document.createElement("div");
         sender.style.cssText = "font-weight:600;margin-bottom:2px;";
-        sender.textContent = extractName(msg.from) || "Unbekannt";
+        sender.textContent = extractName(msg.from) || translate("mail.unknown");
         const subject = document.createElement("div");
         subject.style.cssText = "font-weight:400;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
-        subject.textContent = msg.subject || "(Kein Betreff)";
+        subject.textContent = msg.subject || translate("mail.noSubject");
         ghost.appendChild(sender);
         ghost.appendChild(subject);
         document.body.appendChild(ghost);
@@ -1497,7 +1498,7 @@ let sentFolderName = $state<string | null>(null);
       if (ready) {
         await initWithAccount(accts[0]);
       } else {
-        initError = "IMAP-Verbindung konnte nicht hergestellt werden";
+        initError = translate("mail.imapConnectError");
       }
     } else {
       showSplash = true;
@@ -1538,7 +1539,7 @@ let sentFolderName = $state<string | null>(null);
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       if (!errMsg.includes("IMAP-Client nicht gefunden")) {
-        initError = "Startfehler: " + errMsg;
+        initError = translate("mail.startError") + errMsg;
       }
     }
   }
@@ -1976,7 +1977,7 @@ let sentFolderName = $state<string | null>(null);
       sendError = null;
       await loadInbox();
     } catch (e: unknown) {
-      sendError = e instanceof Error ? e.message : String(e);
+      sendError = localizeError(e instanceof Error ? e.message : String(e));
     } finally {
       isSending = false;
     }
@@ -2060,7 +2061,7 @@ let sentFolderName = $state<string | null>(null);
     closeAttCtxMenu();
     const content = await ensureAttachmentContent(att);
     if (!content) {
-      mailbox.setError("Anhanginhalt nicht verfügbar.");
+      mailbox.setError(translate("mail.attachmentUnavailable"));
       return;
     }
     try {
@@ -2071,7 +2072,7 @@ let sentFolderName = $state<string | null>(null);
       const url = URL.createObjectURL(blob);
       attPreview = { url, filename: att.filename, contentType: att.content_type || "application/octet-stream" };
     } catch (e) {
-      mailbox.setError("Anhang konnte nicht geöffnet werden: " + (e instanceof Error ? e.message : String(e)));
+      mailbox.setError(translate("mail.attachmentOpenFailed") + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -2096,12 +2097,12 @@ let sentFolderName = $state<string | null>(null);
     closeAttCtxMenu();
     const content = await ensureAttachmentContent(att);
     if (!content) {
-      mailbox.setError("Anhanginhalt nicht verfügbar.");
+      mailbox.setError(translate("mail.attachmentUnavailable"));
       return;
     }
     const saved = await saveAttachment(att.filename, content, att.content_type || undefined);
     if (!saved) {
-      mailbox.setError("Anhang konnte nicht gespeichert werden.");
+      mailbox.setError(translate("mail.attachmentSaveFailed"));
     }
   }
 
@@ -2211,15 +2212,15 @@ let sentFolderName = $state<string | null>(null);
 
   function translateFolder(name: string): string {
     const dict: Record<string, string> = {
-      "INBOX": "Posteingang",
-      "Sent": "Gesendet",
-      "Drafts": "Entwürfe",
-      "Trash": "Papierkorb",
-      "Spam": "Spamverdacht",
-      "Archive": "Archiv",
-      "Junk": "Spam",
-      "Gelöscht": "Papierkorb",
-      "Spamverdacht": "Spamverdacht"
+      "INBOX": "mail.folderInbox",
+      "Sent": "mail.folderSent",
+      "Drafts": "mail.folderDrafts",
+      "Trash": "mail.folderTrash",
+      "Spam": "mail.folderSpam",
+      "Archive": "mail.folderArchive",
+      "Junk": "mail.folderJunk",
+      "Gelöscht": "mail.folderGeloescht",
+      "Spamverdacht": "mail.folderSpamverdacht"
     };
     return dict[name] || name;
   }
@@ -2273,27 +2274,27 @@ let sentFolderName = $state<string | null>(null);
     <div class="preview-layout">
       <div class="preview-pane-header">
         <div class="preview-header-meta">
-          <span class="preview-from-name">{extractName(selectedMessage.from) || "Unbekannt"}</span>
+          <span class="preview-from-name">{extractName(selectedMessage.from) || $t("mail.unknown")}</span>
           <span class="preview-from-email">{extractEmail(selectedMessage.from)}</span>
         </div>
         <div class="preview-header-actions">
           <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
-            Antworten
+            {$t("mail.reply")}
           </button>
-          <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title="Löschen (⌫)">
-            Löschen
+          <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
+            {$t("mail.delete")}
           </button>
         </div>
       </div>
       
       <div class="preview-scroll-wrapper">
         <div class="preview-content-area">
-          <h1 class="preview-subject-large">{selectedMessage.subject || "(Kein Betreff)"}</h1>
+          <h1 class="preview-subject-large">{selectedMessage.subject || $t("mail.noSubject")}</h1>
           <div class="preview-date-line">{formatDate(selectedMessage.date)}</div>
           {#if selectedMessage.to || selectedMessage.cc}
             <div class="preview-recipients">
               {#if selectedMessage.to}
-                <span class="preview-recipient-line"><strong>An:</strong> {selectedMessage.to}</span>
+                <span class="preview-recipient-line"><strong>{$t("mail.to")}</strong> {selectedMessage.to}</span>
               {/if}
               {#if selectedMessage.cc}
                 <span class="preview-recipient-line"><strong>CC:</strong> {selectedMessage.cc}</span>
@@ -2316,7 +2317,7 @@ let sentFolderName = $state<string | null>(null);
             {:else if previewSrcdoc}
               <div class="mail-iframe-container">
                 <iframe
-                  title="E-Mail Inhalt"
+                  title={$t("mail.emailContent")}
                   srcdoc={previewSrcdoc}
                   class="mail-iframe"
                   sandbox="allow-scripts"
@@ -2328,13 +2329,13 @@ let sentFolderName = $state<string | null>(null);
             {:else if selectedMessage.body_preview}
               <div class="mail-body">{selectedMessage.body_preview}</div>
             {:else}
-              <div class="mail-body-empty">(Kein Inhalt)</div>
+              <div class="mail-body-empty">{$t("mail.noContent")}</div>
             {/if}
           </div>
 
           {#if attachments.length > 0}
             <div class="attachments">
-              <div class="attachments-title">{attachments.length} Anhang{attachments.length === 1 ? "" : "e"}</div>
+              <div class="attachments-title">{attachments.length === 1 ? $t("mail.attachmentsOne") : $t("mail.attachmentsMany", { count: attachments.length })}</div>
               <div class="attachments-list">
                 {#each attachments as att, i (i)}
                   <button
@@ -2342,7 +2343,7 @@ let sentFolderName = $state<string | null>(null);
                     class="attachment-chip"
                     onclick={() => handleOpenAttachment(att)}
                     oncontextmenu={(e) => handleAttachmentContextMenu(e, att)}
-                    title="Öffnen (Rechtsklick: Optionen)"
+                    title={$t("mail.openAttachmentTitle")}
                   >
                     <span class="attachment-icon" aria-hidden="true">&#x1F4CE;</span>
                     <span class="attachment-meta">
@@ -2358,22 +2359,22 @@ let sentFolderName = $state<string | null>(null);
           {#if attCtxMenu}
             <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
             <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu!.x}px; top: ${attCtxMenu!.y}px;`} role="menu">
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu!.att)}>Öffnen</button>
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu!.att)}>Download</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu!.att)}>{$t("mail.open")}</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu!.att)}>{$t("mail.download")}</button>
             </div>
           {/if}
 
           {#if attPreview}
-            <div class="att-preview-overlay" role="dialog" aria-modal="true" aria-label="Anhang-Vorschau">
+            <div class="att-preview-overlay" role="dialog" aria-modal="true" aria-label={$t("mail.attachmentPreview")}>
               <div class="att-preview-scrim" role="presentation" onclick={closeAttPreview}></div>
               <div class="att-preview-modal">
                 <div class="att-preview-header">
                   <span class="att-preview-name" title={attPreview.filename}>{attPreview.filename}</span>
                   <div class="att-preview-actions">
-                    <button type="button" class="att-preview-btn" onclick={downloadAttPreview} title="Herunterladen" aria-label="Herunterladen">
+                    <button type="button" class="att-preview-btn" onclick={downloadAttPreview} title={$t("mail.downloadTitle")} aria-label={$t("mail.downloadTitle")}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
                     </button>
-                    <button type="button" class="att-preview-btn" onclick={closeAttPreview} title="Schließen (Esc)" aria-label="Schließen">
+                    <button type="button" class="att-preview-btn" onclick={closeAttPreview} title={$t("mail.closeShortcut")} aria-label={$t("mail.close")}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
                     </button>
                   </div>
@@ -2387,8 +2388,8 @@ let sentFolderName = $state<string | null>(null);
                     <iframe src={attPreview.url} title={attPreview.filename} class="att-preview-frame"></iframe>
                   {:else}
                     <div class="att-preview-unsupported">
-                      <span>Vorschau für diesen Dateityp nicht möglich.</span>
-                      <button type="button" class="att-preview-download-btn" onclick={downloadAttPreview}>Download</button>
+                      <span>{$t("mail.previewUnsupported")}</span>
+                      <button type="button" class="att-preview-download-btn" onclick={downloadAttPreview}>{$t("mail.download")}</button>
                     </div>
                   {/if}
                 </div>
@@ -2430,13 +2431,13 @@ let sentFolderName = $state<string | null>(null);
     <EmptyState
       tone="error"
       icon="&#x26A0;"
-      title="Keine Verbindung"
+      title={$t("mail.noConnection")}
       subtitle={initError}
-      actionLabel="Erneut versuchen"
+      actionLabel={$t("mail.retry")}
       onaction={retryInit}
     />
   {:else}
-    <EmptyState icon="&#x1F4ED;" title="Wähle eine Nachricht" subtitle="Wähle links eine E-Mail aus, um sie hier zu lesen." offsetHeader={true} />
+    <EmptyState icon="&#x1F4ED;" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
   {/if}
 {/snippet}
 
@@ -2451,23 +2452,23 @@ let sentFolderName = $state<string | null>(null);
       <div class="sidebar">
         <div class="sidebar-header">
           {#if isNarrow}
-            <button type="button" class="icon-btn sidebar-close" onclick={() => sidebarOpen = false} title="Schließen" aria-label="Ordner schließen">
+            <button type="button" class="icon-btn sidebar-close" onclick={() => sidebarOpen = false} title={$t("mail.close")} aria-label={$t("mail.closeFolder")}>
               &#8592;
             </button>
           {/if}
-          <div class="account-header-btn" role="button" tabindex="0" onclick={() => goto('/settings')} onkeydown={(e) => e.key === 'Enter' && goto('/settings')} title="Konto-Einstellungen">
+          <div class="account-header-btn" role="button" tabindex="0" onclick={() => goto('/settings')} onkeydown={(e) => e.key === 'Enter' && goto('/settings')} title={$t("mail.accountSettings")}>
             <div class="account-header-avatar">
               {#if ownPhoto}
-                <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt="Profilbild" />
+                <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt={$t("mail.profilePhoto")} />
               {:else}
-                {getInitials(selectedAccount?.name || "Konto")}
+                {getInitials(selectedAccount?.name || $t("mail.account"))}
               {/if}
             </div>
             <div class="account-header-meta">
-              <span class="account-header-name">{selectedAccount?.name || "Konto wählen"}</span>
+              <span class="account-header-name">{selectedAccount?.name || $t("mail.selectAccount")}</span>
               <span class="account-header-sub">
                 <span class="account-header-dot" class:connected={selectedAccount?.connected}></span>
-                {selectedAccount?.username || "Nicht konfiguriert"}
+                {selectedAccount?.username || $t("mail.notConfigured")}
               </span>
             </div>
           </div>
@@ -2496,7 +2497,7 @@ let sentFolderName = $state<string | null>(null);
               <input
                 type="text"
                 class="search-input"
-                aria-label="E-Mails suchen" placeholder={searchFocused ? "" : "E-Mails suchen..."}
+                aria-label={$t("mail.searchAria")} placeholder={searchFocused ? "" : $t("mail.search")}
                 bind:value={searchQuery}
                 oninput={onSearchInput}
                 onfocus={() => { searchFocused = true; }}
@@ -2508,8 +2509,8 @@ let sentFolderName = $state<string | null>(null);
                 class="flag-filter-btn"
                 class:active={flaggedSearchActive}
                 onclick={toggleFlagFilter}
-                title={flaggedSearchActive ? "Markierte E-Mails ausblenden" : "Nur markierte E-Mails anzeigen"}
-                aria-label="Nur markierte E-Mails anzeigen"
+                title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
+                aria-label={$t("mail.flagOnly")}
                 aria-pressed={flaggedSearchActive}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill={flaggedSearchActive ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2517,7 +2518,7 @@ let sentFolderName = $state<string | null>(null);
                 </svg>
               </button>
               {#if searchQuery}
-                <button type="button" class="search-clear" onclick={clearSearch} title="Suche löschen" aria-label="Suche löschen">&#x2715;</button>
+                <button type="button" class="search-clear" onclick={clearSearch} title={$t("mail.clearSearch")} aria-label={$t("mail.clearSearch")}>&#x2715;</button>
               {/if}
             </div>
           </div>
@@ -2535,18 +2536,18 @@ let sentFolderName = $state<string | null>(null);
         <div class="list-header">
           <div class="list-title-area">
             {#if isNarrow}
-              <button type="button" class="icon-btn menu-toggle" onclick={() => sidebarOpen = !sidebarOpen} title="Ordner" aria-label="Ordner ein-/ausblenden">
+              <button type="button" class="icon-btn menu-toggle" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.folders")} aria-label={$t("mail.toggleFolder")}>
                 &#9776;
               </button>
             {/if}
-            <h1>{searchActive ? "Suche" : translateFolder(selectedFolder)}</h1>
+            <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>
             {#if $mailbox.messages.length > 0}<span class="count-badge">{$mailbox.messages.length}</span>{/if}
           </div>
           <div class="list-header-pill">
-            <button type="button" class="pill-icon-btn" onclick={handleNewMail} title="Neue E-Mail (Strg+N / Cmd+N)">
+            <button type="button" class="pill-icon-btn" onclick={handleNewMail} title={$t("mail.newMail")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5L20.5 7.5 8 20H4v-4L16.5 3.5z"/></svg>
             </button>
-            <button type="button" class="pill-icon-btn" onclick={loadFolder} title="Aktualisieren (Strg+R / Cmd+R)">
+            <button type="button" class="pill-icon-btn" onclick={loadFolder} title={$t("mail.refresh")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 14.9-6.5L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-14.9 6.5L3 16"/></svg>
             </button>
           </div>
@@ -2557,18 +2558,18 @@ let sentFolderName = $state<string | null>(null);
       {/if}
       {#if $mailbox.selectedUids.length > 1}
         <div class="selection-toolbar">
-          <span class="selection-count">{$mailbox.selectedUids.length} ausgewählt</span>
+          <span class="selection-count">{$t("mail.selectedCount", { count: $mailbox.selectedUids.length })}</span>
           <div class="selection-actions">
-            <button type="button" class="selection-btn" onclick={markSelectedRead} title="Als gelesen markieren">
-              Gelesen
+            <button type="button" class="selection-btn" onclick={markSelectedRead} title={$t("mail.markReadTitle")}>
+              {$t("mail.read")}
             </button>
-            <button type="button" class="selection-btn" onclick={moveSelectedToFolder} disabled={movingSelection} title="In Ordner verschieben">
-              Verschieben
+            <button type="button" class="selection-btn" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
+              {$t("mail.move")}
             </button>
-            <button type="button" class="selection-btn danger" onclick={handleDeleteSelected} title="Löschen (⌫)">
-              Löschen
+            <button type="button" class="selection-btn danger" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
+              {$t("mail.delete")}
             </button>
-            <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title="Auswahl aufheben (Esc)">
+            <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")}>
               &#x2715;
             </button>
           </div>
@@ -2585,8 +2586,8 @@ let sentFolderName = $state<string | null>(null);
     <section class="preview-pane">
       {#if isCompact && previewOpen && !showCompose}
         <div class="preview-back-bar">
-          <button type="button" class="icon-btn" onclick={backToList} title="Zurück zur Liste" aria-label="Zurück">
-            &#8592; Zurück
+          <button type="button" class="icon-btn" onclick={backToList} title={$t("mail.backToList")} aria-label={$t("mail.back")}>
+            &#8592; {$t("mail.back")}
           </button>
         </div>
       {/if}
@@ -2599,12 +2600,12 @@ let sentFolderName = $state<string | null>(null);
     {#if moveToTrash}
       <ConfirmationDialog
         open={showDeleteConfirm}
-        title={pendingDeleteUids.length === 1 ? "Nachricht in Papierkorb verschieben" : "Nachrichten in Papierkorb verschieben"}
+        title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTrashTitle1") : $t("mail.deleteConfirmTrashTitleN")}
         message={pendingDeleteUids.length === 1
-          ? "1 Nachricht in den Papierkorb verschieben?"
-          : `${pendingDeleteUids.length} Nachrichten in den Papierkorb verschieben?`}
-        confirmLabel="In Papierkorb"
-        cancelLabel="Abbrechen"
+          ? $t("mail.deleteConfirmTrashMsg1")
+          : $t("mail.deleteConfirmTrashMsgN", { count: pendingDeleteUids.length })}
+        confirmLabel={$t("mail.toTrash")}
+        cancelLabel={$t("common.cancel")}
         danger={true}
         onconfirm={confirmDelete}
         oncancel={cancelDelete}
@@ -2612,12 +2613,12 @@ let sentFolderName = $state<string | null>(null);
     {:else}
       <ConfirmationDialog
         open={showDeleteConfirm}
-        title={pendingDeleteUids.length === 1 ? "Nachricht löschen" : "Nachrichten löschen"}
+        title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTitle1") : $t("mail.deleteConfirmTitleN")}
         message={pendingDeleteUids.length === 1
-          ? "1 Nachricht wirklich löschen?"
-          : `${pendingDeleteUids.length} Nachrichten wirklich löschen?`}
-        confirmLabel="Löschen"
-        cancelLabel="Abbrechen"
+          ? $t("mail.deleteConfirmMsg1")
+          : $t("mail.deleteConfirmMsgN", { count: pendingDeleteUids.length })}
+        confirmLabel={$t("mail.delete")}
+        cancelLabel={$t("common.cancel")}
         danger={true}
         onconfirm={confirmDelete}
         oncancel={cancelDelete}
@@ -2628,10 +2629,10 @@ let sentFolderName = $state<string | null>(null);
   {#if showDeleteFolderConfirm}
     <ConfirmationDialog
       open={showDeleteFolderConfirm}
-      title="Ordner löschen"
-      message={`Ordner "${pendingDeleteFolder ?? ''}" wirklich löschen? Alle enthaltenen Mails werden entfernt.`}
-      confirmLabel="Löschen"
-      cancelLabel="Abbrechen"
+      title={$t("mail.deleteFolderTitle")}
+      message={$t("mail.deleteFolderMsg", { name: pendingDeleteFolder ?? "" })}
+      confirmLabel={$t("mail.delete")}
+      cancelLabel={$t("common.cancel")}
       danger={true}
       onconfirm={confirmDeleteFolder}
       oncancel={() => { showDeleteFolderConfirm = false; pendingDeleteFolder = null; }}
@@ -2641,11 +2642,11 @@ let sentFolderName = $state<string | null>(null);
   {#if showReplyAllDialog}
     <ConfirmationDialog
       open={showReplyAllDialog}
-      title="Antworten"
-      message={`Diesen Empfänger betrifft der Thread mehrere Personen. Antwort nur an den Absender oder an alle?`}
-      confirmLabel="An alle antworten"
-      altLabel="Nur an Absender"
-      cancelLabel="Abbrechen"
+      title={$t("mail.replyTitle")}
+      message={$t("mail.replyAllMsg")}
+      confirmLabel={$t("mail.replyAll")}
+      altLabel={$t("mail.replySender")}
+      cancelLabel={$t("common.cancel")}
       onconfirm={handleReplyAll}
       onalt={handleReplyToSender}
       oncancel={() => { showReplyAllDialog = false; pendingReplyMessage = null; }}
@@ -2654,22 +2655,22 @@ let sentFolderName = $state<string | null>(null);
 
   <PromptDialog
     open={showRenameDialog}
-    title="Ordner umbenennen"
-    message="Neuen Namen für den Ordner auf dem Server eingeben:"
+    title={$t("mail.renameFolderTitle")}
+    message={$t("mail.renameFolderMsg")}
     value={renameLeafValue}
-    confirmLabel="Umbenennen"
-    cancelLabel="Abbrechen"
+    confirmLabel={$t("mail.rename")}
+    cancelLabel={$t("common.cancel")}
     onconfirm={confirmRename}
     oncancel={cancelRename}
   />
 
   <PromptDialog
     open={showNewFolderDialog}
-    title="Lokalen Ordner anlegen"
-    message="Dieser Ordner existiert nur lokal auf deinem Relay-Server (kein IMAP-Ordner). Mails, die du hierher verschiebst, werden lokal archiviert und vom Provider entfernt."
-    placeholder="z. B. Wichtige Rechnungen"
-    confirmLabel="Anlegen"
-    cancelLabel="Abbrechen"
+    title={$t("mail.newFolderTitle")}
+    message={$t("mail.newFolderMsg")}
+    placeholder={$t("mail.newFolderPlaceholder")}
+    confirmLabel={$t("mail.create")}
+    cancelLabel={$t("common.cancel")}
     onconfirm={confirmNewFolder}
     oncancel={cancelNewFolder}
   />
@@ -2677,23 +2678,23 @@ let sentFolderName = $state<string | null>(null);
   {#if folderCtxMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu!.x}px; top: ${folderCtxMenu!.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}>Neuer Ordner...</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}>{$t("mail.newSubFolder")}</button>
       {#if folderCtxMenu!.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}>Umbenennen...</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}>{$t("mail.renameEllipsis")}</button>
       {/if}
       {#if customFolderNames[folderCtxMenu!.folderName]}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}>Name zurücksetzen</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}>{$t("mail.resetName")}</button>
       {/if}
       {#if folderCtxMenu!.folderName !== "INBOX"}
         <div class="ctx-menu-separator" role="separator"></div>
-        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}>Löschen</button>
+        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}>{$t("mail.delete")}</button>
       {/if}
       {#if folderCtxMenu!.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu!.folderName)}>Ausblenden</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu!.folderName)}>{$t("mail.hide")}</button>
       {/if}
       {#if hiddenFolderNames.length > 0}
         <div class="ctx-menu-separator" role="separator"></div>
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={folderCtxUnhideAll}>Alle ausgeblendeten Ordner einblenden</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={folderCtxUnhideAll}>{$t("mail.showAllHidden")}</button>
       {/if}
     </div>
   {/if}

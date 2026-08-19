@@ -1,6 +1,7 @@
 <script lang="ts">
   import DiffEditor from "./DiffEditor.svelte";
   import ToneControls from "./ToneControls.svelte";
+  import { t } from "$lib/i18n";
   import RecipientInput from "./RecipientInput.svelte";
   import {
     aiGenerateMail, aiSuggestRecipient, aiSuggestSubject, aiFormatText, getToneProfile,
@@ -492,26 +493,26 @@
 
 <div class="compose-window">
   <div class="compose-header">
-    <h2>{mode === "new" ? "Neue Nachricht" : mode === "forward" ? "Weiterleiten" : "Antworten"}</h2>
-    <button type="button" class="close-btn" onclick={handleClose} title="Schließen" aria-label="Schließen">
+    <h2>{mode === "new" ? $t("compose.newMessage") : mode === "forward" ? $t("compose.forwardTitle") : $t("compose.replyTitle")}</h2>
+    <button type="button" class="close-btn" onclick={handleClose} title={$t("compose.close")} aria-label={$t("compose.close")}>
       <span class="close-icon-desktop">&#x2715;</span>
-      <span class="close-icon-mobile">&#8592; Zurück</span>
+      <span class="close-icon-mobile">&#8592; {$t("compose.back")}</span>
     </button>
   </div>
 
   <div class="compose-body">
     <div class="field">
-      <label for="to">An:</label>
+      <label for="to">{$t("compose.toLabel")}</label>
      <div class="to-row">
         <RecipientInput bind:value={to} {accountId} />
         <span class="ccbcc-group">
         {#if !ccVisible}
-          <button type="button" class="ccbcc-toggle" onclick={() => showCc = true} title="Cc hinzufügen">
+          <button type="button" class="ccbcc-toggle" onclick={() => showCc = true} title={$t("compose.ccAdd")}>
             Cc
           </button>
         {/if}
         {#if !bccVisible}
-          <button type="button" class="ccbcc-toggle" onclick={() => showBcc = true} title="Bcc hinzufügen">
+          <button type="button" class="ccbcc-toggle" onclick={() => showBcc = true} title={$t("compose.bccAdd")}>
             Bcc
           </button>
         {/if}
@@ -520,10 +521,10 @@
     </div>
     {#if ccVisible}
       <div class="field">
-        <label for="cc">Cc:</label>
+        <label for="cc">{$t("compose.ccLabel")}</label>
         <div class="ccbcc-input-wrapper">
-          <input id="cc" type="text" autocomplete="new-password" spellcheck="false" bind:value={cc} placeholder="Empfänger in Kopie (Cc)..." />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { cc = ""; showCc = false; }} title="Cc entfernen">&times;</button>
+          <input id="cc" type="text" autocomplete="new-password" spellcheck="false" bind:value={cc} placeholder={$t("compose.cc")} />
+          <button type="button" class="ccbcc-clear-btn" onclick={() => { cc = ""; showCc = false; }} title={$t("compose.ccRemove")}>&times;</button>
         </div>
       </div>
     {/if}
@@ -531,18 +532,18 @@
       <div class="field">
         <label for="bcc">Bcc:</label>
         <div class="ccbcc-input-wrapper">
-          <input id="bcc" type="text" autocomplete="new-password" spellcheck="false" bind:value={bcc} placeholder="Empfänger in Blindkopie (Bcc)..." />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { bcc = ""; showBcc = false; }} title="Bcc entfernen">&times;</button>
+          <input id="bcc" type="text" autocomplete="new-password" spellcheck="false" bind:value={bcc} placeholder={$t("compose.bcc")} />
+          <button type="button" class="ccbcc-clear-btn" onclick={() => { bcc = ""; showBcc = false; }} title={$t("compose.bccRemove")}>&times;</button>
         </div>
       </div>
     {/if}
     <div class="field">
-      <label for="subject">Betreff:</label>
+      <label for="subject">{$t("compose.subjectLabel")}</label>
       <div class="to-row">
-        <input id="subject" type="text" bind:value={subject} placeholder="Betreff" />
+        <input id="subject" type="text" bind:value={subject} placeholder={$t("compose.subject")} />
         <span class="ccbcc-group">
-          <button type="button" class="ccbcc-toggle" onclick={addAttachment} title="Datei anhängen">
-            Anhang
+          <button type="button" class="ccbcc-toggle" onclick={addAttachment} title={$t("compose.attachFile")}>
+            {$t("compose.attachment")}
           </button>
         </span>
       </div>
@@ -550,7 +551,7 @@
 
     {#if (mode === "reply" || mode === "forward") && mailChain.length > 0}
       <div class="chain-preview">
-        <div class="chain-header">Urspr&uuml;ngliche Nachricht:</div>
+        <div class="chain-header">{$t("compose.originalMessage")}</div>
         <div class="chain-scroll-area">
           {#each mailChain as msg}
             <div class="chain-msg">
@@ -580,9 +581,9 @@
           id="editor"
           class="editor"
           bind:value={userInput}
-          placeholder="Gib Deine eigene Nachricht oder Stichpunkte ein..."
+          placeholder={$t("compose.messagePlaceholder")}
           rows={isNarrow ? 8 : 12}
-          aria-label=Nachrichtentext
+          aria-label={$t("compose.messageAria")}
         ></textarea>
         {#if isGenerating && generationStep > 0}
           <div class="generation-status">
@@ -607,20 +608,20 @@
   {/if}
 
     {#if voiceError}
-      <ErrorBanner message={voiceError} onretry={() => voiceError = null} retryLabel="Schließen" />
+      <ErrorBanner message={voiceError} onretry={() => voiceError = null} retryLabel={$t("compose.close")} />
     {/if}
     {#if generationError}
-      <ErrorBanner message={generationError} onretry={generate} retryLabel="Erneut generieren" />
+      <ErrorBanner message={generationError} onretry={generate} retryLabel={$t("compose.retryGenerate")} />
     {/if}
     {#if sendError}
-      <ErrorBanner message={sendError} onretry={handleSend} retryLabel="Erneut senden" />
+      <ErrorBanner message={sendError} onretry={handleSend} retryLabel={$t("compose.retrySend")} />
     {/if}
 
   </div>
 
   <div class="editor-toolbar">
     <button type="button" class="btn-ai primary" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
-      <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? "Aufnahme stoppen" : "Diktat starten"}>
+      <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? $t("compose.recordingStop") : $t("compose.dictationStart")}>
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
         </svg>
@@ -630,22 +631,22 @@
       {/if}
       <span class="btn-label">
         {#if isGenerating}
-          {generationStep === 1 ? "Generiere Text..." : "Ermittle Felder..."}
+          {generationStep === 1 ? $t("compose.generatingText") : $t("compose.detectingFields")}
         {:else if isRecording}
-          Aufnahme
+          {$t("compose.recording")}
         {:else if mode === "reply"}
-          <span class="label-long">Antwort generieren</span><span class="label-short">Generieren</span>
+          <span class="label-long">{$t("compose.generateReply")}</span><span class="label-short">{$t("compose.generate")}</span>
         {:else}
-          Generieren
+          {$t("compose.generate")}
         {/if}
       </span>
     </button>
     <button type="button" class="btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
-      Formatieren
+      {$t("compose.format")}
     </button>
     <div class="spacer"></div>
     <button type="button" class="btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
-      Senden
+      {$t("compose.send")}
     </button>
   </div>
 </div>
@@ -653,10 +654,10 @@
 {#if showCloseDialog}
   <div class="close-dialog-overlay" role="presentation" onclick={handleCloseDiscard}>
     <div class="close-dialog" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <p class="close-dialog-title">Entwurf speichern?</p>
+      <p class="close-dialog-title">{$t("compose.saveDraft")}</p>
       <div class="close-dialog-actions">
-        <button type="button" class="btn-discard" onclick={handleCloseDiscard}>Verwerfen</button>
-        <button type="button" class="btn-save" onclick={handleCloseSave}>Speichern</button>
+        <button type="button" class="btn-discard" onclick={handleCloseDiscard}>{$t("compose.discard")}</button>
+        <button type="button" class="btn-save" onclick={handleCloseSave}>{$t("compose.save")}</button>
       </div>
     </div>
   </div>

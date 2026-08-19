@@ -4,12 +4,8 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.09.91
+  tag: 26.09.92
   pullPolicy: IfNotPresent
-
-# Host-Suffix der Olares-Entrance (CR-05-Härtung): Browser-Traffic wird nur
-# ohne RELAY_API_KEY akzeptiert, wenn der Host-Header darauf endet.
-trustedHostSuffix: "olares.de"
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed
 # (userspace appData), and only the "olares" node holds the real database.

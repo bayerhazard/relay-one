@@ -88,6 +88,33 @@ describe("Splash Screen Integration in +page.svelte", () => {
     expect(screen.getByText("Lokal & Sicher")).toBeTruthy();
   });
 
+  it("language toggle switches the splash between German and English", async () => {
+    vi.mocked(tauri.listAccounts).mockResolvedValue([]);
+    render(Page);
+
+    // Default: German.
+    await waitFor(() => {
+      expect(screen.getByText("Willkommen bei Relay")).toBeTruthy();
+    });
+
+    // Switch to English via the EN toggle in the splash card.
+    const enButton = screen.getByRole("button", { name: "EN" });
+    enButton.click();
+
+    await waitFor(() => {
+      expect(screen.getByText("Welcome to Relay")).toBeTruthy();
+    });
+    expect(screen.queryByText("Willkommen bei Relay")).toBeNull();
+    expect(screen.getByText("AI Monitoring")).toBeTruthy();
+
+    // Switch back to German.
+    const deButton = screen.getByRole("button", { name: "DE" });
+    deButton.click();
+    await waitFor(() => {
+      expect(screen.getByText("Willkommen bei Relay")).toBeTruthy();
+    });
+  });
+
   it("by-passes Splash Screen if there is at least one account", async () => {
     const mockAccount = {
       id: 1,

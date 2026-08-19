@@ -4,12 +4,14 @@
     onselect: (suggestion: string) => void;
   }
 
+  import { t } from "$lib/i18n";
+
   let { suggestions = [], onselect }: Props = $props();
 </script>
 
 {#if suggestions.length > 0}
   <div class="reply-suggestions">
-    <span class="suggestions-label">Antwortvorschl&auml;ge:</span>
+    <span class="suggestions-label">{$t("reply.suggestions")}</span>
     {#each suggestions as suggestion, i}
       <button type="button" class="suggestion-chip" onclick={() => onselect(suggestion)}>
         {suggestion}

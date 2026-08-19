@@ -4,6 +4,8 @@
     warnings: string[];
   }
 
+  import { t } from "$lib/i18n";
+
   let { score, warnings }: Props = $props();
 </script>
 
@@ -11,7 +13,7 @@
   <div class="fraud-warning">
     <span class="fraud-icon">&#x26A0;</span>
     <div class="fraud-body">
-      <span class="fraud-title">Phishing-Verdacht</span>
+      <span class="fraud-title">{$t("fraud.suspected")}</span>
       {#if warnings.length > 0}
         <ul class="fraud-list">
           {#each warnings as warning}

@@ -16,6 +16,7 @@ import {
   import { accounts } from "$lib/stores/accounts";
   import { settings, showDiffEnabled } from "$lib/stores/settings";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
 
   // ─── Active Tab State ────────────────────────
   let activeTab = $state("general"); // 'general' | 'accounts' | 'ai' | 'carddav' | 'voice'
@@ -136,12 +137,12 @@ import {
   }
 
   async function restoreBackup(name: string) {
-    if (!window.confirm(`Backup "${name}" wiederherstellen? Die aktuelle DB wird zuerst gesichert, danach startet der Server neu.`)) return;
+    if (!window.confirm(translate("settings.restoreConfirm", { name }))) return;
     try {
       const r = await restoreBackupSnapshot(name);
-      restoreResult = `Wiederhergestellt: ${r.restored} (${formatBytes(r.bytes)}). ${r.note ?? ''}`;
+      restoreResult = translate("settings.restored", { restored: r.restored, bytes: formatBytes(r.bytes), note: r.note ?? "" });
     } catch (e) {
-      restoreResult = "Wiederherstellung fehlgeschlagen: " + (e instanceof Error ? e.message : String(e));
+      restoreResult = translate("settings.restoreFailed") + (e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -339,14 +340,14 @@ import {
           accountId = acctList?.[0]?.id ?? 1;
         } catch { /* default to 1 */ }
         const result = await setupPush(accountId, () => {
-          notificationsError = "Berechtigung verweigert. Erlaube Benachrichtigungen in den Systemeinstellungen deines Browsers oder Geräts.";
+          notificationsError = translate("settings.notifDenied");
         });
         if (result === "registered" || result === "granted") {
           notificationsEnabled = true;
         } else if (result === "denied") {
           notificationsEnabled = false;
         } else {
-          notificationsError = "Push-Benachrichtigungen werden von diesem Browser/Gerät nicht unterstützt. iOS: installiere Relay als Web-App über 'Zum Home-Bildschirm' (iOS 16.4+).";
+          notificationsError = translate("settings.notifUnsupported");
           notificationsEnabled = false;
         }
       }
@@ -380,21 +381,21 @@ async function handleSaveCardDav() {
     // Validate before saving — garbage in, "saved" out is misleading.
     if (voiceEnabled) {
       if (!voiceSttUrl.trim()) {
-        voiceError = "Bitte eine Speech-to-Text-URL angeben (z. B. https://speaches.aimighty.de/v1).";
+        voiceError = translate("settings.voiceUrlRequired");
         return;
       }
       try {
         const u = new URL(voiceSttUrl.trim());
         if (u.protocol !== "https:" && u.protocol !== "http:") {
-          voiceError = "Die URL muss mit http:// oder https:// beginnen.";
+          voiceError = translate("settings.voiceUrlScheme");
           return;
         }
       } catch {
-        voiceError = "Die Speech-to-Text-URL ist ungültig.";
+        voiceError = translate("settings.voiceUrlInvalid");
         return;
       }
       if (!voiceSttModel.trim()) {
-        voiceError = "Bitte ein STT-Modell angeben (z. B. Systran/faster-whisper-small).";
+        voiceError = translate("settings.voiceModelRequired");
         return;
       }
     }
@@ -489,7 +490,7 @@ async function handleSaveCardDav() {
 
   async function handleConnectAccount() {
     if (!acctName || !imapHost || !smtpHost || !acctUser || !senderMail) {
-      acctError = "Bitte alle Pflichtfelder ausfüllen.";
+      acctError = translate("error.fillRequired");
       return;
     }
     acctConnecting = true;
@@ -500,7 +501,10 @@ async function handleSaveCardDav() {
         // Edit mode: update the EXISTING account (imap_insecure etc.) instead
         // of creating a duplicate.
         await updateAccountSettings(editingAccountId, undefined, undefined, imapInsecure);
-        acctSuccess = `Konto "${acctName}" aktualisiert (IMAP-Zertifikat: ${imapInsecure ? 'unsicher erlaubt' : 'verifiziert'})!`;
+        acctSuccess = translate("settings.accountUpdated", {
+          name: acctName,
+          cert: imapInsecure ? translate("settings.certInsecure") : translate("settings.certVerified"),
+        });
       } else {
         await connectAccount(
           acctName, imapHost, imapPort, imapSsl,
@@ -508,7 +512,7 @@ async function handleSaveCardDav() {
           acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
           imapInsecure,
         );
-        acctSuccess = `Konto "${acctName}" verbunden!`;
+        acctSuccess = translate("settings.accountConnected", { name: acctName });
       }
       
       // Clear fields
@@ -522,7 +526,7 @@ async function handleSaveCardDav() {
       await loadAccountList();
       setTimeout(() => (acctSuccess = null), 4000);
     } catch (e: unknown) {
-      acctError = e instanceof Error ? e.message : String(e);
+      acctError = localizeError(e instanceof Error ? e.message : String(e));
     } finally {
       acctConnecting = false;
     }
@@ -591,7 +595,7 @@ async function handleSaveCardDav() {
       await loadAccountList();
       if (isEditing) handleCancelEdit();
     } catch (e: unknown) {
-      acctError = e instanceof Error ? e.message : String(e);
+      acctError = localizeError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -611,13 +615,13 @@ async function handleSaveCardDav() {
   <!-- 1. LEFT SIDEBAR (HubSpot-Style Navigation) -->
   <aside class="settings-sidebar">
     <div class="sidebar-header">
-      <button type="button" class="back-btn" onclick={() => goto("/")} title="Zurück zum Posteingang">
+      <button type="button" class="back-btn" onclick={() => goto("/")} title={$t("settings.inbox")}>
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
         </svg>
-        <span>Posteingang</span>
+        <span>{$t("settings.inbox")}</span>
       </button>
-      <h2>Einstellungen</h2>
+      <h2>{$t("settings.title")}</h2>
     </div>
 
     <nav class="sidebar-menu">
@@ -628,7 +632,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </div>
-        <span>Allgemein</span>
+        <span>{$t("settings.general")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'accounts'} onclick={() => selectTab('accounts')}>
@@ -637,7 +641,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0l-7.5-4.615a2.25 2.25 0 01-1.07-1.916V6.75" />
           </svg>
         </div>
-        <span>E-Mail-Konten</span>
+        <span>{$t("settings.accounts")}</span>
         {#if accountList.length > 0}
           <span class="badge-pill">{accountList.length}</span>
         {/if}
@@ -649,7 +653,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.29-.792-3.07M15 19.128v.106A12.318 12.318 0 018.5 21c-2.191 0-4.22-.558-6-1.54v-.036a4.125 4.125 0 017.533-2.493c.505.78.967 1.659.967 2.638M8.25 3.75a4.125 4.125 0 100 8.25 4.125 4.125 0 000-8.25zM12.971 6.304a4.125 4.125 0 010 6.392m8.404-1.446a2.25 2.25 0 010 3.5" />
           </svg>
         </div>
-        <span>Kontakte</span>
+        <span>{$t("settings.contacts")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => selectTab('ai')}>
@@ -658,7 +662,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 21l-.813-5.096L3 15l5.187-.813L9 9l.813 5.187L15 15l-5.187.814zM18 10.5L17.25 15l-.75-4.5L12 10l4.5-.75.75-4.5.75 4.5L22 10l-4.5.75z" />
           </svg>
         </div>
-        <span>KI & Text</span>
+        <span>{$t("settings.ai")}</span>
       </button>
 
     <button type="button" class="menu-item" class:active={activeTab === 'voice'} onclick={() => selectTab('voice')}>
@@ -667,7 +671,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5a6 6 0 01-6-6v-1.5m6 7.5a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
           </svg>
         </div>
-        <span>Voice</span>
+        <span>{$t("settings.voice")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'cache'} onclick={() => selectTab('cache')}>
@@ -676,7 +680,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
           </svg>
         </div>
-        <span>Cache</span>
+        <span>{$t("settings.cache")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { selectTab('archive'); loadDeleteQueue(); loadBackups(); }}>
@@ -685,7 +689,7 @@ async function handleSaveCardDav() {
             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
           </svg>
         </div>
-        <span>Archiv</span>
+        <span>{$t("settings.archive")}</span>
       </button>
     </nav>
   </aside>
@@ -694,11 +698,11 @@ async function handleSaveCardDav() {
   <main class="settings-content-wrapper">
     {#if isNarrow}
       <div class="mobile-content-header">
-        <button type="button" class="back-btn" onclick={() => mobileContentOpen = false} title="Zurück zum Menü">
+        <button type="button" class="back-btn" onclick={() => mobileContentOpen = false} title={$t("common.back")}>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
           </svg>
-          <span>Einstellungen</span>
+          <span>{$t("settings.title")}</span>
         </button>
       </div>
     {/if}
@@ -707,15 +711,29 @@ async function handleSaveCardDav() {
       <!-- ================= TAB: ALLGEMEIN ================= -->
       {#if activeTab === 'general'}
         <header class="tab-header">
-          <h1>Allgemeine Einstellungen</h1>
-          <p class="tab-desc">Passe das optische Erscheinungsbild sowie das Verhalten deines Postfachs an.</p>
+          <h1>{$t("settings.generalTitle")}</h1>
+          <p class="tab-desc">{$t("settings.generalDesc")}</p>
         </header>
+
+        <!-- Card: Sprache -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>{$t("settings.language")}</h3>
+            <p class="card-desc">{$t("settings.languageDesc")}</p>
+          </div>
+          <div class="card-body">
+            <div class="lang-toggle" role="group" aria-label={$t("settings.language")}>
+              <button type="button" class:active={$lang === "de"} onclick={() => setLang("de")}>Deutsch</button>
+              <button type="button" class:active={$lang === "en"} onclick={() => setLang("en")}>English</button>
+            </div>
+          </div>
+        </section>
 
         <!-- Card: Theme-Auswahl -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Erscheinungsbild</h3>
-            <p class="card-desc">Wähle dein bevorzugtes Farbschema für das Interface.</p>
+            <h3>{$t("settings.appearance")}</h3>
+            <p class="card-desc">{$t("settings.appearanceDesc")}</p>
           </div>
           
           <div class="theme-selection-grid">
@@ -736,7 +754,7 @@ async function handleSaveCardDav() {
               </div>
               <div class="theme-option-info">
                 <span class="theme-dot light-dot"></span>
-                <span class="theme-label">Heller Modus</span>
+                <span class="theme-label">{$t("settings.lightMode")}</span>
               </div>
             </button>
 
@@ -757,7 +775,7 @@ async function handleSaveCardDav() {
               </div>
               <div class="theme-option-info">
                 <span class="theme-dot dark-dot"></span>
-                <span class="theme-label">Dunkler Modus</span>
+                <span class="theme-label">{$t("settings.darkMode")}</span>
               </div>
             </button>
           </div>
@@ -766,15 +784,15 @@ async function handleSaveCardDav() {
         <!-- Card: Postfach Synchronisation -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Postfach-Verhalten</h3>
-            <p class="card-desc">Konfiguriere Download-Limits und Lösch-Routinen.</p>
+            <h3>{$t("settings.mailboxBehavior")}</h3>
+            <p class="card-desc">{$t("settings.mailboxBehaviorDesc")}</p>
           </div>
 
           <div class="card-body">
             <!-- Sync limit -->
             <div class="form-row align-items-center">
               <div class="form-group flex-2">
-                <label for="fetch-limit-input">Maximale Nachrichten pro Abruf</label>
+                <label for="fetch-limit-input">{$t("settings.maxMessages")}</label>
                 <div class="input-with-badge">
                   <input
                     id="fetch-limit-input"
@@ -786,11 +804,11 @@ async function handleSaveCardDav() {
                     oninput={handleFetchLimitChange}
                     class="form-control"
                   />
-                  <span class="input-badge">Mails</span>
+                  <span class="input-badge">{$t("settings.mails")}</span>
                 </div>
               </div>
               <div class="flex-3 py-2">
-                <p class="hint-text mt-4">Niedrigere Werte beschleunigen den Abrufvorgang; höhere Werte laden mehr historische E-Mails (Erlaubt: ab 10, unbegrenzt nach oben).</p>
+                <p class="hint-text mt-4">{$t("settings.fetchLimitHint")}</p>
               </div>
             </div>
 
@@ -802,8 +820,8 @@ async function handleSaveCardDav() {
                 <input type="checkbox" checked={moveToTrash} onchange={handleMoveToTrashToggle} />
                 <span class="switch-slider"></span>
                 <span class="switch-label-group">
-                  <span class="switch-title">In Papierkorb verschieben</span>
-                  <span class="switch-desc">Verschiebt gelöschte Nachrichten in den IMAP-Papierkorb, anstatt sie sofort permanent vom Server zu entfernen.</span>
+                  <span class="switch-title">{$t("settings.moveToTrash")}</span>
+                  <span class="switch-desc">{$t("settings.moveToTrashDesc")}</span>
                 </span>
               </label>
             </div>
@@ -816,8 +834,8 @@ async function handleSaveCardDav() {
                 <input type="checkbox" checked={autoDownloadImages} onchange={handleAutoDownloadImagesToggle} />
                 <span class="switch-slider"></span>
                 <span class="switch-label-group">
-                  <span class="switch-title">Bilder automatisch herunterladen</span>
-                  <span class="switch-desc">Wenn deaktiviert, werden externe Bilder in E-Mails zunächst als Platzhalter angezeigt. Klicke auf einen Platzhalter, um das Bild zu laden.</span>
+                  <span class="switch-title">{$t("settings.autoDownloadImages")}</span>
+                  <span class="switch-desc">{$t("settings.autoDownloadImagesDesc")}</span>
                 </span>
               </label>
             </div>
@@ -830,8 +848,8 @@ async function handleSaveCardDav() {
                 <input type="checkbox" checked={notificationsEnabled} onchange={handleNotificationsToggle} disabled={notificationsBusy} />
                 <span class="switch-slider"></span>
                 <span class="switch-label-group">
-                  <span class="switch-title">Push-Benachrichtigungen</span>
-                  <span class="switch-desc">Erhalte eine Benachrichtigung, sobald neue E-Mails eintreffen — auch wenn die App geschlossen ist. iOS: installiere Relay über 'Zum Home-Bildschirm' (iOS 16.4+).</span>
+                  <span class="switch-title">{$t("settings.push")}</span>
+                  <span class="switch-desc">{$t("settings.pushDesc")}</span>
                 </span>
               </label>
               {#if notificationsError}
@@ -845,16 +863,16 @@ async function handleSaveCardDav() {
       <!-- ================= TAB: E-MAIL-KONTEN ================= -->
       {#if activeTab === 'accounts'}
         <header class="tab-header">
-          <h1>E-Mail-Konten</h1>
-          <p class="tab-desc">Verwalte deine Postfächer und integriere neue IMAP/SMTP-Verbindungen.</p>
+          <h1>{$t("settings.accounts")}</h1>
+          <p class="tab-desc">{$t("settings.accountsDesc")}</p>
         </header>
 
         <!-- Liste verbundener Konten -->
         {#if accountList.length > 0}
           <section class="settings-card">
             <div class="card-header">
-              <h3>Verbundene Konten ({accountList.length})</h3>
-              <p class="card-desc">Hier siehst du deine eingerichteten E-Mail-Adressen und deren aktuellen Status.</p>
+              <h3>{$t("settings.connectedAccounts", { count: accountList.length })}</h3>
+              <p class="card-desc">{$t("settings.connectedAccountsDesc")}</p>
             </div>
             
             <div class="account-grid">
@@ -868,7 +886,7 @@ async function handleSaveCardDav() {
                       <span class="account-title-name">{a.name}</span>
                       <span class="status-indicator-badge" class:connected={a.connected}>
                         <span class="indicator-dot"></span>
-                        {a.connected ? 'Verbunden' : 'Getrennt'}
+                        {a.connected ? $t("settings.connected") : $t("settings.disconnected")}
                       </span>
                     </div>
                     <p class="account-sub-info">{a.username}</p>
@@ -878,29 +896,29 @@ async function handleSaveCardDav() {
                       <span>SMTP: {a.smtp_host}:{a.smtp_port}</span>
                     </p>
                     <div class="account-sync-row">
-                      <label class="sync-mode-label" for={`sync-mode-${a.id}`}>Sync-Modus</label>
+                      <label class="sync-mode-label" for={`sync-mode-${a.id}`}>{$t("settings.syncMode")}</label>
                       <select
                         id={`sync-mode-${a.id}`}
                         class="sync-mode-select"
                         value={a.sync_mode ?? 'mirror'}
                         onchange={(e) => handleSyncModeChange(a.id, (e.currentTarget as HTMLSelectElement).value)}
                       >
-                        <option value="mirror">mirror (Provider = Quelle)</option>
-                        <option value="archive">archive (lokal archivieren)</option>
+                        <option value="mirror">{$t("settings.syncModeMirror")}</option>
+                        <option value="archive">{$t("settings.syncModeArchive")}</option>
                       </select>
                       <span class="sync-mode-hint">
                         {a.sync_mode === 'archive'
-                          ? 'Mails werden als EML archiviert; Verschieben in lokale Ordner entfernt die Provider-Kopie.'
-                          : 'Mails bleiben Spiegel; nichts wird automatisch entfernt.'}
+                          ? $t("settings.syncModeArchiveHint")
+                          : $t("settings.syncModeMirrorHint")}
                       </span>
                     </div>
                   </div>
                   <div class="account-actions">
                     <button type="button" class="btn-action-ghost" onclick={() => connectAndEditAccount(a)}>
-                      Bearbeiten
+                      {$t("settings.edit")}
                     </button>
                     <button type="button" class="btn-action-danger-ghost" onclick={() => handleDeleteAccount(a.id)}>
-                      Entfernen
+                      {$t("settings.remove")}
                     </button>
                   </div>
                 </div>
@@ -912,26 +930,26 @@ async function handleSaveCardDav() {
         <!-- Formular zum Hinzufügen / Bearbeiten -->
         <section class="settings-card" id="account-form">
           <div class="card-header">
-            <h3>{isEditing ? 'Konto-Verbindung anpassen' : 'Neues E-Mail-Konto einrichten'}</h3>
-            <p class="card-desc">Fülle die IMAP- und SMTP-Verbindungswerte deines Providers aus.</p>
+            <h3>{isEditing ? $t("settings.editAccountTitle") : $t("settings.newAccountTitle")}</h3>
+            <p class="card-desc">{$t("settings.accountFormDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-grid-1">
               <div class="form-group">
-                <label for="acct-name">Kontoname (Anzeigename)</label>
-                <input id="acct-name" bind:value={acctName} placeholder="z. B. Privatadresse, Arbeit" class="form-control" />
+                <label for="acct-name">{$t("settings.accountName")}</label>
+                <input id="acct-name" bind:value={acctName} placeholder={$t("settings.accountNamePlaceholder")} class="form-control" />
               </div>
             </div>
 
-            <div class="form-section-title">IMAP Posteingang-Server</div>
+            <div class="form-section-title">{$t("settings.imapSection")}</div>
             <div class="form-grid-3">
               <div class="form-group">
-                <label for="imap-host">Server-Adresse</label>
+                <label for="imap-host">{$t("settings.serverAddress")}</label>
                 <input id="imap-host" bind:value={imapHost} placeholder="imap.provider.com" class="form-control" />
               </div>
               <div class="form-group">
-                <label for="imap-port">Port</label>
+                <label for="imap-port">{$t("settings.port")}</label>
                 <input id="imap-port" type="number" bind:value={imapPort} class="form-control" />
               </div>
               <div class="form-group justify-self-center">
@@ -942,22 +960,22 @@ async function handleSaveCardDav() {
                 </label>
               </div>
               <div class="form-group justify-self-center">
-                <label class="toggle-label" title="Erlaubt Self-Signed-Zertifikate (z. B. Synology NAS)">
+                <label class="toggle-label" title={$t("settings.insecureTitle")}>
                   <input type="checkbox" class="toggle" bind:checked={imapInsecure} />
                   <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">Unsicher erlauben</span>
+                  <span class="toggle-text">{$t("settings.insecureAllow")}</span>
                 </label>
               </div>
             </div>
 
-            <div class="form-section-title">SMTP Postausgang-Server</div>
+            <div class="form-section-title">{$t("settings.smtpSection")}</div>
             <div class="form-grid-3">
               <div class="form-group">
-                <label for="smtp-host">Server-Adresse</label>
+                <label for="smtp-host">{$t("settings.serverAddress")}</label>
                 <input id="smtp-host" bind:value={smtpHost} placeholder="smtp.provider.com" class="form-control" />
               </div>
               <div class="form-group">
-                <label for="smtp-port">Port</label>
+                <label for="smtp-port">{$t("settings.port")}</label>
                 <input id="smtp-port" type="number" bind:value={smtpPort} class="form-control" />
               </div>
               <div class="form-group justify-self-center">
@@ -969,38 +987,38 @@ async function handleSaveCardDav() {
               </div>
             </div>
 
-            <div class="form-section-title">IMAP-Zugangsdaten</div>
+            <div class="form-section-title">{$t("settings.imapCredentials")}</div>
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="acct-user">Benutzername (E-Mail)</label>
+                <label for="acct-user">{$t("settings.username")}</label>
                 <input id="acct-user" bind:value={acctUser} placeholder="name@provider.com" class="form-control" />
               </div>
               <div class="form-group">
-                <label for="acct-pass">Passwort (Anwendungspasswort)</label>
+                <label for="acct-pass">{$t("settings.password")}</label>
                 <input id="acct-pass" type="password" bind:value={acctPass} placeholder="••••••••••••••••" class="form-control" />
               </div>
             </div>
 
-            <div class="form-section-title">SMTP-Zugangsdaten (optional)</div>
+            <div class="form-section-title">{$t("settings.smtpCredentialsOptional")}</div>
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="smtp-user">SMTP-Benutzername</label>
-                <input id="smtp-user" bind:value={smtpUser} placeholder="(optional, sonst IMAP-Benutzername)" class="form-control" />
+                <label for="smtp-user">{$t("settings.smtpUsername")}</label>
+                <input id="smtp-user" bind:value={smtpUser} placeholder={$t("settings.optionalImapUser")} class="form-control" />
               </div>
               <div class="form-group">
-                <label for="smtp-pass">SMTP-Passwort</label>
-                <input id="smtp-pass" type="password" bind:value={smtpPass} placeholder="(optional, sonst IMAP-Passwort)" class="form-control" />
+                <label for="smtp-pass">{$t("settings.smtpPassword")}</label>
+                <input id="smtp-pass" type="password" bind:value={smtpPass} placeholder={$t("settings.optionalImapPassword")} class="form-control" />
               </div>
             </div>
 
-            <div class="form-section-title">Absender</div>
+            <div class="form-section-title">{$t("settings.sender")}</div>
             <div class="form-grid-2 mt-2">
               <div class="form-group">
-                <label for="sender-name">Absendername (Anzeige beim Empfänger)</label>
+                <label for="sender-name">{$t("settings.senderName")}</label>
                 <input id="sender-name" bind:value={senderName} placeholder="Max Mustermann" class="form-control" />
               </div>
               <div class="form-group">
-                <label for="sender-mail">Absender-E-Mail-Adresse</label>
+                <label for="sender-mail">{$t("settings.senderMail")}</label>
                 <input id="sender-mail" type="text" inputmode="email" bind:value={senderMail} placeholder="name@provider.com" class="form-control" />
               </div>
             </div>
@@ -1022,11 +1040,11 @@ async function handleSaveCardDav() {
             <div class="form-actions-row">
               {#if isEditing}
                 <button type="button" class="btn-cancel" onclick={handleCancelEdit}>
-                  Abbrechen
+                  {$t("common.cancel")}
                 </button>
               {/if}
               <button type="button" class="btn-submit" onclick={handleConnectAccount} disabled={acctConnecting}>
-                {acctConnecting ? "Verbindung wird getestet..." : (isEditing ? "Änderungen speichern" : "Konto verbinden")}
+                {acctConnecting ? $t("settings.testing") : (isEditing ? $t("settings.saveChanges") : $t("settings.connectAccount"))}
               </button>
             </div>
           </div>
@@ -1036,15 +1054,15 @@ async function handleSaveCardDav() {
       <!-- ================= TAB: KI & TEXT ================= -->
       {#if activeTab === 'ai'}
         <header class="tab-header">
-          <h1>KI & Textgenerierung</h1>
-          <p class="tab-desc">Konfiguriere deinen lokalen oder externen LLM-Endpunkt für intelligente Assistenzfunktionen.</p>
+          <h1>{$t("settings.aiTitle")}</h1>
+          <p class="tab-desc">{$t("settings.aiDesc")}</p>
         </header>
 
         <!-- Card: Textgenerierungs-Optionen -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Assistenten-Verhalten</h3>
-            <p class="card-desc">Optimiere das visuelle Feedback bei der Formulierung.</p>
+            <h3>{$t("settings.assistantBehavior")}</h3>
+            <p class="card-desc">{$t("settings.assistantBehaviorDesc")}</p>
           </div>
 
           <div class="card-body">
@@ -1053,8 +1071,8 @@ async function handleSaveCardDav() {
                 <input type="checkbox" bind:checked={$showDiffEnabled} />
                 <span class="switch-slider"></span>
                 <span class="switch-label-group">
-                  <span class="switch-title">Änderungsverfolgung im Diff-Editor</span>
-                  <span class="switch-desc">Zeigt vor der Übernahme eine detaillierte Vergleichsansicht zwischen deinem Text und dem KI-Entwurf an.</span>
+                  <span class="switch-title">{$t("settings.diffEditor")}</span>
+                  <span class="switch-desc">{$t("settings.diffEditorDesc")}</span>
                 </span>
               </label>
             </div>
@@ -1064,25 +1082,25 @@ async function handleSaveCardDav() {
         <!-- Card: API Endpunkt -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>KI-Endpunkt (OpenAI-kompatibel)</h3>
-            <p class="card-desc">Anbindung für lokale Modelle (Ollama, LiteLLM, vLLM) oder Cloud-Anbieter.</p>
+            <h3>{$t("settings.aiEndpoint")}</h3>
+            <p class="card-desc">{$t("settings.aiEndpointDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-grid-1">
               <div class="form-group">
-                <label for="ai-url">API-URL</label>
+                <label for="ai-url">{$t("settings.apiUrl")}</label>
                 <input id="ai-url" type="url" bind:value={aiUrl} placeholder="https://llm.aimighty.de/v1" class="form-control" />
               </div>
             </div>
 
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="ai-key">API-Key</label>
+                <label for="ai-key">{$t("settings.apiKey")}</label>
                 <input id="ai-key" type="password" bind:value={aiKey} placeholder="ollama" class="form-control" />
               </div>
               <div class="form-group">
-                <label for="ai-model">Modell-ID</label>
+                <label for="ai-model">{$t("settings.modelId")}</label>
                 <input id="ai-model" type="text" bind:value={aiModel} placeholder="llama3.2" class="form-control" />
               </div>
             </div>
@@ -1096,7 +1114,7 @@ async function handleSaveCardDav() {
 
             <div class="form-actions-row">
               <button type="button" class="btn-submit" onclick={handleSaveAI}>
-                {aiSaved ? "✓ Gespeichert" : "Verbindung speichern"}
+                {aiSaved ? $t("settings.saved") : $t("settings.saveConnection")}
               </button>
             </div>
           </div>
@@ -1105,14 +1123,14 @@ async function handleSaveCardDav() {
         <!-- Card: KI-System-Status -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>KI-System-Status</h3>
-            <p class="card-desc">Wenn die KI nicht mehr antwortet, kann der Circuit Breaker blockieren. Hier zurücksetzen.</p>
+            <h3>{$t("settings.aiStatus")}</h3>
+            <p class="card-desc">{$t("settings.aiStatusDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-actions-row">
               <button type="button" class="btn-submit" onclick={handleResetCircuitBreaker}>
-                {cbResetDone ? "✓ Zurückgesetzt" : "KI-System zurücksetzen"}
+                {cbResetDone ? $t("settings.aiResetDone") : $t("settings.aiReset")}
               </button>
             </div>
           </div>
@@ -1122,42 +1140,42 @@ async function handleSaveCardDav() {
        <!-- ================= TAB: CARDDAV ================= -->
       {#if activeTab === 'carddav'}
         <header class="tab-header">
-          <h1>Kontakte</h1>
-          <p class="tab-desc">Verbinde dein Adressbuch für eine nahtlose E-Mail-Empfänger-Vervollständigung im Editor.</p>
+          <h1>{$t("settings.contactsTitle")}</h1>
+          <p class="tab-desc">{$t("settings.contactsDesc")}</p>
         </header>
 
         <!-- Card: CardDAV Settings -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>CardDAV Server-Anbindung</h3>
-            <p class="card-desc">Synchronisiere deine bestehenden Kontakte über Nextcloud, iCloud oder Radicale.</p>
+            <h3>{$t("settings.carddav")}</h3>
+            <p class="card-desc">{$t("settings.carddavDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-grid-1">
               <div class="form-group">
-                <label for="carddav-url">Server-URL</label>
+                <label for="carddav-url">{$t("settings.serverUrl")}</label>
                 <input id="carddav-url" type="url" bind:value={carddavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/addressbooks/users/username/contacts/" class="form-control" />
               </div>
             </div>
 
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="carddav-user">Benutzername</label>
-                <input id="carddav-user" type="text" bind:value={carddavUser} placeholder="Benutzername" class="form-control" />
+                <label for="carddav-user">{$t("settings.usernameShort")}</label>
+                <input id="carddav-user" type="text" bind:value={carddavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
               </div>
               <div class="form-group">
-                <label for="carddav-pass">Passwort / Token</label>
-                <input id="carddav-pass" type="password" bind:value={carddavPass} placeholder="Passwort" class="form-control" />
+                <label for="carddav-pass">{$t("settings.passwordToken")}</label>
+                <input id="carddav-pass" type="password" bind:value={carddavPass} placeholder={$t("settings.passwordToken")} class="form-control" />
               </div>
             </div>
 
             <div class="form-grid-1">
               <div class="form-group">
-                <label for="carddav-interval">Synchronisations-Intervall</label>
+                <label for="carddav-interval">{$t("settings.syncInterval")}</label>
                 <div class="input-with-badge">
                   <input id="carddav-interval" type="number" bind:value={carddavInterval} min="1" max="1440" class="form-control" />
-                  <span class="input-badge">Minuten</span>
+                  <span class="input-badge">{$t("settings.minutes")}</span>
                 </div>
               </div>
             </div>
@@ -1172,23 +1190,23 @@ async function handleSaveCardDav() {
             {#if carddavSaved}
               <div class="alert-box success">
                 <div class="alert-icon">✓</div>
-                <div class="alert-text">CardDAV-Einstellungen erfolgreich gespeichert!</div>
+                <div class="alert-text">{$t("settings.carddavSaved")}</div>
               </div>
             {/if}
 
             <div class="form-actions-row">
               <button type="button" class="btn-cancel" onclick={handleSyncCardDav} disabled={carddavSyncing}>
-                {carddavSyncing ? "Synchronisiere..." : "Jetzt synchronisieren"}
+                {carddavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
               </button>
               <button type="button" class="btn-submit" onclick={handleSaveCardDav}>
-                Speichern
+                {$t("common.save")}
               </button>
             </div>
 
             {#if carddavSyncResult !== null}
               <div class="sync-success-pill">
                 <span class="sync-icon">🔄</span>
-                <span>Erfolgreich: <strong>{carddavSyncResult} Kontakte</strong> geladen.</span>
+                <span>{$t("settings.syncSuccess", { count: carddavSyncResult })}</span>
               </div>
             {/if}
           </div>
@@ -1197,26 +1215,26 @@ async function handleSaveCardDav() {
         <!-- Card: Profile Photo -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Profilbild</h3>
-            <p class="card-desc">Dein Profilbild wird in der Seitenleiste angezeigt.</p>
+            <h3>{$t("settings.profilePhoto")}</h3>
+            <p class="card-desc">{$t("settings.profilePhotoDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="photo-upload-row">
               <div class="photo-preview" class:has-photo={ownPhoto}>
                 {#if ownPhoto}
-                  <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt="Profilbild" />
+                  <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt={$t("settings.profilePhoto")} />
                 {:else}
                   <div class="photo-placeholder">+</div>
                 {/if}
               </div>
               <div class="photo-actions">
                 <button type="button" class="btn-cancel" onclick={handlePhotoUpload}>
-                  Bild hochladen
+                  {$t("settings.uploadImage")}
                 </button>
                 {#if ownPhoto}
                   <button type="button" class="btn-cancel" onclick={handleClearPhoto}>
-                    Entfernen
+                    {$t("settings.remove")}
                   </button>
                 {/if}
               </div>
@@ -1228,13 +1246,13 @@ async function handleSaveCardDav() {
       <!-- ================= TAB: VOICE ================= -->
       {#if activeTab === 'voice'}
         <header class="tab-header">
-          <h1>Voice-to-Mail</h1>
-          <p class="tab-desc">Sprachgesteuerte E-Mail-Erstellung mit lokalem Speech-to-Text.</p>
+          <h1>{$t("settings.voiceTitle")}</h1>
+          <p class="tab-desc">{$t("settings.voiceDesc")}</p>
         </header>
         <section class="settings-card">
           <div class="card-header">
-            <h3>Voice2Mail</h3>
-            <p class="card-desc">Sprachaufnahme für neue E-Mails und Antworten aktivieren.</p>
+            <h3>{$t("settings.voice2mail")}</h3>
+            <p class="card-desc">{$t("settings.voice2mailDesc")}</p>
           </div>
 
           <div class="card-body">
@@ -1243,8 +1261,8 @@ async function handleSaveCardDav() {
                 <input type="checkbox" bind:checked={voiceEnabled} />
                 <span class="switch-slider"></span>
                 <span class="switch-label-group">
-                  <span class="switch-title">Voice2Mail aktivieren</span>
-                  <span class="switch-desc">Sprachaufnahme im Compose-Editor und bei Antworten freischalten.</span>
+                  <span class="switch-title">{$t("settings.voiceEnable")}</span>
+                  <span class="switch-desc">{$t("settings.voiceEnableDesc")}</span>
                 </span>
               </label>
             </div>
@@ -1254,25 +1272,25 @@ async function handleSaveCardDav() {
         <!-- Card: STT Endpoint -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Speech-to-Text Endpunkt</h3>
-            <p class="card-desc">OpenAI-kompatibler STT-Server für die Spracherkennung.</p>
+            <h3>{$t("settings.sttEndpoint")}</h3>
+            <p class="card-desc">{$t("settings.sttEndpointDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-grid-1">
               <div class="form-group">
-                <label for="voice-stt-url">API-URL</label>
+                <label for="voice-stt-url">{$t("settings.apiUrl")}</label>
                 <input id="voice-stt-url" type="url" bind:value={voiceSttUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceEnabled} />
               </div>
             </div>
 
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="voice-stt-key">API-Key</label>
-                <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder="Optional" class="form-control" disabled={!voiceEnabled} />
+                <label for="voice-stt-key">{$t("settings.apiKey")}</label>
+                <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceEnabled} />
               </div>
               <div class="form-group">
-                <label for="voice-stt-model">Modell-ID</label>
+                <label for="voice-stt-model">{$t("settings.modelId")}</label>
                 <input id="voice-stt-model" type="text" bind:value={voiceSttModel} placeholder="Systran/faster-whisper-small" class="form-control" disabled={!voiceEnabled} />
               </div>
             </div>
@@ -1286,7 +1304,7 @@ async function handleSaveCardDav() {
 
             <div class="form-actions-row">
                 <button type="button" class="btn-submit" onclick={handleSaveVoice} disabled={!voiceEnabled}>
-                  {voiceSaved ? "✓ Gespeichert" : "Verbindung speichern"}
+                  {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
                 </button>
               </div>
           </div>
@@ -1295,24 +1313,24 @@ async function handleSaveCardDav() {
 
       {#if activeTab === 'archive'}
         <header class="tab-header">
-          <h1>Archiv & Lösch-Queue</h1>
-          <p class="tab-desc">Lokales Mail-Archiv (EML), Lösch-Überprüfung und Export.</p>
+          <h1>{$t("settings.archiveTitle")}</h1>
+          <p class="tab-desc">{$t("settings.archiveDesc")}</p>
         </header>
 
         <!-- Card: Delete Queue Review -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Lösch-Queue ({deleteQueue.length})</h3>
-            <p class="card-desc">Wartende Provider-Löschungen. Die lokale Kopie (EML) wird erst verifiziert, bevor die Provider-Kopie hart gelöscht wird (sonst weich in den Provider-Papierkorb).</p>
+            <h3>{$t("settings.deleteQueue", { count: deleteQueue.length })}</h3>
+            <p class="card-desc">{$t("settings.deleteQueueDesc")}</p>
           </div>
           {#if deleteQueue.length === 0}
-            <p class="hint-text">Keine wartenden Löschungen.</p>
+            <p class="hint-text">{$t("settings.noPending")}</p>
           {:else}
             <div class="delete-queue-list">
               {#each deleteQueue as row}
                 <div class="delete-queue-row">
                   <div class="delete-queue-info">
-                    <span class="delete-queue-uid">Konto {row.account_id} · UID {row.uid}</span>
+                    <span class="delete-queue-uid">{$t("settings.accountUid", { account: row.account_id, uid: row.uid })}</span>
                     <span class="delete-queue-folder">{row.folder}</span>
                     <span class="delete-queue-state" class:failed={row.state === 'failed'}>{row.state}</span>
                     {#if row.last_error}
@@ -1320,8 +1338,8 @@ async function handleSaveCardDav() {
                     {/if}
                   </div>
                   <div class="delete-queue-actions">
-                    <button type="button" class="btn-action-ghost" onclick={() => retryDeleteQueue(row.id)}>Erneut versuchen</button>
-                    <button type="button" class="btn-action-danger-ghost" onclick={() => removeDeleteQueue(row.id)}>Verwerfen</button>
+                    <button type="button" class="btn-action-ghost" onclick={() => retryDeleteQueue(row.id)}>{$t("settings.retry")}</button>
+                    <button type="button" class="btn-action-danger-ghost" onclick={() => removeDeleteQueue(row.id)}>{$t("settings.discard")}</button>
                   </div>
                 </div>
               {/each}
@@ -1332,8 +1350,8 @@ async function handleSaveCardDav() {
         <!-- Card: Export -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Export (EML / MBox)</h3>
-            <p class="card-desc">Exportiere das lokale EML-Archiv (Provider-unabhängig). MBox für Apple Mail / Thunderbird, ZIP mit einzelnen EML-Dateien.</p>
+            <h3>{$t("settings.exportTitle")}</h3>
+            <p class="card-desc">{$t("settings.exportDesc")}</p>
           </div>
           <div class="export-row">
             {#each accountList as a (a.id)}
@@ -1344,7 +1362,7 @@ async function handleSaveCardDav() {
               </div>
             {/each}
             {#if accountList.length === 0}
-              <p class="hint-text">Keine Konten — füge zuerst ein Konto hinzu.</p>
+              <p class="hint-text">{$t("settings.noAccountsExport")}</p>
             {/if}
           </div>
         </section>
@@ -1352,30 +1370,30 @@ async function handleSaveCardDav() {
         <!-- Card: Backup -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Backup & Wiederherstellung</h3>
-            <p class="card-desc">Alle Nutzerdaten liegen unter /data/Relay (Mail-DB, EML-Archiv, Anhänge, Einstellungen). Ein Backup-Snapshot erstellt eine konsistente Kopie der DB; das EML-Archiv und die Anhänge liegen als Dateien im selben Stamm und werden vom Olares-Backup mit erfasst.</p>
+            <h3>{$t("settings.backupTitle")}</h3>
+            <p class="card-desc">{$t("settings.backupDesc")}</p>
           </div>
           <div class="export-row">
             <button type="button" class="btn-action" onclick={handleBackup} disabled={backupBusy}>
-              {backupBusy ? 'Erstelle Backup…' : 'Backup erstellen'}
+              {backupBusy ? $t("settings.createBackupBusy") : $t("settings.createBackup")}
             </button>
             {#if backupResult}
-              <p class="hint-text mt-2">Backup erstellt: {backupResult.path} ({formatBytes(backupResult.size)})</p>
+              <p class="hint-text mt-2">{$t("settings.backupCreated", { path: backupResult.path, size: formatBytes(backupResult.size) })}</p>
             {/if}
           </div>
 
           <div class="card-header" style="margin-top:16px">
-            <h4>Vorhandene Backups</h4>
+            <h4>{$t("settings.existingBackups")}</h4>
           </div>
           <div class="backup-list">
             {#each backups as b (b.name)}
               <div class="backup-row">
                 <span class="backup-name">{b.name}</span>
                 <span class="backup-size">{formatBytes(b.size)}</span>
-                <button type="button" class="btn-action-danger-ghost" onclick={() => restoreBackup(b.name)}>Wiederherstellen</button>
+                <button type="button" class="btn-action-danger-ghost" onclick={() => restoreBackup(b.name)}>{$t("settings.restore")}</button>
               </div>
             {:else}
-              <p class="hint-text">Noch keine Backups erstellt.</p>
+              <p class="hint-text">{$t("settings.noBackups")}</p>
             {/each}
           </div>
           {#if restoreResult}
@@ -1386,29 +1404,29 @@ async function handleSaveCardDav() {
 
       {#if activeTab === 'cache'}
         <header class="tab-header">
-          <h1>Cache-Verwaltung</h1>
-          <p class="tab-desc">Anhang-Cache verwalten und Speicher freigeben.</p>
+          <h1>{$t("settings.cacheTitle")}</h1>
+          <p class="tab-desc">{$t("settings.cacheDesc")}</p>
         </header>
 
         <!-- Card: Cache Statistics -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Cache-Statistik</h3>
-            <p class="card-desc">Aktueller Status des Anhang-Caches.</p>
+            <h3>{$t("settings.cacheStats")}</h3>
+            <p class="card-desc">{$t("settings.cacheStatsDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="cache-stats">
               <div class="stat-item">
-                <span class="stat-label">Anhang gesamt</span>
+                <span class="stat-label">{$t("settings.attachmentsTotal")}</span>
                 <span class="stat-value">{cacheStats?.total_attachments ?? 0}</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">Mit Inhalt gecached</span>
+                <span class="stat-label">{$t("settings.cachedWithContent")}</span>
                 <span class="stat-value">{cacheStats?.cached_count ?? 0}</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">Cache-Größe</span>
+                <span class="stat-label">{$t("settings.cacheSize")}</span>
                 <span class="stat-value">{(cacheStats?.cached_size_mb ?? 0).toFixed(1)} MB</span>
               </div>
             </div>
@@ -1418,14 +1436,14 @@ async function handleSaveCardDav() {
         <!-- Card: Cache Cleanup -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>Cache bereinigen</h3>
-            <p class="card-desc">Älteste Anhang-Inhalte löschen, um Speicher freizugeben. Metadaten (Dateiname, Größe) bleiben erhalten.</p>
+            <h3>{$t("settings.cacheCleanup")}</h3>
+            <p class="card-desc">{$t("settings.cacheCleanupDesc")}</p>
           </div>
 
           <div class="card-body">
             <div class="form-grid-2">
               <div class="form-group">
-                <label for="cache-max-mb">Maximale Cache-Größe (MB)</label>
+                <label for="cache-max-mb">{$t("settings.cacheMaxMb")}</label>
                 <input id="cache-max-mb" type="number" bind:value={cacheMaxMb} min="10" max="500" class="form-control" />
               </div>
             </div>
@@ -1433,16 +1451,16 @@ async function handleSaveCardDav() {
             {#if cacheCleanupResult !== null}
               <div class="alert-box success">
                 <div class="alert-icon">✓</div>
-                <div class="alert-text">{cacheCleanupResult} Anhang(s) bereinigt.</div>
+                <div class="alert-text">{$t("settings.cacheCleaned", { count: cacheCleanupResult })}</div>
               </div>
             {/if}
 
             <div class="form-actions-row">
               <button type="button" class="btn-submit" onclick={handleCleanupCache} disabled={cacheCleaning}>
-                {cacheCleaning ? "Bereinige…" : "Cache bereinigen"}
+                {cacheCleaning ? $t("settings.cleaning") : $t("settings.cacheCleanup")}
               </button>
               <button type="button" class="btn-danger" onclick={handleClearCache} disabled={cacheCleaning}>
-                {cacheCleaning ? "Lösche…" : "Cache komplett leeren"}
+                {cacheCleaning ? $t("settings.clearing") : $t("settings.clearAll")}
               </button>
             </div>
           </div>
@@ -1451,21 +1469,21 @@ async function handleSaveCardDav() {
         <!-- Card: KI-Zusammenfassungen -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>KI-Zusammenfassungen</h3>
-            <p class="card-desc">Alle KI-Zusammenfassungen (inkl. Prioritäten &amp; Betrugserkennung) löschen, damit sie neu generiert werden. Nützlich, wenn die Zusammenfassungen durcheinander sind.</p>
+            <h3>{$t("settings.aiSummaries")}</h3>
+            <p class="card-desc">{$t("settings.aiSummariesDesc")}</p>
           </div>
 
           <div class="card-body">
             {#if aiSummariesResult !== null}
               <div class="alert-box success">
                 <div class="alert-icon">✓</div>
-                <div class="alert-text">{aiSummariesResult} Zusammenfassung(en) gelöscht. Sie werden bei den nächsten Ordner-Besuchen neu generiert.</div>
+                <div class="alert-text">{$t("settings.aiSummariesCleared", { count: aiSummariesResult })}</div>
               </div>
             {/if}
 
             <div class="form-actions-row">
               <button type="button" class="btn-danger" onclick={handleClearAiSummaries} disabled={aiSummariesClearing}>
-                {aiSummariesClearing ? "Lösche…" : "Alle KI-Zusammenfassungen löschen"}
+                {aiSummariesClearing ? $t("settings.clearing") : $t("settings.aiSummariesClearAll")}
               </button>
             </div>
           </div>
@@ -1478,10 +1496,10 @@ async function handleSaveCardDav() {
 
 <ConfirmationDialog
   open={showDeleteAccountConfirm}
-  title="Konto entfernen"
-  message="Möchtest du dieses E-Mail-Konto wirklich entfernen? Alle zwischengespeicherten Daten werden gelöscht."
-  confirmLabel="Entfernen"
-  cancelLabel="Abbrechen"
+  title={$t("settings.deleteAccountTitle")}
+  message={$t("settings.deleteAccountMessage")}
+  confirmLabel={$t("settings.remove")}
+  cancelLabel={$t("common.cancel")}
   danger={true}
   onconfirm={confirmDeleteAccount}
   oncancel={cancelDeleteAccount}
@@ -1871,6 +1889,36 @@ async function handleSaveCardDav() {
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--color-text);
+  }
+
+  /* ─── LANGUAGE TOGGLE ─── */
+  .lang-toggle {
+    display: inline-flex;
+    gap: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 2px;
+    background: var(--color-sidebar);
+    width: fit-content;
+  }
+  .lang-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+  }
+  .lang-toggle button.active {
+    background: var(--color-accent);
+    color: #ffffff;
+  }
+  .lang-toggle button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
   }
 
   /* ─── SWITCH CONTROL (iOS / HubSpot Style) ─── */

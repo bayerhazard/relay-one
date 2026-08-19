@@ -1,6 +1,8 @@
 <script lang="ts">
   export type ToneValues = { seriositaet: number; textumfang: number };
 
+  import { t, translate } from "$lib/i18n";
+
   interface Props {
     values: ToneValues;
     onchange?: (v: ToneValues) => void;
@@ -19,22 +21,22 @@
 
   function labelFor(key: keyof ToneValues, val: number): string {
     if (key === "seriositaet") {
-      if (val <= 2) return "Locker";
-      if (val <= 4) return "Ausgewogen";
-      return "Formell";
+      if (val <= 2) return translate("tone.loose");
+      if (val <= 4) return translate("tone.balanced");
+      return translate("tone.formal");
     }
-    if (val <= 2) return "Knapp";
-    if (val <= 4) return "Normal";
-    return "Ausführlich";
+    if (val <= 2) return translate("tone.brief");
+    if (val <= 4) return translate("tone.normal");
+    return translate("tone.detailed");
   }
 
   function stepLabel(key: keyof ToneValues, val: number): string {
     if (key === "seriositaet") {
-      if (val === 1) return "Sehr locker";
-      if (val === 7) return "Sehr formell";
+      if (val === 1) return translate("tone.veryLoose");
+      if (val === 7) return translate("tone.veryFormal");
     } else {
-      if (val === 1) return "Sehr knapp";
-      if (val === 7) return "Sehr ausführlich";
+      if (val === 1) return translate("tone.veryBrief");
+      if (val === 7) return translate("tone.veryDetailed");
     }
     return "";
   }
@@ -88,8 +90,8 @@
 <div class="tone-controls">
   <div class="sliders-grid">
     <!-- Seriosität -->
-    <span class="slider-name">Seriosität</span>
-    <span class="range-label range-label--start">Locker</span>
+    <span class="slider-name">{$t("tone.seriousness")}</span>
+    <span class="range-label range-label--start">{$t("tone.loose")}</span>
     <div
       class="track"
       bind:this={trackEls["seriositaet"]}
@@ -100,7 +102,7 @@
       aria-valuemin={1}
       aria-valuemax={7}
       aria-valuenow={values.seriositaet}
-      aria-label="Seriosität"
+      aria-label={$t("tone.seriousness")}
       onkeydown={(e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
           values.seriositaet = Math.min(7, values.seriositaet + 1);
@@ -120,12 +122,12 @@
         <div class="thumb-ring"></div>
       </div>
     </div>
-    <span class="range-label range-label--end">Formell</span>
+    <span class="range-label range-label--end">{$t("tone.formal")}</span>
     <span class="slider-label">{labelFor("seriositaet", values.seriositaet)}</span>
 
     <!-- Textumfang -->
-    <span class="slider-name">Textumfang</span>
-    <span class="range-label range-label--start">Knapp</span>
+    <span class="slider-name">{$t("tone.length")}</span>
+    <span class="range-label range-label--start">{$t("tone.brief")}</span>
     <div
       class="track"
       bind:this={trackEls["textumfang"]}
@@ -136,7 +138,7 @@
       aria-valuemin={1}
       aria-valuemax={7}
       aria-valuenow={values.textumfang}
-      aria-label="Textumfang"
+      aria-label={$t("tone.length")}
       onkeydown={(e) => {
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
           values.textumfang = Math.min(7, values.textumfang + 1);
@@ -156,7 +158,7 @@
         <div class="thumb-ring"></div>
       </div>
     </div>
-    <span class="range-label range-label--end">Ausführlich</span>
+    <span class="range-label range-label--end">{$t("tone.detailed")}</span>
     <span class="slider-label">{labelFor("textumfang", values.textumfang)}</span>
   </div>
 </div>

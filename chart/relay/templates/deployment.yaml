@@ -45,13 +45,6 @@ spec:
               value: "{{ .Values.storage.mountPath }}"
             - name: RELAY_WEB_DIR
               value: "/opt/relay/web"
-            - name: RELAY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: relay-api-key
-                  key: api-key
-            - name: RELAY_TRUSTED_HOST_SUFFIX
-              value: "{{ .Values.trustedHostSuffix }}"
           ports:
             - containerPort: 3000
               name: http

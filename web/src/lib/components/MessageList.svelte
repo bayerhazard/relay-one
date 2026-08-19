@@ -5,6 +5,7 @@
   import FraudWarning from "./FraudWarning.svelte";
   import ReplySuggestions from "./ReplySuggestions.svelte";
   import EmptyState from "./EmptyState.svelte";
+  import { t } from "$lib/i18n";
   import { formatDate, extractName } from "$lib/utils/format";
 
   interface Props {
@@ -333,7 +334,7 @@
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="swipe-icon">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                   </svg>
-                  <span class="swipe-label">Löschen</span>
+                  <span class="swipe-label">{$t("mail.delete")}</span>
                 </button>
               </div>
             {/if}
@@ -372,17 +373,16 @@
               </span>
               <span class="msg-header-right">
                 {#if msg.has_attachments}
-                  <span class="attach-indicator" title="Enthält einen Anhang" aria-label="Anhang">&#x1F4CE;</span>
+                  <span class="attach-indicator" title={$t("mail.attachmentTitle")} aria-label={$t("mail.attachment")}>&#x1F4CE;</span>
                 {/if}
                 <span class="date">{formatDate(msg.date)}</span>
               </span>
             </div>
             <div class="msg-subject">
               {#if isDraftFolder}
-                <span class="draft-badge">Entwurf</span>
+                <span class="draft-badge">{$t("mail.draft")}</span>
               {/if}
-              <PriorityBadge intensity={msg.ai_priority ?? 0} fraudScore={msg.ai_fraud_score ?? 0} />
-              {msg.subject || "(Kein Betreff)"}
+              {msg.subject || $t("mail.noSubject")}
             </div>
             {#if msg.ai_summary}
               <SummaryLine summary={msg.ai_summary} />
@@ -407,21 +407,21 @@
     </div>
   {:else if messages.length === 0}
     {#if searchActive}
-      <EmptyState icon="&#x1F50D;" title="Keine Treffer" subtitle="Keine Nachricht passt zu deiner Suche." />
+      <EmptyState icon="&#x1F50D;" title={$t("mail.noResults")} subtitle={$t("mail.noResultsDesc")} />
     {:else}
-      <EmptyState icon="&#x2709;" title="Keine Nachrichten" subtitle="Dieser Ordner ist leer." />
+      <EmptyState icon="&#x2709;" title={$t("mail.noMessages")} subtitle={$t("mail.noMessagesDesc")} />
     {/if}
   {/if}
   {#if contextMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouch} role="presentation" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouch} style={isTouch ? "" : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}>Antworten</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}>Weiterleiten</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}>{$t("mail.reply")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}>{$t("mail.forward")}</button>
       <div class="ctx-menu-separator" role="separator"></div>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleRead?.(uid))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleFlag?.(uid))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid) => ondelete?.(uid))}>Löschen</button>
+      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid) => ondelete?.(uid))}>{$t("mail.delete")}</button>
     </div>
   {/if}
 </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { searchContacts } from '$lib/services/tauri';
   import type { ContactInfo } from '$lib/services/tauri';
+  import { t } from '$lib/i18n';
 
   let { value = $bindable([]), accountId, onchange }: { value: string[]; accountId: number | undefined; onchange?: (value: string[]) => void } = $props();
 
@@ -139,8 +140,8 @@
       oninput={handleInput}
       onkeydown={handleKeyDown}
       onfocus={() => { if (suggestions.length > 0) showDropdown = true; }}
-      placeholder={value.length === 0 ? "Name oder E-Mail-Adresse" : ""}
-      aria-label="Empfänger eingeben"
+      placeholder={value.length === 0 ? $t("recipient.placeholder") : ""}
+      aria-label={$t("recipient.aria")}
     />
     {#if loading}
       <span class="spinner">⏳</span>

@@ -1,4 +1,6 @@
   <script lang="ts">
+    import { t } from "$lib/i18n";
+
     interface Props {
       open: boolean;
       title?: string;
@@ -14,10 +16,10 @@
 
     let {
       open,
-      title = "Bestätigung",
+      title = "",
       message,
-      confirmLabel = "Bestätigen",
-      cancelLabel = "Abbrechen",
+      confirmLabel = "",
+      cancelLabel = "",
       altLabel = "",
       onconfirm,
       oncancel,
@@ -57,7 +59,7 @@
     >
       <div class="dialog-panel" class:danger>
         <div class="dialog-content">
-          <h2 id="dialog-title" class="dialog-title">{title}</h2>
+          <h2 id="dialog-title" class="dialog-title">{title || $t("confirmation.title")}</h2>
           <p id="dialog-message" class="dialog-message">{message}</p>
           <div class="dialog-actions">
             {#if altLabel && onalt}
@@ -71,7 +73,7 @@
               onclick={oncancel}
               autofocus
             >
-              {cancelLabel}
+              {cancelLabel || $t("common.cancel")}
             </button>
             <button
               type="button"
@@ -79,7 +81,7 @@
               class:danger
               onclick={onconfirm}
             >
-              {confirmLabel}
+              {confirmLabel || $t("confirmation.confirm")}
             </button>
           </div>
         </div>
