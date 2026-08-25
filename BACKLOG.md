@@ -202,6 +202,39 @@
 
 ---
 
+## Code Review AI-Features 2026-08-25
+
+> Gezieltes Review der AI-Pfade (Eingangs-Scan: Summary/Priorität/Phishing, Komposition: Reply/Generate, Lernschleife: Snippets/Tone/Fingerprint).
+> Severity: 🟠 hoch · 🟡 mittel · 🔵 niedrig.
+> **Status:** alle Findings gefixt. Tests: Rust **452** (+2), Vitest **330**, `svelte-check` **0 Errors**.
+
+### AI-01 🟠 ✅ gefixt Lernschleife tot: Style-Fingerprint nie synthetisiert (account_id=0)
+- **Dateien:** `server/src/sync/scheduler.rs` (`RefreshFingerprint`-Task), `server/src/cache/fingerprint.rs`
+- **Problem:** Der globale `RefreshFingerprint`-Task (account_id=0) filterte in `get_recipients_needing_refresh` / `get_hints_for_synthesis` / `save_fingerprint` hart nach `account_id = 0` — aber Diffs werden mit dem echten Account-ID gequeued (`send.rs`). Ergebnis: Kandidaten-Liste permanent leer → Fingerprint nie erzeugt; `ai_generate_mail`/`ai_generate_reply` lesen mit echtem Account-ID → **immer `None`**. Die gesamte Fingerprint-Lernschleife (Diff-Analyse → Synthese → Prompt-Anreicherung) war stillschweigend tot.
+- **Fix:** Neue `get_refresh_candidates(conn, limit)` gruppiert analysierte Hinweise über **alle** Konten (`GROUP BY account_id, email_hash HAVING COUNT(*) >= 3`) und liefert das echte `account_id` mit; Scheduler liest Hinweise und speichert den Fingerprint mit dem echten Account-ID. +2 Regressionstests (Multi-Account, Limit).
+
+### AI-02 🟠 ✅ gefixt Phishing-Erkennung tot: `ai_fraud_score` nie befüllt
+- **Dateien:** `server/src/sync/scheduler.rs` (`process_ai_summary`), `web/src/routes/+page.svelte`
+- **Problem:** `detect_fraud` (Heuristik, getestet) und `update_ai_fraud` (DB) existierten, wurden aber **niemals** in der Produktions-Pipeline aufgerufen. Die UI rendert `FraudWarning` bei `ai_fraud_score > 0.6` — das konnte nie eintreten. Phishing-Schutz war reines UI-Theater.
+- **Fix:** `process_ai_summary` berechnet `detect_fraud(subject, body)` für **jede** Mail (reine Regex-Heuristik — läuft unabhängig von LLM-Verfügbarkeit/Konfiguration) und persistiert via `update_ai_fraud`. Das `ai-summary-updated`-Event trägt den Score als 6. Element; Frontend schreibt `ai_fraud_score` live in die Message-Row.
+
+### AI-03 🟡 ✅ gefixt Fehlende Route `/ai/tone-profiles/export`
+- **Dateien:** `server/src/api/ai.rs`, `server/src/api/mod.rs`, `web/src/lib/services/tauri.ts`
+- **Problem:** Frontend `exportToneProfiles()` postete auf `/ai/tone-profiles/export` (→ 404); `ProfileManager::export_as_markdown` war nie verdrahtet.
+- **Fix:** Route + Handler ergänzt (liefert Markdown-Tabelle als JSON-String); Frontend-Body auf snake_case `account_id` vereinheitlicht.
+
+### AI-04 🔵 ✅ gefixt Occasion-Mismatch: Weihnachts-Prompt-Anweisung unerreichbar
+- **Dateien:** `server/src/ai/prompts.rs`
+- **Problem:** `parse_intent` liefert `"weihnacht"` (Regex-Alternative), der Prompt matchte auf `"weihnachten"` → die dedizierte Weihnachtsgrüße-Anweisung traf nie (nur der generische Fallback).
+- **Fix:** Match auf `Some("weihnacht") | Some("weihnachten")`.
+
+### AI-05 🔵 akzeptiert (kein Fix)
+- `detect_display_mismatch` in `security/fraud.rs` ist ein Platzhalter (liefert immer `false`) — bewusst: Display-Name-Abgleich braucht Absender-Metadaten, die der Heuristik-Pfad nicht zuverlässig hat.
+- `intent.rs`-Namensextraktion ist unvollkommen (fangt Folge-Wörter wie "eine", bricht bei `é` ab) — `recipient_name` wird im aktiven Pfad (`ai_generate_mail`) nicht verwendet, nur `tone_hints`; kein Nutzer-Impact.
+- `aiGenerateReply`/`aiDraftFromBullets`/`aiDetectPriority`/`fraudCheck`/`exportToneProfiles` in `tauri.ts` sind nur in Test-Mocks referenziert (Reply-Flow nutzt `aiGenerateMail` mit `original_message`) — API-Fläche für spätere UI, bewusst behalten.
+
+---
+
 ## Offen — neu gemeldet 2026-08-18
 
 ### Reply-All: eigene Adresse + ursprüngliche Empfänger-Adresse im Antwortverteiler

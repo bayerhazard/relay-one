@@ -79,6 +79,7 @@ pub fn router() -> Router<AppState> {
         .route("/ai/fraud-check", post(ai::fraud_check))
         .route("/ai/generate-mail", post(ai::ai_generate_mail))
         .route("/ai/tone-profile", post(ai::get_tone_profile))
+        .route("/ai/tone-profiles/export", post(ai::export_tone_profiles))
         .route("/ai/suggest-recipient", post(ai::ai_suggest_recipient))
         .route("/ai/suggest-subject", post(ai::ai_suggest_subject))
         // Web Push

@@ -708,6 +708,27 @@ pub async fn get_tone_profile(
 }
 
 #[derive(Deserialize)]
+pub struct ExportToneProfilesRequest {
+    pub account_id: u32,
+}
+
+/// `POST /api/v1/ai/tone-profiles/export` — export all tone profiles of an
+/// account as a Markdown table (plain JSON string response).
+pub async fn export_tone_profiles(
+    State(state): State<AppState>,
+    Json(req): Json<ExportToneProfilesRequest>,
+) -> ApiResult<String> {
+    let db_guard = get_db(&state).map_err(ApiError)?;
+    let conn = db_guard
+        .as_ref()
+        .ok_or_else(|| ApiError("Datenbank nicht initialisiert".to_string()))?;
+
+    let markdown = ProfileManager::export_as_markdown(conn, req.account_id as i64)
+        .map_err(|e| e.to_string())?;
+    Ok(Json(markdown))
+}
+
+#[derive(Deserialize)]
 pub struct SuggestRecipientRequest {
     pub to: String,
     pub subject: String,

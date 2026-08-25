@@ -116,11 +116,12 @@ import {
         return;
       }
       if (event === "ai-summary-updated") {
-        const [uid, accountId, summary, priority, folderName] = payload as [number, number, string, number | null, string | null];
+        const [uid, accountId, summary, priority, folderName, fraudScore] = payload as [number, number, string, number | null, string | null, number | null];
         if (accountId === selectedAccountId) {
           const changes: Record<string, unknown> = {};
           if (summary) changes.ai_summary = summary;
           if (priority !== undefined && priority !== null) changes.ai_priority = priority;
+          if (fraudScore !== undefined && fraudScore !== null) changes.ai_fraud_score = fraudScore;
           if (Object.keys(changes).length) {
             // The event carries the source folder name. updateMessage only
             // touches rows whose (account, folder, uid) matches the current

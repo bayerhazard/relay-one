@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Instant};
 
+use crate::security::fraud;
 use crate::security::pii;
 use crate::security::priority;
 use crate::sync::queue::{SyncQueue, SyncTask, SyncTaskType};
@@ -1479,34 +1480,40 @@ async fn process_sync_task(
         }
         SyncTaskType::RefreshFingerprint => {
             // Background: refresh style fingerprints for recipients with >=3 new analyzed hints.
+            // Global task (account-agnostic): candidates span ALL accounts, each with its
+            // real account_id so the fingerprint is stored where generate-mail reads it.
             // Processes up to 2 recipients per cycle to avoid LLM semaphore starvation.
-            let (recipients, ai_client_opt) = {
+            let (candidates, ai_client_opt) = {
                 let db_guard = state.cache_db.lock();
                 let conn = db_guard
                     .as_ref()
                     .ok_or("Datenbank nicht initialisiert")?;
-                let recipients = crate::cache::fingerprint::get_recipients_needing_refresh(conn, 0, 2)
+                let candidates = crate::cache::fingerprint::get_refresh_candidates(conn, 2)
                     .map_err(|e| e.to_string())?;
                 let ai_client = {
                     let guard = state.ai_client.read();
                     guard.clone()
                 };
-                (recipients, ai_client)
+                (candidates, ai_client)
             };
 
-            for email_hash in recipients {
+            for cand in candidates {
                 if let Some(ref client) = ai_client_opt {
-                    let (hints, account_id) = {
+                    let hints = {
                         let db_guard = state.cache_db.lock();
                         let conn = db_guard
                             .as_ref()
                             .ok_or("Datenbank nicht initialisiert")?;
-                        let hints = crate::cache::fingerprint::get_hints_for_synthesis(conn, 0, &email_hash)
-                            .map_err(|e| e.to_string())?;
+                        let hints = crate::cache::fingerprint::get_hints_for_synthesis(
+                            conn,
+                            cand.account_id,
+                            &cand.email_hash,
+                        )
+                        .map_err(|e| e.to_string())?;
                         if hints.is_empty() {
                             continue;
                         }
-                        (hints, 0)
+                        hints
                     };
 
                     let (system, user) = crate::ai::prompts::build_fingerprint_synthesis_prompt(&hints);
@@ -1524,23 +1531,24 @@ async fn process_sync_task(
                             if let Some(conn) = db_guard.as_ref() {
                                 let _ = crate::cache::fingerprint::save_fingerprint(
                                     conn,
-                                    account_id,
-                                    &email_hash,
+                                    cand.account_id,
+                                    &cand.email_hash,
                                     &fingerprint,
                                     hints.len() as i64,
                                 );
                                 tracing::info!(
-                                    "Style fingerprint fuer {} aktualisiert ({} Hinweise)",
-                                    email_hash,
+                                    "Style fingerprint fuer {} (Account {}) aktualisiert ({} Hinweise)",
+                                    cand.email_hash,
+                                    cand.account_id,
                                     hints.len()
                                 );
                             }
                         }
                         Some(Err(e)) => {
-                            tracing::warn!("Fingerprint synthesis LLM error for {}: {}", email_hash, e);
+                            tracing::warn!("Fingerprint synthesis LLM error for {}: {}", cand.email_hash, e);
                         }
                         None => {
-                            tracing::debug!("LLM busy, skip fingerprint synthesis for {}", email_hash);
+                            tracing::debug!("LLM busy, skip fingerprint synthesis for {}", cand.email_hash);
                         }
                     }
                 }
@@ -1919,7 +1927,7 @@ fn resolve_folder_name(conn: &rusqlite::Connection, account_id: i64, folder_id: 
 /// so without it a uid shared with another folder could summarize (and store
 /// the summary for) the wrong message.
 async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_id: Option<i64>) -> Result<usize, String> {
-    let (body_text, client_opt) = {
+    let (subject, body_text, client_opt) = {
         let db_guard = state.cache_db.lock();
         let conn = db_guard
             .as_ref()
@@ -1933,15 +1941,34 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
         )
         .map_err(|e| e.to_string())?;
 
-        let body = msg.and_then(|m| m.body_text);
+        let (subject, body) = match msg {
+            Some(m) => (m.subject.unwrap_or_default(), m.body_text),
+            None => (String::new(), None),
+        };
 
         let ai_client = {
             let guard = state.ai_client.read();
             guard.clone()
         };
 
-        (body, ai_client)
+        (subject, body, ai_client)
     };
+
+    // Phishing detection: pure heuristic (regex), so it runs for every
+    // message regardless of LLM availability — warnings must not depend
+    // on the model being configured or idle.
+    let fraud = fraud::detect_fraud(&subject, body_text.as_deref().unwrap_or(""));
+    {
+        let db_guard = state.cache_db.lock();
+        if let Some(conn) = db_guard.as_ref() {
+            let _ = crate::cache::messages::update_ai_fraud(
+                conn,
+                account_id as i64,
+                uid as i64,
+                fraud.score,
+            );
+        }
+    }
 
     if let (Some(body), Some(client)) = (body_text, client_opt) {
         let summary = match client
@@ -1986,7 +2013,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             )
             .map_err(|e| e.to_string())?;
                 let folder_name = resolve_folder_name(conn, account_id as i64, folder_id);
-                let _ = state.events.emit("ai-summary-updated", (uid, account_id, summary_text.clone(), urgency, folder_name));
+                let _ = state.events.emit("ai-summary-updated", (uid, account_id, summary_text.clone(), urgency, folder_name, Some(fraud.score)));
             if let Some(u) = urgency {
                 let _ = crate::cache::messages::update_ai_priority(
                     conn, account_id as i64, uid as i64, folder_id, u,
@@ -2002,7 +2029,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
                         conn, account_id as i64, uid as i64, folder_id, rule_priority,
                     );
                     let folder_name = resolve_folder_name(conn, account_id as i64, folder_id);
-                    let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority), folder_name));
+                    let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority), folder_name, Some(fraud.score)));
                 }
             }
         }

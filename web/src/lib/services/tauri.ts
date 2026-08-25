@@ -684,7 +684,7 @@ export async function fraudCheck(
 }
 
 export async function exportToneProfiles(accountId: number): Promise<string> {
-  return post("/ai/tone-profiles/export", { accountId },
+  return post("/ai/tone-profiles/export", { account_id: accountId },
     "Die Tonfall-Profile konnten nicht exportiert werden.");
 }
 

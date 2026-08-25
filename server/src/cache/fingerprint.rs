@@ -103,6 +103,37 @@ pub fn get_hints_for_synthesis(
     Ok(hints)
 }
 
+/// Recipient candidates for the global (account-agnostic) background
+/// RefreshFingerprint task. Groups analyzed hints across ALL accounts.
+#[derive(Debug, Clone)]
+pub struct RefreshCandidate {
+    pub account_id: i64,
+    pub email_hash: String,
+}
+
+pub fn get_refresh_candidates(
+    conn: &Connection,
+    limit: i64,
+) -> Result<Vec<RefreshCandidate>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT account_id, email_hash FROM learning_diffs
+         WHERE analyzed = 1 AND style_hint IS NOT NULL
+         GROUP BY account_id, email_hash
+         HAVING COUNT(*) >= 3
+         ORDER BY MAX(created_at) DESC
+         LIMIT ?",
+    )?;
+    let rows = stmt.query_map(rusqlite::params![limit], |row| {
+        Ok(RefreshCandidate {
+            account_id: row.get(0)?,
+            email_hash: row.get(1)?,
+        })
+    })?;
+    let out: Vec<RefreshCandidate> = rows.filter_map(|r| r.ok()).collect();
+    Ok(out)
+}
+
+#[allow(dead_code)]
 pub fn get_recipients_needing_refresh(
     conn: &Connection,
     account_id: i64,
@@ -258,5 +289,76 @@ mod tests {
         let recipients = get_recipients_needing_refresh(&conn, 1, 10).unwrap();
         assert_eq!(recipients.len(), 1);
         assert_eq!(recipients[0], "hash1");
+    }
+
+    #[test]
+    fn test_get_refresh_candidates_all_accounts() {
+        let conn = test_conn();
+        // Account 1: 3 analyzed hints for hash-a (qualifies)
+        for i in 0..3 {
+            conn.execute(
+                &format!(
+                    "INSERT INTO learning_diffs (account_id, email_hash, ai_draft, user_final, edit_distance, style_hint, analyzed)
+                     VALUES (1, 'hash-a', 'AI', 'User', 0.5, 'hint{}', 1)",
+                    i
+                ),
+                [],
+            )
+            .unwrap();
+        }
+        // Account 2: 3 analyzed hints for hash-b (qualifies)
+        for i in 0..3 {
+            conn.execute(
+                &format!(
+                    "INSERT INTO learning_diffs (account_id, email_hash, ai_draft, user_final, edit_distance, style_hint, analyzed)
+                     VALUES (2, 'hash-b', 'AI', 'User', 0.5, 'hint{}', 1)",
+                    i
+                ),
+                [],
+            )
+            .unwrap();
+        }
+        // Account 1: only 2 hints for hash-c (does NOT qualify)
+        for i in 0..2 {
+            conn.execute(
+                &format!(
+                    "INSERT INTO learning_diffs (account_id, email_hash, ai_draft, user_final, edit_distance, style_hint, analyzed)
+                     VALUES (1, 'hash-c', 'AI', 'User', 0.5, 'hint{}', 1)",
+                    i
+                ),
+                [],
+            )
+            .unwrap();
+        }
+
+        let candidates = get_refresh_candidates(&conn, 10).unwrap();
+        assert_eq!(candidates.len(), 2);
+        let by_hash: std::collections::HashMap<&str, i64> = candidates
+            .iter()
+            .map(|c| (c.email_hash.as_str(), c.account_id))
+            .collect();
+        assert_eq!(by_hash.get("hash-a"), Some(&1));
+        assert_eq!(by_hash.get("hash-b"), Some(&2));
+        assert!(!by_hash.contains_key("hash-c"));
+    }
+
+    #[test]
+    fn test_get_refresh_candidates_limit() {
+        let conn = test_conn();
+        for account in 1..=3 {
+            for i in 0..3 {
+                conn.execute(
+                    &format!(
+                        "INSERT INTO learning_diffs (account_id, email_hash, ai_draft, user_final, edit_distance, style_hint, analyzed)
+                         VALUES ({}, 'h{}', 'AI', 'User', 0.5, 'hint{}', 1)",
+                        account, account, i
+                    ),
+                    [],
+                )
+                .unwrap();
+            }
+        }
+        let candidates = get_refresh_candidates(&conn, 2).unwrap();
+        assert_eq!(candidates.len(), 2);
     }
 }

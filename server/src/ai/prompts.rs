@@ -180,7 +180,7 @@ pub fn build_generate_mail_prompt(
 
     let occasion_instruction = match occasion {
         Some("geburtstag") => "\n\nAnlass: Geburtstag. Verwende eine passende Geburtstagsgrüßung.",
-        Some("weihnachten") => "\n\nAnlass: Weihnachten. Verwende passende Weihnachtsgrüße.",
+        Some("weihnacht") | Some("weihnachten") => "\n\nAnlass: Weihnachten. Verwende passende Weihnachtsgrüße.",
         Some("neujahr") => "\n\nAnlass: Neujahr. Verwende passende Neujahrswünsche.",
         Some("hochzeit") => "\n\nAnlass: Hochzeit. Verwende passende Hochzeitsgrüße.",
         Some("jubiläum") => "\n\nAnlass: Jubiläum. Verwende passende Jubiläumsgrüße.",
