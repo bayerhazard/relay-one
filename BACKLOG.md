@@ -1,9 +1,16 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
-> Stand: 2026-08-18 — Release 26.09.91 (Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
+> Stand: 2026-08-25 — Release 26.09.94 (AI-Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
 
 ---
+
+## Erledigt — Release 26.09.94 (2026-08-25)
+
+### AI-Code-Review-Fixes (AI-01 … AI-04)
+- **Status:** ✅ live (Pod 2/2 Running, `ghcr.io/bayerhazard/relay-one:26.09.94`, Health `ok`)
+- **Inhalt:** Phishing-Erkennung aktiv in der Produktions-Pipeline (AI-02), Fingerprint-Lernschleife repariert (AI-01), `/ai/tone-profiles/export` Route (AI-03), Weihnachts-Occasion-Match (AI-04). Details unten in „Code Review AI-Features 2026-08-25".
+- **Deploy-Notiz:** Git-Push auf `aimighty-market` deployet die Market-Source automatisch (Cloudflare-Pages-Git-Integration) — `wrangler pages deploy` ist redundant (CLOUDFLARE_API_TOKEN in dieser Umgebung nicht verfügbar). Olares-Sync: ~4 min nach Hash-Change im Katalog.
 
 ## Erledigt — Release 26.09.90
 
