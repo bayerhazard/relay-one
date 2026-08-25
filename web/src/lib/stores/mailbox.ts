@@ -72,9 +72,11 @@ export function setFolderCache(accountId: number, folderId: string, messages: Me
   persistFolderCache(folderCache);
 }
 
-/** Drop a cached (account, folder) list — used after delete/move/flag ops. */
+/** Drop a cached (account, folder) list — used after delete/move/flag ops.
+ *  Also drops the freshness timestamp so the next view re-fetches. */
 export function invalidateFolderCache(accountId: number, folderId: string) {
   const key = cacheKey(accountId, folderId);
+  delete lastFetchAt[key];
   if (!(key in folderCache)) return;
   const next = { ...folderCache };
   delete next[key];
@@ -93,11 +95,37 @@ export function invalidateFolderCache(accountId: number, folderId: string) {
 /** Clear the in-memory folder cache (test isolation). */
 export function resetFolderCache() {
   folderCache = {};
+  lastFetchAt = {};
   try {
     localStorage.removeItem(FOLDER_CACHE_KEY);
   } catch {
     // ignore
   }
+}
+
+// ─── Client-side freshness window ────────────────────────────
+// A folder list fetched within FOLDER_FRESH_MS is considered fresh: switching
+// back to it serves the cached list without hitting the network again. The
+// window is in-memory only (per session). Mutations call
+// invalidateFolderCache(), which also drops the timestamp so the very next
+// view of the folder re-fetches. Event-driven reloads ("new-messages") pass
+// force=true and bypass the window.
+
+const FOLDER_FRESH_MS = 15_000;
+
+let lastFetchAt: Record<string, number> = {};
+
+/** True when (account, folder) was fetched within the freshness window. */
+export function isFolderFresh(accountId: number | null, folderId: string): boolean {
+  if (accountId == null) return false;
+  const t = lastFetchAt[cacheKey(accountId, folderId)];
+  return t !== undefined && Date.now() - t < FOLDER_FRESH_MS;
+}
+
+/** Record a successful fetch of (account, folder). */
+export function markFolderFetched(accountId: number | null, folderId: string) {
+  if (accountId == null) return;
+  lastFetchAt[cacheKey(accountId, folderId)] = Date.now();
 }
 
 interface MailboxState {

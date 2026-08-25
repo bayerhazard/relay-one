@@ -604,6 +604,14 @@ pub async fn move_message(
         )));
     }
 
+    // Bust both folder listings so the raised cache TTL never serves a list
+    // that misses this move.
+    {
+        let mut cache = state.folder_cache.write();
+        cache.invalidate(account_id_i64, &req.source_folder);
+        cache.invalidate(account_id_i64, &req.target_folder);
+    }
+
     Ok(Json(()))
 }
 
@@ -693,6 +701,11 @@ async fn move_to_local_folder(
         "move_to_local: uid {} (account {}) → '{}' (verify={})",
         uid, req.account_id, req.target_folder, eml_ok
     );
+    {
+        let mut cache = state.folder_cache.write();
+        cache.invalidate(account_id_i64, &req.source_folder);
+        cache.invalidate(account_id_i64, &req.target_folder);
+    }
     Ok(Json(()))
 }
 
@@ -719,6 +732,7 @@ pub async fn rename_folder(
             cache::messages::rename_local_folder(conn, req.account_id as i64, &req.old_name, &req.new_name)
                 .map_err(|e| e.to_string())
         })?;
+        state.folder_cache.write().invalidate_account(req.account_id as i64);
         return Ok(Json(()));
     }
 
@@ -732,7 +746,10 @@ pub async fn rename_folder(
     client
         .rename_folder(&req.old_name, &req.new_name)
         .await
-        .map(|_| Json(()))
+        .map(|_| {
+            state.folder_cache.write().invalidate_account(req.account_id as i64);
+            Json(())
+        })
         .map_err(|e| ApiError(e.to_string()))
 }
 
@@ -749,6 +766,9 @@ pub async fn delete_folder(
     State(state): State<AppState>,
     Json(req): Json<DeleteFolderRequest>,
 ) -> ApiResult<serde_json::Value> {
+    // Every branch below removes rows or the folder itself — one account-wide
+    // bust at the entry covers all of them.
+    state.folder_cache.write().invalidate_account(req.account_id as i64);
     let is_local = with_db(&state, |conn| {
         cache::messages::is_local_only_folder(conn, req.account_id as i64, &req.name)
             .map_err(|e| e.to_string())
@@ -1114,9 +1134,13 @@ pub async fn mark_as_read(
             guard.get(&req.account_id).cloned()
         };
         if let Some(client) = client {
-            client.mark_flag(uid, "\\Seen", true, folder_name).await.map_err(|e| ApiError(e.to_string()))?;
+            client.mark_flag(uid, "\\Seen", true, folder_name.clone()).await.map_err(|e| ApiError(e.to_string()))?;
         }
     }
+    state
+        .folder_cache
+        .write()
+        .invalidate(req.account_id as i64, folder_name.as_deref().unwrap_or("INBOX"));
     Ok(Json(()))
 }
 
@@ -1137,9 +1161,13 @@ pub async fn mark_as_unseen(
             guard.get(&req.account_id).cloned()
         };
         if let Some(client) = client {
-            client.mark_flag(uid, "\\Seen", false, folder_name).await.map_err(|e| ApiError(e.to_string()))?;
+            client.mark_flag(uid, "\\Seen", false, folder_name.clone()).await.map_err(|e| ApiError(e.to_string()))?;
         }
     }
+    state
+        .folder_cache
+        .write()
+        .invalidate(req.account_id as i64, folder_name.as_deref().unwrap_or("INBOX"));
     Ok(Json(()))
 }
 
@@ -1204,6 +1232,10 @@ async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> 
             }
         }
     }
+    state
+        .folder_cache
+        .write()
+        .invalidate(account_id as i64, folder_name.as_deref().unwrap_or("INBOX"));
     Ok(Json(()))
 }
 
@@ -1248,6 +1280,10 @@ pub async fn flag_message(
     let flagged = req.flagged;
     let folder_name = req.folder_name.clone();
     set_imap_flag(&state, account_id, uid, flagged, Some(&folder_name)).await;
+    state
+        .folder_cache
+        .write()
+        .invalidate(account_id as i64, &folder_name);
     Ok(Json(()))
 }
 
@@ -1476,6 +1512,11 @@ pub async fn move_cross_account(
         })
         .map_err(|e: String| ApiError(e))?;
 
+        {
+            let mut cache = state.folder_cache.write();
+            cache.invalidate(req.account_id as i64, &req.source_folder);
+            cache.invalidate(req.target_account_id as i64, &req.target_folder);
+        }
         return Ok(Json(()));
     }
 
@@ -1525,6 +1566,12 @@ pub async fn move_cross_account(
         Ok::<(), String>(())
     })?;
 
+    {
+        let mut cache = state.folder_cache.write();
+        cache.invalidate(req.account_id as i64, &req.source_folder);
+        cache.invalidate(req.target_account_id as i64, &req.target_folder);
+    }
+
     Ok(Json(()))
 }
 
@@ -1556,24 +1603,28 @@ pub async fn delete_message(
     })
     .unwrap_or_else(|_| "mirror".to_string());
 
-    if move_to_trash && sync_mode == "archive" {
-        return delete_message_archive_trash(
+    let res = if move_to_trash && sync_mode == "archive" {
+        delete_message_archive_trash(
             &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
         )
-        .await;
-    }
-
-    if move_to_trash {
-        return delete_message_trash_mode(
+        .await
+    } else if move_to_trash {
+        delete_message_trash_mode(
             &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
         )
-        .await;
+        .await
+    } else {
+        delete_message_permanent_delete(
+            &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
+        )
+        .await
+    };
+    // The trash helpers may move rows between folders (or drop them) — the
+    // affected folder set isn't worth tracking: bust the whole account.
+    if res.is_ok() {
+        state.folder_cache.write().invalidate_account(account_id_i64);
     }
-
-    delete_message_permanent_delete(
-        &state, account_id, uid, account_id_i64, uid_i64, req.source_folder.clone(),
-    )
-    .await
+    res
 }
 
 #[derive(Deserialize)]

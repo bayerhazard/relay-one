@@ -69,7 +69,9 @@
     e.preventDefault();
     dragTarget = null;
     const uid = resolveUid(e);
-    if (uid != null && selectedFolder !== targetFolder) {
+    // Same-folder suppression happens in the parent's handler — it knows both
+    // accounts, so a drop onto another account's SAME-NAMED folder must pass.
+    if (uid != null) {
       onMoveMessage(uid, targetFolder, account.id);
     }
     dragSource = null;
@@ -142,8 +144,17 @@
   <div
     class="tree-row root-row"
     class:active={selectedFolder === "INBOX"}
+    class:drag-over={dragTarget === "INBOX"}
     onclick={() => handleRowClick("INBOX", true)}
     ondblclick={handleRootDblClick}
+    ondragenter={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; dragTarget = "INBOX"; }}
+    ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; dragTarget = "INBOX"; }}
+    ondragleave={(e) => {
+      const related = e.relatedTarget as Node | null;
+      if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+      if (dragTarget === "INBOX") dragTarget = null;
+    }}
+    ondrop={(e) => handleDrop(e, "INBOX")}
     oncontextmenu={(e) => onContextMenu?.(e, "INBOX")}
     ontouchstart={(e) => handleTouchStart(e, "INBOX")}
     ontouchmove={handleTouchMove}

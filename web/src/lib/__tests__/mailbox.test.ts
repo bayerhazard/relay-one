@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 import {
   mailbox,
@@ -6,6 +6,8 @@ import {
   setFolderCache,
   invalidateFolderCache,
   resetFolderCache,
+  isFolderFresh,
+  markFolderFetched,
 } from "$lib/stores/mailbox";
 import type { Message } from "$lib/stores/mailbox";
 
@@ -261,5 +263,48 @@ describe("folder cache", () => {
     mailbox.setMessages(search);
     // Cache for INBOX is untouched by the folder-less search set.
     expect(getFolderCache(1, "INBOX")!.map((m) => m.uid)).toEqual([1]);
+  });
+});
+
+describe("folder freshness window", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetFolderCache();
+  });
+
+  it("is not fresh before the first fetch", () => {
+    expect(isFolderFresh(1, "INBOX")).toBe(false);
+  });
+
+  it("is fresh right after markFolderFetched", () => {
+    markFolderFetched(1, "INBOX");
+    expect(isFolderFresh(1, "INBOX")).toBe(true);
+    // Freshness is per (account, folder).
+    expect(isFolderFresh(2, "INBOX")).toBe(false);
+    expect(isFolderFresh(1, "Archive")).toBe(false);
+  });
+
+  it("expires after the freshness window", () => {
+    markFolderFetched(1, "INBOX");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 16_000);
+      expect(isFolderFresh(1, "INBOX")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("invalidateFolderCache drops freshness (mutation forces refetch)", () => {
+    setFolderCache(1, "INBOX", [{ uid: 1, subject: "S", from: "a@b.c", is_read: false, is_flagged: false }]);
+    markFolderFetched(1, "INBOX");
+    invalidateFolderCache(1, "INBOX");
+    expect(isFolderFresh(1, "INBOX")).toBe(false);
+  });
+
+  it("resetFolderCache drops all freshness state", () => {
+    markFolderFetched(3, "X");
+    resetFolderCache();
+    expect(isFolderFresh(3, "X")).toBe(false);
   });
 });

@@ -13,7 +13,7 @@
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
-  import { mailbox, getFolderCache, invalidateFolderCache, type Message } from "$lib/stores/mailbox";
+  import { mailbox, getFolderCache, invalidateFolderCache, isFolderFresh, markFolderFetched, type Message } from "$lib/stores/mailbox";
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
@@ -105,7 +105,9 @@ import {
             if (newMsgTimer !== null) clearTimeout(newMsgTimer);
             newMsgTimer = setTimeout(() => {
               newMsgTimer = null;
-              loadFolder();
+              // force: a push event means the server cache has new rows —
+              // bypass the client freshness window.
+              loadFolder(true);
             }, 2000);
           }
           // Always update badge count when new mail arrives
@@ -601,7 +603,9 @@ let sentFolderName = $state<string | null>(null);
 
   // ─── Plain HTML context menus (replaces the Tauri native menus) ────────
   let folderCtxMenu = $state<{ x: number; y: number; folderName: string } | null>(null);
-  let moveMenu = $state<{ x: number; y: number; targets: Array<{ name: string; label: string }> } | null>(null);
+  interface MoveTarget { name: string; label: string; accountId: number; }
+  interface MoveSection { header: string | null; items: MoveTarget[]; }
+  let moveMenu = $state<{ x: number; y: number; sections: MoveSection[] } | null>(null);
 
   function closeMenus() {
     folderCtxMenu = null;
@@ -691,20 +695,52 @@ let sentFolderName = $state<string | null>(null);
     closeMenus();
   }
 
-  // The button-triggered "move selected to folder" menu (replaces the Tauri menu).
+  // The button-triggered "move selected to folder" menu (replaces the Tauri
+  // menu). Targets are grouped by account: the current account first (no
+  // header), then every other account under its name — enabling cross-account
+  // moves for single mails and multi-selections alike.
+  function buildMoveSections(): MoveSection[] {
+    const sections: MoveSection[] = [];
+    const item = (accountId: number, name: string): MoveTarget => ({
+      name,
+      accountId,
+      label: customFolderNames[name] || translate(translateFolder(name)),
+    });
+    // Known folders of an account: live per-account state, falling back to
+    // the localStorage folder cache; INBOX is always available.
+    const foldersOf = (accountId: number): string[] => {
+      const known = getAccountFolders(accountId).names;
+      if (known.length > 0) return known;
+      try {
+        const cached = JSON.parse(
+          localStorage.getItem(`relay_folder_cache_${accountId}`) ?? "[]"
+        ) as string[];
+        if (Array.isArray(cached) && cached.length > 0) return cached;
+      } catch { /* ignore */ }
+      return ["INBOX"];
+    };
+    const own = foldersOf(selectedAccountId)
+      .filter((name) => name !== selectedFolder)
+      .map((name) => item(selectedAccountId, name));
+    if (own.length > 0) sections.push({ header: null, items: own });
+    for (const acct of accountList) {
+      if (acct.id === selectedAccountId) continue;
+      if (!acct.connected) continue;
+      sections.push({ header: acct.name, items: foldersOf(acct.id).map((name) => item(acct.id, name)) });
+    }
+    return sections;
+  }
+
   async function moveSelectedToFolder(e: MouseEvent) {
     if (movingSelection) return;
-    const uids = [...$mailbox.selectedUids];
-    if (uids.length === 0) return;
+    if ($mailbox.selectedUids.length === 0) return;
 
-    const targets = folderNames
-      .filter((name) => name !== selectedFolder)
-      .map((name) => ({ name, label: customFolderNames[name] || translate(translateFolder(name)) }));
-    if (targets.length === 0) return;
+    const sections = buildMoveSections();
+    if (sections.every((s) => s.items.length === 0)) return;
 
     const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
     const pos = clampMenuPosition(rect?.left ?? e.clientX, (rect?.bottom ?? e.clientY) + 4, 220, 320);
-    moveMenu = { x: pos.x, y: pos.y, targets };
+    moveMenu = { x: pos.x, y: pos.y, sections };
   }
 
   $effect(() => {
@@ -914,9 +950,15 @@ let sentFolderName = $state<string | null>(null);
   // Drop of a message (dragged from the message list) onto a sidebar folder.
   // Uses the raw IMAP path so nested folders and non-ASCII names resolve.
   function handleMoveMessage(uid: number, targetFolder: string, targetAccountId?: number) {
-    if (targetAccountId && targetAccountId !== selectedAccountId) {
-      // Cross-account move
-      moveMessageCrossAccount(selectedAccountId, uid, selectedFolder, targetAccountId, targetFolder)
+    const isCrossAccount = targetAccountId != null && targetAccountId !== selectedAccountId;
+    if (!isCrossAccount && selectedFolder === targetFolder) return;
+    if (isCrossAccount && targetAccountId != null) {
+      // Cross-account move: raw IMAP names on BOTH sides — the source from the
+      // current account's map, the target from the receiving account's map
+      // (nested/non-ASCII folder paths differ between display and raw name).
+      const rawSource = folderRawNames[selectedFolder] || selectedFolder;
+      const targetRaw = getAccountFolders(targetAccountId).raw[targetFolder] || targetFolder;
+      moveMessageCrossAccount(selectedAccountId, uid, rawSource, targetAccountId, targetRaw)
         .then(() => {
           invalidateFolderCache(selectedAccountId, selectedFolder);
           invalidateFolderCache(targetAccountId, targetFolder);
@@ -928,7 +970,6 @@ let sentFolderName = $state<string | null>(null);
         });
       return;
     }
-    if (selectedFolder === targetFolder) return;
     const rawSource = folderRawNames[selectedFolder] || selectedFolder;
     const rawTarget = folderRawNames[targetFolder] || targetFolder;
     moveMessageCmd(selectedAccountId, uid, selectedFolder, targetFolder, rawSource, rawTarget)
@@ -1389,27 +1430,38 @@ let sentFolderName = $state<string | null>(null);
     );
   }
 
- async function loadFolder() {
+ async function loadFolder(force = false) {
     if (loadingFolder) return;
+    const reqFolder = selectedFolder;
+    const reqAccount = selectedAccountId;
+    // Freshness window: a recently fetched folder is served purely from the
+    // persistent cache — no network round-trip at all. Event-driven reloads
+    // (new mail) pass force=true; mutations drop freshness via
+    // invalidateFolderCache().
+    if (!force && getFolderCache(reqAccount, reqFolder) && isFolderFresh(reqAccount, reqFolder)) {
+      mailbox.setMessages(getFolderCache(reqAccount, reqFolder)!, reqFolder, reqAccount);
+      return;
+    }
     loadingFolder = true;
     folderGen++;
-    const thisGen = folderGen;
     // Snapshot the requested target. If the user switches folder/account while
     // we await, the results are stale and must be discarded; we then re-run for
     // the latest selection. This prevents showing the wrong folder's content.
-    const reqFolder = selectedFolder;
-    const reqAccount = selectedAccountId;
-    mailbox.setLoading(true);
-    mailbox.setError(null);
-    const prevLastClicked = $mailbox.lastClickedUid;
-    // Instant cache-first: if a meta-only list for this (account, folder) is
-    // cached, render it immediately so switching back to a large folder feels
-    // instant. Bodies stay intact via the setMessages() merge; a background
-    // refresh below replaces the list with fresh metadata.
+    // Silent background refresh: when a cached list exists for this
+    // (account, folder), render it instantly and refresh WITHOUT any visible
+    // loading state — fresh rows swap in place via setMessages() (the body
+    // merge keeps an open message intact). Only a cold open (no cache at all)
+    // shows the skeleton and clears the error banner.
     const cachedMsgs = getFolderCache(reqAccount, reqFolder);
-    if (cachedMsgs && cachedMsgs.length > 0) {
-      mailbox.setMessages(cachedMsgs, reqFolder, reqAccount);
+    const hasCache = !!cachedMsgs && cachedMsgs.length > 0;
+    if (hasCache) {
+      mailbox.setMessages(cachedMsgs!, reqFolder, reqAccount);
+    } else {
+      mailbox.setLoading(true);
+      mailbox.setError(null);
     }
+    const thisGen = folderGen;
+    const prevLastClicked = $mailbox.lastClickedUid;
     try {
       // Read from cache only — the sync scheduler keeps the cache up-to-date
       // via periodic IMAP fetches. list_only omits body_text/body_html so a
@@ -1421,6 +1473,7 @@ let sentFolderName = $state<string | null>(null);
       // for existing messages via the folderId:uid key merge, so the selected
       // message's body is safe even during a concurrent handleSelectMessage().
       mailbox.setMessages(msgs, reqFolder);
+      markFolderFetched(reqAccount, reqFolder);
       // Trigger background AI summaries for messages without one
       triggerFolderSummaries(reqAccount, reqFolder).catch(() => {});
       if (prevLastClicked != null && !msgs.some(m => m.uid === prevLastClicked)) {
@@ -1429,7 +1482,9 @@ let sentFolderName = $state<string | null>(null);
       updateBadgeCount(reqAccount).catch(() => {});
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
-      if (!isTransientConnError(errMsg) && reqFolder === selectedFolder && reqAccount === selectedAccountId) {
+      // Silent refresh: with stale-but-visible data a failed background fetch
+      // must not pop an error banner — the next sync/reload retries.
+      if (!hasCache && !isTransientConnError(errMsg) && reqFolder === selectedFolder && reqAccount === selectedAccountId) {
         mailbox.setError(errMsg);
       }
     } finally {
@@ -1816,26 +1871,58 @@ let sentFolderName = $state<string | null>(null);
   // Move all selected messages to a folder chosen from a plain HTML menu.
   let movingSelection = $state(false);
 
-  async function performMoveSelected(uids: number[], targetFolder: string) {
-    if (movingSelection || targetFolder === selectedFolder) return;
+  async function performMoveSelected(uids: number[], targetFolder: string, targetAccountId?: number) {
+    const isCrossAccount = targetAccountId != null && targetAccountId !== selectedAccountId;
+    if (movingSelection || (!isCrossAccount && targetFolder === selectedFolder)) return;
     movingSelection = true;
-    const rawSource = folderRawNames[selectedFolder] || selectedFolder;
-    const rawTarget = folderRawNames[targetFolder] || targetFolder;
     try {
-      for (const uid of uids) {
-        try {
-          await moveMessageCmd(selectedAccountId, uid, selectedFolder, targetFolder, rawSource, rawTarget);
-        } catch (e) {
-          console.warn("Verschieben fehlgeschlagen fuer uid", uid, e);
+      if (isCrossAccount && targetAccountId != null) {
+        // Cross-account batch: raw IMAP names on both sides (source from the
+        // current account's map, target from the receiving account's map).
+        const rawSource = folderRawNames[selectedFolder] || selectedFolder;
+        const rawTarget = getAccountFolders(targetAccountId).raw[targetFolder] || targetFolder;
+        let failures = 0;
+        for (const uid of uids) {
+          try {
+            await moveMessageCrossAccount(selectedAccountId, uid, rawSource, targetAccountId, rawTarget);
+          } catch (e) {
+            failures++;
+            console.warn("Cross-Account-Verschieben fehlgeschlagen fuer uid", uid, e);
+          }
         }
+        if (failures > 0) {
+          mailbox.setError(translate("mail.moveFailed") + translate("mail.moveBatchPartial", { count: String(failures) }));
+        }
+        invalidateFolderCache(targetAccountId, targetFolder);
+      } else {
+        const rawSource = folderRawNames[selectedFolder] || selectedFolder;
+        const rawTarget = folderRawNames[targetFolder] || targetFolder;
+        for (const uid of uids) {
+          try {
+            await moveMessageCmd(selectedAccountId, uid, selectedFolder, targetFolder, rawSource, rawTarget);
+          } catch (e) {
+            console.warn("Verschieben fehlgeschlagen fuer uid", uid, e);
+          }
+        }
+        invalidateFolderCache(selectedAccountId, targetFolder);
       }
       mailbox.clearSelection();
       invalidateFolderCache(selectedAccountId, selectedFolder);
-      invalidateFolderCache(selectedAccountId, targetFolder);
       await loadFolder();
     } finally {
       movingSelection = false;
     }
+  }
+
+  /** Open the grouped move menu anchored at an arbitrary point — used by the
+   *  message context menu ("Verschieben…") so a single mail can be moved to
+   *  any account's folder without drag & drop. */
+  function openMoveMenuAt(x: number, y: number) {
+    if (movingSelection) return;
+    const sections = buildMoveSections();
+    if (sections.every((s) => s.items.length === 0)) return;
+    const pos = clampMenuPosition(x, y + 4, 220, 320);
+    moveMenu = { x: pos.x, y: pos.y, sections };
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -2240,6 +2327,12 @@ let sentFolderName = $state<string | null>(null);
     ondelete={handleDeleteMessage}
     ontoggleRead={handleToggleRead}
     ontoggleFlag={handleToggleFlag}
+    onmove={(uid, x, y) => {
+      // A context-menu move acts on the right-clicked mail; select it first
+      // so performMoveSelected() (which reads selectedUids) picks it up.
+      if (!$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
+      openMoveMenuAt(x, y);
+    }}
     ondragstart={handleDragStart}
     loading={$mailbox.loading}
     accountId={selectedAccountId}
@@ -2547,14 +2640,14 @@ let sentFolderName = $state<string | null>(null);
             <button type="button" class="pill-icon-btn" onclick={handleNewMail} title={$t("mail.newMail")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5L20.5 7.5 8 20H4v-4L16.5 3.5z"/></svg>
             </button>
-            <button type="button" class="pill-icon-btn" onclick={loadFolder} title={$t("mail.refresh")}>
+            <button type="button" class="pill-icon-btn" onclick={() => loadFolder(true)} title={$t("mail.refresh")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 14.9-6.5L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-14.9 6.5L3 16"/></svg>
             </button>
           </div>
         </div>
       </div>
       {#if $mailbox.error}
-        <ErrorBanner message={$mailbox.error} onretry={loadFolder} />
+        <ErrorBanner message={$mailbox.error} onretry={() => loadFolder(true)} />
       {/if}
       {#if $mailbox.selectedUids.length > 1}
         <div class="selection-toolbar">
@@ -2702,18 +2795,24 @@ let sentFolderName = $state<string | null>(null);
   {#if moveMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${moveMenu.x}px; top: ${moveMenu.y}px;`} role="menu">
-      {#each moveMenu.targets as target (target.name)}
-        <button
-          type="button"
-          class="ctx-menu-item"
-          role="menuitem"
-          onclick={() => {
-            const uids = [...$mailbox.selectedUids];
-            const name = target.name;
-            closeMenus();
-            void performMoveSelected(uids, name);
-          }}
-        >{target.label ?? target.name}</button>
+      {#each moveMenu.sections as section}
+        {#if section.header != null}
+          <div class="ctx-menu-header">{section.header}</div>
+        {/if}
+        {#each section.items as target (target.accountId + ":" + target.name)}
+          <button
+            type="button"
+            class="ctx-menu-item"
+            role="menuitem"
+            onclick={() => {
+              const uids = [...$mailbox.selectedUids];
+              const name = target.name;
+              const accountId = target.accountId;
+              closeMenus();
+              void performMoveSelected(uids, name, accountId);
+            }}
+          >{target.label ?? target.name}</button>
+        {/each}
       {/each}
     </div>
   {/if}
@@ -3820,6 +3919,15 @@ let sentFolderName = $state<string | null>(null);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .ctx-menu-header {
+    padding: 6px 12px 2px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    user-select: none;
   }
   .ctx-menu-item:hover {
     background: var(--color-active-wash);

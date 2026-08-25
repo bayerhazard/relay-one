@@ -19,6 +19,7 @@
     ondelete?: (uid: number) => void;
     ontoggleRead?: (uid: number) => void;
     ontoggleFlag?: (uid: number) => void;
+    onmove?: (uid: number, x: number, y: number) => void;
     ondragstart?: (e: DragEvent, uid: number) => void;
     loading: boolean;
     accountId: number;
@@ -27,7 +28,7 @@
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
 
   let pendingReadUids = $state(new Set<number>());
   let pendingReadTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -420,6 +421,14 @@
       <div class="ctx-menu-separator" role="separator"></div>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleRead?.(uid))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleFlag?.(uid))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
+      {#if onmove}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const uid = contextMenu?.uid;
+          closeContextMenu();
+          if (uid != null) onmove(uid, rect.left, rect.bottom);
+        }}>{$t("mail.move")}</button>
+      {/if}
       <div class="ctx-menu-separator" role="separator"></div>
       <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid) => ondelete?.(uid))}>{$t("mail.delete")}</button>
     </div>
