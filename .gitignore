@@ -4,3 +4,5 @@ core
 data/
 *.log
 relay-*.tgz
+browser-check/
+.playwright-mcp/

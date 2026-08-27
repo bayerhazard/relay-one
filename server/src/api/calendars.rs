@@ -348,6 +348,73 @@ pub async fn delete_event(
 }
 
 // ---------------------------------------------------------------------------
+// iMIP (Phase 2)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct InviteEventRequest {
+    pub account_id: u32,
+    pub attendees: Vec<IcsAttendee>,
+}
+
+/// `POST /api/v1/calendars/events/:id/invite` — send iMIP invitations
+/// (`METHOD:REQUEST`) to the given attendees via the account's SMTP.
+pub async fn invite_event(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<InviteEventRequest>,
+) -> ApiResult<serde_json::Value> {
+    let sent = crate::imip::outbound::send_invitation(&state, id, req.account_id, &req.attendees)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "ok": true, "sent": sent })))
+}
+
+/// `POST /api/v1/calendars/events/:id/rsvp` — send an RSVP reply
+/// (`METHOD:REPLY`) for a received invitation.
+pub async fn rsvp_event(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<InviteEventRequest>,
+) -> ApiResult<serde_json::Value> {
+    // The decision is carried in the (single) attendee's part_stat.
+    let decision = req
+        .attendees
+        .first()
+        .and_then(|a| a.part_stat.clone())
+        .unwrap_or_else(|| "ACCEPTED".into());
+    crate::imip::outbound::send_rsvp(&state, id, req.account_id, &decision)
+        .await
+        .map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "ok": true, "decision": decision })))
+}
+
+// ---------------------------------------------------------------------------
+// Conflict detection (Phase 2.4)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct ConflictQuery {
+    pub start: String,
+    pub end: String,
+    #[serde(default)]
+    pub calendar_id: Option<i64>,
+    #[serde(default)]
+    pub exclude_id: Option<i64>,
+}
+
+/// `GET /api/v1/calendars/conflicts` — events overlapping `[start, end)`.
+pub async fn find_event_conflicts(
+    State(state): State<AppState>,
+    Query(q): Query<ConflictQuery>,
+) -> ApiResult<Vec<crate::cache::cal::EventRow>> {
+    ok(with_db(&state, |conn| {
+        crate::cache::cal::find_conflicts(conn, q.calendar_id, &q.start, &q.end, q.exclude_id)
+            .map_err(|e| e.to_string())
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // ICS import / export
 // ---------------------------------------------------------------------------
 

@@ -12,6 +12,7 @@ pub mod delete_queue;
 pub mod export;
 pub mod health;
 pub mod import;
+pub mod invitations;
 pub mod messages;
 pub mod migrate;
 pub mod profile;
@@ -83,6 +84,10 @@ pub fn router() -> Router<AppState> {
         .route("/ai/tone-profiles/export", post(ai::export_tone_profiles))
         .route("/ai/suggest-recipient", post(ai::ai_suggest_recipient))
         .route("/ai/suggest-subject", post(ai::ai_suggest_subject))
+        // Calendar AI (Phase 2)
+        .route("/ai/conflict-alternatives", post(ai::ai_conflict_alternatives))
+        .route("/ai/extract-time", post(ai::ai_extract_time))
+        .route("/ai/rsvp-draft", post(ai::ai_rsvp_draft))
         // Web Push
         .route("/push/vapid", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
@@ -134,6 +139,13 @@ pub fn router() -> Router<AppState> {
         .route("/calendars/events/import", post(calendars::import_events))
         .route("/calendars/events/:id", get(calendars::get_event).put(calendars::update_event).delete(calendars::delete_event))
         .route("/calendars/events/:id/ics", get(calendars::get_event_ics))
+        .route("/calendars/events/:id/invite", post(calendars::invite_event))
+        .route("/calendars/events/:id/rsvp", post(calendars::rsvp_event))
+        .route("/calendars/conflicts", get(calendars::find_event_conflicts))
+        // iMIP invitation queue (Phase 2.3)
+        .route("/invitations", get(invitations::list_invitations))
+        .route("/invitations/:uid/accept", post(invitations::accept_invitation))
+        .route("/invitations/:uid/decline", post(invitations::decline_invitation))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

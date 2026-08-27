@@ -301,6 +301,58 @@ pub fn list_events(
     Ok(out)
 }
 
+/// Find events that overlap the candidate `[start, end)` range (recurrence-aware,
+/// using occurrence times when present). `exclude_id` is skipped (the event being
+/// created/edited). `calendar_id` filters to one calendar when `Some`.
+pub fn find_conflicts(
+    conn: &Connection,
+    calendar_id: Option<i64>,
+    start: &str,
+    end: &str,
+    exclude_id: Option<i64>,
+) -> Result<Vec<EventRow>, rusqlite::Error> {
+    let to_utc = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    };
+    let (Some(cs), Some(ce)) = (to_utc(start), to_utc(end)) else {
+        return Ok(Vec::new());
+    };
+    // Fetch a window with a 24h margin so events that start earlier but still
+    // overlap the candidate range are included, then filter overlaps in Rust.
+    let win_start = (cs - chrono::Duration::hours(24)).to_rfc3339();
+    let win_end = (ce + chrono::Duration::hours(24)).to_rfc3339();
+    let candidates = list_events(conn, calendar_id, Some(&win_start), Some(&win_end))?;
+    let mut out = Vec::new();
+    for ev in candidates {
+        if exclude_id == Some(ev.id) {
+            continue;
+        }
+        let eff_start = ev.occurrence_start.clone().unwrap_or_else(|| ev.start_at.clone());
+        let eff_end = ev
+            .occurrence_end
+            .clone()
+            .or_else(|| ev.end_at.clone())
+            .unwrap_or_else(|| {
+                let s = to_utc(&eff_start).unwrap_or(cs);
+                let dur = if ev.all_day {
+                    chrono::Duration::days(1)
+                } else {
+                    chrono::Duration::hours(1)
+                };
+                (s + dur).to_rfc3339()
+            });
+        let (Some(es), Some(ee)) = (to_utc(&eff_start), to_utc(&eff_end)) else {
+            continue;
+        };
+        if es < ce && ee > cs {
+            out.push(ev);
+        }
+    }
+    Ok(out)
+}
+
 fn attendees_for(conn: &Connection, event_id: i64) -> Result<Vec<IcsAttendee>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT email, name, part_stat, rsvp FROM event_attendees WHERE event_id = ?1",
@@ -413,6 +465,7 @@ mod tests {
             }],
             status: Some("CONFIRMED".into()),
             sequence: 0,
+            method: None,
             rrule: None,
             alarms: 0,
             raw: "BEGIN:VCALENDAR...END:VCALENDAR".into(),
@@ -451,6 +504,44 @@ mod tests {
 
         delete_event(&mut conn, eid).unwrap();
         assert!(get_event(&conn, eid).unwrap().is_none());
+    }
+
+    fn event_at(uid: &str, start: &str, end: &str) -> IcsEvent {
+        let mut ev = sample_event(uid);
+        ev.start = start.into();
+        ev.end = Some(end.into());
+        ev
+    }
+
+    #[test]
+    fn test_find_conflicts_overlap() {
+        let mut conn = temp_db();
+        let cal = Calendar {
+            href: "/Marc/Arbeit/".into(),
+            display_name: Some("Arbeit".into()),
+            url: "https://cal.example.com/Marc/Arbeit/".into(),
+        };
+        let cid = upsert_calendar(&mut conn, &cal).unwrap();
+
+        // A: exact same slot, C: ends during candidate, B: starts at candidate end,
+        // D: entirely before candidate.
+        let a = save_event(&mut conn, cid, &event_at("a", "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")).unwrap();
+        save_event(&mut conn, cid, &event_at("b", "2026-09-01T11:00:00Z", "2026-09-01T12:00:00Z")).unwrap();
+        save_event(&mut conn, cid, &event_at("c", "2026-09-01T09:00:00Z", "2026-09-01T10:30:00Z")).unwrap();
+        save_event(&mut conn, cid, &event_at("d", "2026-09-01T08:00:00Z", "2026-09-01T09:00:00Z")).unwrap();
+
+        // Candidate [10:00, 11:00) conflicts with A and C, not B or D.
+        let hits = find_conflicts(&conn, Some(cid), "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z", None).unwrap();
+        let uids: Vec<&str> = hits.iter().map(|e| e.uid.as_str()).collect();
+        assert!(uids.contains(&"a"));
+        assert!(uids.contains(&"c"));
+        assert!(!uids.contains(&"b"));
+        assert!(!uids.contains(&"d"));
+
+        // Excluding A leaves only C.
+        let hits2 = find_conflicts(&conn, Some(cid), "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z", Some(a)).unwrap();
+        assert_eq!(hits2.len(), 1);
+        assert_eq!(hits2[0].uid, "c");
     }
 
     #[test]

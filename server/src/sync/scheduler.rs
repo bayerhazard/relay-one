@@ -1051,6 +1051,43 @@ async fn process_sync_task(
                     tx.commit().map_err(|e| e.to_string())?;
                 }
 
+                // iMIP inbound: process calendar invitations (text/calendar
+                // attachments) in the newly-fetched messages. Best-effort — a
+                // failure here must not abort the mail sync.
+                for msg in &messages {
+                    let has_ics = msg
+                        .attachments
+                        .iter()
+                        .any(|a| a.content_type.to_lowercase().contains("text/calendar"));
+                    if !has_ics {
+                        continue;
+                    }
+                    match client
+                        .fetch_raw_message_in_folder(msg.uid, Some(folder_name.clone()))
+                        .await
+                    {
+                        Ok(raw) => {
+                            for att in crate::imap::client::parse_message_attachments(raw.as_bytes()) {
+                                if !att.content_type.to_lowercase().contains("text/calendar") {
+                                    continue;
+                                }
+                                use base64::Engine;
+                                let Ok(b64) = base64::engine::general_purpose::STANDARD.decode(&att.content) else {
+                                    continue;
+                                };
+                                let Ok(ics_text) = String::from_utf8(b64) else {
+                                    continue;
+                                };
+                                match crate::imip::inbound::process_inbound_ics(state, &ics_text).await {
+                                    Ok(info) => tracing::info!("iMIP: {info}"),
+                                    Err(e) => tracing::warn!("iMIP: Verarbeitung fehlgeschlagen: {e}"),
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("iMIP: Raw-Fetch (uid {}) fehlgeschlagen: {e}", msg.uid),
+                    }
+                }
+
                 // Cleanup: Remove locally cached messages that no longer exist on the IMAP server.
                 // This handles the case where messages were deleted in another app (e.g., GMX Webmail).
                 // fetch_all_uids_in_folder SELECTs the folder atomically under the session lock —

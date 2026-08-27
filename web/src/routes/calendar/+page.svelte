@@ -4,7 +4,9 @@
   import {
     getCalendars, listEvents, createEvent, updateEvent, deleteEvent,
     getCalDavSettings, syncCalDav, importEvents, getEventIcs,
-    type CalendarInfo, type EventInfo,
+    listInvitations, acceptInvitation, declineInvitation, listAccounts,
+    getConflicts, getConflictAlternatives, extractTime, rsvpDraft,
+    type CalendarInfo, type EventInfo, type InvitationInfo, type TimeSlot,
   } from "$lib/services/tauri";
   import { t } from "$lib/i18n";
   import { germanHolidays } from "$lib/holidays";
@@ -35,6 +37,150 @@
   let selectedEvent = $state<EventInfo | null>(null);
   // Multi-calendar: which calendars are visible (by id).
   let visibleCals = $state<Set<number>>(new Set());
+
+  // ─── iMIP invitation queue (Phase 2) ─────────
+  let invitations = $state<InvitationInfo[]>([]);
+  let invBusy = $state<string | null>(null);
+
+  async function loadInvitations() {
+    try {
+      invitations = await listInvitations();
+    } catch {
+      invitations = [];
+    }
+  }
+
+  async function respondToInvitation(inv: InvitationInfo, decision: "ACCEPTED" | "DECLINED") {
+    if (invBusy) return;
+    invBusy = inv.event_uid;
+    try {
+      const accounts = await listAccounts();
+      const acct =
+        accounts.find((a) => a.sender_email === inv.attendee_email || a.username === inv.attendee_email) ??
+        accounts[0];
+      if (!acct) throw new Error("Kein E-Mail-Konto gefunden");
+      if (decision === "ACCEPTED") await acceptInvitation(inv.event_uid, acct.id);
+      else await declineInvitation(inv.event_uid, acct.id);
+      invitations = invitations.filter((i) => i.event_uid !== inv.event_uid);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      invBusy = null;
+    }
+  }
+
+  function fmtInvWhen(iso: string): string {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, {
+        weekday: "short", day: "2-digit", month: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+    } catch {
+      return iso;
+    }
+  }
+
+  // AI-drafted RSVP reply for the currently expanded invitation.
+  let invDraft = $state<{ uid: string; text: string } | null>(null);
+  let invDraftBusy = $state(false);
+
+  async function draftRsvp(inv: InvitationInfo, decision: "ACCEPTED" | "DECLINED") {
+    if (invDraftBusy) return;
+    invDraftBusy = true;
+    try {
+      const text = await rsvpDraft(
+        inv.summary ?? "(Einladung)",
+        inv.start_at ?? "",
+        inv.organizer,
+        decision,
+      );
+      invDraft = { uid: inv.event_uid, text };
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      invDraftBusy = false;
+    }
+  }
+
+  // ─── Conflicts + Calendar AI (Phase 2.4 / 2.5) ───────
+  let conflicts = $state<EventInfo[]>([]);
+  let aiSlots = $state<TimeSlot[]>([]);
+  let nlText = $state("");
+  let nlBusy = $state(false);
+  let conflictBusy = $state(false);
+  let showAlternatives = $state(false);
+
+  function toUtc(v: string, allDay: boolean): string {
+    if (allDay) return `${v}T00:00:00Z`;
+    const d = new Date(v);
+    return d.toISOString();
+  }
+
+  async function checkConflicts() {
+    if (!form.start || !form.end) {
+      conflicts = [];
+      return;
+    }
+    try {
+      const start = toUtc(form.start, form.all_day);
+      const end = toUtc(form.end, form.all_day);
+      conflicts = await getConflicts(start, end, defaultCalId(), editingId);
+    } catch {
+      conflicts = [];
+    }
+  }
+
+  async function loadAlternatives() {
+    if (!form.start || !form.end) return;
+    conflictBusy = true;
+    showAlternatives = true;
+    try {
+      const start = toUtc(form.start, form.all_day);
+      const end = toUtc(form.end, form.all_day);
+      aiSlots = await getConflictAlternatives(form.summary || "Termin", start, end, defaultCalId());
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      aiSlots = [];
+    } finally {
+      conflictBusy = false;
+    }
+  }
+
+  function applySlot(slot: TimeSlot) {
+    form.start = toLocalInput(new Date(slot.start));
+    form.end = toLocalInput(new Date(slot.end));
+    form.all_day = false;
+    aiSlots = [];
+    showAlternatives = false;
+    checkConflicts();
+  }
+
+  async function applyTimeExtraction() {
+    if (!nlText.trim() || nlBusy) return;
+    nlBusy = true;
+    try {
+      const t = await extractTime(nlText);
+      if (t.start) form.start = toLocalInput(new Date(t.start));
+      if (t.end) form.end = toLocalInput(new Date(t.end));
+      if (t.summary && !form.summary) form.summary = t.summary;
+      form.all_day = t.all_day;
+      nlText = "";
+      checkConflicts();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      nlBusy = false;
+    }
+  }
+
+  // Re-check conflicts whenever the time fields change.
+  $effect(() => {
+    if (editorOpen && form.start && form.end) {
+      const t = setTimeout(checkConflicts, 400);
+      return () => clearTimeout(t);
+    }
+  });
 
   // Fixed palette for calendar colors (index by position).
   const CAL_COLORS = ["#caa960", "#4f83b3", "#7ba05b", "#b3564f", "#8a6fb3", "#4fb3a5"];
@@ -513,6 +659,7 @@
     await loadCalendars();
     await loadEvents();
     await loadUpcoming();
+    loadInvitations();
   });
 </script>
 
@@ -567,6 +714,52 @@
         </div>
       {/if}
     </div>
+
+    {#if invitations.length > 0}
+      <div class="cal-invitations">
+        <div class="cal-invitations-head">
+          <span>Einladungen</span>
+          <span class="cal-invitations-badge">{invitations.length}</span>
+        </div>
+        {#each invitations as inv (inv.event_uid)}
+          <div class="cal-inv-item">
+            <div class="cal-inv-info">
+              <span class="cal-inv-title">{inv.summary ?? "(Einladung)"}</span>
+              {#if inv.start_at}<span class="cal-inv-when">{fmtInvWhen(inv.start_at)}</span>{/if}
+              <span class="cal-inv-organizer">{inv.organizer}</span>
+            </div>
+            <div class="cal-inv-actions">
+              <button
+                type="button"
+                class="cal-inv-draft"
+                title="KI-Antwort-Entwurf"
+                disabled={invDraftBusy}
+                onclick={() => draftRsvp(inv, "ACCEPTED")}
+              >✎</button>
+              <button
+                type="button"
+                class="cal-inv-accept"
+                title="Annehmen"
+                disabled={invBusy !== null}
+                onclick={() => respondToInvitation(inv, "ACCEPTED")}
+              >✓</button>
+              <button
+                type="button"
+                class="cal-inv-decline"
+                title="Ablehnen"
+                disabled={invBusy !== null}
+                onclick={() => respondToInvitation(inv, "DECLINED")}
+              >✕</button>
+            </div>
+          </div>
+          {#if invDraft?.uid === inv.event_uid}
+            <div class="cal-inv-draftbox">
+              <textarea class="cal-input" rows="3" value={invDraft.text} oninput={(e) => (invDraft = { uid: inv.event_uid, text: e.currentTarget.value })}></textarea>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/if}
 
     {#if upcoming.length > 0}
       <div class="cal-upcoming">
@@ -781,6 +974,22 @@
         <input type="text" bind:value={form.summary} class="cal-input" placeholder="Termin-Titel" />
       </label>
 
+      <div class="cal-nl">
+        <input
+          type="text"
+          bind:value={nlText}
+          class="cal-input"
+          placeholder="z. B. Mittwoch 14 Uhr, 1 Stunde — KI erkennt die Zeit"
+          onkeydown={(e) => { if (e.key === "Enter") applyTimeExtraction(); }}
+        />
+        <button
+          type="button"
+          class="cal-btn cal-btn-ghost"
+          disabled={nlBusy || !nlText.trim()}
+          onclick={applyTimeExtraction}
+        >{nlBusy ? "…" : "⚡ Zeit"}</button>
+      </div>
+
       <div class="cal-field-row">
         <label class="cal-field">
           <span>Beginn</span>
@@ -791,6 +1000,35 @@
           <input type={form.all_day ? "date" : "datetime-local"} bind:value={form.end} class="cal-input" />
         </label>
       </div>
+
+      {#if conflicts.length > 0}
+        <div class="cal-conflict">
+          <div class="cal-conflict-head">
+            <span>⚠ Termin überschneidet sich mit {conflicts.length} {conflicts.length === 1 ? "Termin" : "Terminen"}</span>
+            <button type="button" class="cal-btn cal-btn-ghost cal-conflict-ai" disabled={conflictBusy} onclick={loadAlternatives}>
+              {conflictBusy ? "…" : "⚡ KI-Alternativen"}
+            </button>
+          </div>
+          <ul class="cal-conflict-list">
+            {#each conflicts as c (c.id)}
+              <li>{c.summary ?? "(ohne Titel)"} · {fmtInvWhen(c.start)}</li>
+            {/each}
+          </ul>
+          {#if showAlternatives && aiSlots.length > 0}
+            <div class="cal-slots">
+              {#each aiSlots as slot (slot.start)}
+                <button type="button" class="cal-slot" onclick={() => applySlot(slot)}>
+                  <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
+                  {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if showAlternatives && aiSlots.length === 0 && !conflictBusy}
+            <p class="cal-conflict-none">Keine freien Alternativen gefunden.</p>
+          {/if}
+        </div>
+      {/if}
 
       <label class="cal-check">
         <input type="checkbox" bind:checked={form.all_day} />
@@ -869,6 +1107,48 @@
   .cal-upcoming-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
   .cal-upcoming-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-upcoming-when { font-size: 11px; color: var(--color-text-secondary); }
+  .cal-invitations { border-top: 1px solid var(--color-border); padding: 10px 8px; max-height: 240px; overflow-y: auto; }
+  .cal-invitations-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--color-text-secondary); padding: 0 6px 8px;
+  }
+  .cal-invitations-badge {
+    background: var(--gold, #caa960); color: var(--b-900, #051729);
+    border-radius: 999px; font-size: 10px; font-weight: 700; padding: 1px 7px;
+  }
+  .cal-inv-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px;
+    border-radius: var(--radius-m);
+  }
+  .cal-inv-item:hover { background: var(--color-active-wash); }
+  .cal-inv-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; flex: 1; }
+  .cal-inv-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-inv-when { font-size: 11px; color: var(--color-text-secondary); }
+  .cal-inv-organizer {
+    font-size: 11px; color: var(--color-text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cal-inv-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .cal-inv-accept, .cal-inv-decline {
+    width: 26px; height: 26px; border-radius: var(--radius-s);
+    border: 1px solid var(--color-border); background: none; cursor: pointer;
+    font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  }
+  .cal-inv-accept { color: #7ba05b; }
+  .cal-inv-decline { color: #b3564f; }
+  .cal-inv-accept:hover, .cal-inv-decline:hover { background: var(--color-active-wash); }
+  .cal-inv-accept:disabled, .cal-inv-decline:disabled { opacity: 0.4; cursor: default; }
+  .cal-inv-draft {
+    width: 26px; height: 26px; border-radius: var(--radius-s);
+    border: 1px solid var(--color-border); background: none; cursor: pointer;
+    font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--color-text-secondary);
+  }
+  .cal-inv-draft:hover { background: var(--color-active-wash); }
+  .cal-inv-draft:disabled { opacity: 0.4; cursor: default; }
+  .cal-inv-draftbox { padding: 0 8px 8px; }
+  .cal-inv-draftbox .cal-input { font-size: 12px; resize: vertical; }
   .cal-empty {
     padding: 20px 12px;
     text-align: center;
@@ -1040,6 +1320,27 @@
   .cal-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--color-text-secondary); }
   .cal-field-row { display: flex; gap: 12px; }
   .cal-field-row .cal-field { flex: 1; }
+  .cal-nl { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .cal-nl .cal-input { flex: 1; }
+  .cal-conflict {
+    border: 1px solid var(--gold, #caa960);
+    border-radius: var(--radius-m);
+    padding: 10px 12px;
+    background: var(--color-active-wash);
+  }
+  .cal-conflict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .cal-conflict-ai { font-size: 12px; padding: 4px 10px; }
+  .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-text-secondary); }
+  .cal-conflict-none { font-size: 12px; color: var(--color-text-secondary); margin: 8px 0 0; }
+  .cal-slots { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .cal-slot {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    border: 1px solid var(--color-border); border-radius: var(--radius-m);
+    background: none; padding: 8px 10px; cursor: pointer;
+  }
+  .cal-slot:hover { background: var(--color-active-wash); border-color: var(--gold, #caa960); }
+  .cal-slot-when { font-size: 13px; color: var(--color-text); }
+  .cal-slot-reason { font-size: 11px; color: var(--color-text-secondary); }
   .cal-input {
     padding: 8px 10px;
     border: 1px solid var(--color-border);

@@ -33,6 +33,9 @@ pub struct IcsEvent {
     /// CONFIRMED / TENTATIVE / CANCELLED
     pub status: Option<String>,
     pub sequence: i64,
+    /// iMIP method (REQUEST/REPLY/CANCEL) at the VCALENDAR level, if present.
+    #[serde(default)]
+    pub method: Option<String>,
     /// Raw RRULE value, if the event recurs.
     pub rrule: Option<String>,
     /// Number of alarms (VALARM) attached to the event.
@@ -52,7 +55,7 @@ pub struct IcsAttendee {
 }
 
 /// Convert a parsed `icalendar::Event` into the Relay [`IcsEvent`] model.
-fn extract_event(ev: &Event, raw: &str) -> IcsEvent {
+fn extract_event(ev: &Event, raw: &str, method: Option<&str>) -> IcsEvent {
     let (start, end, all_day) = to_rfc3339(ev.get_start(), ev.get_end());
 
     let organizer = ev
@@ -96,6 +99,7 @@ fn extract_event(ev: &Event, raw: &str) -> IcsEvent {
             .get("STATUS")
             .map(|p| p.value().to_string()),
         sequence: ev.get_sequence().unwrap_or(0) as i64,
+        method: method.map(str::to_string),
         rrule,
         alarms,
         raw: raw.to_string(),
@@ -107,11 +111,12 @@ fn extract_event(ev: &Event, raw: &str) -> IcsEvent {
 /// Returns an error if no VEVENT is present.
 pub fn parse_event(ics: &str) -> Result<IcsEvent, String> {
     let cal: Calendar = ics.parse().map_err(|e| format!("ICS-Parsing fehlgeschlagen: {e}"))?;
+    let method = cal.property_value("METHOD").map(str::to_string);
     let ev = cal
         .events()
         .next()
         .ok_or_else(|| "Kein VEVENT in der ICS gefunden".to_string())?;
-    Ok(extract_event(&ev, ics))
+    Ok(extract_event(&ev, ics, method.as_deref()))
 }
 
 /// Parse a VCALENDAR body into ALL its [`IcsEvent`]s (for ICS import).
@@ -119,7 +124,11 @@ pub fn parse_event(ics: &str) -> Result<IcsEvent, String> {
 /// Returns an empty Vec if the calendar has no VEVENTs.
 pub fn parse_events(ics: &str) -> Result<Vec<IcsEvent>, String> {
     let cal: Calendar = ics.parse().map_err(|e| format!("ICS-Parsing fehlgeschlagen: {e}"))?;
-    Ok(cal.events().map(|ev| extract_event(&ev, ics)).collect())
+    let method = cal.property_value("METHOD").map(str::to_string);
+    Ok(cal
+        .events()
+        .map(|ev| extract_event(&ev, ics, method.as_deref()))
+        .collect())
 }
 
 /// Extract the single VEVENT with the given UID from a (possibly multi-event)
@@ -170,6 +179,31 @@ pub fn build_event(
     rrule: Option<&str>,
     reminder_minutes: Option<u32>,
 ) -> Result<String, String> {
+    build_event_full(
+        uid, summary, start, end, description, location, organizer, attendees, rrule,
+        reminder_minutes,
+        None,
+        0,
+    )
+}
+
+/// Build a VCALENDAR with an optional iMIP `METHOD` (REQUEST/REPLY/CANCEL) and
+/// an explicit `SEQUENCE`. The attendee `part_stat` is honoured (defaults to
+/// NEEDS-ACTION) so RSVP replies can carry ACCEPTED/DECLINED/TENTATIVE.
+pub fn build_event_full(
+    uid: &str,
+    summary: &str,
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+    description: Option<&str>,
+    location: Option<&str>,
+    organizer: Option<&str>,
+    attendees: &[IcsAttendee],
+    rrule: Option<&str>,
+    reminder_minutes: Option<u32>,
+    method: Option<&str>,
+    sequence: i64,
+) -> Result<String, String> {
     // Phase 0: single default zone (Europe/Berlin). Per-event zones land later.
     let tz = chrono_tz::Europe::Berlin;
 
@@ -186,7 +220,7 @@ pub fn build_event(
     }
     ev.class(Class::Public)
         .status(EventStatus::Confirmed)
-        .sequence(0);
+        .sequence(sequence.max(0) as u32);
 
     if let Some(org) = organizer {
         ev.append_property(Property::new(
@@ -196,7 +230,10 @@ pub fn build_event(
     }
     for a in attendees {
         let mut att = Attendee::new(format!("mailto:{}", a.email))
-            .partstat(PartStat::NeedsAction)
+            .partstat(
+                part_stat_from_name(a.part_stat.as_deref())
+                    .unwrap_or(PartStat::NeedsAction),
+            )
             .rsvp(a.rsvp)
             .role(Role::ReqParticipant);
         if let Some(name) = &a.name {
@@ -214,7 +251,10 @@ pub fn build_event(
         ));
     }
 
-    let cal = Calendar::new().push(ev).done();
+    let mut cal = Calendar::new().push(ev).done();
+    if let Some(m) = method {
+        cal.append_property(Property::new("METHOD", m));
+    }
     Ok(cal.to_string())
 }
 
@@ -378,6 +418,21 @@ fn part_stat_name(p: PartStat) -> String {
         PartStat::Completed => "COMPLETED".into(),
         PartStat::InProcess => "IN-PROCESS".into(),
     }
+}
+
+/// Reverse of [`part_stat_name`]: map a stored part-stat string back to the
+/// crate enum (used when building RSVP replies).
+fn part_stat_from_name(s: Option<&str>) -> Option<PartStat> {
+    Some(match s? {
+        "NEEDS-ACTION" => PartStat::NeedsAction,
+        "ACCEPTED" => PartStat::Accepted,
+        "DECLINED" => PartStat::Declined,
+        "TENTATIVE" => PartStat::Tentative,
+        "DELEGATED" => PartStat::Delegated,
+        "COMPLETED" => PartStat::Completed,
+        "IN-PROCESS" => PartStat::InProcess,
+        _ => PartStat::NeedsAction,
+    })
 }
 
 #[cfg(test)]
@@ -613,5 +668,78 @@ END:VCALENDAR
         // Window entirely before the event → empty.
         let before = expand_occurrences(ics, "2026-08-01T00:00:00Z", "2026-08-31T00:00:00Z").unwrap();
         assert!(before.is_empty());
+    }
+
+    #[test]
+    fn test_build_request_method_roundtrip() {
+        let start = DateTime::parse_from_rfc3339("2026-09-01T13:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let end = DateTime::parse_from_rfc3339("2026-09-01T14:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let attendees = vec![IcsAttendee {
+            email: "anna@example.com".into(),
+            name: Some("Anna".into()),
+            part_stat: Some("NEEDS-ACTION".into()),
+            rsvp: true,
+        }];
+        let ics = build_event_full(
+            "req-001@aimighty",
+            "Meeting",
+            start,
+            Some(end),
+            None,
+            None,
+            Some("marc@example.com"),
+            &attendees,
+            None,
+            None,
+            Some("REQUEST"),
+            0,
+        )
+        .unwrap();
+        assert!(ics.contains("METHOD:REQUEST"), "missing METHOD:REQUEST in {ics}");
+        let parsed = parse_event(&ics).unwrap();
+        assert_eq!(parsed.method.as_deref(), Some("REQUEST"));
+        assert_eq!(parsed.organizer.as_deref(), Some("marc@example.com"));
+        assert_eq!(parsed.attendees[0].part_stat.as_deref(), Some("NEEDS-ACTION"));
+    }
+
+    #[test]
+    fn test_build_reply_method_roundtrip() {
+        let start = DateTime::parse_from_rfc3339("2026-09-01T13:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let end = DateTime::parse_from_rfc3339("2026-09-01T14:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        // The RSVPing attendee carries the decision.
+        let attendees = vec![IcsAttendee {
+            email: "marc@example.com".into(),
+            name: Some("Marc".into()),
+            part_stat: Some("ACCEPTED".into()),
+            rsvp: true,
+        }];
+        let ics = build_event_full(
+            "req-001@aimighty",
+            "Meeting",
+            start,
+            Some(end),
+            None,
+            None,
+            Some("anna@example.com"),
+            &attendees,
+            None,
+            None,
+            Some("REPLY"),
+            1,
+        )
+        .unwrap();
+        assert!(ics.contains("METHOD:REPLY"), "missing METHOD:REPLY in {ics}");
+        let parsed = parse_event(&ics).unwrap();
+        assert_eq!(parsed.method.as_deref(), Some("REPLY"));
+        assert_eq!(parsed.sequence, 1);
+        assert_eq!(parsed.attendees[0].part_stat.as_deref(), Some("ACCEPTED"));
     }
 }

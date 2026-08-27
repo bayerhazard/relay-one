@@ -904,6 +904,103 @@ export async function getEventIcs(id: number): Promise<{ ics: string; filename: 
   );
 }
 
+// ─── iMIP Invitations (Phase 2) ───────────────────────────────────
+
+export interface InvitationInfo {
+  event_uid: string;
+  event_id?: number;
+  organizer: string;
+  attendee_email: string;
+  status: string;
+  sequence: number;
+  summary?: string;
+  start_at?: string;
+  end_at?: string;
+  location?: string;
+}
+
+export async function listInvitations(): Promise<InvitationInfo[]> {
+  return get("/invitations", "Die Einladungen konnten nicht geladen werden.");
+}
+
+export async function acceptInvitation(uid: string, accountId: number): Promise<void> {
+  return post(
+    `/invitations/${encodeURIComponent(uid)}/accept`,
+    { account_id: accountId },
+    "Die Annahme konnte nicht gesendet werden.",
+  );
+}
+
+export async function declineInvitation(uid: string, accountId: number): Promise<void> {
+  return post(
+    `/invitations/${encodeURIComponent(uid)}/decline`,
+    { account_id: accountId },
+    "Die Absage konnte nicht gesendet werden.",
+  );
+}
+
+// ─── Conflicts + Calendar AI (Phase 2.4 / 2.5) ────────────────────
+
+export async function getConflicts(
+  start: string,
+  end: string,
+  calendarId?: number | null,
+  excludeId?: number | null,
+): Promise<EventInfo[]> {
+  const q = new URLSearchParams({ start, end });
+  if (calendarId != null) q.set("calendar_id", String(calendarId));
+  if (excludeId != null) q.set("exclude_id", String(excludeId));
+  return get(`/calendars/conflicts?${q.toString()}`, "Die Konfliktprüfung ist fehlgeschlagen.");
+}
+
+export interface TimeSlot {
+  start: string;
+  end: string;
+  reason?: string;
+}
+
+export async function getConflictAlternatives(
+  summary: string,
+  start: string,
+  end: string,
+  calendarId?: number | null,
+): Promise<TimeSlot[]> {
+  return post(
+    "/ai/conflict-alternatives",
+    { summary, start, end, calendar_id: calendarId ?? null },
+    "Die KI-Alternativen konnten nicht geladen werden.",
+  );
+}
+
+export interface ExtractedTime {
+  summary?: string;
+  start?: string;
+  end?: string;
+  all_day: boolean;
+}
+
+export async function extractTime(text: string, referenceDate?: string): Promise<ExtractedTime> {
+  return post(
+    "/ai/extract-time",
+    { text, reference_date: referenceDate ?? null },
+    "Die Zeit-Erkennung ist fehlgeschlagen.",
+  );
+}
+
+export async function rsvpDraft(
+  summary: string,
+  start: string,
+  organizer: string,
+  decision: string,
+  note?: string,
+): Promise<string> {
+  return post(
+    "/ai/rsvp-draft",
+    { summary, start, organizer, decision, note: note ?? null },
+    "Der KI-Entwurf konnte nicht geladen werden.",
+  );
+}
+
 // ─── Voice ────────────────────────────────────────────────────────
 
 export interface VoiceSettings {

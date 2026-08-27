@@ -877,3 +877,213 @@ pub async fn ai_suggest_subject(
 
     Ok(Json(result))
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2: Calendar AI (conflict alternatives, time extraction, RSVP drafts)
+// ---------------------------------------------------------------------------
+
+/// Pull the first JSON array out of a (possibly markdown-wrapped) LLM reply.
+fn extract_json_array(raw: &str) -> Vec<serde_json::Value> {
+    let (Some(s), Some(e)) = (raw.find('['), raw.rfind(']')) else {
+        return Vec::new();
+    };
+    if e < s {
+        return Vec::new();
+    }
+    serde_json::from_str(&raw[s..=e]).unwrap_or_default()
+}
+
+/// Pull the first JSON object out of a (possibly markdown-wrapped) LLM reply.
+fn extract_json_object(raw: &str) -> serde_json::Value {
+    let (Some(s), Some(e)) = (raw.find('{'), raw.rfind('}')) else {
+        return serde_json::Value::Null;
+    };
+    if e < s {
+        return serde_json::Value::Null;
+    }
+    serde_json::from_str(&raw[s..=e]).unwrap_or(serde_json::Value::Null)
+}
+
+fn get_ai_client(state: &AppState) -> Result<std::sync::Arc<crate::ai::client::AIClient>, ApiError> {
+    let ai_guard = state.ai_client.read();
+    ai_guard
+        .as_ref()
+        .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))
+        .cloned()
+}
+
+#[derive(Deserialize)]
+pub struct ConflictAlternativesRequest {
+    pub summary: String,
+    pub start: String,
+    pub end: String,
+    #[serde(default)]
+    pub calendar_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct TimeSlot {
+    pub start: String,
+    pub end: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `POST /api/v1/ai/conflict-alternatives` — suggest conflict-free alternative times.
+pub async fn ai_conflict_alternatives(
+    State(state): State<AppState>,
+    Json(req): Json<ConflictAlternativesRequest>,
+) -> ApiResult<Vec<TimeSlot>> {
+    let conflict_desc = with_db(&state, |conn| {
+        let conflicts = crate::cache::cal::find_conflicts(conn, req.calendar_id, &req.start, &req.end, None)
+            .map_err(|e| e.to_string())?;
+        Ok(if conflicts.is_empty() {
+            "kein Konflikt".to_string()
+        } else {
+            conflicts
+                .iter()
+                .map(|c| format!("{} ({})", c.summary.as_deref().unwrap_or("(ohne Titel)"), c.start_at))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+    })?;
+
+    let duration = match (
+        chrono::DateTime::parse_from_rfc3339(&req.start).ok(),
+        chrono::DateTime::parse_from_rfc3339(&req.end).ok(),
+    ) {
+        (Some(s), Some(e)) => ((e - s).num_minutes()).max(1).min(480) as u32,
+        _ => 60,
+    };
+
+    let (system, user) = prompts::build_conflict_alternatives_prompt(
+        &req.summary, &req.start, &req.end, &conflict_desc, duration,
+    );
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(600)).await?;
+
+    let mut out = Vec::new();
+    for slot in extract_json_array(&raw) {
+        let (Some(s), Some(e)) = (
+            slot.get("start").and_then(|v| v.as_str()),
+            slot.get("end").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let still_conflicts = with_db(&state, |conn| {
+            crate::cache::cal::find_conflicts(conn, req.calendar_id, s, e, None)
+                .map(|c| !c.is_empty())
+                .map_err(|err| err.to_string())
+        })
+        .unwrap_or(false);
+        if still_conflicts {
+            continue;
+        }
+        out.push(TimeSlot {
+            start: s.to_string(),
+            end: e.to_string(),
+            reason: slot.get("reason").and_then(|v| v.as_str()).map(String::from),
+        });
+        if out.len() >= 3 {
+            break;
+        }
+    }
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+pub struct ExtractTimeRequest {
+    pub text: String,
+    #[serde(default)]
+    pub reference_date: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExtractedTime {
+    pub summary: Option<String>,
+    pub start: Option<String>,
+    pub end: Option<String>,
+    pub all_day: bool,
+}
+
+/// `POST /api/v1/ai/extract-time` — extract a meeting time from free text.
+pub async fn ai_extract_time(
+    State(state): State<AppState>,
+    Json(req): Json<ExtractTimeRequest>,
+) -> ApiResult<ExtractedTime> {
+    let ref_date = req.reference_date.unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let (system, user) = prompts::build_time_extraction_prompt(&req.text, &ref_date);
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.1), Some(300)).await?;
+    let obj = extract_json_object(&raw);
+    Ok(Json(ExtractedTime {
+        summary: obj.get("summary").and_then(|v| v.as_str()).map(String::from),
+        start: obj.get("start").and_then(|v| v.as_str()).map(String::from),
+        end: obj.get("end").and_then(|v| v.as_str()).map(String::from),
+        all_day: obj.get("all_day").and_then(|v| v.as_bool()).unwrap_or(false),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct RsvpDraftRequest {
+    pub summary: String,
+    pub start: String,
+    pub organizer: String,
+    pub decision: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// `POST /api/v1/ai/rsvp-draft` — draft a short RSVP reply to an invitation.
+pub async fn ai_rsvp_draft(
+    State(state): State<AppState>,
+    Json(req): Json<RsvpDraftRequest>,
+) -> ApiResult<String> {
+    let note = req.note.as_deref().unwrap_or("");
+    let (system, user) = prompts::build_rsvp_draft_prompt(
+        &req.summary, &req.start, &req.organizer, &req.decision, note,
+    );
+    let client = get_ai_client(&state)?;
+    let result = client.complete_user(&system, &user, Some(0.5), Some(400)).await?;
+    Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_json_array_plain() {
+        let raw = r#"[{"start":"2026-09-01T10:00:00Z","end":"2026-09-01T11:00:00Z"}]"#;
+        let arr = extract_json_array(raw);
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].get("start").and_then(|v| v.as_str()), Some("2026-09-01T10:00:00Z"));
+    }
+
+    #[test]
+    fn test_extract_json_array_markdown_wrapped() {
+        let raw = "Hier sind die Vorschläge:\n```json\n[{\"start\":\"a\",\"end\":\"b\"}]\n```\nFertig.";
+        let arr = extract_json_array(raw);
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].get("start").and_then(|v| v.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn test_extract_json_array_invalid() {
+        assert!(extract_json_array("kein json hier").is_empty());
+        assert!(extract_json_array("[]").is_empty());
+    }
+
+    #[test]
+    fn test_extract_json_object_markdown_wrapped() {
+        let raw = "```json\n{\"summary\":\"Meeting\",\"start\":\"2026-09-01T10:00:00Z\",\"all_day\":false}\n```";
+        let obj = extract_json_object(raw);
+        assert_eq!(obj.get("summary").and_then(|v| v.as_str()), Some("Meeting"));
+        assert_eq!(obj.get("all_day").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    #[test]
+    fn test_extract_json_object_invalid() {
+        assert!(extract_json_object("kein objekt").is_null());
+    }
+}
