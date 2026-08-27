@@ -130,10 +130,10 @@ pub fn router() -> Router<AppState> {
         .route("/calendars/settings", get(calendars::get_caldav_settings).post(calendars::set_caldav_settings))
         .route("/calendars/sync", post(calendars::sync_caldav))
         .route("/calendars", get(calendars::list_calendars))
-        .route("/events", get(calendars::list_events).post(calendars::create_event))
-        .route("/events/:id", get(calendars::get_event).put(calendars::update_event).delete(calendars::delete_event))
-        .route("/events/import", post(calendars::import_events))
-        .route("/events/:id/ics", get(calendars::get_event_ics))
+        .route("/calendars/events", get(calendars::list_events).post(calendars::create_event))
+        .route("/calendars/events/import", post(calendars::import_events))
+        .route("/calendars/events/:id", get(calendars::get_event).put(calendars::update_event).delete(calendars::delete_event))
+        .route("/calendars/events/:id/ics", get(calendars::get_event_ics))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

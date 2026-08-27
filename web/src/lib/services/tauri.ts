@@ -848,12 +848,12 @@ export async function getCalendars(): Promise<CalendarInfo[]> {
 
 export async function listEvents(calendarId: number | null, from: string, to: string): Promise<EventInfo[]> {
   const cal = calendarId === null ? "" : `calendar_id=${calendarId}&`;
-  return get(`/events?${cal}start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`,
+  return get(`/calendars/events?${cal}start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`,
     "Die Termine konnten nicht geladen werden.");
 }
 
 export async function getEvent(id: number): Promise<EventInfo> {
-  return get(`/events/${id}`, "Der Termin konnte nicht geladen werden.");
+  return get(`/calendars/events/${id}`, "Der Termin konnte nicht geladen werden.");
 }
 
 export async function createEvent(body: {
@@ -868,7 +868,7 @@ export async function createEvent(body: {
   reminder_minutes?: number;
   attendees?: { email: string; name?: string }[];
 }): Promise<EventInfo> {
-  return post("/events", body, "Der Termin konnte nicht erstellt werden.");
+  return post("/calendars/events", body, "Der Termin konnte nicht erstellt werden.");
 }
 
 export async function updateEvent(id: number, body: {
@@ -882,16 +882,16 @@ export async function updateEvent(id: number, body: {
   reminder_minutes?: number;
   attendees?: { email: string; name?: string }[];
 }): Promise<EventInfo> {
-  return put(`/events/${id}`, body, "Der Termin konnte nicht aktualisiert werden.");
+  return put(`/calendars/events/${id}`, body, "Der Termin konnte nicht aktualisiert werden.");
 }
 
 export async function deleteEvent(id: number): Promise<void> {
-  return del(`/events/${id}`, "Der Termin konnte nicht gelöscht werden.");
+  return del(`/calendars/events/${id}`, "Der Termin konnte nicht gelöscht werden.");
 }
 
 export async function importEvents(calendarId: number, ics: string): Promise<{ imported: number }> {
   return post<{ imported: number }>(
-    "/events/import",
+    "/calendars/events/import",
     { calendar_id: calendarId, ics },
     "Der ICS-Import ist fehlgeschlagen.",
   );
@@ -899,7 +899,7 @@ export async function importEvents(calendarId: number, ics: string): Promise<{ i
 
 export async function getEventIcs(id: number): Promise<{ ics: string; filename: string }> {
   return get<{ ics: string; filename: string }>(
-    `/events/${id}/ics`,
+    `/calendars/events/${id}/ics`,
     "Der Termin konnte nicht exportiert werden.",
   );
 }
