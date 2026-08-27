@@ -54,6 +54,27 @@ pub struct IcsAttendee {
     pub rsvp: bool,
 }
 
+/// A parsed to-do (VTODO), reduced to the fields Relay needs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IcsTodo {
+    pub uid: String,
+    /// CalDAV object URL (set by the client after fetch; empty when built locally).
+    #[serde(default)]
+    pub url: String,
+    pub summary: Option<String>,
+    pub description: Option<String>,
+    /// Due time as RFC 3339 (UTC), if present.
+    pub due: Option<String>,
+    /// Completion time as RFC 3339 (UTC), if completed.
+    pub completed: Option<String>,
+    /// NEEDS-ACTION / IN-PROCESS / COMPLETED / CANCELLED
+    pub status: Option<String>,
+    /// 0–9 (1 = highest, 9 = lowest), if set.
+    pub priority: Option<i64>,
+    /// The raw ICS text of the single VTODO (for round-trip / PUT).
+    pub raw: String,
+}
+
 /// Convert a parsed `icalendar::Event` into the Relay [`IcsEvent`] model.
 fn extract_event(ev: &Event, raw: &str, method: Option<&str>) -> IcsEvent {
     let (start, end, all_day) = to_rfc3339(ev.get_start(), ev.get_end());
@@ -255,6 +276,71 @@ pub fn build_event_full(
     if let Some(m) = method {
         cal.append_property(Property::new("METHOD", m));
     }
+    Ok(cal.to_string())
+}
+
+/// Convert a single parsed `icalendar::Todo` into the Relay [`IcsTodo`] model.
+fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
+    let due = todo.get_due().map(|d| match d {
+        icalendar::DatePerhapsTime::Date(d) => d.format("%Y-%m-%d").to_string(),
+        icalendar::DatePerhapsTime::DateTime(dt) => cal_dt_to_rfc3339(&dt),
+    });
+    let completed = todo.get_completed().map(|dt| dt.to_rfc3339());
+    let status = todo.get_status().map(|s| match s {
+        icalendar::TodoStatus::NeedsAction => "NEEDS-ACTION".to_string(),
+        icalendar::TodoStatus::InProcess => "IN-PROCESS".to_string(),
+        icalendar::TodoStatus::Completed => "COMPLETED".to_string(),
+        icalendar::TodoStatus::Cancelled => "CANCELLED".to_string(),
+    });
+    IcsTodo {
+        uid: todo.get_uid().unwrap_or_default().to_string(),
+        url: String::new(),
+        summary: todo.get_summary().map(|s| s.to_string()),
+        description: todo.get_description().map(|s| s.to_string()),
+        due,
+        completed,
+        status,
+        priority: todo.get_priority().map(|p| p as i64),
+        raw: raw.to_string(),
+    }
+}
+
+/// Parse a VCALENDAR body into ALL its [`IcsTodo`]s (for CalDAV todo sync).
+pub fn parse_todos(ics: &str) -> Result<Vec<IcsTodo>, String> {
+    let cal: Calendar = ics.parse().map_err(|e| format!("ICS-Parsing fehlgeschlagen: {e}"))?;
+    Ok(cal.todos().map(|todo| extract_todo(&todo, ics)).collect())
+}
+
+/// Build a VCALENDAR containing a single VTODO.
+pub fn build_todo(
+    uid: &str,
+    summary: &str,
+    due: Option<DateTime<Utc>>,
+    description: Option<&str>,
+    priority: Option<i64>,
+    completed: bool,
+) -> Result<String, String> {
+    let tz = chrono_tz::Europe::Berlin;
+    let mut todo = icalendar::Todo::new();
+    todo.uid(uid).summary(summary);
+    if let Some(d) = due {
+        todo.due(dt_to_cal(&d, tz));
+    }
+    if let Some(desc) = description {
+        todo.description(desc);
+    }
+    if let Some(p) = priority {
+        if (1..=9).contains(&p) {
+            todo.priority(p as u32);
+        }
+    }
+    if completed {
+        todo.status(icalendar::TodoStatus::Completed)
+            .completed(Utc::now());
+    } else {
+        todo.status(icalendar::TodoStatus::NeedsAction);
+    }
+    let cal = Calendar::new().push(todo).done();
     Ok(cal.to_string())
 }
 
@@ -741,5 +827,42 @@ END:VCALENDAR
         assert_eq!(parsed.method.as_deref(), Some("REPLY"));
         assert_eq!(parsed.sequence, 1);
         assert_eq!(parsed.attendees[0].part_stat.as_deref(), Some("ACCEPTED"));
+    }
+
+    #[test]
+    fn test_build_todo_roundtrip() {
+        let due = chrono::DateTime::parse_from_rfc3339("2026-09-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let ics = build_todo("todo-1", "Einkaufen", Some(due), Some("Milch, Brot"), Some(1), false).unwrap();
+        assert!(ics.contains("BEGIN:VTODO"));
+        assert!(ics.contains("SUMMARY:Einkaufen"));
+        assert!(ics.contains("UID:todo-1"));
+        let todos = parse_todos(&ics).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].uid, "todo-1");
+        assert_eq!(todos[0].summary.as_deref(), Some("Einkaufen"));
+        assert!(todos[0].due.is_some());
+        assert_eq!(todos[0].priority, Some(1));
+    }
+
+    #[test]
+    fn test_build_todo_completed() {
+        let ics = build_todo("todo-2", "Erledigt", None, None, None, true).unwrap();
+        let todos = parse_todos(&ics).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].status.as_deref(), Some("COMPLETED"));
+        assert!(todos[0].completed.is_some());
+    }
+
+    #[test]
+    fn test_parse_todos_ignores_events() {
+        // A calendar with only a VEVENT yields no todos.
+        let start = chrono::DateTime::parse_from_rfc3339("2026-09-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let ics = build_event("ev-1", "Meeting", start, None, None, None, None, &[], None, None).unwrap();
+        let todos = parse_todos(&ics).unwrap();
+        assert!(todos.is_empty());
     }
 }

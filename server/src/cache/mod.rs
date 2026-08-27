@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod archive;
 pub mod attachments;
 pub mod cal;
+pub mod contacts;
 pub mod db;
 pub mod delete_queue;
 pub mod fingerprint;
@@ -10,6 +11,7 @@ pub mod messages;
 pub mod settings;
 pub mod sync_state;
 pub mod snippets;
+pub mod todo;
 pub mod topic;
 
 use std::collections::HashMap;

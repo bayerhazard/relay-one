@@ -1048,6 +1048,50 @@ pub async fn ai_rsvp_draft(
     Ok(Json(result))
 }
 
+/// A single suggested follow-up action derived from a message.
+#[derive(Serialize, Deserialize)]
+pub struct FollowupItem {
+    pub task: String,
+    #[serde(default)]
+    pub due: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct FollowupsRequest {
+    pub subject: String,
+    pub from: String,
+    pub body: String,
+}
+
+/// `POST /api/v1/ai/followups` — suggest follow-up actions for a message.
+pub async fn ai_followups(
+    State(state): State<AppState>,
+    Json(req): Json<FollowupsRequest>,
+) -> ApiResult<Vec<FollowupItem>> {
+    let (system, user) = prompts::build_followups_prompt(&req.subject, &req.from, &req.body);
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(800)).await?;
+    let arr = extract_json_array(&raw);
+    let items: Vec<FollowupItem> = arr
+        .into_iter()
+        .filter_map(|v| {
+            let task = v.get("task")?.as_str()?.trim().to_string();
+            if task.is_empty() {
+                return None;
+            }
+            Some(FollowupItem {
+                due: v.get("due").and_then(|d| d.as_str()).map(str::to_string),
+                reason: v.get("reason").and_then(|r| r.as_str()).map(str::to_string),
+                task,
+            })
+        })
+        .take(5)
+        .collect();
+    Ok(Json(items))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,7 +12,7 @@ use super::client::{
     parse_hrefs, parse_multistatus, parse_sync_response, parse_sync_token, propfind_method,
     resolve_href, xml_escape,
 };
-use super::ics::{self, IcsEvent};
+use super::ics::{self, IcsEvent, IcsTodo};
 use super::reqwest_digest_auth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +206,31 @@ impl CalDavClient {
             calendars.len()
         );
         Ok((events, last_token))
+    }
+
+    /// Fetch all VTODO objects across all discovered calendars.
+    pub async fn fetch_all_todos(&self) -> Result<Vec<IcsTodo>, String> {
+        let calendars = self.discover_calendars().await?;
+        let mut todos = Vec::new();
+        for cal in &calendars {
+            let urls = self.list_events(&cal.url).await?;
+            for url in &urls {
+                match self.fetch_event(url).await {
+                    Ok(ics) => match ics::parse_todos(&ics) {
+                        Ok(items) => {
+                            for mut t in items {
+                                t.url = url.clone();
+                                todos.push(t);
+                            }
+                        }
+                        Err(_) => { /* not a VTODO object — skip */ }
+                    },
+                    Err(e) => tracing::warn!("CalDAV: Todo-Objekt {url} nicht ladbar: {e}"),
+                }
+            }
+        }
+        tracing::info!("CalDAV: {} Todos aus {} Kalendern synchronisiert", todos.len(), calendars.len());
+        Ok(todos)
     }
 
     /// Incremental sync of the first discovered calendar using SYNC-COLLECTION.

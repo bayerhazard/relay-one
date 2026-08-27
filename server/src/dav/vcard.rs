@@ -95,6 +95,42 @@ pub fn parse_vcard(raw: &str) -> Contact {
     contact
 }
 
+/// Build a minimal vCard 3.0 from the given fields (for creating a contact).
+pub fn build_vcard(
+    uid: &str,
+    given_name: &str,
+    family_name: &str,
+    display_name: &str,
+    email: &str,
+    phone: &str,
+    organization: &str,
+) -> String {
+    let fn_ = if !display_name.is_empty() {
+        display_name.to_string()
+    } else {
+        format!("{} {}", given_name, family_name).trim().to_string()
+    };
+    let mut out = String::new();
+    out.push_str("BEGIN:VCARD\n");
+    out.push_str("VERSION:3.0\n");
+    out.push_str(&format!("UID:{}\n", uid));
+    out.push_str(&format!("N:{};{};;;\n", family_name, given_name));
+    if !fn_.is_empty() {
+        out.push_str(&format!("FN:{}\n", fn_));
+    }
+    if !email.is_empty() {
+        out.push_str(&format!("EMAIL;TYPE=INTERNET:{}\n", email));
+    }
+    if !phone.is_empty() {
+        out.push_str(&format!("TEL;TYPE=CELL:{}\n", phone));
+    }
+    if !organization.is_empty() {
+        out.push_str(&format!("ORG:{}\n", organization));
+    }
+    out.push_str("END:VCARD\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +189,28 @@ EMAIL;TYPE=WORK:second@example.com
 END:VCARD";
         let contact = parse_vcard(vcard);
         assert_eq!(contact.email, Some("first@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_build_vcard_roundtrip() {
+        let vcard = build_vcard("uid-1", "Max", "Mustermann", "", "max@example.com", "+49123", "ACME");
+        assert!(vcard.contains("BEGIN:VCARD"));
+        assert!(vcard.contains("UID:uid-1"));
+        assert!(vcard.contains("EMAIL;TYPE=INTERNET:max@example.com"));
+        assert!(vcard.contains("TEL;TYPE=CELL:+49123"));
+        assert!(vcard.contains("ORG:ACME"));
+        // Round-trip: parsing the built vCard recovers the fields.
+        let contact = parse_vcard(&vcard);
+        assert_eq!(contact.vcard_uid, "uid-1");
+        assert_eq!(contact.email, Some("max@example.com".to_string()));
+        assert_eq!(contact.display_name, Some("Max Mustermann".to_string()));
+    }
+
+    #[test]
+    fn test_build_vcard_minimal() {
+        let vcard = build_vcard("uid-2", "Anna", "", "", "", "", "");
+        assert!(vcard.contains("UID:uid-2"));
+        assert!(!vcard.contains("EMAIL"));
+        assert!(!vcard.contains("TEL"));
     }
 }

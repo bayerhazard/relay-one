@@ -1201,3 +1201,101 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
 }
+
+// ─── Contacts (CardDAV) ─────────────────────────────────────
+
+export interface ContactInfo {
+  vcard_uid: string;
+  given_name: string | null;
+  family_name: string | null;
+  display_name: string | null;
+  email: string | null;
+  phone: string | null;
+  organization: string | null;
+  source: string;
+  synced_at: string;
+}
+
+export interface ContactInput {
+  given_name: string;
+  family_name: string;
+  display_name: string;
+  email: string;
+  phone: string;
+  organization: string;
+}
+
+export async function listContacts(search = ""): Promise<ContactInfo[]> {
+  const q = search ? `?search=${encodeURIComponent(search)}` : "";
+  return get<ContactInfo[]>(`/contacts${q}`, "Kontakte konnten nicht geladen werden.");
+}
+
+export async function createContact(input: ContactInput): Promise<ContactInfo> {
+  return post<ContactInfo>("/contacts", input, "Kontakt konnte nicht angelegt werden.");
+}
+
+export async function updateContact(uid: string, input: ContactInput): Promise<ContactInfo> {
+  return put<ContactInfo>(`/contacts/${encodeURIComponent(uid)}`, input, "Kontakt konnte nicht aktualisiert werden.");
+}
+
+export async function deleteContact(uid: string): Promise<{ deleted: boolean }> {
+  return apiCall<{ deleted: boolean }>("DELETE", `/contacts/${encodeURIComponent(uid)}`, undefined, "Kontakt konnte nicht gelöscht werden.");
+}
+
+// ─── Todos (VTODO / Aufgaben) ───────────────────────────────
+
+export interface TodoInfo {
+  id: number;
+  calendar_id: number;
+  uid: string;
+  summary: string | null;
+  description: string | null;
+  due_at: string | null;
+  completed_at: string | null;
+  status: string;
+  priority: number | null;
+}
+
+export interface TodoInput {
+  summary: string;
+  description?: string;
+  due?: string;
+  priority?: number;
+}
+
+export async function listTodos(completed?: boolean): Promise<TodoInfo[]> {
+  const q = completed === undefined ? "" : `?completed=${completed}`;
+  return get<TodoInfo[]>(`/todos${q}`, "Aufgaben konnten nicht geladen werden.");
+}
+
+export async function createTodo(input: TodoInput): Promise<TodoInfo> {
+  return post<TodoInfo>("/todos", input, "Aufgabe konnte nicht angelegt werden.");
+}
+
+export async function toggleTodo(uid: string, completed: boolean): Promise<TodoInfo> {
+  return apiCall<TodoInfo>("PATCH", `/todos/${encodeURIComponent(uid)}`, { completed }, "Aufgabe konnte nicht aktualisiert werden.");
+}
+
+export async function deleteTodo(uid: string): Promise<{ deleted: boolean }> {
+  return apiCall<{ deleted: boolean }>("DELETE", `/todos/${encodeURIComponent(uid)}`, undefined, "Aufgabe konnte nicht gelöscht werden.");
+}
+
+export async function syncTodos(): Promise<{ synced: number }> {
+  return post<{ synced: number }>("/todos/sync", {}, "Aufgaben konnten nicht synchronisiert werden.");
+}
+
+// ─── AI Followups ───────────────────────────────────────────
+
+export interface FollowupItem {
+  task: string;
+  due: string | null;
+  reason: string | null;
+}
+
+export async function getFollowups(
+  subject: string,
+  from: string,
+  body: string,
+): Promise<FollowupItem[]> {
+  return post<FollowupItem[]>("/ai/followups", { subject, from, body }, "KI-Follow-ups konnten nicht generiert werden.");
+}

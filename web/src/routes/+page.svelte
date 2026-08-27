@@ -22,6 +22,7 @@ import {
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
+    getFollowups, createTodo, type FollowupItem,
   } from "$lib/services/tauri";
   import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import type { MailChainEntry } from "$lib/types/mail";
@@ -83,6 +84,12 @@ import {
   // Listen for backend events (new mail, AI summaries, navigation/actions)
   // via the SSE event stream (replaces the Tauri event listeners).
   let loadingBodyUid = $state<number | null>(null);
+
+  // AI-Followups (Phase 3.4)
+  let followups = $state<FollowupItem[]>([]);
+  let followupsLoading = $state(false);
+  let followupsError = $state<string | null>(null);
+  let followupsForUid = $state<number | null>(null);
 
   $effect(() => {
     if (typeof window === "undefined") return;
@@ -2229,6 +2236,33 @@ let sentFolderName = $state<string | null>(null);
     showDeleteConfirm = true;
   }
 
+  async function handleFollowups() {
+    const msg = selectedMessage;
+    if (!msg || followupsLoading) return;
+    followupsLoading = true;
+    followupsError = null;
+    followups = [];
+    followupsForUid = msg.uid;
+    try {
+      const body = parsedContent.text || msg.body_preview || "";
+      followups = await getFollowups(msg.subject || "", msg.from, body);
+    } catch (e) {
+      followupsError = localizeError(e);
+      followups = [];
+    } finally {
+      followupsLoading = false;
+    }
+  }
+
+  async function createTaskFromFollowup(f: FollowupItem) {
+    try {
+      await createTodo({ summary: f.task, due_at: f.due ?? undefined });
+      followups = followups.filter((x) => x !== f);
+    } catch (e) {
+      followupsError = localizeError(e);
+    }
+  }
+
   async function handleToggleRead(uid: number) {
     const msg = $mailbox.messages.find((m) => m.uid === uid);
     if (!msg) return;
@@ -2375,6 +2409,9 @@ let sentFolderName = $state<string | null>(null);
           <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
             {$t("mail.reply")}
           </button>
+          <button type="button" class="action-btn-pill" onclick={() => handleFollowups()} disabled={followupsLoading} title="KI schlägt Follow-up-Aktionen vor">
+            {followupsLoading ? "…" : "KI-Follow-ups"}
+          </button>
           <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
             {$t("mail.delete")}
           </button>
@@ -2426,6 +2463,32 @@ let sentFolderName = $state<string | null>(null);
               <div class="mail-body-empty">{$t("mail.noContent")}</div>
             {/if}
           </div>
+
+          {#if followupsForUid === selectedMessage.uid && (followupsLoading || followups.length > 0 || followupsError)}
+            <div class="followups">
+              <div class="followups-title">KI-Follow-ups</div>
+              {#if followupsError}
+                <div class="followups-error">{followupsError}</div>
+              {/if}
+              {#if followupsLoading}
+                <div class="followups-loading">Analysiere E-Mail…</div>
+              {:else if followups.length === 0}
+                <div class="followups-empty">Keine Follow-ups erkannt.</div>
+              {:else}
+                <ul class="followups-list">
+                  {#each followups as f (f.task)}
+                    <li class="followup-item">
+                      <div class="followup-text">
+                        <span class="followup-task">{f.task}</span>
+                        {#if f.reason}<span class="followup-reason">{f.reason}</span>{/if}
+                      </div>
+                      <button type="button" class="followup-add" onclick={() => createTaskFromFollowup(f)}>Als Aufgabe</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          {/if}
 
           {#if attachments.length > 0}
             <div class="attachments">
@@ -2621,6 +2684,14 @@ let sentFolderName = $state<string | null>(null);
             <button type="button" class="module-btn" onclick={() => goto('/calendar')} title="Kalender">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
               <span>Kalender</span>
+            </button>
+            <button type="button" class="module-btn" onclick={() => goto('/contacts')} title="Kontakte">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Kontakte</span>
+            </button>
+            <button type="button" class="module-btn" onclick={() => goto('/tasks')} title="Aufgaben">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <span>Aufgaben</span>
             </button>
           </div>
 
@@ -3399,6 +3470,76 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.875rem;
     color: var(--color-text-secondary);
     font-style: italic;
+  }
+  .followups {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-m);
+    background: var(--color-card);
+  }
+  .followups-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent);
+    margin-bottom: 10px;
+  }
+  .followups-loading,
+  .followups-empty {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+  }
+  .followups-error {
+    font-size: 0.85rem;
+    color: var(--color-danger);
+  }
+  .followups-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .followup-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-s);
+  }
+  .followup-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .followup-task {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-text);
+  }
+  .followup-reason {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+  }
+  .followup-add {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 6px 12px;
+    border: none;
+    border-radius: var(--radius-s);
+    background: var(--color-accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .followup-add:hover {
+    filter: brightness(1.1);
   }
   .attachments {
     margin-top: 20px;

@@ -302,6 +302,53 @@ impl CardDavClient {
         Ok(text)
     }
 
+    /// Create a new contact by PUT-ing a vCard into the addressbook.
+    /// Returns the new contact URL.
+    pub async fn put_vcard(&self, vcard: &str, uid: &str) -> Result<String, String> {
+        let ab_url = self.resolve_addressbook_url().await?;
+        let base = ab_url.trim_end_matches('/');
+        let url = format!("{}/{}.vcf", base, uid);
+        let resp = self
+            .http
+            .request(reqwest::Method::PUT, &url)
+            .header("Content-Type", "text/vcard; charset=utf-8")
+            .header("User-Agent", "Relay-CardDAV/1.0")
+            .body(vcard.to_string())
+            .send()
+            .await
+            .map_err(|e| format!("PUT fehlgeschlagen: {}", e))?;
+        let status = resp.status();
+        if !(200..300).contains(&status.as_u16()) {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("PUT: Status {} — {}", status, body));
+        }
+        Ok(url)
+    }
+
+    /// Delete a contact by its URL.
+    pub async fn delete_vcard(&self, url: &str) -> Result<(), String> {
+        let resp = self
+            .http
+            .request(reqwest::Method::DELETE, url)
+            .header("User-Agent", "Relay-CardDAV/1.0")
+            .send()
+            .await
+            .map_err(|e| format!("DELETE fehlgeschlagen: {}", e))?;
+        let status = resp.status();
+        if !(200..300).contains(&status.as_u16()) {
+            return Err(format!("DELETE: Status {}", status));
+        }
+        Ok(())
+    }
+
+    /// Delete a contact by its UID (resolves the canonical `{uid}.vcf` URL).
+    pub async fn delete_vcard_by_uid(&self, uid: &str) -> Result<(), String> {
+        let ab_url = self.resolve_addressbook_url().await?;
+        let base = ab_url.trim_end_matches('/');
+        let url = format!("{}/{}.vcf", base, uid);
+        self.delete_vcard(&url).await
+    }
+
     async fn get_sync_token(&self, base_url: &str) -> Result<String, String> {
         let body = r#"<d:propfind xmlns:d="DAV:">
             <d:prop>

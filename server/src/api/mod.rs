@@ -8,6 +8,7 @@ pub mod ai;
 pub mod attachments;
 pub mod backup;
 pub mod calendars;
+pub mod contacts;
 pub mod delete_queue;
 pub mod export;
 pub mod health;
@@ -19,10 +20,11 @@ pub mod profile;
 pub mod push;
 pub mod send;
 pub mod settings;
+pub mod todos;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use serde::Serialize;
 
@@ -88,6 +90,7 @@ pub fn router() -> Router<AppState> {
         .route("/ai/conflict-alternatives", post(ai::ai_conflict_alternatives))
         .route("/ai/extract-time", post(ai::ai_extract_time))
         .route("/ai/rsvp-draft", post(ai::ai_rsvp_draft))
+        .route("/ai/followups", post(ai::ai_followups))
         // Web Push
         .route("/push/vapid", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))
@@ -146,6 +149,13 @@ pub fn router() -> Router<AppState> {
         .route("/invitations", get(invitations::list_invitations))
         .route("/invitations/:uid/accept", post(invitations::accept_invitation))
         .route("/invitations/:uid/decline", post(invitations::decline_invitation))
+
+        .route("/contacts", get(contacts::list_contacts).post(contacts::create_contact))
+        .route("/contacts/:uid", put(contacts::update_contact).delete(contacts::delete_contact))
+
+        .route("/todos", get(todos::list_todos).post(todos::create_todo))
+        .route("/todos/sync", post(todos::sync_todos))
+        .route("/todos/:uid", patch(todos::toggle_todo).delete(todos::delete_todo))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

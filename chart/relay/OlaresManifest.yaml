@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.96
+  version: 26.09.97
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.96
+  versionName: 26.09.97
   upgradeDescription: |
+    v26.09.97: NEU Kontakte + Aufgaben + KI-Followups (Phase 3) — (1) Kontakte: CardDAV-Anbindung mit vollem CRUD (anlegen/bearbeiten/loeschen, VCard-Roundtrip), eigene Kontakte-Seite in der Sidebar; Auto-Enrichment: Absender/Empfaenger eingehender Mails werden automatisch als Kontakte angelegt/ergaenzt (source=mail). (2) Aufgaben: CalDAV-VTODO-Sync (fetch + local cache), eigene Aufgaben-Seite mit Filtern (Offen/Erledigt/Alle), Erledigt-Toggle, Fälligkeitsdatum, Priorität, CalDAV-Sync-Button. (3) KI-Followups: Button in der Mail-Detailansicht lasst die KI konkrete Follow-up-Aktionen aus der Mail ableiten (max. 5, mit Grund + Fälligkeitsdatum); jede Aktion laesst sich per Klick direkt als Aufgabe anlegen. Built for Olares 1.12.6.
     v26.09.96: NEU Mail↔Kalender (Phase 2) — iMIP-Termin-Einladungen: eingehende ICS-Anhänge (METHOD:REQUEST/REPLY/CANCEL) werden beim Mail-Sync erkannt und in einer Einladungs-Queue in der Kalender-Sidebar abgelegt (Annehmen/Ablehnen sendet eine METHOD:REPLY-Antwort an den Organisator); eigene Termine lassen sich per Button mit ICS-Anhang an Teilnehmer einladen. Konflikt-Erkennung: der Termin-Editor warnt bei Überschneidungen und zeigt per KI-Vorschlag 3 konfliktfreie Alternativen. Zeit-Erkennung: freie Texteingabe (z.B. „Mittwoch 14 Uhr") füllt Beginn/Ende/Titel per KI. KI-RSVP-Entwurf: generiert eine kurze Antwort auf eine Einladung. Built for Olares 1.12.6.
     v26.09.95: NEU Kalender (CalDAV/CardDAV) — Phase 0+1. Volle Kalender-App: CalDAV-Anbindung (z.B. Radicale), 3-Pane-UI (Mini-Monat, Kalender-Liste, Monats-/Wochen-/Tagesansicht, Detail-Pane), wiederholende Termine (RRULE), Zeitzonen, Multi-Kalender, deutsche Feiertage, ICS-Import/Export, Erinnerungen; Settings-Tab fuer CalDAV-Login. Built for Olares 1.12.6.
     v26.09.94: FIX AI-Code-Review: (1) Phishing-Erkennung aktiv — eingehende Mails werden jetzt beim Sync automatisch auf Betrugsmuster geprueft (Dringlichkeits-Sprache, Link/URL-Mismatch, versteckte Links, verdaechtige TLDs, Zugangsdaten-Bitten, URL-Shortener); Warnhinweis "Phishing-Verdacht" erscheint direkt in der Mail-Liste (schweller >0.6) — lief vorher nie, da der Score nie berechnet wurde. (2) Lernschleife repariert — der individuelle Schreibstil pro Empfaenger (Style-Fingerprint) wird jetzt korrekt synthetisiert und beim Verfassen/Beantworten in den KI-Prompt eingespeist (vorher Account-ID-Mismatch → Fingerprint war nie verfuegbar). (3) Tonfall-Profile-Export verdrahtet (POST /ai/tone-profiles/export). (4) Weihnachts-Gruss-Anlass im Prompt korrigiert. Built for Olares 1.12.6.

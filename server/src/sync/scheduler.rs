@@ -1032,6 +1032,13 @@ async fn process_sync_task(
                     for msg in &messages {
                         crate::cache::messages::save_message(&tx, task.account_id as i64, msg, &storage_folder)
                             .map_err(|e| e.to_string())?;
+                        // Auto-enrichment: derive contacts from the envelope.
+                        let _ = crate::cache::contacts::enrich_from_envelope(
+                            &tx,
+                            &msg.envelope.from,
+                            &msg.envelope.to,
+                            &msg.envelope.cc,
+                        );
                     }
                     // Advance the per-folder sync cursor to the highest UID of
                     // THIS batch, so the next cycle continues with the next
