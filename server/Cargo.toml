@@ -41,6 +41,8 @@ hex = "0.4"
 rand = "0.8"
 digest_auth = "0.3"
 strsim = "0.11"
+icalendar = { version = "0.17", features = ["parser", "recurrence", "serde", "chrono-tz"] }
+chrono-tz = "0.10"
 bytes = "1"
 p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pem"] }
 hkdf = "0.12"

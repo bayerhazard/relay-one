@@ -55,7 +55,7 @@ async fn do_sync(state: &AppState) {
         _ => return,
     };
 
-    let client = crate::carddav::CardDavClient::new(settings);
+    let client = crate::dav::carddav::CardDavClient::new(settings);
 
     let old_token = {
         let guard = state.carddav_sync_token.read();
@@ -137,9 +137,57 @@ async fn do_sync(state: &AppState) {
     }
 }
 
+/// CalDAV background sync (Phase 0). Mirrors the CardDAV scheduler but drives
+/// the CalDAV client and persists calendars + events. Delegates the actual
+/// sync to the shared `api::calendars::do_caldav_sync` so manual and
+/// background syncs behave identically.
+pub async fn start_caldav_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Receiver<()>) {
+    let settings = {
+        let guard = state.caldav_settings.read();
+        guard.clone()
+    };
+
+    let (interval_minutes, has_settings) = match settings {
+        Some(s) => (s.sync_interval_minutes, !s.url.is_empty()),
+        None => (30, false),
+    };
+
+    if !has_settings {
+        tracing::info!("CalDAV-Sync: nicht konfiguriert, Scheduler nicht gestartet");
+        return;
+    }
+
+    tracing::info!("CalDAV-Sync: gestartet (Interval: {} Min)", interval_minutes);
+
+    let interval = Duration::from_secs(interval_minutes * 60);
+    let mut interval = tokio::time::interval(interval);
+
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    run_caldav_sync(&state).await;
+
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.recv() => {
+                tracing::info!("CalDAV-Sync: gestoppt");
+                break;
+            }
+            _ = interval.tick() => {
+                run_caldav_sync(&state).await;
+            }
+        }
+    }
+}
+
+async fn run_caldav_sync(state: &AppState) {
+    match crate::api::calendars::do_caldav_sync(state).await {
+        Ok(_) => {}
+        Err(e) => tracing::warn!("CalDAV-Sync: fehlgeschlagen: {}", e.0),
+    }
+}
+
 fn save_contacts_to_db(
     conn: &mut rusqlite::Connection,
-    contacts: &[crate::carddav::Contact],
+    contacts: &[crate::dav::Contact],
 ) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut stmt = tx.prepare(

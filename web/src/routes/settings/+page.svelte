@@ -6,6 +6,7 @@ import {
     connectAccount, listAccounts, deleteAccount, updateAccountSettings,
     getMoveToTrash, setMoveToTrash,
     getCardDavSettings, setCardDavSettings, syncCardDav, getOwnPhoto, saveOwnPhoto,
+    getCalDavSettings, setCalDavSettings, syncCalDav,
     getVoiceSettings, saveVoiceSettings,
     resetCircuitBreaker,
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache, clearAiSummaries,
@@ -94,6 +95,16 @@ import {
   let carddavError = $state<string | null>(null);
   let carddavSyncing = $state(false);
   let carddavSyncResult = $state<number | null>(null);
+
+  // ─── CalDAV State ───────────────────────────
+  let caldavUrl = $state("https://");
+  let caldavUser = $state("");
+  let caldavPass = $state("");
+  let caldavInterval = $state(30);
+  let caldavSaved = $state(false);
+  let caldavError = $state<string | null>(null);
+  let caldavSyncing = $state(false);
+  let caldavSyncResult = $state<number | null>(null);
   let ownPhoto = $state<{ data: string; type: string } | null>(null);
 
   // ─── Voice ───────────────────────────────────
@@ -213,6 +224,17 @@ import {
         carddavInterval = cs.sync_interval_minutes;
       }
     } catch (e) { console.warn("CardDAV settings load failed", e); }
+
+    // Load CalDAV settings
+    try {
+      const cs = await getCalDavSettings();
+      if (cs) {
+        caldavUrl = cs.url;
+        caldavUser = cs.username;
+        caldavPass = cs.password;
+        caldavInterval = cs.sync_interval_minutes;
+      }
+    } catch (e) { console.warn("CalDAV settings load failed", e); }
 
     // Load own photo
     try {
@@ -419,6 +441,37 @@ async function handleSaveCardDav() {
       carddavError = e instanceof Error ? e.message : String(e);
     } finally {
       carddavSyncing = false;
+    }
+  }
+
+  async function handleSaveCalDav() {
+    caldavError = null;
+    caldavSaved = false;
+    try {
+      await setCalDavSettings({
+        url: caldavUrl,
+        username: caldavUser,
+        password: caldavPass,
+        sync_interval_minutes: caldavInterval,
+      });
+      caldavSaved = true;
+      setTimeout(() => (caldavSaved = false), 2000);
+    } catch (e: unknown) {
+      caldavError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function handleSyncCalDav() {
+    caldavSyncing = true;
+    caldavSyncResult = null;
+    caldavError = null;
+    try {
+      const count = await syncCalDav();
+      caldavSyncResult = count;
+    } catch (e: unknown) {
+      caldavError = e instanceof Error ? e.message : String(e);
+    } finally {
+      caldavSyncing = false;
     }
   }
 
@@ -654,6 +707,15 @@ async function handleSaveCardDav() {
           </svg>
         </div>
         <span>{$t("settings.contacts")}</span>
+      </button>
+
+      <button type="button" class="menu-item" class:active={activeTab === 'caldav'} onclick={() => selectTab('caldav')}>
+        <div class="menu-icon-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        </div>
+        <span>{$t("settings.calendar")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => selectTab('ai')}>
@@ -1239,6 +1301,81 @@ async function handleSaveCardDav() {
                 {/if}
               </div>
             </div>
+          </div>
+        </section>
+      {/if}
+
+      <!-- ================= TAB: CALDAV ================= -->
+      {#if activeTab === 'caldav'}
+        <header class="tab-header">
+          <h1>{$t("settings.calendarTitle")}</h1>
+          <p class="tab-desc">{$t("settings.calendarDesc")}</p>
+        </header>
+
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>{$t("settings.caldav")}</h3>
+            <p class="card-desc">{$t("settings.caldavDesc")}</p>
+          </div>
+
+          <div class="card-body">
+            <div class="form-grid-1">
+              <div class="form-group">
+                <label for="caldav-url">{$t("settings.serverUrl")}</label>
+                <input id="caldav-url" type="url" bind:value={caldavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/calendars/username/" class="form-control" />
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="caldav-user">{$t("settings.usernameShort")}</label>
+                <input id="caldav-user" type="text" bind:value={caldavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
+              </div>
+              <div class="form-group">
+                <label for="caldav-pass">{$t("settings.passwordToken")}</label>
+                <input id="caldav-pass" type="password" bind:value={caldavPass} placeholder={$t("settings.passwordToken")} class="form-control" />
+              </div>
+            </div>
+
+            <div class="form-grid-1">
+              <div class="form-group">
+                <label for="caldav-interval">{$t("settings.syncInterval")}</label>
+                <div class="input-with-badge">
+                  <input id="caldav-interval" type="number" bind:value={caldavInterval} min="1" max="1440" class="form-control" />
+                  <span class="input-badge">{$t("settings.minutes")}</span>
+                </div>
+              </div>
+            </div>
+
+            {#if caldavError}
+              <div class="alert-box error">
+                <div class="alert-icon">⚠️</div>
+                <div class="alert-text">{caldavError}</div>
+              </div>
+            {/if}
+
+            {#if caldavSaved}
+              <div class="alert-box success">
+                <div class="alert-icon">✓</div>
+                <div class="alert-text">{$t("settings.caldavSaved")}</div>
+              </div>
+            {/if}
+
+            <div class="form-actions-row">
+              <button type="button" class="btn-cancel" onclick={handleSyncCalDav} disabled={caldavSyncing}>
+                {caldavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
+              </button>
+              <button type="button" class="btn-submit" onclick={handleSaveCalDav}>
+                {$t("common.save")}
+              </button>
+            </div>
+
+            {#if caldavSyncResult !== null}
+              <div class="sync-success-pill">
+                <span class="sync-icon">🔄</span>
+                <span>{$t("settings.syncSuccessCal", { count: caldavSyncResult })}</span>
+              </div>
+            {/if}
           </div>
         </section>
       {/if}

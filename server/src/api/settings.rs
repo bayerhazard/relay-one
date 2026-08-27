@@ -115,7 +115,7 @@ pub async fn get_carddav_settings(State(state): State<AppState>) -> ApiResult<se
     })?;
     match json {
         Some(raw) => {
-            let mut settings: crate::carddav::CardDavSettings =
+            let mut settings: crate::dav::CardDavSettings =
                 serde_json::from_str(&raw).map_err(|e| ApiError(format!("CardDAV parse: {e}")))?;
             settings.password = crate::crypto::decrypt(&settings.password).unwrap_or(settings.password);
             Ok(Json(serde_json::json!({
@@ -144,7 +144,7 @@ pub async fn set_carddav_settings(
     Json(req): Json<CardDavSettingsRequest>,
 ) -> ApiResult<serde_json::Value> {
     let encrypted_pw = crate::crypto::encrypt(&req.password).unwrap_or_else(|_| req.password.clone());
-    let settings = crate::carddav::CardDavSettings {
+    let settings = crate::dav::CardDavSettings {
         url: req.url.clone(),
         username: req.username.clone(),
         password: encrypted_pw,
@@ -168,7 +168,7 @@ pub async fn sync_carddav(State(state): State<AppState>) -> ApiResult<serde_json
     let Some(settings) = settings else {
         return Err(ApiError("CardDAV nicht konfiguriert".into()));
     };
-    let client = crate::carddav::client::CardDavClient::new(settings);
+    let client = crate::dav::carddav::CardDavClient::new(settings);
     let token = state.carddav_sync_token.read().clone();
     match client.sync_incremental(&token).await {
         Ok((contacts, _deleted, new_token)) => {

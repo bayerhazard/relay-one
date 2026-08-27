@@ -225,6 +225,94 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             last_sync_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_sync_state_account ON sync_state(account_id);
+
+        -- CalDAV: calendar collections (Phase 0)
+        CREATE TABLE IF NOT EXISTS calendars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT UNIQUE NOT NULL,
+            display_name TEXT,
+            description TEXT,
+            color TEXT,
+            sync_token TEXT NOT NULL DEFAULT '',
+            last_sync_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_calendars_url ON calendars(url);
+
+        -- CalDAV: events (parsed VEVENTs)
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+            uid TEXT NOT NULL,
+            url TEXT NOT NULL,
+            summary TEXT,
+            description TEXT,
+            location TEXT,
+            start_at TEXT NOT NULL,
+            end_at TEXT,
+            all_day INTEGER NOT NULL DEFAULT 0,
+            organizer TEXT,
+            status TEXT,
+            sequence INTEGER NOT NULL DEFAULT 0,
+            rrule TEXT,
+            alarms INTEGER NOT NULL DEFAULT 0,
+            etag TEXT,
+            ics_raw TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(calendar_id, uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);
+        CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at);
+        CREATE INDEX IF NOT EXISTS idx_events_calendar ON events(calendar_id);
+
+        -- CalDAV: event attendees
+        CREATE TABLE IF NOT EXISTS event_attendees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            name TEXT,
+            part_stat TEXT,
+            rsvp INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(event_id, email)
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_attendees_email ON event_attendees(email);
+
+        -- CalDAV: invitations (organizer/attendee status tracking)
+        CREATE TABLE IF NOT EXISTS invitations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_uid TEXT NOT NULL,
+            organizer TEXT,
+            attendee_email TEXT NOT NULL,
+            method TEXT NOT NULL DEFAULT 'REQUEST',
+            status TEXT NOT NULL DEFAULT 'NEEDS-ACTION',
+            sequence INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(event_uid, attendee_email)
+        );
+        CREATE INDEX IF NOT EXISTS idx_invitations_attendee ON invitations(attendee_email);
+
+        -- CalDAV: todos / tasks (schema now, populated in a later phase)
+        CREATE TABLE IF NOT EXISTS todos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+            uid TEXT NOT NULL,
+            url TEXT NOT NULL,
+            summary TEXT,
+            description TEXT,
+            due_at TEXT,
+            completed_at TEXT,
+            status TEXT NOT NULL DEFAULT 'NEEDS-ACTION',
+            priority INTEGER,
+            ics_raw TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(calendar_id, uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_todos_uid ON todos(uid);
+        CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_at);
         ",
     )?;
 

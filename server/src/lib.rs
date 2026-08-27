@@ -1,6 +1,6 @@
 //! Relay One server — library crate.
 //!
-//! Exposes the domain logic (IMAP/SMTP, cache, AI, security, tone, carddav)
+//! Exposes the domain logic (IMAP/SMTP, cache, AI, security, tone, dav)
 //! and the shared `AppState` so the binary (`main.rs`) and the REST API
 //! handlers can share code. This crate is intentionally free of Tauri — the
 //! migration target is a pure web server (axum).
@@ -9,12 +9,14 @@ pub mod ai;
 pub mod api;
 pub mod bootstrap;
 pub mod cache;
-pub mod carddav;
 pub mod crypto;
+pub mod dav;
 pub mod db;
 pub mod error;
 pub mod events;
 pub mod imap;
+#[cfg(test)]
+pub mod ics_spike;
 pub mod push;
 pub mod security;
 pub mod smtp;
@@ -42,9 +44,13 @@ pub struct AppState {
     pub smtp_clients: Arc<parking_lot::RwLock<HashMap<u32, Arc<smtp::client::SmtpClient>>>>,
     pub sync_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     pub sync_queue: Arc<sync::queue::SyncQueue>,
-    pub carddav_settings: Arc<parking_lot::RwLock<Option<carddav::CardDavSettings>>>,
+    pub carddav_settings: Arc<parking_lot::RwLock<Option<dav::CardDavSettings>>>,
     pub carddav_sync_token: Arc<parking_lot::RwLock<String>>,
     pub carddav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
+    /// CalDAV (Phase 0): calendar/event sync state.
+    pub caldav_settings: Arc<parking_lot::RwLock<Option<dav::CalDavSettings>>>,
+    pub caldav_sync_token: Arc<parking_lot::RwLock<String>>,
+    pub caldav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Server → client notification bus (replaces Tauri `Emitter`).
     pub events: events::EventBus,
     /// Data root for ALL user data (EML archive, attachments, DBs).
@@ -71,6 +77,9 @@ impl AppState {
             carddav_settings: Arc::new(parking_lot::RwLock::new(None)),
             carddav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             carddav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
+            caldav_settings: Arc::new(parking_lot::RwLock::new(None)),
+            caldav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
+            caldav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             events: events::EventBus::new(),
             data_root: std::env::var("RELAY_DATA_DIR")
                 .map(std::path::PathBuf::from)
@@ -114,6 +123,16 @@ impl AppState {
         if let Some(tx) = carddav_tx_opt {
             let _ = tx.send(()).await;
             tracing::info!("CardDAV: Shutdown-Signal gesendet");
+        }
+
+        // Step 1.6: Signal CalDAV sync to stop
+        let caldav_tx_opt = {
+            let mut guard = self.caldav_shutdown_tx.lock();
+            guard.take()
+        };
+        if let Some(tx) = caldav_tx_opt {
+            let _ = tx.send(()).await;
+            tracing::info!("CalDAV: Shutdown-Signal gesendet");
         }
 
         // Step 2: Short grace period for pending sync operations to drain

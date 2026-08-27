@@ -2616,7 +2616,14 @@ let sentFolderName = $state<string | null>(null);
               {/if}
             </div>
           </div>
-          
+
+          <div class="footer-row module-row">
+            <button type="button" class="module-btn" onclick={() => goto('/calendar')} title="Kalender">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span>Kalender</span>
+            </button>
+          </div>
+
           <span class="version">AImighty Relay 3.0</span>
         </div>
       </div>
@@ -3049,6 +3056,27 @@ let sentFolderName = $state<string | null>(null);
     margin-top: 8px;
     margin-bottom: 20px;
     letter-spacing: 0.01em;
+  }
+  .module-row {
+    justify-content: flex-start;
+    padding: 0 10px;
+  }
+  .module-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-m);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .module-btn:hover {
+    background: var(--color-active-wash);
+    color: var(--color-text);
   }
   .list-header-container {
     display: flex;

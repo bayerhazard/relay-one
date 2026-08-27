@@ -62,6 +62,12 @@ function get<T>(path: string, msg: string): Promise<T> {
 function post<T>(path: string, body: unknown, msg: string): Promise<T> {
   return apiCall<T>("POST", path, body, msg);
 }
+function put<T>(path: string, body: unknown, msg: string): Promise<T> {
+  return apiCall<T>("PUT", path, body, msg);
+}
+function del<T>(path: string, msg: string): Promise<T> {
+  return apiCall<T>("DELETE", path, undefined, msg);
+}
 
 // ─── Settings ──────────────────────────────────────────────
 
@@ -775,6 +781,127 @@ export async function getCardDavSettings(): Promise<CardDavSettings | null> {
 export async function setCardDavSettings(settings: CardDavSettings): Promise<void> {
   return post("/carddav/settings", settings,
     "Die CardDAV-Einstellungen konnten nicht gespeichert werden.");
+}
+
+// ─── CalDAV ───────────────────────────────────────────────────────
+
+export interface CalDavSettings {
+  url: string;
+  username: string;
+  password: string;
+  sync_interval_minutes: number;
+}
+
+export interface CalendarInfo {
+  id: number;
+  name: string;
+  color: string;
+  read_only: boolean;
+  last_synced_at: string | null;
+}
+
+export interface EventInfo {
+  id: number;
+  calendar_id: number;
+  uid: string;
+  summary: string | null;
+  start: string;
+  end: string;
+  all_day: boolean;
+  location: string | null;
+  description: string | null;
+  status: string;
+  organizer: string | null;
+  rrule: string | null;
+  /** Number of VALARM reminders attached to the event. */
+  alarms?: number;
+  /** Start of this specific occurrence (recurring events), RFC 3339 UTC. */
+  occurrence_start?: string;
+  /** End of this specific occurrence (recurring events), RFC 3339 UTC. */
+  occurrence_end?: string;
+}
+
+export interface EventAttendeeInfo {
+  email: string;
+  name: string | null;
+  role: string;
+  part_stat: string;
+  rsvp: boolean;
+}
+
+export async function getCalDavSettings(): Promise<CalDavSettings | null> {
+  return get("/calendars/settings", "Die CalDAV-Einstellungen konnten nicht geladen werden.");
+}
+
+export async function setCalDavSettings(settings: CalDavSettings): Promise<void> {
+  return post("/calendars/settings", settings,
+    "Die CalDAV-Einstellungen konnten nicht gespeichert werden.");
+}
+
+export async function syncCalDav(): Promise<number> {
+  return post("/calendars/sync", {}, "Die CalDAV-Synchronisation konnte nicht durchgeführt werden.");
+}
+
+export async function getCalendars(): Promise<CalendarInfo[]> {
+  return get("/calendars", "Die Kalender konnten nicht geladen werden.");
+}
+
+export async function listEvents(calendarId: number | null, from: string, to: string): Promise<EventInfo[]> {
+  const cal = calendarId === null ? "" : `calendar_id=${calendarId}&`;
+  return get(`/events?${cal}start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`,
+    "Die Termine konnten nicht geladen werden.");
+}
+
+export async function getEvent(id: number): Promise<EventInfo> {
+  return get(`/events/${id}`, "Der Termin konnte nicht geladen werden.");
+}
+
+export async function createEvent(body: {
+  calendar_id: number;
+  summary: string;
+  start: string;
+  end?: string;
+  description?: string;
+  location?: string;
+  all_day?: boolean;
+  rrule?: string;
+  reminder_minutes?: number;
+  attendees?: { email: string; name?: string }[];
+}): Promise<EventInfo> {
+  return post("/events", body, "Der Termin konnte nicht erstellt werden.");
+}
+
+export async function updateEvent(id: number, body: {
+  summary?: string;
+  start?: string;
+  end?: string;
+  description?: string;
+  location?: string;
+  all_day?: boolean;
+  rrule?: string;
+  reminder_minutes?: number;
+  attendees?: { email: string; name?: string }[];
+}): Promise<EventInfo> {
+  return put(`/events/${id}`, body, "Der Termin konnte nicht aktualisiert werden.");
+}
+
+export async function deleteEvent(id: number): Promise<void> {
+  return del(`/events/${id}`, "Der Termin konnte nicht gelöscht werden.");
+}
+
+export async function importEvents(calendarId: number, ics: string): Promise<{ imported: number }> {
+  return post<{ imported: number }>(
+    "/events/import",
+    { calendar_id: calendarId, ics },
+    "Der ICS-Import ist fehlgeschlagen.",
+  );
+}
+
+export async function getEventIcs(id: number): Promise<{ ics: string; filename: string }> {
+  return get<{ ics: string; filename: string }>(
+    `/events/${id}/ics`,
+    "Der Termin konnte nicht exportiert werden.",
+  );
 }
 
 // ─── Voice ────────────────────────────────────────────────────────

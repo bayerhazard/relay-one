@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod archive;
 pub mod attachments;
+pub mod cal;
 pub mod db;
 pub mod delete_queue;
 pub mod fingerprint;

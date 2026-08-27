@@ -22,7 +22,7 @@ use tower_http::trace::TraceLayer;
 use relay_server::api;
 use relay_server::bootstrap;
 use relay_server::cache;
-use relay_server::carddav;
+use relay_server::dav;
 use relay_server::crypto;
 use relay_server::sync;
 use relay_server::AppState;
@@ -66,9 +66,10 @@ async fn main() {
     *state.cache_db.lock() = Some(conn);
     *state.db_path.lock() = Some(db_path);
 
-    // Load AI + CardDAV settings from DB.
+    // Load AI + CardDAV + CalDAV settings from DB.
     bootstrap::load_ai_settings(&state);
     load_carddav_settings(&state);
+    load_caldav_settings(&state);
 
     // Background: reconnect IMAP/SMTP clients, then start sync scheduler.
     let sync_state = state.clone();
@@ -84,7 +85,15 @@ async fn main() {
     let (carddav_shutdown_tx, carddav_shutdown_rx) = mpsc::channel(1);
     *state.carddav_shutdown_tx.lock() = Some(carddav_shutdown_tx);
     tokio::spawn(async move {
-        carddav::scheduler::start_carddav_sync(carddav_state, carddav_shutdown_rx).await;
+        dav::scheduler::start_carddav_sync(carddav_state, carddav_shutdown_rx).await;
+    });
+
+    // CalDAV background sync (starts only if configured).
+    let caldav_state = state.clone();
+    let (caldav_shutdown_tx, caldav_shutdown_rx) = mpsc::channel(1);
+    *state.caldav_shutdown_tx.lock() = Some(caldav_shutdown_tx);
+    tokio::spawn(async move {
+        dav::scheduler::start_caldav_sync(caldav_state, caldav_shutdown_rx).await;
     });
 
     // Build the axum app: API under /api/v1.
@@ -125,13 +134,29 @@ fn load_carddav_settings(state: &AppState) {
         return;
     };
     if let Ok(Some(json)) = cache::settings::get_setting(conn, "carddav_settings") {
-        if let Ok(mut settings) = serde_json::from_str::<carddav::CardDavSettings>(&json) {
+        if let Ok(mut settings) = serde_json::from_str::<dav::CardDavSettings>(&json) {
             settings.password = crypto::decrypt(&settings.password).unwrap_or(settings.password);
             *state.carddav_settings.write() = Some(settings);
         }
     }
     if let Ok(Some(token)) = cache::settings::get_setting(conn, "carddav_sync_token") {
         *state.carddav_sync_token.write() = token;
+    }
+}
+
+fn load_caldav_settings(state: &AppState) {
+    let guard = state.cache_db.lock();
+    let Some(conn) = guard.as_ref() else {
+        return;
+    };
+    if let Ok(Some(json)) = cache::settings::get_setting(conn, "caldav_settings") {
+        if let Ok(mut settings) = serde_json::from_str::<dav::CalDavSettings>(&json) {
+            settings.password = crypto::decrypt(&settings.password).unwrap_or(settings.password);
+            *state.caldav_settings.write() = Some(settings);
+        }
+    }
+    if let Ok(Some(token)) = cache::settings::get_setting(conn, "caldav_sync_token") {
+        *state.caldav_sync_token.write() = token;
     }
 }
 
