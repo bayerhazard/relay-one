@@ -95,7 +95,37 @@ impl AIClient {
         let _permit = self.semaphore.clone().acquire_owned().await
             .map_err(|_| "LLM-System heruntergefahren".to_string())?;
 
-        match self.complete_internal(system_prompt, user_prompt, temperature, max_tokens).await {
+        let messages = vec![
+            ChatMessage { role: "system".into(), content: system_prompt.to_string() },
+            ChatMessage {
+                role: "user".into(),
+                content: truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
+            },
+        ];
+        match self.complete_internal(messages, temperature, max_tokens).await {
+            Ok(result) => {
+                self.circuit_breaker.record_success();
+                Ok(result)
+            }
+            Err(e) => {
+                self.circuit_breaker.record_failure();
+                Err(e)
+            }
+        }
+    }
+
+    /// Multi-message request (e.g. tool loop). Caller builds the message list and
+    /// is responsible for keeping it within a reasonable size.
+    pub async fn complete_messages(
+        &self,
+        messages: Vec<ChatMessage>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Result<String, String> {
+        self.circuit_breaker.allow_request()?;
+        let _permit = self.semaphore.clone().acquire_owned().await
+            .map_err(|_| "LLM-System heruntergefahren".to_string())?;
+        match self.complete_internal(messages, temperature, max_tokens).await {
             Ok(result) => {
                 self.circuit_breaker.record_success();
                 Ok(result)
@@ -125,8 +155,15 @@ impl AIClient {
             Ok(_p) => {
                 // Keep permit (_p) in scope so it's dropped only after complete_internal is finished!
                 // This prevents overloading the local LLM with concurrent parallel requests.
-                let result = self.complete_internal(system_prompt, user_prompt, temperature, max_tokens).await;
-                if result.is_ok() {
+            let messages = vec![
+                ChatMessage { role: "system".into(), content: system_prompt.to_string() },
+                ChatMessage {
+                    role: "user".into(),
+                    content: truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
+                },
+            ];
+            let result = self.complete_internal(messages, temperature, max_tokens).await;
+            if result.is_ok() {
                     self.circuit_breaker.record_success();
                 } else {
                     self.circuit_breaker.record_failure();
@@ -144,8 +181,7 @@ impl AIClient {
     /// Internal: execute the LLM call (semaphore must already be acquired by caller)
     async fn complete_internal(
         &self,
-        system_prompt: &str,
-        user_prompt: &str,
+        messages: Vec<ChatMessage>,
         temperature: Option<f32>,
         max_tokens: Option<u32>,
     ) -> Result<String, String> {
@@ -154,21 +190,9 @@ impl AIClient {
             self.config.url.trim_end_matches('/')
         );
 
-        // Truncate user prompt to prevent context overflow
-        let user_prompt = truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned();
-
         let body = ChatRequest {
             model: self.config.model.clone(),
-            messages: vec![
-                ChatMessage {
-                    role: "system".into(),
-                    content: system_prompt.to_string(),
-                },
-                ChatMessage {
-                    role: "user".into(),
-                    content: user_prompt,
-                },
-            ],
+            messages,
             stream: false,
             temperature: temperature.unwrap_or(self.config.temperature),
             max_tokens: max_tokens.unwrap_or(self.config.max_tokens),
@@ -340,9 +364,9 @@ struct ChatRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Deserialize)]

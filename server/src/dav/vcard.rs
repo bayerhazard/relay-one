@@ -56,12 +56,13 @@ pub fn parse_vcard(raw: &str) -> Contact {
         match base_prop {
             "FN" => contact.display_name = Some(value.to_string()),
             "N" => {
+                // vCard N format: Family;Given;Additional;Prefix;Suffix
                 let parts: Vec<&str> = value.split(';').collect();
-                if parts.len() >= 2 && !parts[1].is_empty() {
-                    contact.family_name = Some(parts[1].to_string());
-                }
                 if !parts[0].is_empty() {
-                    contact.given_name = Some(parts[0].to_string());
+                    contact.family_name = Some(parts[0].to_string());
+                }
+                if parts.len() >= 2 && !parts[1].is_empty() {
+                    contact.given_name = Some(parts[1].to_string());
                 }
             }
             "EMAIL" => {
@@ -151,9 +152,9 @@ END:VCARD"
     fn test_parse_vcard_basic() {
         let contact = parse_vcard(sample_vcard());
         assert_eq!(contact.display_name, Some("Max Mustermann".to_string()));
-        // N:Family;Given; but parser treats parts[0] as given, parts[1] as family
-        assert_eq!(contact.given_name, Some("Mustermann".to_string()));
-        assert_eq!(contact.family_name, Some("Max".to_string()));
+        // N:Family;Given; — parts[0]=family, parts[1]=given
+        assert_eq!(contact.given_name, Some("Max".to_string()));
+        assert_eq!(contact.family_name, Some("Mustermann".to_string()));
         assert_eq!(contact.email, Some("max@example.com".to_string()));
         assert_eq!(contact.phone, Some("+491234567890".to_string()));
         assert_eq!(contact.organization, Some("Beispiel GmbH".to_string()));
@@ -175,8 +176,8 @@ VERSION:3.0
 N:Muster;Anna;;;
 END:VCARD";
         let contact = parse_vcard(vcard);
-        // Parser treats parts[0] as given, parts[1] as family
-        assert_eq!(contact.display_name, Some("Muster Anna".to_string()));
+        // N:Muster;Anna → family=Muster, given=Anna → display "Anna Muster"
+        assert_eq!(contact.display_name, Some("Anna Muster".to_string()));
     }
 
     #[test]

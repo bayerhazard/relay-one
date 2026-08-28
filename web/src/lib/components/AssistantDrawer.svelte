@@ -43,6 +43,8 @@
     text: string;
     actions: AssistantAction[];
     error?: string;
+    /** Kurze Ergebnis-Zeile nach einer ausgefuehrten Aktion. */
+    outcome?: boolean;
   }
 
   let messages = $state<ChatMsg[]>([]);
@@ -193,14 +195,37 @@
       const res: AssistantResult = await askAssistant(text, fullContext, history);
       // Zeige die Antwort (ohne Action-Buttons).
       messages = [...messages, { role: "assistant", text: res.reply || "(keine Antwort)", actions: [] }];
-      // Aktionen direkt ausführen, Output unterdrücken.
+      // Aktionen ausfuehren und das Ergebnis als kurze Zeile anzeigen.
       for (const action of res.actions) {
-        await runAction(action);
+        const outcome = await runAction(action);
+        messages = [...messages, { role: "assistant", text: outcome, actions: [], outcome: true }];
       }
     } catch (e) {
       messages = [...messages, { role: "assistant", text: "", actions: [], error: String(e) }];
     } finally {
       loading = false;
+    }
+  }
+
+  // Sinnvolles Default-Datum, falls die KI keinen Start liefert: naechster
+  // Werktag um 09:00 (lokal) — nicht "jetzt".
+  function defaultEventStart(): string {
+    const d = new Date();
+    d.setHours(9, 0, 0, 0);
+    const advance = () => {
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+    };
+    if (d.getTime() <= Date.now()) advance();
+    while (d.getDay() === 0 || d.getDay() === 6) advance();
+    return d.toISOString();
+  }
+
+  function formatLocal(iso: string): string {
+    try {
+      return new Date(iso).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
+    } catch {
+      return iso;
     }
   }
 
@@ -210,12 +235,14 @@
       switch (action.type) {
         case "event_create": {
           const cals = await getCalendars();
-          const cal = cals[0];
+          // Ersten schreibbaren Kalender nehmen (cals[0] kann read-only/hidden sein).
+          const cal = cals.find((c) => !c.read_only) ?? cals[0];
           if (!cal) return "Kein Kalender gefunden.";
-          const start = (p.start as string) ?? new Date().toISOString();
+          const summary = (p.summary as string) ?? (p.title as string) ?? "Termin";
+          const start = (p.start as string) ?? defaultEventStart();
           await createEvent({
             calendar_id: cal.id,
-            summary: (p.summary as string) ?? (p.title as string) ?? "Termin",
+            summary,
             start,
             end: (p.end as string) ?? undefined,
             description: (p.description as string) ?? undefined,
@@ -225,16 +252,15 @@
           });
           if (module !== "calendar") await goto("/calendar");
           onclose();
-          return "Termin angelegt.";
+          return `✓ „${summary}" am ${formatLocal(start)} (Kalender „${cal.name ?? "?"}").`;
         }
-        case "task_create":
-          await createTodo({
-            summary: (p.summary as string) ?? (p.title as string) ?? "Aufgabe",
-            due: (p.due as string) ?? undefined,
-          });
+        case "task_create": {
+          const summary = (p.summary as string) ?? (p.title as string) ?? "Aufgabe";
+          await createTodo({ summary, due: (p.due as string) ?? undefined });
           if (module !== "tasks") await goto("/tasks");
           onclose();
-          return "Aufgabe angelegt.";
+          return `✓ Aufgabe „${summary}" angelegt.`;
+        }
         case "find_mail": {
           assistantAction.set({ type: "search", query: (p.query as string) ?? "" });
           if (module !== "mail") await goto("/");
@@ -275,6 +301,8 @@
         {#each messages as m (m.text + m.actions.length)}
           {#if m.error}
             <div class="chat-msg assistant error">{m.error}</div>
+          {:else if m.outcome}
+            <div class="chat-msg assistant outcome">{m.text}</div>
           {:else}
             <div class="chat-msg {m.role}">
               <div class="chat-text">{m.text}</div>
@@ -499,6 +527,16 @@
     background: var(--color-active-wash);
     color: var(--color-danger);
     border: 1px solid var(--color-danger);
+  }
+  .chat-msg.outcome {
+    margin-right: auto;
+    max-width: 100%;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-left: 2px solid var(--color-border);
   }
   .chat-typing {
     color: var(--color-text-secondary);

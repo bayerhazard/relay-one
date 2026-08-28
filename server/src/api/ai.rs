@@ -921,7 +921,7 @@ pub struct ConflictAlternativesRequest {
     pub calendar_id: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TimeSlot {
     pub start: String,
     pub end: String,
@@ -1048,14 +1048,49 @@ pub async fn ai_rsvp_draft(
     Ok(Json(result))
 }
 
-/// A single suggested follow-up action derived from a message.
+/// Ein einzelner Follow-up-Vorschlag als ausfuehrbare Einzelaktion.
 #[derive(Serialize, Deserialize)]
-pub struct FollowupItem {
-    pub task: String,
-    #[serde(default)]
+pub struct FollowupAction {
+    pub id: String,
+    /// "task" | "event" | "email"
+    pub kind: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<FollowupTask>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<FollowupEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<FollowupEmail>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FollowupTask {
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FollowupEvent {
+    pub summary: String,
+    pub start: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
     #[serde(default)]
-    pub reason: Option<String>,
+    pub attendees: Vec<String>,
+    /// "free" | "busy"
+    pub availability: String,
+    #[serde(default)]
+    pub conflicts: Vec<String>,
+    #[serde(default)]
+    pub alternatives: Vec<TimeSlot>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FollowupEmail {
+    pub to: String,
+    pub subject: String,
+    pub body: String,
 }
 
 #[derive(Deserialize)]
@@ -1066,30 +1101,157 @@ pub struct FollowupsRequest {
 }
 
 /// `POST /api/v1/ai/followups` — suggest follow-up actions for a message.
+///
+/// Returns structured single actions the user can execute individually:
+/// a meeting request becomes an event action (with availability + alternatives)
+/// plus an email action (confirmation if free, counter-offer if busy); other
+/// follow-ups become task actions.
 pub async fn ai_followups(
     State(state): State<AppState>,
     Json(req): Json<FollowupsRequest>,
-) -> ApiResult<Vec<FollowupItem>> {
-    let (system, user) = prompts::build_followups_prompt(&req.subject, &req.from, &req.body);
+) -> ApiResult<Vec<FollowupAction>> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let (system, user) = prompts::build_followups_prompt(&req.subject, &req.from, &req.body, &now);
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(1200)).await?;
-    let arr = extract_json_array(&raw);
-    let items: Vec<FollowupItem> = arr
-        .into_iter()
-        .filter_map(|v| {
-            let task = v.get("task")?.as_str()?.trim().to_string();
-            if task.is_empty() {
-                return None;
-            }
-            Some(FollowupItem {
-                due: v.get("due").and_then(|d| d.as_str()).map(str::to_string),
-                reason: v.get("reason").and_then(|r| r.as_str()).map(str::to_string),
-                task,
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
+    let obj = extract_json_object(&raw);
+    let mut actions: Vec<FollowupAction> = Vec::new();
+    let mut counter = 0u32;
+
+    // Meeting-Anfrage → Event-Aktion + E-Mail-Aktion.
+    if let Some(meeting) = obj.get("meeting").and_then(|m| m.as_object()) {
+        let title = meeting.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let start = meeting.get("start").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let end = meeting.get("end").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let attendees: Vec<String> = meeting
+            .get("attendees")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|a| a.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let (start_ok, end_ok) = (
+            chrono::DateTime::parse_from_rfc3339(&start).is_ok(),
+            chrono::DateTime::parse_from_rfc3339(&end).is_ok(),
+        );
+        if !title.is_empty() && start_ok && end_ok {
+            // Verfuegbarkeit ueber alle Kalender pruefen.
+            let conflicts = with_db(&state, |conn| {
+                crate::cache::cal::find_conflicts(conn, None, &start, &end, None)
+                    .map(|c| {
+                        c.iter()
+                            .map(|e| e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into()))
+                            .collect::<Vec<_>>()
+                    })
+                    .map_err(|e| e.to_string())
             })
-        })
-        .take(5)
-        .collect();
-    Ok(Json(items))
+            .unwrap_or_default();
+            let availability = if conflicts.is_empty() { "free" } else { "busy" };
+
+            // Alternativen, wenn belegt.
+            let mut alternatives: Vec<TimeSlot> = Vec::new();
+            if availability == "busy" {
+                let duration = match (
+                    chrono::DateTime::parse_from_rfc3339(&start).ok(),
+                    chrono::DateTime::parse_from_rfc3339(&end).ok(),
+                ) {
+                    (Some(s), Some(e)) => ((e - s).num_minutes()).max(1).min(480) as u32,
+                    _ => 60,
+                };
+                let (sys, usr) = prompts::build_conflict_alternatives_prompt(
+                    &title, &start, &end, &conflicts.join("; "), duration,
+                );
+                if let Ok(raw2) = client.complete_user(&sys, &usr, Some(0.4), Some(600)).await {
+                    for slot in extract_json_array(&raw2) {
+                        let (Some(s), Some(e)) = (
+                            slot.get("start").and_then(|v| v.as_str()),
+                            slot.get("end").and_then(|v| v.as_str()),
+                        ) else {
+                            continue;
+                        };
+                        let still = with_db(&state, |conn| {
+                            crate::cache::cal::find_conflicts(conn, None, s, e, None)
+                                .map(|c| !c.is_empty())
+                                .map_err(|err| err.to_string())
+                        })
+                        .unwrap_or(false);
+                        if still {
+                            continue;
+                        }
+                        alternatives.push(TimeSlot {
+                            start: s.to_string(),
+                            end: e.to_string(),
+                            reason: slot.get("reason").and_then(|v| v.as_str()).map(String::from),
+                        });
+                        if alternatives.len() >= 3 {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            counter += 1;
+            let event_label = if availability == "free" {
+                format!("Termin eintragen: {title}")
+            } else {
+                format!("Termin belegt: {title} — Alternativ vorschlagen")
+            };
+            actions.push(FollowupAction {
+                id: format!("fu-{counter}"),
+                kind: "event".into(),
+                label: event_label,
+                task: None,
+                event: Some(FollowupEvent {
+                    summary: title.clone(),
+                    start: start.clone(),
+                    end: Some(end.clone()),
+                    attendees: attendees.clone(),
+                    availability: availability.to_string(),
+                    conflicts: conflicts.clone(),
+                    alternatives,
+                }),
+                email: None,
+            });
+
+            // E-Mail-Aktion: Bestaetigung (frei) oder Gegenvorschlag (belegt).
+            let email_key = if availability == "free" { "confirmation_email" } else { "counter_email" };
+            if let Some(email) = obj.get(email_key).and_then(|e| e.as_object()) {
+                let subject = email.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let body = email.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+                if !body.is_empty() {
+                    counter += 1;
+                    actions.push(FollowupAction {
+                        id: format!("fu-{counter}"),
+                        kind: "email".into(),
+                        label: if availability == "free" { "Bestätigung senden".into() } else { "Antwort vorbereiten".into() },
+                        task: None,
+                        event: None,
+                        email: Some(FollowupEmail { to: req.from.clone(), subject, body }),
+                    });
+                }
+            }
+        }
+    }
+
+    // Aufgaben.
+    if let Some(tasks) = obj.get("tasks").and_then(|t| t.as_array()) {
+        for task in tasks.iter().take(4) {
+            let summary = task.get("task").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if summary.is_empty() {
+                continue;
+            }
+            let due = task.get("due").and_then(|v| v.as_str()).map(String::from);
+            counter += 1;
+            actions.push(FollowupAction {
+                id: format!("fu-{counter}"),
+                kind: "task".into(),
+                label: summary.clone(),
+                task: Some(FollowupTask { summary, due }),
+                event: None,
+                email: None,
+            });
+        }
+    }
+
+    Ok(Json(actions))
 }
 
 // ─── Phase 4 — AI-First helpers ─────────────────────────────
@@ -1457,37 +1619,53 @@ fn gather_assistant_context(state: &AppState) -> String {
         }
     }
 
-    // Contacts (max 50).
+    // Contacts (max 50). Fall back to given/family/email when display_name is
+    // empty so contacts without a display name are not silently dropped.
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT display_name, email, phone FROM contacts
-         WHERE display_name IS NOT NULL AND display_name != ''
-         ORDER BY display_name COLLATE NOCASE LIMIT 50",
+        "SELECT display_name, given_name, family_name, email, phone FROM contacts
+         ORDER BY display_name COLLATE NOCASE, given_name COLLATE NOCASE LIMIT 50",
     ) {
         if let Ok(rows) = stmt.query_map([], |r| {
             Ok((
-                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(0)?,
                 r.get::<_, Option<String>>(1)?,
                 r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
             ))
         }) {
             let contacts: Vec<String> = rows
                 .filter_map(|row| {
-                    row.ok().map(|(name, email, phone)| {
+                    row.ok().and_then(|(display, given, family, email, phone)| {
                         let email = email.filter(|e| !e.trim().is_empty());
                         let phone = phone.filter(|p| !p.trim().is_empty());
+                        let name = display
+                            .filter(|d| !d.trim().is_empty())
+                            .or_else(|| {
+                                let g = given.filter(|g| !g.trim().is_empty());
+                                let f = family.filter(|f| !f.trim().is_empty());
+                                match (g, f) {
+                                    (Some(g), Some(f)) => Some(format!("{g} {f}")),
+                                    (Some(g), None) => Some(g),
+                                    (None, Some(f)) => Some(f),
+                                    _ => None,
+                                }
+                            })
+                            .or_else(|| email.clone())
+                            .filter(|n| !n.trim().is_empty())?;
                         let mut line = format!("- {name}");
-                        if let Some(e) = email {
+                        if let Some(e) = &email {
                             line.push_str(&format!(" (Mail: {e})"));
                         }
-                        if let Some(p) = phone {
+                        if let Some(p) = &phone {
                             line.push_str(&format!(" (Telefon: {p})"));
                         }
-                        line
+                        Some(line)
                     })
                 })
                 .collect();
             if !contacts.is_empty() {
-                parts.push(format!("Kontakte:\n{}", contacts.join("\n")));
+                parts.push(format!("Kontakte (Auszug):\n{}", contacts.join("\n")));
             }
         }
     }
@@ -1526,6 +1704,74 @@ fn gather_assistant_context(state: &AppState) -> String {
     parts.join("\n\n")
 }
 
+/// Search contacts by name/email fragment (case-insensitive). Used by the
+/// assistant's `search_contacts` tool. Returns a formatted list or "keine Treffer".
+fn search_contacts_in_db(state: &AppState, query: &str) -> String {
+    let db = state.cache_db.lock();
+    let Some(conn) = db.as_ref() else {
+        return "Kontakte nicht verfuegbar".to_string();
+    };
+    let q = format!("%{}%", query.trim());
+    let rows: Vec<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = conn
+        .prepare(
+            "SELECT display_name, given_name, family_name, email, phone
+             FROM contacts
+             WHERE lower(COALESCE(display_name,'')) LIKE lower(?1)
+                OR lower(COALESCE(given_name,'')) LIKE lower(?1)
+                OR lower(COALESCE(family_name,'')) LIKE lower(?1)
+                OR lower(COALESCE(email,'')) LIKE lower(?1)
+             ORDER BY COALESCE(display_name, given_name, family_name, email, '') COLLATE NOCASE
+             LIMIT 20",
+        )
+        .ok()
+        .and_then(|mut stmt| {
+            stmt.query_map(rusqlite::params![q], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    if rows.is_empty() {
+        return "keine Treffer".to_string();
+    }
+    rows.into_iter()
+        .filter_map(|(display, given, family, email, phone)| {
+            let email = email.filter(|e| !e.trim().is_empty());
+            let phone = phone.filter(|p| !p.trim().is_empty());
+            let name = display
+                .filter(|d| !d.trim().is_empty())
+                .or_else(|| {
+                    let g = given.filter(|g| !g.trim().is_empty());
+                    let f = family.filter(|f| !f.trim().is_empty());
+                    match (g, f) {
+                        (Some(g), Some(f)) => Some(format!("{g} {f}")),
+                        (Some(g), None) => Some(g),
+                        (None, Some(f)) => Some(f),
+                        _ => None,
+                    }
+                })
+                .or_else(|| email.clone())
+                .filter(|n| !n.trim().is_empty())?;
+            let mut line = format!("- {name}");
+            if let Some(e) = &email {
+                line.push_str(&format!(" (Mail: {e})"));
+            }
+            if let Some(p) = &phone {
+                line.push_str(&format!(" (Telefon: {p})"));
+            }
+            Some(line)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// `POST /api/v1/ai/assistant` — the global assistant (centerpiece).
 pub async fn ai_assistant(
     State(state): State<AppState>,
@@ -1552,20 +1798,68 @@ pub async fn ai_assistant(
         .join("\n");
     let (system, user) = prompts::build_assistant_prompt(&req.message, &full_context, AVAILABLE_ACTIONS, &now, &history);
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.5), Some(1500)).await?;
-    let obj = extract_json_object(&raw);
+
+    // Tool loop: the LLM may call `search_contacts` to look up a specific
+    // person (the context only holds a contact excerpt). We run the search and
+    // feed the result back, up to 3 rounds, then expect the final answer.
+    use crate::ai::client::ChatMessage;
+    let mut messages = vec![
+        ChatMessage { role: "system".into(), content: system },
+        ChatMessage { role: "user".into(), content: user },
+    ];
+    let mut last_raw = String::new();
+    for _ in 0..3 {
+        let raw = client.complete_messages(messages.clone(), Some(0.5), Some(1500)).await?;
+        last_raw = raw.clone();
+        let obj = extract_json_object(&raw);
+        let is_search = obj
+            .get("tool_call")
+            .and_then(|t| t.get("name"))
+            .and_then(|n| n.as_str())
+            == Some("search_contacts");
+        if is_search {
+            let query = obj
+                .get("tool_call")
+                .and_then(|t| t.get("query"))
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .to_string();
+            let results = search_contacts_in_db(&state, &query);
+            messages.push(ChatMessage { role: "assistant".into(), content: raw });
+            messages.push(ChatMessage {
+                role: "user".into(),
+                content: format!(
+                    "Ergebnis von search_contacts(\"{query}\"):\n{results}\n\n\
+                     Antworte jetzt mit dem normalen JSON-Objekt {{\"reply\": ..., \"actions\": [...]}}."
+                ),
+            });
+            continue;
+        }
+        let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let actions = obj
+            .get("actions")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|a| {
+                        let kind = a.get("type")?.as_str()?.to_string();
+                        if kind.is_empty() {
+                            return None;
+                        }
+                        let payload = a.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+                        Some(AssistantAction { kind, payload })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Ok(Json(AssistantResult { reply, actions }));
+    }
+    // Loop exhausted without a clean final answer — return the last output so
+    // the user still gets something instead of an empty reply.
+    let obj = extract_json_object(&last_raw);
     let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let actions = obj.get("actions").and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|a| {
-            let kind = a.get("type")?.as_str()?.to_string();
-            if kind.is_empty() {
-                return None;
-            }
-            let payload = a.get("payload").cloned().unwrap_or(serde_json::Value::Null);
-            Some(AssistantAction { kind, payload })
-        }).collect())
-        .unwrap_or_default();
-    Ok(Json(AssistantResult { reply, actions }))
+    let reply = if reply.is_empty() { last_raw } else { reply };
+    Ok(Json(AssistantResult { reply, actions: vec![] }))
 }
 
 #[cfg(test)]

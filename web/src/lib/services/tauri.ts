@@ -1288,18 +1288,48 @@ export async function syncTodos(): Promise<{ synced: number }> {
 
 // ─── AI Followups ───────────────────────────────────────────
 
-export interface FollowupItem {
-  task: string;
+export interface FollowupTask {
+  summary: string;
   due: string | null;
-  reason: string | null;
+}
+
+export interface FollowupTimeSlot {
+  start: string;
+  end: string;
+  reason?: string | null;
+}
+
+export interface FollowupEvent {
+  summary: string;
+  start: string;
+  end: string | null;
+  attendees: string[];
+  availability: "free" | "busy";
+  conflicts: string[];
+  alternatives: FollowupTimeSlot[];
+}
+
+export interface FollowupEmail {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+export interface FollowupAction {
+  id: string;
+  kind: "task" | "event" | "email";
+  label: string;
+  task?: FollowupTask;
+  event?: FollowupEvent;
+  email?: FollowupEmail;
 }
 
 export async function getFollowups(
   subject: string,
   from: string,
   body: string,
-): Promise<FollowupItem[]> {
-  return post<FollowupItem[]>("/ai/followups", { subject, from, body }, "KI-Follow-ups konnten nicht generiert werden.");
+): Promise<FollowupAction[]> {
+  return post<FollowupAction[]>("/ai/followups", { subject, from, body }, "Aufgaben konnten nicht generiert werden.");
 }
 
 // ─── Phase 4 — AI-First ─────────────────────────────────────

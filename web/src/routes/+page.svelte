@@ -26,7 +26,8 @@ import {
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
-    getFollowups, createTodo, type FollowupItem,
+    getFollowups, createTodo, createEvent, getCalendars,
+    type FollowupAction, type FollowupTimeSlot,
   } from "$lib/services/tauri";
   import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import type { MailChainEntry } from "$lib/types/mail";
@@ -91,11 +92,58 @@ import {
 
   // Globaler AI-Assistent (Phase 4.5) — FAB + drawer live in <AssistantFab>.
 
-  // AI-Followups (Phase 3.4)
-  let followups = $state<FollowupItem[]>([]);
+  // AI-Followups (Phase 3.4) — automatisch im Hintergrund erkannt (einmal pro
+  // Mail, gecacht) und als Einzelaktionen in einem fixen Footer angezeigt.
+  let followups = $state<FollowupAction[]>([]);
   let followupsLoading = $state(false);
   let followupsError = $state<string | null>(null);
   let followupsForUid = $state<number | null>(null);
+  let followupsInFlight: number | null = null; // nicht reaktiv, nur Duplikat-Guard
+  const followupsCache = new Map<number, FollowupAction[]>();
+
+  // Automatische Erkennung: wenn eine Mail geoeffnet wird (und kein Compose),
+  // prueft die KI im Hintergrund auf Termin-Anfragen + weitere Aktionen.
+  $effect(() => {
+    const uid = selectedMessage?.uid;
+    if (uid == null || showCompose) return;
+    followupsForUid = uid;
+    if (followupsCache.has(uid)) {
+      followups = followupsCache.get(uid)!;
+      followupsLoading = false;
+      followupsError = null;
+      return;
+    }
+    // Auf geladenen Mailtext warten, sonst body_preview als Fallback.
+    if (loadingBodyUid === uid) {
+      followupsLoading = true;
+      followups = [];
+      followupsError = null;
+      return;
+    }
+    if (followupsInFlight === uid) return;
+    const msg = selectedMessage;
+    if (!msg) return;
+    followupsInFlight = uid;
+    followupsLoading = true;
+    followupsError = null;
+    followups = [];
+    const body = parsedContent.text || msg.body_preview || "";
+    getFollowups(msg.subject || "", msg.from || "", body)
+      .then((actions) => {
+        if (followupsForUid !== uid) return;
+        followupsCache.set(uid, actions);
+        followups = actions;
+      })
+      .catch((e) => {
+        if (followupsForUid !== uid) return;
+        followupsError = localizeError(String(e));
+        followups = [];
+      })
+      .finally(() => {
+        if (followupsInFlight === uid) followupsInFlight = null;
+        if (followupsForUid === uid) followupsLoading = false;
+      });
+  });
 
   $effect(() => {
     if (typeof window === "undefined") return;
@@ -2259,31 +2307,57 @@ let sentFolderName = $state<string | null>(null);
     showDeleteConfirm = true;
   }
 
-  async function handleFollowups() {
-    const msg = selectedMessage;
-    if (!msg || followupsLoading) return;
-    followupsLoading = true;
-    followupsError = null;
-    followups = [];
-    followupsForUid = msg.uid;
+  // Eine Follow-up-Aktion ausfuehren (Aufgabe anlegen, Termin eintragen oder
+  // Mail-Entwurf oeffnen). Die Aktion wird danach aus dem Footer entfernt.
+  async function handleFollowupAction(a: FollowupAction) {
     try {
-      const body = parsedContent.text || msg.body_preview || "";
-      followups = await getFollowups(msg.subject || "", msg.from || "", body);
+      if (a.kind === "task" && a.task) {
+        await createTodo({ summary: a.task.summary, due: a.task.due ?? undefined });
+        followups = followups.filter((x) => x.id !== a.id);
+        return;
+      }
+      if (a.kind === "event" && a.event) {
+        await createFollowupEvent(a.event.summary, a.event.start, a.event.end ?? undefined, a.event.attendees);
+        return;
+      }
+      if (a.kind === "email" && a.email) {
+        assistantAction.set({ type: "open_compose", to: a.email.to, subject: a.email.subject, body: a.email.body });
+        return;
+      }
     } catch (e) {
       followupsError = localizeError(String(e));
-      followups = [];
-    } finally {
-      followupsLoading = false;
     }
   }
 
-  async function createTaskFromFollowup(f: FollowupItem) {
+  // Alternativ-Termin (bei Konflikt) eintragen.
+  async function handleFollowupAlternative(a: FollowupAction, slot: FollowupTimeSlot) {
+    if (a.kind !== "event" || !a.event) return;
     try {
-      await createTodo({ summary: f.task, due: f.due ?? undefined });
-      followups = followups.filter((x) => x !== f);
+      await createFollowupEvent(a.event.summary, slot.start, slot.end, a.event.attendees);
     } catch (e) {
       followupsError = localizeError(String(e));
     }
+  }
+
+  async function createFollowupEvent(summary: string, start: string, end: string | undefined, attendees: string[]) {
+    const cals = await getCalendars();
+    const cal = cals.find((c) => !c.read_only) ?? cals[0];
+    if (!cal) throw new Error("Kein Kalender gefunden.");
+    await createEvent({
+      calendar_id: cal.id,
+      summary,
+      start,
+      end,
+      attendees: attendees.length ? attendees.map((email) => ({ email })) : undefined,
+    });
+    followups = followups.filter((x) => x.kind !== "event");
+    goto("/calendar");
+  }
+
+  function formatAltSlot(iso: string) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
   async function handleToggleRead(uid: number) {
@@ -2433,9 +2507,6 @@ let sentFolderName = $state<string | null>(null);
           <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
             {$t("mail.reply")}
           </button>
-          <button type="button" class="action-btn-pill" onclick={() => handleFollowups()} disabled={followupsLoading} title="KI schlägt Follow-up-Aktionen vor">
-            {followupsLoading ? "…" : "KI-Follow-ups"}
-          </button>
           <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
             {$t("mail.delete")}
           </button>
@@ -2487,32 +2558,6 @@ let sentFolderName = $state<string | null>(null);
               <div class="mail-body-empty">{$t("mail.noContent")}</div>
             {/if}
           </div>
-
-          {#if followupsForUid === selectedMessage.uid && (followupsLoading || followups.length > 0 || followupsError)}
-            <div class="followups">
-              <div class="followups-title">KI-Follow-ups</div>
-              {#if followupsError}
-                <div class="followups-error">{followupsError}</div>
-              {/if}
-              {#if followupsLoading}
-                <div class="followups-loading">Analysiere E-Mail…</div>
-              {:else if followups.length === 0}
-                <div class="followups-empty">Keine Follow-ups erkannt.</div>
-              {:else}
-                <ul class="followups-list">
-                  {#each followups as f (f.task)}
-                    <li class="followup-item">
-                      <div class="followup-text">
-                        <span class="followup-task">{f.task}</span>
-                        {#if f.reason}<span class="followup-reason">{f.reason}</span>{/if}
-                      </div>
-                      <button type="button" class="followup-add" onclick={() => createTaskFromFollowup(f)}>Als Aufgabe</button>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          {/if}
 
           {#if attachments.length > 0}
             <div class="attachments">
@@ -2760,6 +2805,48 @@ let sentFolderName = $state<string | null>(null);
         </div>
       {/if}
       {@render preview()}
+      {#if !showCompose && followupsForUid === selectedMessage?.uid && (followupsLoading || followups.length > 0 || followupsError)}
+        <div class="followups-footer">
+          <div class="followups-footer-head">
+            <span class="followups-footer-title">KI-Vorschläge</span>
+            {#if followupsError}<span class="followups-footer-error">{followupsError}</span>{/if}
+          </div>
+          <div class="followups-footer-scroll">
+            {#if followupsLoading}
+              <div class="followups-footer-row"><span class="followups-footer-muted">Analysiere E-Mail…</span></div>
+            {:else if followups.length === 0}
+              <div class="followups-footer-row"><span class="followups-footer-muted">Keine Vorschläge.</span></div>
+            {:else}
+              {#each followups as a (a.id)}
+                <div class="followups-footer-row">
+                  <div class="followups-footer-label">
+                    <span>{a.label}</span>
+                    {#if a.kind === "event" && a.event?.availability === "busy" && a.event.conflicts.length > 0}
+                      <span class="followups-footer-conflict">Belegt: {a.event.conflicts.join(", ")}</span>
+                    {/if}
+                  </div>
+                  {#if a.kind === "task"}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Als Aufgabe</button>
+                  {:else if a.kind === "event" && a.event?.availability === "free"}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Termin eintragen</button>
+                  {:else if a.kind === "email"}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Entwurf öffnen</button>
+                  {/if}
+                </div>
+                {#if a.kind === "event" && a.event?.availability === "busy" && a.event.alternatives.length > 0}
+                  <div class="followups-footer-alts">
+                    {#each a.event.alternatives as slot (slot.start)}
+                      <button type="button" class="followups-footer-alt" onclick={() => handleFollowupAlternative(a, slot)}>
+                        {formatAltSlot(slot.start)}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              {/each}
+            {/if}
+          </div>
+        </div>
+      {/if}
     </section>
   </div>
 {/if}
@@ -3357,7 +3444,8 @@ let sentFolderName = $state<string | null>(null);
   .preview-layout {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
   }
   .preview-pane-header {
     height: 72px;
@@ -3492,63 +3580,69 @@ let sentFolderName = $state<string | null>(null);
     color: var(--color-text-secondary);
     font-style: italic;
   }
-  .followups {
-    margin-top: 20px;
-    padding: 14px 16px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-m);
+  .followups-footer {
+    flex-shrink: 0;
+    margin-top: auto;
+    border-top: 1px solid var(--color-border);
     background: var(--color-card);
-  }
-  .followups-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-accent);
-    margin-bottom: 10px;
-  }
-  .followups-loading,
-  .followups-empty {
-    font-size: 0.85rem;
-    color: var(--color-text-secondary);
-  }
-  .followups-error {
-    font-size: 0.85rem;
-    color: var(--color-danger);
-  }
-  .followups-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    max-height: 220px;
   }
-  .followup-item {
+  .followups-footer-head {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-s);
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--color-border);
   }
-  .followup-text {
+  .followups-footer-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent);
+  }
+  .followups-footer-error {
+    font-size: 0.78rem;
+    color: var(--color-danger);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .followups-footer-scroll {
+    overflow-y: auto;
+    min-height: 0;
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .followups-footer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .followups-footer-label {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
-  }
-  .followup-task {
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: 0.85rem;
     color: var(--color-text);
   }
-  .followup-reason {
-    font-size: 0.78rem;
+  .followups-footer-conflict {
+    font-size: 0.76rem;
+    color: var(--color-danger);
+  }
+  .followups-footer-muted {
+    font-size: 0.85rem;
     color: var(--color-text-secondary);
   }
-  .followup-add {
+  .followups-footer-btn {
     flex-shrink: 0;
     font-size: 0.78rem;
     font-weight: 500;
@@ -3559,8 +3653,28 @@ let sentFolderName = $state<string | null>(null);
     color: #fff;
     cursor: pointer;
   }
-  .followup-add:hover {
+  .followups-footer-btn:hover {
     filter: brightness(1.1);
+  }
+  .followups-footer-alts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-left: 4px;
+  }
+  .followups-footer-alt {
+    font-size: 0.74rem;
+    font-weight: 500;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-s);
+    background: var(--color-card);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+  .followups-footer-alt:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
   }
   .attachments {
     margin-top: 20px;
