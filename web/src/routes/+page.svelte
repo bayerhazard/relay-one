@@ -2249,9 +2249,9 @@ let sentFolderName = $state<string | null>(null);
     followupsForUid = msg.uid;
     try {
       const body = parsedContent.text || msg.body_preview || "";
-      followups = await getFollowups(msg.subject || "", msg.from, body);
+      followups = await getFollowups(msg.subject || "", msg.from || "", body);
     } catch (e) {
-      followupsError = localizeError(e);
+      followupsError = localizeError(String(e));
       followups = [];
     } finally {
       followupsLoading = false;
@@ -2260,10 +2260,10 @@ let sentFolderName = $state<string | null>(null);
 
   async function createTaskFromFollowup(f: FollowupItem) {
     try {
-      await createTodo({ summary: f.task, due_at: f.due ?? undefined });
+      await createTodo({ summary: f.task, due: f.due ?? undefined });
       followups = followups.filter((x) => x !== f);
     } catch (e) {
-      followupsError = localizeError(e);
+      followupsError = localizeError(String(e));
     }
   }
 

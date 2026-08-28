@@ -19,12 +19,12 @@
     id: HOLIDAY_CAL_ID, name: "Feiertage", color: "#caa960",
     read_only: true, last_synced_at: null,
   };
-  // All calendars shown in the list: built-in holidays first, then CalDAV.
-  let allCalendars = $derived<CalendarInfo[]>([HOLIDAY_CAL, ...calendars]);
-
   // ─── State ───────────────────────────────────
   let calendars = $state<CalendarInfo[]>([]);
   let events = $state<EventInfo[]>([]);
+
+  // All calendars shown in the list: built-in holidays first, then CalDAV.
+  let allCalendars = $derived<CalendarInfo[]>([HOLIDAY_CAL, ...calendars]);
   let loading = $state(false);
   let error = $state<string | null>(null);
   let syncing = $state(false);
@@ -252,7 +252,7 @@
     smartSlots = [];
     try {
       const request = `${form.summary || "Termin"}${form.start ? `, aktuell ${form.start}` : ""}`;
-      smartSlots = await smartSchedule(request, participants, "aus Kalender", "Wochentage bevorzugt");
+      smartSlots = await smartSchedule(request, "", "", "Wochentage bevorzugt, keine Mittagspause 12-13");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -384,11 +384,6 @@
     return eventsByDay.get(key) ?? [];
   });
 
-  // The big label in the toolbar, per view mode.
-  let periodLabel = $derived(
-    viewMode === "week" ? weekLabel : viewMode === "day" ? dayLabel : monthLabel
-  );
-
   function calById(id: number): CalendarInfo | undefined {
     return allCalendars.find((c) => c.id === id);
   }
@@ -407,6 +402,11 @@
 
   let dayLabel = $derived(
     viewDate.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+  );
+
+  // The big label in the toolbar, per view mode.
+  let periodLabel = $derived(
+    viewMode === "week" ? weekLabel : viewMode === "day" ? dayLabel : monthLabel
   );
 
   function setViewMode(mode: "month" | "week" | "day") {
