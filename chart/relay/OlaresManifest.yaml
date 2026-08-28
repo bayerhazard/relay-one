@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.98
+  version: 26.09.99
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.98
+  versionName: 26.09.99
   upgradeDescription: |
+    v26.09.99: FIX AI-Gate (Live-Verifizierung mit Experte) — (1) max_tokens der KI-Handler erhoeht (Smart Scheduling/Meeting-Prep/Morgen-Digest/Assistent/Followups), damit laengere JSON-Antworten nicht mehr abgeschnitten und als leer geparst werden. (2) Globaler Assistent gibt Datums-/Zeitfelder im Action-Payload jetzt als RFC3339-UTC-Timestamp aus (vorher relativer Text wie "morgen 14:00"), damit Aktionen direkt ausgefuehrt werden koennen; Prompt bekommt Referenzdatum zur Zeitaufloesung. Alle 6 KI-Features live getestet (Followups, NL-Erstellung, Smart Scheduling, Meeting-Prep, Morgen-Digest, Assistent). Built for Olares 1.12.6.
     v26.09.98: NEU AI-First (Phase 4) — (1) NL-Erstellung: Freitext-Composer in Kalender und Aufgaben ("Morgen 14 Uhr Kaffee mit Anna") legt per KI Termin oder Aufgabe an (Intent-Erkennung). (2) Smart Scheduling: Button im Termin-Editor laesst die KI unter Beruecksichtigung von Konflikten/Constraints die besten Zeitfenster vorschlagen. (3) Meeting-Prep: Button im Termin-Editor erstellt eine KI-Vorbereitung (Teilnehmer, Agenda, Kontext aus Kontakten + Mails). (4) Morgen-Digest: Button in der Tagesansicht erzeugt einen KI-Ueberblick (Prioritaeten, Follow-ups) fuer die naechsten Tage. (5) Globaler Assistent (Centerpiece): jederzeit erreichbarer Drawer (schwebender Button) mit Chat-UI; der Assistent antwortet und kann Aktionen ausloesen (Termin anlegen, Aufgabe anlegen, Mail suchen). Built for Olares 1.12.6.
     v26.09.97: NEU Kontakte + Aufgaben + KI-Followups (Phase 3) — (1) Kontakte: CardDAV-Anbindung mit vollem CRUD (anlegen/bearbeiten/loeschen, VCard-Roundtrip), eigene Kontakte-Seite in der Sidebar; Auto-Enrichment: Absender/Empfaenger eingehender Mails werden automatisch als Kontakte angelegt/ergaenzt (source=mail). (2) Aufgaben: CalDAV-VTODO-Sync (fetch + local cache), eigene Aufgaben-Seite mit Filtern (Offen/Erledigt/Alle), Erledigt-Toggle, Fälligkeitsdatum, Priorität, CalDAV-Sync-Button. (3) KI-Followups: Button in der Mail-Detailansicht lasst die KI konkrete Follow-up-Aktionen aus der Mail ableiten (max. 5, mit Grund + Fälligkeitsdatum); jede Aktion laesst sich per Klick direkt als Aufgabe anlegen. Built for Olares 1.12.6.
     v26.09.96: NEU Mail↔Kalender (Phase 2) — iMIP-Termin-Einladungen: eingehende ICS-Anhänge (METHOD:REQUEST/REPLY/CANCEL) werden beim Mail-Sync erkannt und in einer Einladungs-Queue in der Kalender-Sidebar abgelegt (Annehmen/Ablehnen sendet eine METHOD:REPLY-Antwort an den Organisator); eigene Termine lassen sich per Button mit ICS-Anhang an Teilnehmer einladen. Konflikt-Erkennung: der Termin-Editor warnt bei Überschneidungen und zeigt per KI-Vorschlag 3 konfliktfreie Alternativen. Zeit-Erkennung: freie Texteingabe (z.B. „Mittwoch 14 Uhr") füllt Beginn/Ende/Titel per KI. KI-RSVP-Entwurf: generiert eine kurze Antwort auf eine Einladung. Built for Olares 1.12.6.

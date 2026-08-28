@@ -1072,7 +1072,7 @@ pub async fn ai_followups(
 ) -> ApiResult<Vec<FollowupItem>> {
     let (system, user) = prompts::build_followups_prompt(&req.subject, &req.from, &req.body);
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(800)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(1200)).await?;
     let arr = extract_json_array(&raw);
     let items: Vec<FollowupItem> = arr
         .into_iter()
@@ -1269,7 +1269,7 @@ pub async fn ai_schedule(
         &now,
     );
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.3), Some(800)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.3), Some(1600)).await?;
     let obj = extract_json_object(&raw);
     let suggestions = obj.get("suggestions").and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|s| {
@@ -1318,7 +1318,7 @@ pub async fn ai_meeting_prep(
         &req.summary, &req.start, &contacts_str, &mails_str,
     );
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(900)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
     let obj = extract_json_object(&raw);
     let attendees = obj.get("attendees").and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
@@ -1364,7 +1364,7 @@ pub async fn ai_agenda_digest(
     })?;
     let (system, user) = prompts::build_agenda_digest_prompt(&date_str, horizon, &events_str, &tasks_str, &mails_str);
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(1000)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
     let obj = extract_json_object(&raw);
     let digest = obj.get("digest").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let priorities = obj.get("priorities").and_then(|v| v.as_array())
@@ -1406,9 +1406,10 @@ pub async fn ai_assistant(
     Json(req): Json<AssistantRequest>,
 ) -> ApiResult<AssistantResult> {
     let context = req.context.as_deref().unwrap_or("kein Kontext");
-    let (system, user) = prompts::build_assistant_prompt(&req.message, context, AVAILABLE_ACTIONS);
+    let now = chrono::Utc::now().to_rfc3339();
+    let (system, user) = prompts::build_assistant_prompt(&req.message, context, AVAILABLE_ACTIONS, &now);
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.5), Some(1000)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.5), Some(1500)).await?;
     let obj = extract_json_object(&raw);
     let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let actions = obj.get("actions").and_then(|v| v.as_array())
