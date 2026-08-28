@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
-    listTodos, createTodo, toggleTodo, deleteTodo, syncTodos,
+    listTodos, createTodo, toggleTodo, deleteTodo, syncTodos, nlCreate,
     type TodoInfo, type TodoInput,
   } from "$lib/services/tauri";
 
@@ -18,6 +18,33 @@
 
   let editorOpen = $state(false);
   let form = $state({ summary: "", description: "", due: "", priority: 5 as number });
+
+  // NL-Erstellung (Phase 4.1)
+  let nlInput = $state("");
+  let nlLoading = $state(false);
+  let nlResult = $state<string | null>(null);
+
+  async function handleNlCreate() {
+    const text = nlInput.trim();
+    if (!text || nlLoading) return;
+    nlLoading = true;
+    nlResult = null;
+    try {
+      const res = await nlCreate(text, "Aufgaben");
+      if (res.type === "event") {
+        nlResult = "Als Termin erkannt — im Kalender angelegt? Bitte dort prüfen.";
+      } else {
+        await createTodo({ summary: res.title, due: res.due ?? undefined });
+        nlResult = `Aufgabe angelegt: ${res.title}`;
+        await loadTodos();
+      }
+      nlInput = "";
+    } catch (e) {
+      nlResult = String(e);
+    } finally {
+      nlLoading = false;
+    }
+  }
 
   const completedMap: Record<Filter, boolean | undefined> = {
     all: undefined, open: false, done: true,
@@ -133,6 +160,22 @@
       <button type="button" class="tk-btn tk-btn-ghost" onclick={onSync} disabled={syncing}>
         {syncing ? "Synchronisiere…" : "Von CalDAV laden"}
       </button>
+    </div>
+
+    <div class="tk-nl">
+      <input
+        type="text"
+        class="tk-nl-input"
+        bind:value={nlInput}
+        placeholder="z.B. „Freitag Budget prüfen“"
+        onkeydown={(e) => { if (e.key === "Enter") handleNlCreate(); }}
+      />
+      <button type="button" class="tk-btn tk-btn-primary" disabled={nlLoading || !nlInput.trim()} onclick={handleNlCreate}>
+        {nlLoading ? "…" : "Anlegen"}
+      </button>
+      {#if nlResult}
+        <span class="tk-nl-result">{nlResult}</span>
+      {/if}
     </div>
 
     <div class="tk-filters">
@@ -263,6 +306,24 @@
   .tk-brand { font-weight: 600; font-size: 15px; }
 
   .tk-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
+  .tk-nl {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 12px 8px;
+  }
+  .tk-nl-input {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-s);
+    padding: 8px 10px;
+    font: inherit;
+    color: var(--color-text);
+    background: var(--color-card);
+  }
+  .tk-nl-result {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+  }
   .tk-filters {
     display: flex;
     gap: 4px;

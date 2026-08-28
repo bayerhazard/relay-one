@@ -6,7 +6,9 @@
     getCalDavSettings, syncCalDav, importEvents, getEventIcs,
     listInvitations, acceptInvitation, declineInvitation, listAccounts,
     getConflicts, getConflictAlternatives, extractTime, rsvpDraft,
+    nlCreate, createTodo, meetingPrep, smartSchedule, agendaDigest,
     type CalendarInfo, type EventInfo, type InvitationInfo, type TimeSlot,
+    type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
   import { t } from "$lib/i18n";
   import { germanHolidays } from "$lib/holidays";
@@ -26,6 +28,48 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let syncing = $state(false);
+
+  // NL-Erstellung (Phase 4.1)
+  let nlInput = $state("");
+  let nlLoading = $state(false);
+  let nlResult = $state<string | null>(null);
+
+  async function handleNlCreate() {
+    const text = nlInput.trim();
+    if (!text || nlLoading) return;
+    nlLoading = true;
+    nlResult = null;
+    try {
+      const res = await nlCreate(text, "Kalender");
+      if (res.type === "task") {
+        await createTodo({ summary: res.title, due: res.due ?? undefined });
+        nlResult = `Aufgabe angelegt: ${res.title}`;
+      } else {
+        const cals = calendars;
+        const cal = cals.find((c) => !c.read_only) ?? cals[0];
+        if (!cal) {
+          nlResult = "Kein Kalender verfügbar.";
+          return;
+        }
+        const start = res.start ?? new Date().toISOString();
+        await createEvent({
+          calendar_id: cal.id,
+          summary: res.title,
+          start,
+          end: res.end ?? undefined,
+          description: res.description ?? undefined,
+          attendees: res.attendees?.map((email) => ({ email })),
+        });
+        nlResult = `Termin angelegt: ${res.title}`;
+        await loadEvents();
+      }
+      nlInput = "";
+    } catch (e) {
+      nlResult = String(e);
+    } finally {
+      nlLoading = false;
+    }
+  }
 
   // Current date anchor for the visible range.
   let viewDate = $state(new Date());
@@ -171,6 +215,70 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       nlBusy = false;
+    }
+  }
+
+  // ─── Phase 4 — Meeting-Prep / Smart Scheduling / Digest ───
+  let prepResult = $state<MeetingPrepResult | null>(null);
+  let prepBusy = $state(false);
+  let showPrep = $state(false);
+
+  let smartSlots = $state<ScheduleSuggestion[]>([]);
+  let smartBusy = $state(false);
+  let showSmart = $state(false);
+
+  let digest = $state<AgendaDigestResult | null>(null);
+  let digestBusy = $state(false);
+
+  async function loadMeetingPrep() {
+    if (!form.start || prepBusy) return;
+    prepBusy = true;
+    showPrep = true;
+    prepResult = null;
+    try {
+      const start = toUtc(form.start, form.all_day);
+      prepResult = await meetingPrep(form.summary || "Termin", start, []);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      prepBusy = false;
+    }
+  }
+
+  async function loadSmartSchedule() {
+    if (smartBusy) return;
+    smartBusy = true;
+    showSmart = true;
+    smartSlots = [];
+    try {
+      const request = `${form.summary || "Termin"}${form.start ? `, aktuell ${form.start}` : ""}`;
+      smartSlots = await smartSchedule(request, participants, "aus Kalender", "Wochentage bevorzugt");
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      smartBusy = false;
+    }
+  }
+
+  function applySmartSlot(slot: ScheduleSuggestion) {
+    form.start = toLocalInput(new Date(slot.start));
+    form.end = toLocalInput(new Date(slot.end));
+    form.all_day = false;
+    smartSlots = [];
+    showSmart = false;
+    checkConflicts();
+  }
+
+  async function loadDigest() {
+    if (digestBusy) return;
+    digestBusy = true;
+    digest = null;
+    try {
+      digest = await agendaDigest(undefined, 7);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      digestBusy = false;
     }
   }
 
@@ -813,6 +921,22 @@
       </div>
     </header>
 
+    <div class="cal-nl">
+      <input
+        type="text"
+        class="cal-nl-input"
+        bind:value={nlInput}
+        placeholder="z.B. „Morgen 14 Uhr Kaffee mit Anna“ oder „Freitag Budget prüfen“"
+        onkeydown={(e) => { if (e.key === "Enter") handleNlCreate(); }}
+      />
+      <button type="button" class="cal-btn cal-btn-primary" disabled={nlLoading || !nlInput.trim()} onclick={handleNlCreate}>
+        {nlLoading ? "…" : "Anlegen"}
+      </button>
+      {#if nlResult}
+        <span class="cal-nl-result">{nlResult}</span>
+      {/if}
+    </div>
+
     {#if error}
       <div class="cal-alert">{error}</div>
     {/if}
@@ -882,6 +1006,22 @@
       </div>
     {:else}
       <div class="cal-dayview">
+        <div class="cal-digest-bar">
+          <button type="button" class="cal-btn cal-btn-ghost" disabled={digestBusy} onclick={loadDigest}>
+            {digestBusy ? "…" : "📅 Morgen-Digest (KI)"}
+          </button>
+        </div>
+        {#if digest}
+          <div class="cal-digest">
+            <p class="cal-digest-text">{digest.digest}</p>
+            {#if digest.priorities.length > 0}
+              <div class="cal-digest-section"><strong>Prioritäten</strong><ul>{#each digest.priorities as p (p)}<li>{p}</li>{/each}</ul></div>
+            {/if}
+            {#if digest.followups.length > 0}
+              <div class="cal-digest-section"><strong>Follow-ups</strong><ul>{#each digest.followups as f (f)}<li>{f}</li>{/each}</ul></div>
+            {/if}
+          </div>
+        {/if}
         {#if dayEvents.length === 0}
           <div class="cal-day-empty">Keine Termine an diesem Tag.</div>
         {:else}
@@ -1026,6 +1166,41 @@
           {/if}
           {#if showAlternatives && aiSlots.length === 0 && !conflictBusy}
             <p class="cal-conflict-none">Keine freien Alternativen gefunden.</p>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="cal-ai-row">
+        <button type="button" class="cal-btn cal-btn-ghost" disabled={prepBusy || !form.start} onclick={loadMeetingPrep}>
+          {prepBusy ? "…" : "📋 Meeting-Prep"}
+        </button>
+        <button type="button" class="cal-btn cal-btn-ghost" disabled={smartBusy} onclick={loadSmartSchedule}>
+          {smartBusy ? "…" : "⚡ Smart Scheduling"}
+        </button>
+      </div>
+
+      {#if showSmart && smartSlots.length > 0}
+        <div class="cal-slots">
+          {#each smartSlots as slot (slot.start)}
+            <button type="button" class="cal-slot" onclick={() => applySmartSlot(slot)}>
+              <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
+              {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
+      {#if showPrep && prepResult}
+        <div class="cal-prep">
+          <div class="cal-prep-title">Meeting-Prep</div>
+          {#if prepResult.attendees.length > 0}
+            <div class="cal-prep-section"><strong>Teilnehmer</strong><ul>{#each prepResult.attendees as a (a)}<li>{a}</li>{/each}</ul></div>
+          {/if}
+          {#if prepResult.agenda.length > 0}
+            <div class="cal-prep-section"><strong>Agenda</strong><ul>{#each prepResult.agenda as a (a)}<li>{a}</li>{/each}</ul></div>
+          {/if}
+          {#if prepResult.prep_notes}
+            <div class="cal-prep-section"><strong>Vorbereitung</strong><p>{prepResult.prep_notes}</p></div>
           {/if}
         </div>
       {/if}
@@ -1194,6 +1369,28 @@
   }
   .cal-month { font-size: 20px; font-weight: 600; margin: 0; }
   .cal-toolbar-right { display: flex; align-items: center; gap: 8px; }
+  .cal-nl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-card);
+  }
+  .cal-nl-input {
+    flex: 1;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-s);
+    padding: 8px 10px;
+    font: inherit;
+    color: var(--color-text);
+    background: var(--color-list);
+  }
+  .cal-nl-result {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
 
   .cal-alert {
     margin: 12px 20px 0;
@@ -1333,6 +1530,35 @@
   .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-text-secondary); }
   .cal-conflict-none { font-size: 12px; color: var(--color-text-secondary); margin: 8px 0 0; }
   .cal-slots { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .cal-ai-row { display: flex; gap: 8px; margin-top: 12px; }
+  .cal-prep {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-m);
+    background: var(--color-card);
+  }
+  .cal-prep-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent);
+    margin-bottom: 8px;
+  }
+  .cal-prep-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--color-text); }
+  .cal-prep-section ul { margin: 4px 0 0; padding-left: 18px; }
+  .cal-prep-section p { margin: 4px 0 0; }
+  .cal-digest-bar { display: flex; gap: 8px; }
+  .cal-digest {
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-m);
+    background: var(--color-card);
+  }
+  .cal-digest-text { margin: 0 0 10px; font-size: 0.9rem; color: var(--color-text); }
+  .cal-digest-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--color-text); }
+  .cal-digest-section ul { margin: 4px 0 0; padding-left: 18px; }
   .cal-slot {
     display: flex; flex-direction: column; gap: 2px; text-align: left;
     border: 1px solid var(--color-border); border-radius: var(--radius-m);

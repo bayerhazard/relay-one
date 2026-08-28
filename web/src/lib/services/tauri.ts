@@ -1299,3 +1299,78 @@ export async function getFollowups(
 ): Promise<FollowupItem[]> {
   return post<FollowupItem[]>("/ai/followups", { subject, from, body }, "KI-Follow-ups konnten nicht generiert werden.");
 }
+
+// ─── Phase 4 — AI-First ─────────────────────────────────────
+
+export interface NlCreateResult {
+  type: "event" | "task";
+  title: string;
+  start: string | null;
+  end: string | null;
+  attendees: string[];
+  description: string | null;
+  due: string | null;
+}
+
+export async function nlCreate(text: string, context?: string): Promise<NlCreateResult> {
+  return post<NlCreateResult>("/ai/nl-create", { text, context }, "NL-Erstellung fehlgeschlagen.");
+}
+
+export interface ScheduleSuggestion {
+  start: string;
+  end: string;
+  confidence: number;
+  reason: string | null;
+}
+
+export async function smartSchedule(
+  request: string,
+  participants?: string,
+  freeSlots?: string,
+  constraints?: string,
+): Promise<ScheduleSuggestion[]> {
+  const res = await post<{ suggestions: ScheduleSuggestion[] }>(
+    "/ai/schedule",
+    { request, participants, free_slots: freeSlots, constraints },
+    "Smart Scheduling fehlgeschlagen.",
+  );
+  return res.suggestions;
+}
+
+export interface MeetingPrepResult {
+  attendees: string[];
+  agenda: string[];
+  prep_notes: string;
+}
+
+export async function meetingPrep(
+  summary: string,
+  start: string,
+  attendees: string[],
+): Promise<MeetingPrepResult> {
+  return post<MeetingPrepResult>("/ai/meeting-prep", { summary, start, attendees }, "Meeting-Prep fehlgeschlagen.");
+}
+
+export interface AgendaDigestResult {
+  digest: string;
+  priorities: string[];
+  followups: string[];
+}
+
+export async function agendaDigest(date?: string, horizon?: number): Promise<AgendaDigestResult> {
+  return post<AgendaDigestResult>("/ai/agenda-digest", { date, horizon }, "Agenda-Digest fehlgeschlagen.");
+}
+
+export interface AssistantAction {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface AssistantResult {
+  reply: string;
+  actions: AssistantAction[];
+}
+
+export async function askAssistant(message: string, context?: string): Promise<AssistantResult> {
+  return post<AssistantResult>("/ai/assistant", { message, context }, "Assistent nicht erreichbar.");
+}

@@ -8,6 +8,7 @@
   import PromptDialog from "$lib/components/PromptDialog.svelte";
   import ComposeWindow from "$lib/components/ComposeWindow.svelte";
   import ReplySuggestions from "$lib/components/ReplySuggestions.svelte";
+  import AssistantDrawer from "$lib/components/AssistantDrawer.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
@@ -84,6 +85,9 @@ import {
   // Listen for backend events (new mail, AI summaries, navigation/actions)
   // via the SSE event stream (replaces the Tauri event listeners).
   let loadingBodyUid = $state<number | null>(null);
+
+  // Globaler AI-Assistent (Phase 4.5)
+  let assistantOpen = $state(false);
 
   // AI-Followups (Phase 3.4)
   let followups = $state<FollowupItem[]>([]);
@@ -2847,6 +2851,21 @@ let sentFolderName = $state<string | null>(null);
     oncancel={cancelNewFolder}
   />
 
+  <button
+    type="button"
+    class="assistant-fab"
+    onclick={() => (assistantOpen = true)}
+    title="Assistent"
+    aria-label="Assistent öffnen"
+  >
+    ✦
+  </button>
+  <AssistantDrawer
+    open={assistantOpen}
+    context={selectedMessage ? `Aktive Mail: ${selectedMessage.subject || "(ohne Betreff)"} von ${selectedMessage.from}` : ""}
+    onclose={() => (assistantOpen = false)}
+  />
+
   {#if folderCtxMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu!.x}px; top: ${folderCtxMenu!.y}px;`} role="menu">
@@ -3539,6 +3558,24 @@ let sentFolderName = $state<string | null>(null);
     cursor: pointer;
   }
   .followup-add:hover {
+    filter: brightness(1.1);
+  }
+  .assistant-fab {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: none;
+    background: var(--color-accent);
+    color: #fff;
+    font-size: 1.4rem;
+    cursor: pointer;
+    z-index: 900;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  .assistant-fab:hover {
     filter: brightness(1.1);
   }
   .attachments {

@@ -1092,6 +1092,338 @@ pub async fn ai_followups(
     Ok(Json(items))
 }
 
+// ─── Phase 4 — AI-First helpers ─────────────────────────────
+
+/// Format up to `limit` contacts as one line each (for AI context).
+fn gather_contact_context(conn: &rusqlite::Connection) -> Result<String, String> {
+    let contacts = crate::cache::contacts::list_contacts(conn, "").map_err(|e| e.to_string())?;
+    if contacts.is_empty() {
+        return Ok("keine Kontakte".to_string());
+    }
+    let lines: Vec<String> = contacts.iter().take(30).map(|c| {
+        let name = c.display_name
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| c.email.clone().filter(|s| !s.is_empty()))
+            .unwrap_or_else(|| "unbekannt".to_string());
+        let mut line = format!("- {}", name);
+        if let Some(org) = &c.organization {
+            if !org.is_empty() {
+                line.push_str(&format!(" ({})", org));
+            }
+        }
+        if let Some(email) = &c.email {
+            if !email.is_empty() {
+                line.push_str(&format!(", {}", email));
+            }
+        }
+        line
+    }).collect();
+    Ok(lines.join("\n"))
+}
+
+/// Fetch recent messages (subject/from/date) for AI context.
+fn gather_recent_mails(conn: &rusqlite::Connection, days: i64, limit: usize) -> Result<String, String> {
+    let mut stmt = conn.prepare(
+        "SELECT subject, from_addr, date FROM messages \
+         WHERE date >= datetime('now', ?1) ORDER BY date DESC LIMIT ?2",
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![format!("-{} days", days), limit as i64], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let rows = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        return Ok("keine relevanten Mails".to_string());
+    }
+    let lines: Vec<String> = rows.iter().take(limit).map(|(s, f, d)| {
+        format!("- [{}] {} (von: {})", d, s, f)
+    }).collect();
+    Ok(lines.join("\n"))
+}
+
+/// Format calendar events in a date range as one line each.
+fn gather_events(conn: &rusqlite::Connection, start: &str, end: &str) -> Result<String, String> {
+    let events = crate::cache::cal::list_events(conn, None, Some(start), Some(end)).map_err(|e| e.to_string())?;
+    if events.is_empty() {
+        return Ok("keine Termine".to_string());
+    }
+    let lines: Vec<String> = events.iter().take(30).map(|e| {
+        let title = e.summary.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "(ohne Titel)".to_string());
+        format!("- {} {} ({} – {})", e.start_at, title, e.start_at, e.end_at.clone().unwrap_or_else(|| e.start_at.clone()))
+    }).collect();
+    Ok(lines.join("\n"))
+}
+
+/// Format open tasks as one line each.
+fn gather_tasks(conn: &rusqlite::Connection) -> Result<String, String> {
+    let todos = crate::cache::todo::list_todos(conn, Some(false)).map_err(|e| e.to_string())?;
+    if todos.is_empty() {
+        return Ok("keine offenen Aufgaben".to_string());
+    }
+    let lines: Vec<String> = todos.iter().take(30).map(|t| {
+        let title = t.summary.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "(ohne Titel)".to_string());
+        let due = t.due_at.clone().unwrap_or_else(|| "ohne Datum".to_string());
+        format!("- {} (fällig: {})", title, due)
+    }).collect();
+    Ok(lines.join("\n"))
+}
+
+// ─── Phase 4.1 — NL-Erstellung ──────────────────────────────
+
+#[derive(Deserialize)]
+pub struct NlCreateRequest {
+    pub text: String,
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct NlCreateResult {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    #[serde(default)]
+    pub attendees: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due: Option<String>,
+}
+
+/// `POST /api/v1/ai/nl-create` — parse natural language into an event or task.
+pub async fn ai_nl_create(
+    State(state): State<AppState>,
+    Json(req): Json<NlCreateRequest>,
+) -> ApiResult<NlCreateResult> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let context = req.context.as_deref().unwrap_or("unbekannt");
+    let (system, user) = prompts::build_nl_create_prompt(&req.text, &now, context);
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.3), Some(600)).await?;
+    let obj = extract_json_object(&raw);
+    let kind = obj.get("type").and_then(|v| v.as_str()).unwrap_or("event").to_string();
+    let title = obj.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let attendees = obj.get("attendees")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    Ok(Json(NlCreateResult {
+        kind,
+        title,
+        start: obj.get("start").and_then(|v| v.as_str()).map(str::to_string),
+        end: obj.get("end").and_then(|v| v.as_str()).map(str::to_string),
+        attendees,
+        description: obj.get("description").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_string),
+        due: obj.get("due").and_then(|v| v.as_str()).map(str::to_string),
+    }))
+}
+
+// ─── Phase 4.2 — Smart Scheduling ───────────────────────────
+
+#[derive(Deserialize)]
+pub struct ScheduleRequest {
+    pub request: String,
+    #[serde(default)]
+    pub participants: Option<String>,
+    #[serde(default)]
+    pub free_slots: Option<String>,
+    #[serde(default)]
+    pub constraints: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ScheduleSuggestion {
+    pub start: String,
+    pub end: String,
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ScheduleResult {
+    pub suggestions: Vec<ScheduleSuggestion>,
+}
+
+/// `POST /api/v1/ai/schedule` — suggest optimal meeting times.
+pub async fn ai_schedule(
+    State(state): State<AppState>,
+    Json(req): Json<ScheduleRequest>,
+) -> ApiResult<ScheduleResult> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let (system, user) = prompts::build_smart_schedule_prompt(
+        &req.request,
+        req.participants.as_deref().unwrap_or("unbekannt"),
+        req.free_slots.as_deref().unwrap_or("unbekannt"),
+        req.constraints.as_deref().unwrap_or("keine"),
+        &now,
+    );
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.3), Some(800)).await?;
+    let obj = extract_json_object(&raw);
+    let suggestions = obj.get("suggestions").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|s| {
+            let start = s.get("start")?.as_str()?.to_string();
+            let end = s.get("end")?.as_str()?.to_string();
+            let confidence = s.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.5);
+            Some(ScheduleSuggestion {
+                start,
+                end,
+                confidence,
+                reason: s.get("reason").and_then(|r| r.as_str()).map(str::to_string),
+            })
+        }).collect())
+        .unwrap_or_default();
+    Ok(Json(ScheduleResult { suggestions }))
+}
+
+// ─── Phase 4.3 — Meeting-Prep ───────────────────────────────
+
+#[derive(Deserialize)]
+pub struct MeetingPrepRequest {
+    pub summary: String,
+    pub start: String,
+    #[serde(default)]
+    pub attendees: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct MeetingPrepResult {
+    pub attendees: Vec<String>,
+    pub agenda: Vec<String>,
+    pub prep_notes: String,
+}
+
+/// `POST /api/v1/ai/meeting-prep` — prepare for an upcoming meeting.
+pub async fn ai_meeting_prep(
+    State(state): State<AppState>,
+    Json(req): Json<MeetingPrepRequest>,
+) -> ApiResult<MeetingPrepResult> {
+    let (contacts_str, mails_str) = with_db(&state, |conn| {
+        let contacts = gather_contact_context(conn)?;
+        let mails = gather_recent_mails(conn, 14, 15)?;
+        Ok((contacts, mails))
+    })?;
+    let (system, user) = prompts::build_meeting_prep_prompt(
+        &req.summary, &req.start, &contacts_str, &mails_str,
+    );
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(900)).await?;
+    let obj = extract_json_object(&raw);
+    let attendees = obj.get("attendees").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let agenda = obj.get("agenda").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let prep_notes = obj.get("prep_notes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    Ok(Json(MeetingPrepResult { attendees, agenda, prep_notes }))
+}
+
+// ─── Phase 4.4 — Agenda-Digest ──────────────────────────────
+
+#[derive(Deserialize)]
+pub struct AgendaDigestRequest {
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub horizon: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct AgendaDigestResult {
+    pub digest: String,
+    pub priorities: Vec<String>,
+    pub followups: Vec<String>,
+}
+
+/// `POST /api/v1/ai/agenda-digest` — produce a daily/weekly agenda digest.
+pub async fn ai_agenda_digest(
+    State(state): State<AppState>,
+    Json(req): Json<AgendaDigestRequest>,
+) -> ApiResult<AgendaDigestResult> {
+    let horizon = req.horizon.unwrap_or(7).clamp(1, 30);
+    let (date_str, events_str, tasks_str, mails_str) = with_db(&state, |conn| {
+        let now = chrono::Utc::now();
+        let start = req.date.clone().unwrap_or_else(|| now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        let end = (now + chrono::Duration::days(horizon as i64)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let events = gather_events(conn, &start, &end)?;
+        let tasks = gather_tasks(conn)?;
+        let mails = gather_recent_mails(conn, -(horizon as i64), 15)?;
+        Ok((start, events, tasks, mails))
+    })?;
+    let (system, user) = prompts::build_agenda_digest_prompt(&date_str, horizon, &events_str, &tasks_str, &mails_str);
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(1000)).await?;
+    let obj = extract_json_object(&raw);
+    let digest = obj.get("digest").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let priorities = obj.get("priorities").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let followups = obj.get("followups").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    Ok(Json(AgendaDigestResult { digest, priorities, followups }))
+}
+
+// ─── Phase 4.5 — Globaler Assistent ─────────────────────────
+
+#[derive(Deserialize)]
+pub struct AssistantRequest {
+    pub message: String,
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AssistantAction {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct AssistantResult {
+    pub reply: String,
+    pub actions: Vec<AssistantAction>,
+}
+
+const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, schedule, meeting_prep, agenda_digest";
+
+/// `POST /api/v1/ai/assistant` — the global assistant (centerpiece).
+pub async fn ai_assistant(
+    State(state): State<AppState>,
+    Json(req): Json<AssistantRequest>,
+) -> ApiResult<AssistantResult> {
+    let context = req.context.as_deref().unwrap_or("kein Kontext");
+    let (system, user) = prompts::build_assistant_prompt(&req.message, context, AVAILABLE_ACTIONS);
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.5), Some(1000)).await?;
+    let obj = extract_json_object(&raw);
+    let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let actions = obj.get("actions").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|a| {
+            let kind = a.get("type")?.as_str()?.to_string();
+            if kind.is_empty() {
+                return None;
+            }
+            let payload = a.get("payload").cloned().unwrap_or(serde_json::Value::Null);
+            Some(AssistantAction { kind, payload })
+        }).collect())
+        .unwrap_or_default();
+    Ok(Json(AssistantResult { reply, actions }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
