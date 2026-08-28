@@ -2617,22 +2617,11 @@ let sentFolderName = $state<string | null>(null);
               &#8592;
             </button>
           {/if}
-          <div class="account-header-btn" role="button" tabindex="0" onclick={() => goto('/settings')} onkeydown={(e) => e.key === 'Enter' && goto('/settings')} title={$t("mail.accountSettings")}>
-            <div class="account-header-avatar">
-              {#if ownPhoto}
-                <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt={$t("mail.profilePhoto")} />
-              {:else}
-                {getInitials(selectedAccount?.name || $t("mail.account"))}
-              {/if}
-            </div>
-            <div class="account-header-meta">
-              <span class="account-header-name">{selectedAccount?.name || $t("mail.selectAccount")}</span>
-              <span class="account-header-sub">
-                <span class="account-header-dot" class:connected={selectedAccount?.connected}></span>
-                {selectedAccount?.username || $t("mail.notConfigured")}
-              </span>
-            </div>
-          </div>
+          <button type="button" class="logo-btn" onclick={() => goto('/settings')} title={$t("mail.accountSettings")} aria-label={$t("mail.accountSettings")}>
+            <svg class="logo-shield" width="44" height="44" viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M130 26.625V68.5625C130 85.9792 124.815 101.82 114.445 116.086C104.076 130.352 90.9271 139.49 75 143.5C59.0729 139.49 45.9245 130.352 35.5547 116.086C25.1849 101.82 20 85.9792 20 68.5625V26.625L75 6L130 26.625ZM57.7139 40.9248L36.2246 100.523H47.6416L52.5938 86.4219H76.1816L81.1338 100.523H92.5498L71.0605 40.9248H57.7139ZM94.6123 100.523H105.525V40.9248H94.6123V100.523ZM72.9912 77.1035H55.7832L64.4297 51.9209L72.9912 77.1035Z" fill="#CAA960"/>
+            </svg>
+          </button>
         </div>
         <nav class="sidebar-nav" id="sidebar-nav">
           {#each $accounts.groups as group}
@@ -2687,19 +2676,14 @@ let sentFolderName = $state<string | null>(null);
           <div class="footer-row module-row">
             <button type="button" class="module-btn" onclick={() => goto('/calendar')} title="Kalender">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-              <span>Kalender</span>
             </button>
             <button type="button" class="module-btn" onclick={() => goto('/contacts')} title="Kontakte">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span>Kontakte</span>
             </button>
             <button type="button" class="module-btn" onclick={() => goto('/tasks')} title="Aufgaben">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-              <span>Aufgaben</span>
             </button>
           </div>
-
-          <span class="version">AImighty Relay 3.0</span>
         </div>
       </div>
     </aside>
@@ -2980,6 +2964,24 @@ let sentFolderName = $state<string | null>(null);
   .sidebar-close {
     flex-shrink: 0;
     font-size: 1.25rem;
+  }
+  .logo-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    background: none;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.15s ease-in-out;
+  }
+  .logo-btn:hover {
+    background: var(--color-active-wash);
+  }
+  .logo-shield {
+    display: block;
   }
   .account-header-btn {
     display: flex;

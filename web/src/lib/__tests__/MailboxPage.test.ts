@@ -136,7 +136,7 @@ async function renderPageWithAccount(withMessages = true, selectUid: number | nu
   render(Page);
 
   await waitFor(() => {
-    expect(screen.getByText("AImighty Relay 3.0")).toBeTruthy();
+    expect(document.querySelector(".search-input")).toBeTruthy();
   });
 }
 
