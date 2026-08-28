@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.08.101
+  version: 26.09.101
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.08.101
+  versionName: 26.09.101
   upgradeDescription: |
+    v26.09.101: Chart-Re-Sync (Version-Bump auf 26.09.x uebersteuert den stale 26.09.99-Chart in der app-service; Image bleibt 26.08.100 mit UI-Verfeinerung: Gold-Schild-Logo, Versionszeile entfernt, Modul-Buttons icon-only). Built for Olares 1.12.6.
     v26.08.101: Chart-Re-Sync (Version-Bump erzwingt Olares-Chart-Re-Fetch; Image bleibt 26.08.100 mit UI-Verfeinerung: Gold-Schild-Logo, Versionszeile entfernt, Modul-Buttons icon-only). Built for Olares 1.12.6.
     v26.08.100: UI-Verfeinerung — (1) Konten-Pill in der Sidebar durch Gold-Schild-Logo ersetzt (Klick fuehrt zu Einstellungen). (2) Versionszeile "AImighty Relay 3.0" in der Sidebar entfernt. (3) Modul-Buttons (Kalender/Kontakte/Aufgaben) zeigen nur noch Icons ohne Text (Tooltip bleibt). Built for Olares 1.12.6.
     v26.09.99: FIX AI-Gate (Live-Verifizierung mit Experte) — (1) max_tokens der KI-Handler erhoeht (Smart Scheduling/Meeting-Prep/Morgen-Digest/Assistent/Followups), damit laengere JSON-Antworten nicht mehr abgeschnitten und als leer geparst werden. (2) Globaler Assistent gibt Datums-/Zeitfelder im Action-Payload jetzt als RFC3339-UTC-Timestamp aus (vorher relativer Text wie "morgen 14:00"), damit Aktionen direkt ausgefuehrt werden koennen; Prompt bekommt Referenzdatum zur Zeitaufloesung. Alle 6 KI-Features live getestet (Followups, NL-Erstellung, Smart Scheduling, Meeting-Prep, Morgen-Digest, Assistent). Built for Olares 1.12.6.
