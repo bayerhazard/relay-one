@@ -1,0 +1,22 @@
+# Rust build artifacts (10+ GB) — never ship in the build context
+target/
+
+# Node deps + build output (rebuilt inside the image)
+web/node_modules/
+web/build/
+web/.svelte-kit/
+
+# Local data, logs, packaged charts
+data/
+*.log
+relay-*.tgz
+
+# VCS + tooling
+.git/
+.github/
+browser-check/
+.playwright-mcp/
+
+# Docs / misc not needed at build time
+docs/
+*.md
