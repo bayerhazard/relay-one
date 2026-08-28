@@ -37,8 +37,10 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: bayerhazard
+          # The runtime GITHUB_TOKEN is denied write_package for this user-owned
+          # package, so we log in with a PAT that has the write:packages scope.
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
