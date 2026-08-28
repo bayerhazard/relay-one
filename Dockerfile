@@ -11,10 +11,12 @@ RUN cd server && cargo build --release --locked
 FROM node:22-alpine AS web-build
 WORKDIR /app
 COPY web/package.json web/package-lock.json ./
-RUN npm ci --silent
+# --ignore-scripts: the "prepare" (svelte-kit sync) needs the source, which is
+# copied in the next step. Running it during npm ci (source absent) would fail.
+RUN npm ci --silent --ignore-scripts
 COPY web/ ./
 ENV NODE_ENV=production
-RUN npm run build
+RUN npm run prepare && npm run build
 
 # Runtime
 FROM alpine:3.21
