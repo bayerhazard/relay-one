@@ -4,6 +4,7 @@
   "version": "2.1.0",
   "type": "module",
   "scripts": {
+    "prepare": "svelte-kit sync",
     "dev": "vite dev --port 1421",
     "build": "vite build",
     "preview": "vite preview",
