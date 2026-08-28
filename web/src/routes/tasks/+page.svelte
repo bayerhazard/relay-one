@@ -156,7 +156,7 @@
 <div class="tk-app">
   <aside class="tk-sidebar">
     <div class="tk-sidebar-header">
-      <ModuleLogo to="/" label="Aufgaben" />
+      <ModuleLogo to="/" label="Aufgaben" noHover />
     </div>
 
     <div class="tk-tools">

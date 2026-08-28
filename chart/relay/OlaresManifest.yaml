@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.105
+  version: 26.09.106
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.105
+  versionName: 26.09.106
   upgradeDescription: |
+    v26.09.106: Assistent-Kontext + Kontakte-Verknuepfungen — (1) Der Assistent behaelt jetzt den Kontext ueber mehrere Nachrichten eines Dialogs (z.B. "schreibe eine Mail" → "an welche Adresse?" → "marc@example.com" bleibt zusammenhaengend). (2) Der Assistent kennt jetzt auch Telefonnummern aus den Kontakten. (3) Kontakte: Klick auf eine Telefonnummer loest einen Anruf aus (tel:-Link). (4) Kontakte: Klick auf eine Mailadresse oeffnet das Compose-Fenster im Mail-Modul mit vorausgefuelltem Empfaenger (statt externem Mailprogramm). (5) Logo-Hover-Effekt in Aufgaben, Kontakte und Kalender entfernt. Built for Olares 1.12.6.
     v26.09.105: Assistent modul-uebergreifend + Aktionen direkt — (1) Der Assistent (FAB) hat jetzt Zugriff auf die Daten aller Module (Termine der naechsten 7 Tage, Kontakte, letzte Mails) und beantwortet Fragen modul-uebergreifend, z.B. aus dem Mail-Modul "Habe ich morgen Termine?" oder "Wie lautet die Mailadresse von Marc?". (2) Erkannte Aktionen (z.B. "Mail an X beantworten") werden jetzt direkt ausgefuehrt, ohne dass der Befehl als Button/Output im Chat-Dialog angezeigt wird. (3) Mustertext (Placeholder) in den Suchfeldern von Kontakte, Kalender und Aufgaben jetzt vertikal zentriert. Built for Olares 1.12.6.
     v26.09.104: Shortcuts & Assistent — (1) Einheitliches Shortcut-Verhalten: Backspace/Entf loescht den markierten Eintrag mit Bestaetigungsdialog (Mail bereits vorhanden, jetzt auch im Kalender: markierten Termin mit Backspace/Entf loeschen). (2) Assistent (FAB): Eingabefeld jetzt einzeilig, Text vertikal zentriert (gleicher Abstand oben/unten), Hoehe von Eingabefeld und Senden-Button angeglichen. Built for Olares 1.12.6.
     v26.09.103: UI-Overhaul + Kalender-Fixes — (1) Einheitliches Layout: AIMIGHTY-Logo (themenbewusst: Gold-Schild + "AIMIGHTY"-Text) oben in jeder Modul-Sidebar, unten Suchfeld + Modul-Icons (Kalender/Kontakte/Aufgaben) in allen Modulen. (2) FIX Kalender-Namen: Backend lieferte display_name/last_sync_at, Frontend erwartete name/last_synced_at/read_only — Felder angeglichen, Kalender zeigen jetzt Namen. (3) FIX Sync: CalDAV-Sync macht jetzt immer einen Voll-Sync (der inkrementelle Pfad deckte nur den ersten Kalender ab). (4) FIX Termin anlegen/bearbeiten: EventRow serialisierte start_at/end_at, Frontend las start/end — Termine wurden nicht gruppiert und die Erstellungs-/Bearbeitungs-Flows liefen leer; jetzt per serde-Rename auf start/end. Built for Olares 1.12.6.

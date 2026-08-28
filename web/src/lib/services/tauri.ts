@@ -1373,6 +1373,15 @@ export interface AssistantResult {
   actions: AssistantAction[];
 }
 
-export async function askAssistant(message: string, context?: string): Promise<AssistantResult> {
-  return post<AssistantResult>("/ai/assistant", { message, context }, "Assistent nicht erreichbar.");
+export interface AssistantHistoryMsg {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export async function askAssistant(
+  message: string,
+  context?: string,
+  history?: AssistantHistoryMsg[],
+): Promise<AssistantResult> {
+  return post<AssistantResult>("/ai/assistant", { message, context, history }, "Assistent nicht erreichbar.");
 }

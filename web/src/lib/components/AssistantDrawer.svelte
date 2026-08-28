@@ -181,10 +181,16 @@
     const text = input.trim();
     if (!text || loading) return;
     input = "";
+    // Verlauf der bisherigen Runden (ohne die aktuelle) mitgeben, damit der
+    // Assistent Zusammenhaenge ueber mehrere Nachrichten hinweg behaelt.
+    const history = messages
+      .filter((m) => !m.error && m.text.trim() !== "")
+      .slice(-10)
+      .map((m) => ({ role: m.role, text: m.text }));
     messages = [...messages, { role: "user", text, actions: [] }];
     loading = true;
     try {
-      const res: AssistantResult = await askAssistant(text, fullContext);
+      const res: AssistantResult = await askAssistant(text, fullContext, history);
       // Zeige die Antwort (ohne Action-Buttons).
       messages = [...messages, { role: "assistant", text: res.reply || "(keine Antwort)", actions: [] }];
       // Aktionen direkt ausführen, Output unterdrücken.

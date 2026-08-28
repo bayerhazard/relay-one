@@ -1379,10 +1379,19 @@ pub async fn ai_agenda_digest(
 // ─── Phase 4.5 — Globaler Assistent ─────────────────────────
 
 #[derive(Deserialize)]
+pub struct AssistantHistoryMsg {
+    pub role: String,
+    pub text: String,
+}
+
+#[derive(Deserialize)]
 pub struct AssistantRequest {
     pub message: String,
     #[serde(default)]
     pub context: Option<String>,
+    /// Previous turns of the same dialog (user + assistant), oldest first.
+    #[serde(default)]
+    pub history: Option<Vec<AssistantHistoryMsg>>,
 }
 
 #[derive(Serialize)]
@@ -1450,18 +1459,30 @@ fn gather_assistant_context(state: &AppState) -> String {
 
     // Contacts (max 50).
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT display_name, email FROM contacts
+        "SELECT display_name, email, phone FROM contacts
          WHERE display_name IS NOT NULL AND display_name != ''
          ORDER BY display_name COLLATE NOCASE LIMIT 50",
     ) {
         if let Ok(rows) = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
         }) {
             let contacts: Vec<String> = rows
                 .filter_map(|row| {
-                    row.ok().map(|(name, email)| match email {
-                        Some(e) if !e.trim().is_empty() => format!("- {name}: {e}"),
-                        _ => format!("- {name}"),
+                    row.ok().map(|(name, email, phone)| {
+                        let email = email.filter(|e| !e.trim().is_empty());
+                        let phone = phone.filter(|p| !p.trim().is_empty());
+                        let mut line = format!("- {name}");
+                        if let Some(e) = email {
+                            line.push_str(&format!(" (Mail: {e})"));
+                        }
+                        if let Some(p) = phone {
+                            line.push_str(&format!(" (Telefon: {p})"));
+                        }
+                        line
                     })
                 })
                 .collect();
@@ -1518,7 +1539,18 @@ pub async fn ai_assistant(
     } else {
         format!("{context}\n\nVerfügbare Daten:\n{data}")
     };
-    let (system, user) = prompts::build_assistant_prompt(&req.message, &full_context, AVAILABLE_ACTIONS, &now);
+    // Vorherige Runden desselben Dialogs als Verlauf mitgeben, damit der
+    // Assistent Zusammenhaenge ueber mehrere Nachrichten hinweg behaelt.
+    let history = req
+        .history
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|m| !m.text.trim().is_empty())
+        .map(|m| format!("{}: {}", if m.role == "user" { "Nutzer" } else { "Assistent" }, m.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (system, user) = prompts::build_assistant_prompt(&req.message, &full_context, AVAILABLE_ACTIONS, &now, &history);
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.5), Some(1500)).await?;
     let obj = extract_json_object(&raw);

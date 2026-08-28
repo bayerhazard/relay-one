@@ -807,7 +807,7 @@
       {#if isNarrow}
         <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label="Schließen">←</button>
       {/if}
-      <ModuleLogo to="/" label="Kalender" />
+      <ModuleLogo to="/" label="Kalender" noHover />
     </div>
 
     <!-- Mini month for quick navigation -->

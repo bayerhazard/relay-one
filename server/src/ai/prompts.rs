@@ -535,6 +535,7 @@ pub fn build_assistant_prompt(
     context: &str,
     available_actions: &str,
     reference_date: &str,
+    history: &str,
 ) -> (String, String) {
     let system = "Du bist der globale Assistent von Relay, einem lokalen E-Mail- und Kalender-Client. \
                     Du hast Zugriff auf die im Kontext bereitgestellten Daten (Termine, Kontakte, letzte Mails) \
@@ -555,9 +556,15 @@ pub fn build_assistant_prompt(
                      \"subject\": Betreff, \"body\": ausformulierter Mail-Text}}. \
                      Fuer event_create setze payload = {{\"summary\": Titel, \"start\": RFC3339-UTC, \
                      \"end\": RFC3339-UTC, \"description\": optional, \"attendees\": optional Array von E-Mail-Adressen}}.";
+    let history_block = if history.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\nGespraechsverlauf (fruehere Runde desselben Dialogs, Kontext beibehalten):\n{history}")
+    };
     let user = format!(
-        "Referenzdatum: {reference_date}\nKontext: {context}\nVerfuegbare Action-Typen: {available_actions}\n\
-         Nutzer-Nachricht: {message}\n\nErzeuge das JSON-Objekt.",
+        "Referenzdatum: {reference_date}\nKontext: {context}{history_block}\n\
+         Verfuegbare Action-Typen: {available_actions}\n\
+         Aktuelle Nutzer-Nachricht: {message}\n\nErzeuge das JSON-Objekt.",
     );
     (system.into(), user)
 }
@@ -761,11 +768,31 @@ mod tests {
             "3 offene Mails",
             "event_create, task_create, find_mail",
             "2026-09-01T00:00:00Z",
+            "",
         );
         assert!(system.contains("\"actions\""));
         assert!(system.contains("RFC3339"));
         assert!(user.contains("Plan mir einen Termin"));
         assert!(user.contains("event_create, task_create, find_mail"));
         assert!(user.contains("2026-09-01"));
+        // Leerer Verlauf -> kein Verlauf-Block.
+        assert!(!user.contains("Gespraechsverlauf"));
+    }
+
+    #[test]
+    fn test_build_assistant_prompt_with_history() {
+        let history = "Nutzer: schreibe eine Mail\nAssistent: An welche Adresse?";
+        let (_, user) = build_assistant_prompt(
+            "marc@example.com",
+            "Posteingang",
+            "compose_mail",
+            "2026-09-01T00:00:00Z",
+            history,
+        );
+        // Verlauf wird mitgegeben, aktuelle Nachricht separat.
+        assert!(user.contains("Gespraechsverlauf"));
+        assert!(user.contains("schreibe eine Mail"));
+        assert!(user.contains("An welche Adresse?"));
+        assert!(user.contains("marc@example.com"));
     }
 }

@@ -8,6 +8,7 @@
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import { assistantAction } from "$lib/stores/assistantAction";
 
   let contacts = $state<ContactInfo[]>([]);
   let loading = $state(true);
@@ -97,12 +98,27 @@
     const last = f ? f[0] : "";
     return (first + last).toUpperCase() || "?";
   }
+
+  // tel:-Link: nur Ziffern + eventuelles führendes Plus behalten (keine
+  // Leerzeichen, Bindestriche, Klammern), damit der Anruf zuverlässig startet.
+  function telHref(phone: string): string {
+    return `tel:${phone.replace(/[^\d+]/g, "")}`;
+  }
+
+  // Klick auf eine Kontakt-Mailadresse öffnet das in-app-Compose im Mail-Modul
+  // (statt dem externen Mailprogramm via mailto:). Gleicher Hand-off wie der
+  // Assistent: Aktion setzen, dann ins Mail-Modul navigieren.
+  async function composeTo(email: string | null) {
+    if (!email) return;
+    assistantAction.set({ type: "open_compose", to: email, subject: "", body: "" });
+    await goto("/");
+  }
 </script>
 
 <div class="ct-app">
   <aside class="ct-sidebar">
     <div class="ct-sidebar-header">
-      <ModuleLogo to="/" label="Kontakte" />
+      <ModuleLogo to="/" label="Kontakte" noHover />
     </div>
 
     <div class="ct-tools">
@@ -154,9 +170,9 @@
             <div class="ct-item-body">
               <span class="ct-item-name">{c.display_name || c.email || "Unbenannt"}</span>
               <span class="ct-item-sub">
-                {#if c.email}<a class="ct-link" href="mailto:{c.email}">{c.email}</a>{/if}
+                {#if c.email}<button type="button" class="ct-link" onclick={() => composeTo(c.email)} title="Neue Mail an {c.email}">{c.email}</button>{/if}
                 {#if c.email && c.phone}<span class="ct-sep">·</span>{/if}
-                {#if c.phone}<span>{c.phone}</span>{/if}
+                {#if c.phone}<a class="ct-link" href={telHref(c.phone)} title="Anrufen">{c.phone}</a>{/if}
                 {#if c.organization}<span class="ct-sep">·</span><span>{c.organization}</span>{/if}
               </span>
             </div>
@@ -321,7 +337,15 @@
   .ct-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ct-item-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ct-item-sub { font-size: 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ct-link { color: var(--color-accent); text-decoration: none; }
+  .ct-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
   .ct-link:hover { text-decoration: underline; }
   .ct-sep { margin: 0 4px; opacity: 0.5; }
 
