@@ -17,6 +17,8 @@ import {
   import { accounts } from "$lib/stores/accounts";
   import { settings, showDiffEnabled } from "$lib/stores/settings";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
+  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
 
   // ─── Active Tab State ────────────────────────
@@ -668,13 +670,7 @@ async function handleSaveCardDav() {
   <!-- 1. LEFT SIDEBAR (HubSpot-Style Navigation) -->
   <aside class="settings-sidebar">
     <div class="sidebar-header">
-      <button type="button" class="back-btn" onclick={() => goto("/")} title={$t("settings.inbox")}>
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-        <span>{$t("settings.inbox")}</span>
-      </button>
-      <h2>{$t("settings.title")}</h2>
+      <ModuleLogo to="/" label={$t("settings.title")} />
     </div>
 
     <nav class="sidebar-menu">
@@ -754,6 +750,10 @@ async function handleSaveCardDav() {
         <span>{$t("settings.archive")}</span>
       </button>
     </nav>
+
+    <div class="settings-module-row">
+      <ModuleIcons active="settings" />
+    </div>
   </aside>
 
   <!-- 2. RIGHT MAIN CONTENT AREA -->
@@ -1709,6 +1709,13 @@ async function handleSaveCardDav() {
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .settings-module-row {
+    margin-top: auto;
+    display: flex;
+    justify-content: center;
+    padding-top: 12px;
   }
 
   .menu-item {

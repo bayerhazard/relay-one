@@ -5,6 +5,8 @@
     listTodos, createTodo, toggleTodo, deleteTodo, syncTodos, nlCreate,
     type TodoInfo, type TodoInput,
   } from "$lib/services/tauri";
+  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
+  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
 
   type Filter = "all" | "open" | "done";
 
@@ -15,6 +17,13 @@
   let busy = $state(false);
   let syncing = $state(false);
   let syncMsg = $state<string | null>(null);
+  let tkSearch = $state("");
+
+  let visibleTodos = $derived.by(() => {
+    const q = tkSearch.trim().toLowerCase();
+    if (!q) return todos;
+    return todos.filter((t) => (t.summary ?? "").toLowerCase().includes(q));
+  });
 
   let editorOpen = $state(false);
   let form = $state({ summary: "", description: "", due: "", priority: 5 as number });
@@ -146,10 +155,7 @@
 <div class="tk-app">
   <aside class="tk-sidebar">
     <div class="tk-sidebar-header">
-      <button type="button" class="tk-back" onclick={() => goto("/")} title="Zurück zur Post">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      </button>
-      <span class="tk-brand">Aufgaben</span>
+      <ModuleLogo to="/" label="Aufgaben" />
     </div>
 
     <div class="tk-tools">
@@ -187,7 +193,25 @@
     {#if syncMsg}
       <div class="tk-sync-msg">{syncMsg}</div>
     {/if}
-    <div class="tk-count">{todos.length} {filter === "done" ? "erledigt" : "Aufgaben"}</div>
+    <div class="tk-count">{visibleTodos.length} {filter === "done" ? "erledigt" : "Aufgaben"}</div>
+
+    <div class="tk-sidebar-footer">
+      <div class="tk-search-bar">
+        <input
+          type="text"
+          class="tk-search-input"
+          placeholder="Aufgaben suchen…"
+          aria-label="Aufgaben suchen"
+          bind:value={tkSearch}
+        />
+        {#if tkSearch}
+          <button type="button" class="tk-search-clear" onclick={() => (tkSearch = "")} aria-label="Suche löschen">✕</button>
+        {/if}
+      </div>
+      <div class="tk-module-row">
+        <ModuleIcons active="tasks" />
+      </div>
+    </div>
   </aside>
 
   <main class="tk-main">
@@ -198,16 +222,16 @@
         <p>{error}</p>
         <button type="button" class="tk-btn tk-btn-ghost" onclick={loadTodos}>Erneut laden</button>
       </div>
-    {:else if todos.length === 0}
+    {:else if visibleTodos.length === 0}
       <div class="tk-state">
-        <p>{filter === "open" ? "Keine offenen Aufgaben." : filter === "done" ? "Noch nichts erledigt." : "Noch keine Aufgaben."}</p>
+        <p>{tkSearch ? "Keine Aufgaben gefunden." : filter === "open" ? "Keine offenen Aufgaben." : filter === "done" ? "Noch nichts erledigt." : "Noch keine Aufgaben."}</p>
         {#if filter !== "done"}
           <button type="button" class="tk-btn tk-btn-ghost" onclick={openCreate}>Aufgabe anlegen</button>
         {/if}
       </div>
     {:else}
       <ul class="tk-list">
-        {#each todos as t (t.uid)}
+        {#each visibleTodos as t (t.uid)}
           <li class="tk-item" class:done={t.status === "COMPLETED"} class:overdue={isOverdue(t)}>
             <button
               type="button"
@@ -352,8 +376,41 @@
     font-size: 12px;
     color: var(--color-text-secondary);
     border-top: 1px solid var(--color-border);
-    margin-top: auto;
   }
+  .tk-sidebar-footer {
+    margin-top: auto;
+    padding: 12px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .tk-search-bar { position: relative; display: flex; align-items: center; }
+  .tk-search-input {
+    width: 100%;
+    padding: 8px 28px 8px 12px;
+    font-size: 13px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-card);
+    color: var(--color-text);
+    outline: none;
+  }
+  .tk-search-input:focus { border-color: var(--color-accent); }
+  .tk-search-input::placeholder { color: var(--color-text-secondary); }
+  .tk-search-clear {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 6px;
+  }
+  .tk-search-clear:hover { color: var(--color-text); }
+  .tk-module-row { display: flex; justify-content: center; }
 
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
   .tk-state {

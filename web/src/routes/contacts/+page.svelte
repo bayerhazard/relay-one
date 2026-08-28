@@ -5,6 +5,8 @@
     listContacts, createContact, updateContact, deleteContact,
     type ContactInfo, type ContactInput,
   } from "$lib/services/tauri";
+  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
+  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
 
   let contacts = $state<ContactInfo[]>([]);
   let loading = $state(true);
@@ -99,21 +101,10 @@
 <div class="ct-app">
   <aside class="ct-sidebar">
     <div class="ct-sidebar-header">
-      <button type="button" class="ct-back" onclick={() => goto("/")} title="Zurück zur Post">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      </button>
-      <span class="ct-brand">Kontakte</span>
+      <ModuleLogo to="/" label="Kontakte" />
     </div>
 
     <div class="ct-tools">
-      <input
-        type="text"
-        class="ct-search"
-        placeholder="Suchen…"
-        aria-label="Kontakte durchsuchen"
-        bind:value={search}
-        oninput={loadContacts}
-      />
       <button type="button" class="ct-btn ct-btn-primary" onclick={openCreate}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         Neuer Kontakt
@@ -121,6 +112,22 @@
     </div>
 
     <div class="ct-count">{contacts.length} Kontakte</div>
+
+    <div class="ct-sidebar-footer">
+      <div class="ct-search-bar">
+        <input
+          type="text"
+          class="ct-search"
+          placeholder="Suchen…"
+          aria-label="Kontakte durchsuchen"
+          bind:value={search}
+          oninput={loadContacts}
+        />
+      </div>
+      <div class="ct-module-row">
+        <ModuleIcons active="contacts" />
+      </div>
+    </div>
   </aside>
 
   <main class="ct-main">
@@ -257,6 +264,16 @@
     border-top: 1px solid var(--color-border);
     margin-top: 8px;
   }
+  .ct-sidebar-footer {
+    margin-top: auto;
+    padding: 12px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ct-search-bar { position: relative; }
+  .ct-module-row { display: flex; justify-content: center; }
 
   .ct-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
   .ct-state {

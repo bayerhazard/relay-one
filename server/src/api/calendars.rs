@@ -94,27 +94,11 @@ pub async fn do_caldav_sync(state: &AppState) -> ApiResult<serde_json::Value> {
     };
     let client = CalDavClient::new(settings);
 
-    let token = state.caldav_sync_token.read().clone();
-    let (events, new_token) = if token.is_empty() {
-        client.fetch_all_events().await.map_err(ApiError)?
-    } else {
-        match client.sync_incremental(&token).await {
-            Ok((added, deleted, tok)) => {
-                if !deleted.is_empty() {
-                    if let Ok(mut guard) = get_db(state) {
-                        if let Some(conn) = guard.as_mut() {
-                            let _ = crate::cache::cal::delete_events_by_uid(conn, &deleted);
-                        }
-                    }
-                }
-                (added, tok)
-            }
-            Err(e) => {
-                tracing::warn!("CalDAV: inkrementell fehlgeschlagen, Full-Sync: {e}");
-                client.fetch_all_events().await.map_err(ApiError)?
-            }
-        }
-    };
+    // Always full-sync: the incremental (SYNC-COLLECTION) path only covers the
+    // first discovered calendar (single-token model), so multi-calendar setups
+    // would silently miss updates on every other calendar. A full sync is the
+    // only reliable way to keep all calendars current.
+    let (events, new_token) = client.fetch_all_events().await.map_err(ApiError)?;
 
     // Persist calendars + events.
     let calendars = client.discover_calendars().await.unwrap_or_default();

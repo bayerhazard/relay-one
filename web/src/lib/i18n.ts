@@ -61,7 +61,6 @@ export const translations: Record<Lang, Dict> = {
     "error.connection": "Verbindungsfehler.",
 
     // Settings
-    "settings.inbox": "Posteingang",
     "settings.title": "Einstellungen",
     "settings.general": "Allgemein",
     "settings.accounts": "E-Mail-Konten",
@@ -452,7 +451,6 @@ export const translations: Record<Lang, Dict> = {
     "error.connection": "Connection error.",
 
     // Settings
-    "settings.inbox": "Inbox",
     "settings.title": "Settings",
     "settings.general": "General",
     "settings.accounts": "Email accounts",

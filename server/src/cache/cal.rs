@@ -14,10 +14,13 @@ use serde::{Deserialize, Serialize};
 pub struct CalendarRow {
     pub id: i64,
     pub url: String,
-    pub display_name: Option<String>,
+    pub name: Option<String>,
     pub description: Option<String>,
     pub color: Option<String>,
-    pub last_sync_at: Option<String>,
+    pub last_synced_at: Option<String>,
+    /// CalDAV calendars are editable; only synthetic/read-only collections set this.
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// An event row (for API responses), including its attendees.
@@ -31,8 +34,11 @@ pub struct EventRow {
     pub description: Option<String>,
     pub location: Option<String>,
     /// Original DTSTART (RFC 3339 UTC). For recurring occurrences, use
-    /// `occurrence_start` when present.
+    /// `occurrence_start` when present. Serialised as `start`/`end` to match
+    /// the web client's `EventInfo` (which reads `start`/`end`, not `start_at`).
+    #[serde(rename = "start")]
     pub start_at: String,
+    #[serde(rename = "end")]
     pub end_at: Option<String>,
     pub all_day: bool,
     pub organizer: Option<String>,
@@ -82,10 +88,11 @@ pub fn list_calendars(conn: &Connection) -> Result<Vec<CalendarRow>, rusqlite::E
             Ok(CalendarRow {
                 id: r.get(0)?,
                 url: r.get(1)?,
-                display_name: r.get(2)?,
+                name: r.get(2)?,
                 description: r.get(3)?,
                 color: r.get(4)?,
-                last_sync_at: r.get(5)?,
+                last_synced_at: r.get(5)?,
+                read_only: false,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -563,9 +570,9 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].uid, "uid-b");
 
-        // Sync-token bookkeeping: last_sync_at gets stamped (matched by full URL).
+        // Sync-token bookkeeping: last_synced_at gets stamped (matched by full URL).
         mark_calendar_synced(&mut conn, "https://cal.example.com/Marc/Privat/", "0-1234").unwrap();
         let cals = list_calendars(&conn).unwrap();
-        assert!(cals.iter().find(|c| c.id == cid).unwrap().last_sync_at.is_some());
+        assert!(cals.iter().find(|c| c.id == cid).unwrap().last_synced_at.is_some());
     }
 }

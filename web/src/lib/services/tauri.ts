@@ -794,8 +794,8 @@ export interface CalDavSettings {
 
 export interface CalendarInfo {
   id: number;
-  name: string;
-  color: string;
+  name: string | null;
+  color: string | null;
   read_only: boolean;
   last_synced_at: string | null;
 }
@@ -806,7 +806,7 @@ export interface EventInfo {
   uid: string;
   summary: string | null;
   start: string;
-  end: string;
+  end: string | null;
   all_day: boolean;
   location: string | null;
   description: string | null;

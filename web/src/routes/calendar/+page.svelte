@@ -12,6 +12,8 @@
   } from "$lib/services/tauri";
   import { t } from "$lib/i18n";
   import { germanHolidays } from "$lib/holidays";
+  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
+  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
 
   // Synthetic built-in "Feiertage" calendar (German public holidays).
   const HOLIDAY_CAL_ID = -1;
@@ -28,6 +30,7 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let syncing = $state(false);
+  let calSearch = $state("");
 
   // NL-Erstellung (Phase 4.1)
   let nlInput = $state("");
@@ -294,7 +297,7 @@
   const CAL_COLORS = ["#caa960", "#4f83b3", "#7ba05b", "#b3564f", "#8a6fb3", "#4fb3a5"];
   function calColor(cal: CalendarInfo | undefined): string {
     if (!cal) return CAL_COLORS[0];
-    if (cal.id === HOLIDAY_CAL_ID) return cal.color;
+    if (cal.id === HOLIDAY_CAL_ID) return cal.color ?? CAL_COLORS[0];
     const idx = calendars.findIndex((c) => c.id === cal.id);
     return CAL_COLORS[(idx < 0 ? 0 : idx) % CAL_COLORS.length];
   }
@@ -309,9 +312,15 @@
   }
   // Events filtered to visible calendars (CalDAV + built-in holidays).
   let shownEvents = $derived.by(() => {
-    const calEvents = events.filter(
+    let calEvents = events.filter(
       (ev) => visibleCals.size === 0 || visibleCals.has(ev.calendar_id)
     );
+    const q = calSearch.trim().toLowerCase();
+    if (q) {
+      calEvents = calEvents.filter((ev) =>
+        (ev.summary ?? "").toLowerCase().includes(q)
+      );
+    }
     const hols = visibleCals.has(HOLIDAY_CAL_ID) ? holidayEvents : [];
     return [...calEvents, ...hols];
   });
@@ -343,7 +352,7 @@
     return ev.occurrence_start ?? ev.start;
   }
   function effEnd(ev: EventInfo): string {
-    return ev.occurrence_end ?? ev.end;
+    return ev.occurrence_end ?? ev.end ?? ev.start;
   }
 
   // Map of LOCAL "YYYY-MM-DD" → events for that day. Grouping by the user's
@@ -645,10 +654,11 @@
 
   function openEditEvent(ev: EventInfo) {
     editingId = ev.id;
+    const endVal = ev.end ?? ev.start;
     form = {
       summary: ev.summary ?? "",
       start: ev.all_day ? ev.start.slice(0, 10) : toLocalInput(new Date(ev.start)),
-      end: ev.all_day ? ev.end.slice(0, 10) : toLocalInput(new Date(ev.end)),
+      end: ev.all_day ? endVal.slice(0, 10) : toLocalInput(new Date(endVal)),
       all_day: ev.all_day,
       location: ev.location ?? "",
       description: ev.description ?? "",
@@ -774,10 +784,7 @@
 <div class="cal-app">
   <aside class="cal-sidebar">
     <div class="cal-sidebar-header">
-      <button type="button" class="cal-back" onclick={() => goto("/")} title="Zurück zur Post">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      </button>
-      <span class="cal-brand">Kalender</span>
+      <ModuleLogo to="/" label="Kalender" />
     </div>
 
     <!-- Mini month for quick navigation -->
@@ -810,7 +817,7 @@
             onchange={() => toggleCal(cal)}
           />
           <span class="cal-cal-dot" style="background: {calColor(cal)}"></span>
-          <span class="cal-cal-name">{cal.name}</span>
+          <span class="cal-cal-name">{cal.name ?? "Kalender"}</span>
         </label>
       {/each}
       {#if calendars.length === 0}
@@ -885,13 +892,20 @@
     {/if}
 
     <div class="cal-sidebar-footer">
-      <div class="cal-footer-actions">
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={handleSync} disabled={syncing}>
-          {syncing ? "Synchronisiere…" : "Synchronisieren"}
-        </button>
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={triggerImport} disabled={importing}>
-          {importing ? "Importiere…" : "ICS importieren"}
-        </button>
+      <div class="cal-search-bar">
+        <input
+          type="text"
+          class="cal-search-input"
+          placeholder="Termine suchen…"
+          aria-label="Termine suchen"
+          bind:value={calSearch}
+        />
+        {#if calSearch}
+          <button type="button" class="cal-search-clear" onclick={() => (calSearch = "")} aria-label="Suche löschen">✕</button>
+        {/if}
+      </div>
+      <div class="cal-module-row">
+        <ModuleIcons active="calendar" />
       </div>
       <input
         type="file"
@@ -1353,9 +1367,33 @@
   .cal-cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .cal-cal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .cal-sidebar-footer { padding: 12px; border-top: 1px solid var(--color-border); }
-  .cal-footer-actions { display: flex; flex-direction: column; gap: 6px; }
-  .cal-footer-actions .cal-btn { width: 100%; }
+  .cal-sidebar-footer { padding: 12px; border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 10px; }
+  .cal-search-bar { position: relative; display: flex; align-items: center; }
+  .cal-search-input {
+    width: 100%;
+    padding: 8px 28px 8px 12px;
+    font-size: 13px;
+    background: var(--color-input, var(--color-list));
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text);
+    outline: none;
+  }
+  .cal-search-input:focus { border-color: var(--color-accent); }
+  .cal-search-input::placeholder { color: var(--color-text-secondary); }
+  .cal-search-clear {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 6px;
+  }
+  .cal-search-clear:hover { color: var(--color-text); }
+  .cal-module-row { display: flex; justify-content: center; }
   .cal-file-input { display: none; }
 
   /* ── Main ── */
