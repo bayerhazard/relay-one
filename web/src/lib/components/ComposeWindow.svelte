@@ -40,13 +40,15 @@
     draftUid?: number | null;
     /** Pre-filled attachments (drafts, forward). Each item carries base64 content. */
     initialAttachments?: { id?: number; filename: string; content: string; contentType: string; size: number }[];
+    /** Assistant hand-off: pre-fill a fresh compose (recipient + subject + drafted body). */
+    prefill?: { to: string; subject: string; body: string } | null;
   }
 
   let {
     mode, mailChain = [], sendError = null, replySubject = "", replyTo = "",
     accountId, recipientEmail, senderName = "", recipientName = "", onclose, onsend,
     ondraftSaved, draftTo = "", draftSubject = "", draftBody = "", draftUid = null,
-    initialAttachments = [],
+    initialAttachments = [], prefill = null,
   }: Props = $props();
 
   let to = $state<string[]>([]);
@@ -301,6 +303,17 @@
       toneLoaded = false;
       lastMode = mode;
       lastReplyTo = replyTo;
+    }
+  });
+
+  // Assistant hand-off: pre-fill a fresh compose with recipient + subject + drafted body.
+  $effect(() => {
+    if (prefill) {
+      to = prefill.to ? [prefill.to] : [];
+      subject = prefill.subject;
+      userInput = prefill.body;
+      aiDraft = null;
+      toneLoaded = false;
     }
   });
 

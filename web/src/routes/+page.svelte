@@ -10,7 +10,7 @@
   import PromptDialog from "$lib/components/PromptDialog.svelte";
   import ComposeWindow from "$lib/components/ComposeWindow.svelte";
   import ReplySuggestions from "$lib/components/ReplySuggestions.svelte";
-  import AssistantDrawer from "$lib/components/AssistantDrawer.svelte";
+  import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
@@ -18,6 +18,7 @@
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
   import { mailbox, getFolderCache, invalidateFolderCache, isFolderFresh, markFolderFetched, type Message } from "$lib/stores/mailbox";
   import { accounts, type AccountInfo } from "$lib/stores/accounts";
+  import { assistantAction } from "$lib/stores/assistantAction";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
     listAccounts, fetchFromImap, listImapFolders, createLocalFolder, deleteFolder,
@@ -88,8 +89,7 @@ import {
   // via the SSE event stream (replaces the Tauri event listeners).
   let loadingBodyUid = $state<number | null>(null);
 
-  // Globaler AI-Assistent (Phase 4.5)
-  let assistantOpen = $state(false);
+  // Globaler AI-Assistent (Phase 4.5) — FAB + drawer live in <AssistantFab>.
 
   // AI-Followups (Phase 3.4)
   let followups = $state<FollowupItem[]>([]);
@@ -169,6 +169,21 @@ import {
   let mailChain = $state<MailChainEntry[]>([]);
   let selectedAccountId = $state<number>(1);
   let senderName = $state("");
+  // Assistant hand-off: a fresh compose pre-filled from the AI assistant.
+  let assistantCompose = $state<{ to: string; subject: string; body: string } | null>(null);
+  $effect(() => {
+    const action = $assistantAction;
+    if (!action) return;
+    if (action.type === "open_compose") {
+      assistantCompose = { to: action.to, subject: action.subject, body: action.body };
+      composeMode = "new";
+      showCompose = true;
+    } else if (action.type === "search") {
+      searchQuery = action.query;
+      onSearchInput();
+    }
+    assistantAction.clear();
+  });
   let replySuggestions = $state<string[]>([]);
   let accountList = $state<Array<{id: number; name: string; username: string; connected: boolean}>>([]);
   let selectedAccount = $derived(accountList.find(a => a.id === selectedAccountId) || (accountList.length > 0 ? accountList[0] : null));
@@ -1834,6 +1849,7 @@ let sentFolderName = $state<string | null>(null);
     draftSubject = "";
     draftBody = "";
     draftInitialAttachments = [];
+    assistantCompose = null;
     forwardSourceUid = null;
     forwardSourceFolder = "";
   }
@@ -2075,6 +2091,7 @@ let sentFolderName = $state<string | null>(null);
       }
 
       showCompose = false;
+      assistantCompose = null;
       sendError = null;
       await loadInbox();
     } catch (e: unknown) {
@@ -2398,10 +2415,11 @@ let sentFolderName = $state<string | null>(null);
       onclose={closeCompose}
       onsend={handleSend}
       ondraftSaved={(uid) => { draftUid = uid; }}
-      draftTo={draftUid ? draftTo : undefined}
-      draftSubject={draftUid ? draftSubject : undefined}
-      draftBody={draftUid ? draftBody : undefined}
-      draftUid={draftUid}
+      draftTo={assistantCompose?.to ?? (draftUid ? draftTo : undefined)}
+      draftSubject={assistantCompose?.subject ?? (draftUid ? draftSubject : undefined)}
+      draftBody={assistantCompose?.body ?? (draftUid ? draftBody : undefined)}
+      draftUid={assistantCompose ? null : draftUid}
+      prefill={assistantCompose}
       initialAttachments={draftInitialAttachments}
     />
   {:else if selectedMessage}
@@ -2619,7 +2637,7 @@ let sentFolderName = $state<string | null>(null);
               &#8592;
             </button>
           {/if}
-          <ModuleLogo to="/settings" label={$t("mail.accountSettings")} />
+          <ModuleLogo to="/settings" label={$t("mail.accountSettings")} noHover />
         </div>
         <nav class="sidebar-nav" id="sidebar-nav">
           {#each $accounts.groups as group}
@@ -2825,19 +2843,9 @@ let sentFolderName = $state<string | null>(null);
     oncancel={cancelNewFolder}
   />
 
-  <button
-    type="button"
-    class="assistant-fab"
-    onclick={() => (assistantOpen = true)}
-    title="Assistent"
-    aria-label="Assistent öffnen"
-  >
-    ✦
-  </button>
-  <AssistantDrawer
-    open={assistantOpen}
+  <AssistantFab
+    module="mail"
     context={selectedMessage ? `Aktive Mail: ${selectedMessage.subject || "(ohne Betreff)"} von ${selectedMessage.from}` : ""}
-    onclose={() => (assistantOpen = false)}
   />
 
   {#if folderCtxMenu}
@@ -3124,7 +3132,7 @@ let sentFolderName = $state<string | null>(null);
 
   .sidebar-footer {
     margin-top: auto;
-    padding-top: 12px;
+    padding: 12px;
     border-top: 1px solid var(--color-border);
   }
   .sidebar-footer .search-bar-inner {
@@ -3142,7 +3150,7 @@ let sentFolderName = $state<string | null>(null);
     letter-spacing: 0.01em;
   }
   .module-row {
-    justify-content: flex-start;
+    justify-content: center;
     padding: 0 10px;
   }
   .module-btn {
@@ -3552,24 +3560,6 @@ let sentFolderName = $state<string | null>(null);
     cursor: pointer;
   }
   .followup-add:hover {
-    filter: brightness(1.1);
-  }
-  .assistant-fab {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    border: none;
-    background: var(--color-accent);
-    color: #fff;
-    font-size: 1.4rem;
-    cursor: pointer;
-    z-index: 900;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  }
-  .assistant-fab:hover {
     filter: brightness(1.1);
   }
   .attachments {

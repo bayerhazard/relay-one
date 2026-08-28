@@ -1398,7 +1398,7 @@ pub struct AssistantResult {
     pub actions: Vec<AssistantAction>,
 }
 
-const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, schedule, meeting_prep, agenda_digest";
+const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, compose_mail, schedule, meeting_prep, agenda_digest";
 
 /// `POST /api/v1/ai/assistant` — the global assistant (centerpiece).
 pub async fn ai_assistant(

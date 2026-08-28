@@ -1,11 +1,12 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  let { to = "/", label = "" }: { to?: string; label?: string } = $props();
+  let { to = "/", label = "", noHover = false }: { to?: string; label?: string; noHover?: boolean } = $props();
 </script>
 
 <button
   type="button"
   class="ml-logo-btn"
+  class:no-hover={noHover}
   onclick={() => goto(to)}
   aria-label={label || "AIMIGHTY"}
 >
@@ -33,6 +34,10 @@
   }
   .ml-logo-btn:hover {
     background: var(--color-active-wash);
+  }
+  .ml-logo-btn.no-hover:hover {
+    background: none;
+    cursor: default;
   }
   .ml-logo {
     display: block;

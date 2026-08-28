@@ -7,6 +7,7 @@
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import AssistantFab from "$lib/components/AssistantFab.svelte";
 
   type Filter = "all" | "open" | "done";
 
@@ -296,6 +297,8 @@
   {/if}
 </div>
 
+  <AssistantFab module="tasks" />
+
 <style>
   .tk-app {
     display: flex;
@@ -312,11 +315,13 @@
     flex-direction: column;
   }
   .tk-sidebar-header {
+    height: 72px;
+    padding: 0 15px;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 16px;
     border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
   }
   .tk-back {
     background: none;

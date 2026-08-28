@@ -19,6 +19,7 @@ import {
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import AssistantFab from "$lib/components/AssistantFab.svelte";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
 
   // ─── Active Tab State ────────────────────────
@@ -1642,6 +1643,8 @@ async function handleSaveCardDav() {
   oncancel={cancelDeleteAccount}
 />
 
+  <AssistantFab module="settings" />
+
 <style>
   /* ─── BASE LAYOUT (HubSpot Split-Screen) ─── */
   .settings-page {
@@ -1665,9 +1668,13 @@ async function handleSaveCardDav() {
   }
 
   .sidebar-header {
+    height: 72px;
+    padding: 0 15px;
     display: flex;
-    flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
   }
 
   .back-btn {

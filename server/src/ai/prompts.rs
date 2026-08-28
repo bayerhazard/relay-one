@@ -547,7 +547,11 @@ pub fn build_assistant_prompt(
                     RFC3339-UTC-Timestamp (z.B. 2026-09-01T14:00:00Z) angegeben werden, NIE als relativer Text \
                     (morgen, naechste Woche). Nutze das Referenzdatum zur Aufloesung. \
                     Nutze nur Action-Typen, die tatsaechlich verfuegbar sind, und nur wenn sie zur Anfrage passen. \
-                    Wenn keine Aktion noetig ist, setze \"actions\" auf ein leeres Array.";
+                    Wenn keine Aktion noetig ist, setze \"actions\" auf ein leeres Array. \
+                     Fuer den Action-Typ compose_mail setze payload = {{\"to\": E-Mail-Adresse, \
+                     \"subject\": Betreff, \"body\": ausformulierter Mail-Text}}. \
+                     Fuer event_create setze payload = {{\"summary\": Titel, \"start\": RFC3339-UTC, \
+                     \"end\": RFC3339-UTC, \"description\": optional, \"attendees\": optional Array von E-Mail-Adressen}}.";
     let user = format!(
         "Referenzdatum: {reference_date}\nKontext: {context}\nVerfuegbare Action-Typen: {available_actions}\n\
          Nutzer-Nachricht: {message}\n\nErzeuge das JSON-Objekt.",

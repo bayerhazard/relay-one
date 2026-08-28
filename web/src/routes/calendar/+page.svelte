@@ -6,7 +6,7 @@
     getCalDavSettings, syncCalDav, importEvents, getEventIcs,
     listInvitations, acceptInvitation, declineInvitation, listAccounts,
     getConflicts, getConflictAlternatives, extractTime, rsvpDraft,
-    nlCreate, createTodo, meetingPrep, smartSchedule, agendaDigest,
+    createTodo, meetingPrep, smartSchedule, agendaDigest,
     type CalendarInfo, type EventInfo, type InvitationInfo, type TimeSlot,
     type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
@@ -14,6 +14,9 @@
   import { germanHolidays } from "$lib/holidays";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import RecipientInput from "$lib/components/RecipientInput.svelte";
+  import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
 
   // Synthetic built-in "Feiertage" calendar (German public holidays).
   const HOLIDAY_CAL_ID = -1;
@@ -32,47 +35,15 @@
   let syncing = $state(false);
   let calSearch = $state("");
 
-  // NL-Erstellung (Phase 4.1)
-  let nlInput = $state("");
-  let nlLoading = $state(false);
-  let nlResult = $state<string | null>(null);
-
-  async function handleNlCreate() {
-    const text = nlInput.trim();
-    if (!text || nlLoading) return;
-    nlLoading = true;
-    nlResult = null;
-    try {
-      const res = await nlCreate(text, "Kalender");
-      if (res.type === "task") {
-        await createTodo({ summary: res.title, due: res.due ?? undefined });
-        nlResult = `Aufgabe angelegt: ${res.title}`;
-      } else {
-        const cals = calendars;
-        const cal = cals.find((c) => !c.read_only) ?? cals[0];
-        if (!cal) {
-          nlResult = "Kein Kalender verfügbar.";
-          return;
-        }
-        const start = res.start ?? new Date().toISOString();
-        await createEvent({
-          calendar_id: cal.id,
-          summary: res.title,
-          start,
-          end: res.end ?? undefined,
-          description: res.description ?? undefined,
-          attendees: res.attendees?.map((email) => ({ email })),
-        });
-        nlResult = `Termin angelegt: ${res.title}`;
-        await loadEvents();
-      }
-      nlInput = "";
-    } catch (e) {
-      nlResult = String(e);
-    } finally {
-      nlLoading = false;
-    }
-  }
+  // Narrow (mobile) mode: the sidebar collapses to a slide-in overlay.
+  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
+  let isNarrow = $derived(viewportWidth <= 768);
+  let sidebarOpen = $state(false);
+  $effect(() => {
+    const onResize = () => (viewportWidth = window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
 
   // Current date anchor for the visible range.
   let viewDate = $state(new Date());
@@ -82,6 +53,9 @@
   let viewMode = $state<"month" | "week" | "day">("month");
   // Event shown in the right detail pane.
   let selectedEvent = $state<EventInfo | null>(null);
+  // Delete-confirmation dialog (Backspace/Delete or the "Löschen" button).
+  let showDeleteConfirm = $state(false);
+  let pendingDeleteEvent = $state<EventInfo | null>(null);
   // Multi-calendar: which calendars are visible (by id).
   let visibleCals = $state<Set<number>>(new Set());
 
@@ -633,6 +607,7 @@
     location: "",
     description: "",
     reminder_minutes: 15,
+    participants: [] as string[],
   });
 
   function openNewEvent(day?: Date) {
@@ -648,6 +623,7 @@
       location: "",
       description: "",
       reminder_minutes: 15,
+      participants: [],
     };
     editorOpen = true;
   }
@@ -663,6 +639,7 @@
       location: ev.location ?? "",
       description: ev.description ?? "",
       reminder_minutes: 15,
+      participants: (ev.attendees ?? []).map((a) => a.email),
     };
     editorOpen = true;
   }
@@ -691,6 +668,10 @@
     try {
       const start = fromLocalInput(form.start, form.all_day);
       const end = form.end ? fromLocalInput(form.end, form.all_day) : undefined;
+      const attendees = form.participants
+        .map((e) => e.trim())
+        .filter(Boolean)
+        .map((email) => ({ email }));
       if (editingId === null) {
         await createEvent({
           calendar_id: defaultCalId()!,
@@ -701,6 +682,7 @@
           location: form.location || undefined,
           description: form.description || undefined,
           reminder_minutes: form.reminder_minutes,
+          attendees,
         });
       } else {
         await updateEvent(editingId, {
@@ -711,6 +693,7 @@
           location: form.location || undefined,
           description: form.description || undefined,
           reminder_minutes: form.reminder_minutes,
+          attendees,
         });
       }
       editorOpen = false;
@@ -721,13 +704,47 @@
     }
   }
 
-  async function removeEvent(ev: EventInfo) {
-    if (!confirm(`${ev.summary ?? "Termin"} löschen?`)) return;
+  // Open the delete-confirmation dialog for an event (button or Backspace/Delete).
+  function removeEvent(ev: EventInfo) {
+    if (showDeleteConfirm) return;
+    pendingDeleteEvent = ev;
+    showDeleteConfirm = true;
+  }
+
+  async function confirmDeleteEvent() {
+    const ev = pendingDeleteEvent;
+    showDeleteConfirm = false;
+    pendingDeleteEvent = null;
+    if (!ev) return;
     try {
       await deleteEvent(ev.id);
+      if (selectedEvent?.id === ev.id) clearSelection();
       await loadEvents();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  function cancelDeleteEvent() {
+    showDeleteConfirm = false;
+    pendingDeleteEvent = null;
+  }
+
+  function isInputFocused(): boolean {
+    const tag = (document.activeElement?.tagName || "").toUpperCase();
+    const editable = document.activeElement?.getAttribute("contenteditable") === "true";
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || editable;
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && showDeleteConfirm) {
+      cancelDeleteEvent();
+      return;
+    }
+    if (isInputFocused()) return;
+    if ((e.key === "Backspace" || e.key === "Delete" || e.key === "Del") && selectedEvent) {
+      e.preventDefault();
+      removeEvent(selectedEvent);
     }
   }
 
@@ -781,9 +798,15 @@
   });
 </script>
 
-<div class="cal-app">
+<div class="cal-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
+  {#if isNarrow && sidebarOpen}
+    <div class="cal-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
+  {/if}
   <aside class="cal-sidebar">
     <div class="cal-sidebar-header">
+      {#if isNarrow}
+        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label="Schließen">←</button>
+      {/if}
       <ModuleLogo to="/" label="Kalender" />
     </div>
 
@@ -920,36 +943,25 @@
   <main class="cal-main">
     <header class="cal-toolbar">
       <div class="cal-toolbar-left">
+        {#if isNarrow}
+          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label="Menü">☰</button>
+        {/if}
+        <h1 class="cal-month">{periodLabel}</h1>
         <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label="Zurück">‹</button>
         <button type="button" class="cal-btn cal-btn-ghost" onclick={goToday}>Heute</button>
         <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label="Vor">›</button>
-        <h1 class="cal-month">{periodLabel}</h1>
       </div>
-      <div class="cal-toolbar-right">
+      <div class="cal-toolbar-center">
         <div class="cal-viewtoggle" role="tablist" aria-label="Ansicht">
           <button type="button" class="cal-vt" class:active={viewMode === "month"} onclick={() => setViewMode("month")}>Monat</button>
           <button type="button" class="cal-vt" class:active={viewMode === "week"} onclick={() => setViewMode("week")}>Woche</button>
           <button type="button" class="cal-vt" class:active={viewMode === "day"} onclick={() => setViewMode("day")}>Tag</button>
         </div>
+      </div>
+      <div class="cal-toolbar-right">
         <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>+ Termin</button>
       </div>
     </header>
-
-    <div class="cal-nl">
-      <input
-        type="text"
-        class="cal-nl-input"
-        bind:value={nlInput}
-        placeholder="z.B. „Morgen 14 Uhr Kaffee mit Anna“ oder „Freitag Budget prüfen“"
-        onkeydown={(e) => { if (e.key === "Enter") handleNlCreate(); }}
-      />
-      <button type="button" class="cal-btn cal-btn-primary" disabled={nlLoading || !nlInput.trim()} onclick={handleNlCreate}>
-        {nlLoading ? "…" : "Anlegen"}
-      </button>
-      {#if nlResult}
-        <span class="cal-nl-result">{nlResult}</span>
-      {/if}
-    </div>
 
     {#if error}
       <div class="cal-alert">{error}</div>
@@ -1106,7 +1118,7 @@
         <div class="cal-detail-actions">
           <button type="button" class="cal-btn cal-btn-ghost" onclick={() => openEditEvent(ev)}>Bearbeiten</button>
           <button type="button" class="cal-btn cal-btn-ghost" onclick={() => handleExport(ev)}>ICS</button>
-          <button type="button" class="cal-btn cal-btn-danger" onclick={() => { removeEvent(ev); clearSelection(); }}>Löschen</button>
+          <button type="button" class="cal-btn cal-btn-danger" onclick={() => removeEvent(ev)}>Löschen</button>
         </div>
       </div>
     {:else}
@@ -1229,6 +1241,11 @@
         <input type="text" bind:value={form.location} class="cal-input" placeholder="Ort" />
       </label>
 
+      <div class="cal-field">
+        <span>Teilnehmer</span>
+        <RecipientInput bind:value={form.participants} accountId={undefined} />
+      </div>
+
       <label class="cal-field">
         <span>Beschreibung</span>
         <textarea bind:value={form.description} class="cal-input cal-textarea" rows="3"></textarea>
@@ -1248,6 +1265,23 @@
   </div>
 {/if}
 
+  <AssistantFab module="calendar" context={`Ansicht: ${periodLabel}`} />
+
+  <svelte:window onkeydown={handleKeydown} />
+
+  {#if showDeleteConfirm && pendingDeleteEvent}
+    <ConfirmationDialog
+      open={showDeleteConfirm}
+      title="Termin löschen"
+      message={`„${pendingDeleteEvent.summary ?? "(ohne Titel)"}“ wirklich löschen?`}
+      confirmLabel="Löschen"
+      cancelLabel="Abbrechen"
+      danger={true}
+      onconfirm={confirmDeleteEvent}
+      oncancel={cancelDeleteEvent}
+    />
+  {/if}
+
 <style>
   .cal-app {
     display: flex;
@@ -1265,12 +1299,60 @@
     display: flex;
     flex-direction: column;
   }
+  .cal-icon-btn {
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 1.25rem;
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-s);
+  }
+  .cal-icon-btn:hover { background: var(--color-active-wash); color: var(--color-text); }
+
+  /* ── Narrow (mobile ≤768px): sidebar collapses to a slide-in overlay ── */
+  .cal-app.narrow .cal-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 85%;
+    max-width: 320px;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+  }
+  .cal-app.narrow.sidebar-open .cal-sidebar { transform: translateX(0); }
+  .cal-app.narrow .cal-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 55;
+  }
+  .cal-app.narrow .cal-sidebar-close,
+  .cal-app.narrow .cal-menu-toggle { display: inline-flex; }
+  .cal-app:not(.narrow) .cal-sidebar-close,
+  .cal-app:not(.narrow) .cal-menu-toggle { display: none; }
+  .cal-app.narrow .cal-toolbar { padding: 10px 12px; }
+  .cal-app.narrow .cal-month { font-size: 17px; }
+  .cal-app.narrow .cal-icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1.5rem;
+  }
   .cal-sidebar-header {
+    height: 72px;
+    padding: 0 15px;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 16px;
     border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
   }
   .cal-back {
     background: none;
@@ -1399,36 +1481,17 @@
   /* ── Main ── */
   .cal-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .cal-toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--color-border);
   }
   .cal-month { font-size: 20px; font-weight: 600; margin: 0; }
-  .cal-toolbar-right { display: flex; align-items: center; gap: 8px; }
-  .cal-nl {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-card);
-  }
-  .cal-nl-input {
-    flex: 1;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-s);
-    padding: 8px 10px;
-    font: inherit;
-    color: var(--color-text);
-    background: var(--color-list);
-  }
-  .cal-nl-result {
-    font-size: 0.8rem;
-    color: var(--color-text-secondary);
-    white-space: nowrap;
-  }
+  .cal-toolbar-left { display: flex; align-items: center; gap: 8px; justify-self: start; }
+  .cal-toolbar-center { justify-self: center; }
+  .cal-toolbar-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
 
   .cal-alert {
     margin: 12px 20px 0;
@@ -1644,7 +1707,6 @@
   .cal-cal-item:has(input[type="checkbox"]:not(:checked)) { opacity: 0.5; }
 
   /* ── Toolbar additions ── */
-  .cal-toolbar-left { display: flex; align-items: center; gap: 8px; }
   .cal-nav { padding: 7px 11px; font-size: 15px; }
   .cal-viewtoggle {
     display: inline-flex; background: var(--color-sidebar);

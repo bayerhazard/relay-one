@@ -7,6 +7,7 @@
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import AssistantFab from "$lib/components/AssistantFab.svelte";
 
   let contacts = $state<ContactInfo[]>([]);
   let loading = $state(true);
@@ -213,6 +214,8 @@
   {/if}
 </div>
 
+  <AssistantFab module="contacts" />
+
 <style>
   .ct-app {
     display: flex;
@@ -229,11 +232,13 @@
     flex-direction: column;
   }
   .ct-sidebar-header {
+    height: 72px;
+    padding: 0 15px;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 16px;
     border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
   }
   .ct-back {
     background: none;

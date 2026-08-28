@@ -819,6 +819,8 @@ export interface EventInfo {
   occurrence_start?: string;
   /** End of this specific occurrence (recurring events), RFC 3339 UTC. */
   occurrence_end?: string;
+  /** Attendees (ATTENDEE) of the event, if any. */
+  attendees?: { email: string; name?: string | null; part_stat?: string | null; rsvp?: boolean }[];
 }
 
 export interface EventAttendeeInfo {

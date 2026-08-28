@@ -15,8 +15,11 @@ function apiProxy(prefix: string) {
 export default defineConfig({
   plugins: [sveltekit()],
   server: {
+    host: "0.0.0.0",
     port: 1421,
     strictPort: true,
+    allowedHosts: true,
+    hmr: { protocol: "wss", clientPort: 443 },
     proxy: {
       "/api": apiProxy(""),
       ...(basePath ? { [`${basePath}/api`]: apiProxy(basePath) } : {}),
