@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { extractEmail, extractName, formatDate, isHtmlContent, sanitizeHtml, _resetNowCache } from "$lib/utils/format";
+import { extractEmail, extractName, formatDate, isHtmlContent, sanitizeHtml, _resetNowCache, replyAllRecipients, isSafeOpenUrl } from "$lib/utils/format";
 
 // ---------------------------------------------------------------------------
 // extractEmail
@@ -270,5 +270,82 @@ describe("sanitizeHtml", () => {
     expect(out).not.toContain("onclick");
     expect(out).not.toContain("onmouseover");
     expect(out).toContain("text");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replyAllRecipients (H2 — Code-Review 2026-08-28)
+// ---------------------------------------------------------------------------
+describe("replyAllRecipients", () => {
+  it("keeps sender + other recipients, drops the own address", () => {
+    const recips = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "Me <me@example.com>, Bob <bob@example.com>",
+      "Carol <carol@example.com>",
+      "me@example.com",
+    );
+    expect(recips).toContain("alice@example.com");
+    expect(recips).toContain("bob@example.com");
+    expect(recips).toContain("carol@example.com");
+    expect(recips).not.toContain("me@example.com");
+  });
+
+  it("is case-insensitive when filtering the own address", () => {
+    const recips = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "ME <ME@Example.COM>",
+      undefined,
+      "me@example.com",
+    );
+    expect(recips).not.toContain("ME@Example.COM");
+    expect(recips).toContain("alice@example.com");
+  });
+
+  it("returns all recipients when own address is unknown/empty", () => {
+    const recips = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "Me <me@example.com>",
+      undefined,
+      "",
+    );
+    expect(recips).toContain("alice@example.com");
+    expect(recips).toContain("me@example.com");
+  });
+
+  it("deduplicates across from/to/cc", () => {
+    const recips = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "Alice <alice@example.com>",
+      undefined,
+      "me@example.com",
+    );
+    expect(recips.filter((e) => e === "alice@example.com")).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSafeOpenUrl (M2 — Code-Review 2026-08-28)
+// ---------------------------------------------------------------------------
+describe("isSafeOpenUrl", () => {
+  it("allows http and https", () => {
+    expect(isSafeOpenUrl("https://example.com")).toBe(true);
+    expect(isSafeOpenUrl("http://example.com/path?q=1")).toBe(true);
+  });
+
+  it("blocks data: URLs (phishing vector)", () => {
+    expect(isSafeOpenUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+  });
+
+  it("blocks javascript: URLs", () => {
+    expect(isSafeOpenUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("blocks file: URLs", () => {
+    expect(isSafeOpenUrl("file:///etc/passwd")).toBe(false);
+  });
+
+  it("rejects malformed URLs", () => {
+    expect(isSafeOpenUrl("not a url")).toBe(false);
+    expect(isSafeOpenUrl("")).toBe(false);
   });
 });

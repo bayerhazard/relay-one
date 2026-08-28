@@ -29,7 +29,7 @@ import {
     getFollowups, createTodo, createEvent, getCalendars,
     type FollowupAction, type FollowupTimeSlot,
   } from "$lib/services/tauri";
-  import { formatDate, extractEmail, extractEmails, extractName, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
+  import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import type { MailChainEntry } from "$lib/types/mail";
 
   let sidebarWidth = $state(220);
@@ -79,7 +79,9 @@ import {
     const handler = (e: MessageEvent) => {
       const data = e.data;
       if (data && typeof data === 'object' && data.type === 'open-url' && typeof data.url === 'string') {
-        window.open(data.url, "_blank");
+        // Nur http(s) erlauben — blockt data:/javascript:/file:-Phishing-Vektoren
+        // aus (sandboxed) Mail-HTML. (M2, Code-Review 2026-08-28)
+        if (isSafeOpenUrl(data.url)) window.open(data.url, "_blank");
       }
     };
     window.addEventListener('message', handler);
@@ -233,7 +235,7 @@ import {
     assistantAction.clear();
   });
   let replySuggestions = $state<string[]>([]);
-  let accountList = $state<Array<{id: number; name: string; username: string; connected: boolean}>>([]);
+  let accountList = $state<AccountInfo[]>([]);
   let selectedAccount = $derived(accountList.find(a => a.id === selectedAccountId) || (accountList.length > 0 ? accountList[0] : null));
   let initError = $state<string | null>(null);
   let initOk = $state(false);
@@ -1793,7 +1795,10 @@ let sentFolderName = $state<string | null>(null);
     composeMode = "reply";
     sendError = null;
     replySubject = msg.subject ?? "";
-    replyTo = replyAll ? extractEmails(msg.from ?? "", msg.to ?? "", msg.cc ?? "").join(", ") : extractEmail(msg.from ?? "");
+    // Reply-All: Absender + alle Original-Empfänger, ABER ohne die eigene
+    // Adresse (man antwortet nicht an sich selbst). (H2, Code-Review 2026-08-28)
+    const replyAllRecips = replyAllRecipients(msg.from ?? "", msg.to ?? "", msg.cc ?? "", selectedAccount?.sender_email);
+    replyTo = replyAll ? replyAllRecips.join(", ") : extractEmail(msg.from ?? "");
     recipientName = extractName(msg.from ?? "");
     showCompose = true;
 

@@ -13,6 +13,11 @@ use super::circuit_breaker::CircuitBreaker;
 /// and excessive API costs from large email bodies.
 const MAX_USER_PROMPT_BYTES: usize = 16_384;
 
+/// How long a user-initiated request may wait for the LLM semaphore before
+/// giving up with a "busy" error. Bounded wait: a queue of slow (not failing)
+/// LLM calls must not block user requests indefinitely.
+const SEMAPHORE_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIConfig {
     pub url: String,
@@ -43,6 +48,9 @@ pub struct AIClient {
     semaphore: Arc<Semaphore>,
     /// Circuit Breaker: 3 failures in 60s → open for 120s
     circuit_breaker: Arc<CircuitBreaker>,
+    /// Bounded wait for the semaphore (M1). A queue of slow LLM calls must not
+    /// block user requests indefinitely.
+    semaphore_acquire_timeout: Duration,
 }
 
 impl AIClient {
@@ -66,7 +74,25 @@ impl AIClient {
             base_delay: Duration::from_secs(1),
             semaphore: Arc::new(Semaphore::new(1)),
             circuit_breaker: Arc::new(CircuitBreaker::new()),
+            semaphore_acquire_timeout: SEMAPHORE_ACQUIRE_TIMEOUT,
         }
+    }
+
+    /// Override the semaphore acquire timeout (used by tests to avoid waiting
+    /// the production 30 s).
+    pub fn with_semaphore_acquire_timeout(mut self, d: Duration) -> Self {
+        self.semaphore_acquire_timeout = d;
+        self
+    }
+
+    /// Acquire the LLM semaphore with a bounded wait. Returns a "busy" error
+    /// when the queue is too deep instead of blocking the caller indefinitely
+    /// (M1, Code-Review 2026-08-28).
+    async fn acquire_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, String> {
+        tokio::time::timeout(self.semaphore_acquire_timeout, self.semaphore.clone().acquire_owned())
+            .await
+            .map_err(|_| "KI ist gerade ausgelastet, bitte kurz warten".to_string())
+            .and_then(|r| r.map_err(|_| "LLM-System heruntergefahren".to_string()))
     }
 
     pub async fn health_check(&self) -> Result<bool, String> {
@@ -92,8 +118,7 @@ impl AIClient {
         // Check circuit breaker first
         self.circuit_breaker.allow_request()?;
 
-        let _permit = self.semaphore.clone().acquire_owned().await
-            .map_err(|_| "LLM-System heruntergefahren".to_string())?;
+        let _permit = self.acquire_permit().await?;
 
         let messages = vec![
             ChatMessage { role: "system".into(), content: system_prompt.to_string() },
@@ -123,8 +148,7 @@ impl AIClient {
         max_tokens: Option<u32>,
     ) -> Result<String, String> {
         self.circuit_breaker.allow_request()?;
-        let _permit = self.semaphore.clone().acquire_owned().await
-            .map_err(|_| "LLM-System heruntergefahren".to_string())?;
+        let _permit = self.acquire_permit().await?;
         match self.complete_internal(messages, temperature, max_tokens).await {
             Ok(result) => {
                 self.circuit_breaker.record_success();
@@ -435,4 +459,35 @@ struct StreamChoice {
 #[derive(Deserialize)]
 struct StreamDelta {
     content: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // M1 (Code-Review 2026-08-28): a queue of slow LLM calls must not block
+    // user requests indefinitely — the semaphore acquire is bounded.
+    #[tokio::test]
+    async fn semaphore_acquire_times_out_when_busy() {
+        let client = AIClient::new(AIConfig::default())
+            .with_semaphore_acquire_timeout(Duration::from_millis(50));
+        // Hold the single permit so the next acquire cannot succeed.
+        let held = client.semaphore.clone().acquire_owned().await.unwrap();
+        let started = std::time::Instant::now();
+        let result = client.acquire_permit().await;
+        let elapsed = started.elapsed();
+        assert!(result.is_err(), "expected a busy error while the permit is held");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "acquire blocked too long: {elapsed:?}"
+        );
+        drop(held);
+    }
+
+    #[tokio::test]
+    async fn semaphore_acquire_succeeds_when_free() {
+        let client = AIClient::new(AIConfig::default())
+            .with_semaphore_acquire_timeout(Duration::from_millis(100));
+        assert!(client.acquire_permit().await.is_ok());
+    }
 }

@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.107
+  version: 26.09.108
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.107
+  versionName: 26.09.108
   upgradeDescription: |
+    v26.09.108: Robustheit & Performance (Code-Review) — (1) FIX: Beim Oeffnen von Mails mit groesseren Anhaengen blockiert der Dateilesevorgang nicht mehr die gesamte Datenbank (alle anderen API-/Sync-Operationen laufen parallel weiter). (2) FIX Reply-All: Die eigene Absenderadresse wird nicht mehr in den Verteiler aufgenommen. (3) KI-Requests warten jetzt begrenzt (max. 30 s) auf die KI-Engine und zeigen "gerade ausgelastet" statt endlos zu hängen. (4) Sicherheit: Externe Links (open-url) werden nur für http/https geöffnet. (5) /health ist jetzt eine echte Readiness-Pruefung (Datenbank-Check). Built for Olares 1.12.6.
     v26.09.107: Automatische KI-Follow-ups — (1) Beim Oeffnen einer Mail erkennt die KI im Hintergrund Termin-Anfragen und weitere To-dos (ohne manuellen Button, Mail bleibt w&auml;hrend der Analyse lesbar). (2) Die Vorschläge erscheinen als Einzelaktionen in einem fixen Footer im Mail-Bereich: Termin eintragen, Antwort/Bestätigung als Entwurf öffnen (vom Nutzer prüfen/bearbeiten/versenden) oder Aufgabe anlegen. (3) Bei Termin-Konflikten werden alternative freie Zeitfenster vorgeschlagen. (4) Der Assistent findet Kontakte jetzt auch über eine interne Suche (robuster) und zeigt für jede ausgeführte Aktion ein Ergebnis an. (5) VCard-Korrektur: Vor-/Nachname wurden vertauscht gespeichert. Built for Olares 1.12.6.
     v26.09.106: Assistent-Kontext + Kontakte-Verknuepfungen — (1) Der Assistent behaelt jetzt den Kontext ueber mehrere Nachrichten eines Dialogs (z.B. "schreibe eine Mail" → "an welche Adresse?" → "marc@example.com" bleibt zusammenhaengend). (2) Der Assistent kennt jetzt auch Telefonnummern aus den Kontakten. (3) Kontakte: Klick auf eine Telefonnummer loest einen Anruf aus (tel:-Link). (4) Kontakte: Klick auf eine Mailadresse oeffnet das Compose-Fenster im Mail-Modul mit vorausgefuelltem Empfaenger (statt externem Mailprogramm). (5) Logo-Hover-Effekt in Aufgaben, Kontakte und Kalender entfernt. Built for Olares 1.12.6.
     v26.09.105: Assistent modul-uebergreifend + Aktionen direkt — (1) Der Assistent (FAB) hat jetzt Zugriff auf die Daten aller Module (Termine der naechsten 7 Tage, Kontakte, letzte Mails) und beantwortet Fragen modul-uebergreifend, z.B. aus dem Mail-Modul "Habe ich morgen Termine?" oder "Wie lautet die Mailadresse von Marc?". (2) Erkannte Aktionen (z.B. "Mail an X beantworten") werden jetzt direkt ausgefuehrt, ohne dass der Befehl als Button/Output im Chat-Dialog angezeigt wird. (3) Mustertext (Placeholder) in den Suchfeldern von Kontakte, Kalender und Aufgaben jetzt vertikal zentriert. Built for Olares 1.12.6.

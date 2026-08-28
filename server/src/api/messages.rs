@@ -360,13 +360,44 @@ pub async fn fetch_message_body(
             // Attachments (metadata + inline base64 content where materialized).
             // Draft attachments live in the dedup store (no IMAP needed), so
             // they can be handed straight to the compose editor.
-            let attachments: Vec<serde_json::Value> = with_db(&state, |conn| {
-                let list = crate::cache::attachments::get_attachments(conn, msg.id)
-                    .map_err(|e| e.to_string())?;
-                let mut out = Vec::new();
-                for a in list {
-                    let content = attachment_inline_content(conn, &state, &a);
-                    out.push(serde_json::json!({
+            //
+            // (H1, Code-Review 2026-08-28) Only the DB read (metadata + disk
+            // paths) happens under the global lock. The blocking file reads +
+            // base64 encode run OUTSIDE the lock so a large attachment cannot
+            // stall every other DB operation (API + sync loop).
+            let pending: Vec<(crate::cache::attachments::CachedAttachment, Option<std::path::PathBuf>)> =
+                with_db(&state, |conn| {
+                    let list = crate::cache::attachments::get_attachments(conn, msg.id)
+                        .map_err(|e| e.to_string())?;
+                    let mut out = Vec::new();
+                    for a in list {
+                        let needs_file = a.content.as_deref().map_or(true, |c| c.is_empty());
+                        let disk_path = if needs_file {
+                            conn.query_row(
+                                "SELECT disk_path FROM message_attachments WHERE id = ?1",
+                                rusqlite::params![a.id],
+                                |r| r.get::<_, Option<String>>(0),
+                            )
+                            .ok()
+                            .flatten()
+                            .map(|rel| state.data_root.join(rel))
+                        } else {
+                            None
+                        };
+                        out.push((a, disk_path));
+                    }
+                    Ok(out)
+                })?;
+            let attachments: Vec<serde_json::Value> = pending
+                .iter()
+                .map(|(a, disk_path)| {
+                    let content = match disk_path {
+                        Some(p) => std::fs::read(p)
+                            .ok()
+                            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes)),
+                        None => a.content.clone().filter(|c| !c.is_empty()),
+                    };
+                    serde_json::json!({
                         "id": a.id,
                         "part_index": a.part_index,
                         "filename": a.filename,
@@ -374,10 +405,9 @@ pub async fn fetch_message_body(
                         "size": a.size,
                         "content": content,
                         "content_cached": a.content_cached,
-                    }));
-                }
-                Ok::<Vec<serde_json::Value>, String>(out)
-            })?;
+                    })
+                })
+                .collect();
             return Ok(Json(serde_json::json!({
                 "id": msg.id,
                 "uid": msg.uid,
@@ -954,33 +984,6 @@ fn resolve_message_id(conn: &rusqlite::Connection, account_id: u32, uid: i64, fo
     }
 }
 
-/// Inline base64 content for an attachment, preferring the dedup disk store,
-/// then the legacy SQLite `content` column. Returns `None` when the content is
-/// not materialized locally (the caller falls back to the on-demand endpoint).
-fn attachment_inline_content(
-    conn: &rusqlite::Connection,
-    state: &crate::AppState,
-    a: &crate::cache::attachments::CachedAttachment,
-) -> Option<String> {
-    if let Some(content) = a.content.as_ref().filter(|c| !c.is_empty()) {
-        return Some(content.clone());
-    }
-    let rel: Option<String> = conn
-        .query_row(
-            "SELECT disk_path FROM message_attachments WHERE id = ?1",
-            rusqlite::params![a.id],
-            |r| r.get(0),
-        )
-        .ok()
-        .flatten();
-    rel.and_then(|r| {
-        let abs = state.data_root.join(&r);
-        std::fs::read(&abs)
-            .ok()
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
-    })
-}
-
 /// `GET /api/v1/messages/{uid}/attachments/{att_id}/content?account_id=…`
 ///
 /// Loads the attachment content (from the local dedup store if present,
@@ -1007,21 +1010,22 @@ pub async fn fetch_attachment_content(
     };
 
     // 2. If already on disk (dedup store), serve from there.
-    let disk_hit = {
+    //    (H1) Resolve the disk path under the lock, then read the file OUTSIDE
+    //    the lock so a large attachment cannot block other DB operations.
+    let disk_rel: Option<String> = {
         let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
         let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
-        let rel: Option<String> = conn
-            .query_row(
-                "SELECT disk_path FROM message_attachments WHERE id = ?1",
-                rusqlite::params![att_id as i64],
-                |r| r.get(0),
-            )
-            .ok();
-        rel.and_then(|r| {
-            let abs = state.data_root.join(&r);
-            std::fs::read(&abs).ok().map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
-        })
+        conn.query_row(
+            "SELECT disk_path FROM message_attachments WHERE id = ?1",
+            rusqlite::params![att_id as i64],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
     };
+    let disk_hit = disk_rel.and_then(|r| {
+        let abs = state.data_root.join(&r);
+        std::fs::read(&abs).ok().map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
+    });
     if let Some(content) = disk_hit {
         let _ = filename;
         return Ok(Json(serde_json::json!({ "content": content, "cached": true })));
@@ -1030,26 +1034,26 @@ pub async fn fetch_attachment_content(
     // 3a. Local EML archive: if the message has a raw EML on disk, extract
     //     the attachment from there — works for archived/migrated messages
     //     with no IMAP session (and is faster).
-    let local_eml: Option<String> = {
+    // (H1) Resolve the EML path under the lock, read the file OUTSIDE the lock.
+    let raw_rel: Option<String> = {
         let db_guard = get_db(&state).map_err(|e| ApiError(e))?;
         let conn = db_guard.as_ref().ok_or(ApiError("Datenbank nicht initialisiert".into()))?;
-        let raw_rel: Option<String> = conn
-            .query_row(
-                "SELECT raw_path FROM messages m
-                 JOIN folders f ON m.folder_id = f.id
-                 WHERE m.account_id = ?1 AND m.uid = ?2
-                   AND (?3 IS NULL OR f.name = ?3)
-                 ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
-                 LIMIT 1",
-                rusqlite::params![q.account_id as i64, uid as i64, q.folder],
-                |r| r.get(0),
-            )
-            .ok();
-        raw_rel.and_then(|rel| {
-            let abs = state.data_root.join(&rel);
-            std::fs::read(&abs).ok().map(|bytes| String::from_utf8_lossy(&bytes).to_string())
-        })
+        conn.query_row(
+            "SELECT raw_path FROM messages m
+             JOIN folders f ON m.folder_id = f.id
+             WHERE m.account_id = ?1 AND m.uid = ?2
+               AND (?3 IS NULL OR f.name = ?3)
+             ORDER BY f.name = 'Entwürfe' ASC, m.id ASC
+             LIMIT 1",
+            rusqlite::params![q.account_id as i64, uid as i64, q.folder],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
     };
+    let local_eml: Option<String> = raw_rel.and_then(|rel| {
+        let abs = state.data_root.join(&rel);
+        std::fs::read(&abs).ok().map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+    });
     if let Some(raw) = local_eml {
         let attachments = client::parse_message_attachments(raw.as_bytes());
         // Match by filename; if the DB row carries no metadata (filename is

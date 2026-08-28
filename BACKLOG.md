@@ -1,6 +1,7 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
+> Stand: 2026-08-28 — Code-Review `REVIEW-2026-08-28.md` (produktionsreif/Perf/fehlerfrei). Findings H1–H3, M1–M6, L1–L4, I1–I4; Stage-D-Fixes (H1, H2, M1, M2, M4) in Release 26.09.108.
 > Stand: 2026-08-25 — Release 26.09.94 (AI-Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
 
 ---
@@ -263,6 +264,29 @@
 - **Beschreibung:** In der Antwort-/Weiterleitungs-Ansicht wird die zitierte Mail bei **1000 Zeichen** hart gekappt (`ComposeWindow.svelte:558` `sanitizeHtml(msg.html).slice(0,1000)` und `:560` `msg.text.slice(0,1000)`, jeweils mit „…"). Gewünscht: den **vollen Mailverlauf** anzeigen. Der Container ist scrollbar (`.chain-scroll-area`), daher besteht kein Overflow-/Anzeigeproblem — das 1000-Zeichen-Limit kann entfallen (ggf. nur `sanitizeHtml` beibehalten).
 
 ---
+
+## Offen — Code-Review 2026-08-28 (Backlog, nicht in 26.09.108)
+
+> Details + Severity in `REVIEW-2026-08-28.md`. Gefixt in 26.09.108: H1, H2, M1, M2, M4.
+
+### M3 🟡 Kein DB-Schema-Versioning (CR-11)
+- **Kategorie:** Data integrity · **Priorität:** medium
+- `cache/db.rs` nutzt `CREATE TABLE IF NOT EXISTS` ohne `PRAGMA user_version`. Migrations-Framework (sequentiell, idempotent) einführen. Strukturell.
+
+### M5 🟡 Sync pro Account sequenziell
+- **Kategorie:** Perf/Scalability · **Priorität:** low (aktuell 2 Konten)
+- `do_sync_cycle` macht Ping + IDLE pro Account sequenziell. Parallelisieren (begrenzte Parallelität) für Skalierung.
+
+### M6 🟡 64 MB Body-Limit + base64-Inlining
+- **Kategorie:** Memory · **Priorität:** low
+- Große Anhänge als base64 in JSON (+33 %). Optional Streaming/Größen-Limit. Teilweise entlastet durch H1-Fix.
+
+### H3 🟠 Auth nur via Sidecar (Design) — Chart-Env verifizieren
+- **Kategorie:** Security · **Priorität:** medium
+- API-Key-Guard by design deaktiviert (v26.09.92). `RELAY_TRUSTED_HOST_SUFFIX` im Chart auf Entrance-Domain setzen (Host-Spoofing-Schutz). Kein Code-Bruch.
+
+### L2/L3/L4 🔵 Kosmetik/Tooling
+- L2: Delete-Queue aufgebene Zeilen terminal markieren. L3: CI clippy `-D warnings` + fmt + cargo-audit + npm-audit. L4: `followupsCache` Cap (LRU 200).
 
 ## Ausgearbeitet
 

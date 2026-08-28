@@ -62,6 +62,33 @@ export function extractEmails(...parts: (string | undefined | null)[]): string[]
   return Array.from(seen);
 }
 
+/**
+ * Reply-All recipient list: sender + all original To/CC, but WITHOUT the
+ * account's own address (you never reply to yourself). (H2, Code-Review 2026-08-28)
+ */
+export function replyAllRecipients(
+  from: string | undefined | null,
+  to: string | undefined | null,
+  cc: string | undefined | null,
+  ownEmail: string | undefined | null,
+): string[] {
+  const own = (ownEmail ?? "").toLowerCase();
+  return extractEmails(from, to, cc).filter((e) => !own || e.toLowerCase() !== own);
+}
+
+/**
+ * Only http(s) URLs may be opened from (sandboxed) mail HTML. Blocks
+ * data:/javascript:/file: phishing vectors. (M2, Code-Review 2026-08-28)
+ */
+export function isSafeOpenUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function extractName(from: string | undefined | null): string {
   if (!from) return "";
   const match = from.match(/^([^<]+)\s*</);
