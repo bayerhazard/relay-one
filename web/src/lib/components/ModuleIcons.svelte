@@ -19,17 +19,17 @@
   .mi-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
   .mi-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     background: none;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--radius-m);
     color: var(--color-text-secondary);
     cursor: pointer;
     transition: background 0.15s ease-in-out, color 0.15s ease-in-out;

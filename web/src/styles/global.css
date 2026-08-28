@@ -43,6 +43,14 @@
   --fokus-ring: 2px solid var(--color-accent);
   --fokus-offset: 3px;
 
+  /* Typo-Skala (rem, root 16px) */
+  --fs-xs: 0.75rem;    /* 12 */
+  --fs-sm: 0.8125rem;  /* 13 */
+  --fs-base: 0.875rem; /* 14 */
+  --fs-md: 1rem;       /* 16 */
+  --fs-lg: 1.125rem;   /* 18 */
+  --fs-xl: 1.25rem;    /* 20 */
+
   /* AImighty-Raster (Designguide): Grundeinheit 4 px, Dichte-Hebel */
   --am-skalierung: 1; /* kompakt 0,9 · weit 1,1 */
   --am-einheit: 0.25rem;
@@ -125,4 +133,17 @@ textarea:focus {
 :focus-visible {
   outline: var(--fokus-ring);
   outline-offset: var(--fokus-offset);
+}
+
+/* Resizable sidebar/list divider (shared by all modules) */
+.resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  z-index: 10;
+}
+.resize-handle:hover {
+  background: var(--color-accent);
+  opacity: 0.3;
 }

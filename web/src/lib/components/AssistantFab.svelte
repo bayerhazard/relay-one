@@ -3,6 +3,7 @@
   // Drop into every module page; `module` tells the assistant which module it
   // was opened from (used for module-aware navigation).
   import AssistantDrawer from "./AssistantDrawer.svelte";
+  import { t } from "$lib/i18n";
 
   interface Props {
     module: "mail" | "calendar" | "contacts" | "tasks" | "settings";
@@ -17,8 +18,8 @@
   type="button"
   class="assistant-fab"
   onclick={() => (open = true)}
-  title="Assistent"
-  aria-label="Assistent öffnen"
+  title={$t("assistant.title")}
+  aria-label={$t("assistant.open")}
 >
   ✦
 </button>

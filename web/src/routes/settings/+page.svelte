@@ -2034,7 +2034,7 @@ async function handleSaveCardDav() {
   }
 
   .light-dot { background: var(--color-accent); }
-  .dark-dot { background: #caa960; }
+  .dark-dot { background: var(--gold); }
 
   .theme-label {
     font-size: 0.8125rem;

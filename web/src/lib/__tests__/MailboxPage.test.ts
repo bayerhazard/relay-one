@@ -136,7 +136,7 @@ async function renderPageWithAccount(withMessages = true, selectUid: number | nu
   render(Page);
 
   await waitFor(() => {
-    expect(document.querySelector(".search-input")).toBeTruthy();
+    expect(document.querySelector(".ss-input")).toBeTruthy();
   });
 }
 

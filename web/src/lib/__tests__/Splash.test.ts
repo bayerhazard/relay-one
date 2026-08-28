@@ -138,7 +138,7 @@ describe("Splash Screen Integration in +page.svelte", () => {
 
     await waitFor(() => {
       // The app-container has the sidebar search input
-      expect(document.querySelector(".search-input")).toBeTruthy();
+      expect(document.querySelector(".ss-input")).toBeTruthy();
     });
 
     // Splash screen header should NOT be present

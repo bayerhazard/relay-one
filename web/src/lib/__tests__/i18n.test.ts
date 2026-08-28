@@ -159,6 +159,13 @@ describe("i18n t() key reference scan", () => {
       "mail.folderSpamverdacht",
       // Nutzung über translate() im iframe-preview-Skript (kein t()-Literal).
       "mail.loadImage",
+      // Referenziert über das dynamische translate(`assistant.module.${module}`)
+      // in AssistantDrawer.svelte (kein statisches t()-Literal).
+      "assistant.module.mail",
+      "assistant.module.calendar",
+      "assistant.module.contacts",
+      "assistant.module.tasks",
+      "assistant.module.settings",
     ]);
     const realUnused = unused.filter((k) => !allowedUnused.has(k));
     expect(realUnused).toEqual([]);

@@ -2,7 +2,8 @@
   // Phase 4.5 — Globaler AI-Assistent (Centerpiece).
   // Slide-in drawer mit Chat-UI und Action-Vorschau.
   import { goto } from "$app/navigation";
-  import { t } from "$lib/i18n";
+  import { get } from "svelte/store";
+  import { t, translate, lang } from "$lib/i18n";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { blobToWavBase64 } from "$lib/utils/wav";
   import {
@@ -27,16 +28,10 @@
 
   // Module context string handed to the LLM so it knows which module the
   // user started the assistant from.
-  const MODULE_LABELS: Record<string, string> = {
-    mail: "Posteingang (E-Mail)",
-    calendar: "Kalender",
-    contacts: "Kontakte",
-    tasks: "Aufgaben",
-    settings: "Einstellungen",
-  };
+  const modLabel = translate(`assistant.module.${module}`);
   const fullContext = context
-    ? `Aktives Modul: ${MODULE_LABELS[module] ?? module}. ${context}`
-    : `Aktives Modul: ${MODULE_LABELS[module] ?? module}`;
+    ? `${translate("assistant.activeModule", { module: modLabel })}. ${context}`
+    : translate("assistant.activeModule", { module: modLabel });
 
   interface ChatMsg {
     role: "user" | "assistant";
@@ -194,7 +189,7 @@
     try {
       const res: AssistantResult = await askAssistant(text, fullContext, history);
       // Zeige die Antwort (ohne Action-Buttons).
-      messages = [...messages, { role: "assistant", text: res.reply || "(keine Antwort)", actions: [] }];
+      messages = [...messages, { role: "assistant", text: res.reply || translate("assistant.noReply"), actions: [] }];
       // Aktionen ausfuehren und das Ergebnis als kurze Zeile anzeigen.
       for (const action of res.actions) {
         const outcome = await runAction(action);
@@ -223,7 +218,8 @@
 
   function formatLocal(iso: string): string {
     try {
-      return new Date(iso).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
+      const locale = get(lang) === "de" ? "de-DE" : "en-GB";
+      return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
     } catch {
       return iso;
     }
@@ -237,8 +233,8 @@
           const cals = await getCalendars();
           // Ersten schreibbaren Kalender nehmen (cals[0] kann read-only/hidden sein).
           const cal = cals.find((c) => !c.read_only) ?? cals[0];
-          if (!cal) return "Kein Kalender gefunden.";
-          const summary = (p.summary as string) ?? (p.title as string) ?? "Termin";
+          if (!cal) return translate("assistant.noCalendar");
+          const summary = (p.summary as string) ?? (p.title as string) ?? translate("assistant.eventDefault");
           const start = (p.start as string) ?? defaultEventStart();
           await createEvent({
             calendar_id: cal.id,
@@ -252,20 +248,20 @@
           });
           if (module !== "calendar") await goto("/calendar");
           onclose();
-          return `✓ „${summary}" am ${formatLocal(start)} (Kalender „${cal.name ?? "?"}").`;
+          return translate("assistant.eventCreated", { summary, when: formatLocal(start), cal: cal.name ?? "?" });
         }
         case "task_create": {
-          const summary = (p.summary as string) ?? (p.title as string) ?? "Aufgabe";
+          const summary = (p.summary as string) ?? (p.title as string) ?? translate("assistant.taskDefault");
           await createTodo({ summary, due: (p.due as string) ?? undefined });
           if (module !== "tasks") await goto("/tasks");
           onclose();
-          return `✓ Aufgabe „${summary}" angelegt.`;
+          return translate("assistant.taskCreated", { summary });
         }
         case "find_mail": {
           assistantAction.set({ type: "search", query: (p.query as string) ?? "" });
           if (module !== "mail") await goto("/");
           onclose();
-          return "Suche gestartet.";
+          return translate("assistant.searchStarted");
         }
         case "compose_mail": {
           assistantAction.set({
@@ -276,27 +272,27 @@
           });
           if (module !== "mail") await goto("/");
           onclose();
-          return "Mail-Entwurf geöffnet.";
+          return translate("assistant.draftOpened");
         }
         default:
-          return `Aktion „${action.type}" vorbereitet.`;
+          return translate("assistant.actionPrepared", { type: action.type });
       }
     } catch (e) {
-      return `Fehler: ${String(e)}`;
+      return translate("assistant.error", { msg: String(e) });
     }
   }
 
 </script>
 
 {#if open}
-  <aside class="assistant-pop" bind:this={popEl} role="dialog" aria-label="Assistent">
+  <aside class="assistant-pop" bind:this={popEl} role="dialog" aria-label={$t("assistant.title")}>
       <header class="assistant-header">
-        <span class="assistant-title">Assistent</span>
-        <button type="button" class="assistant-close" onclick={onclose} aria-label="Schließen">✕</button>
+        <span class="assistant-title">{$t("assistant.title")}</span>
+        <button type="button" class="assistant-close" onclick={onclose} aria-label={$t("assistant.close")}>✕</button>
       </header>
       <div class="assistant-body">
         {#if messages.length === 0}
-          <p class="assistant-hint">Frag mich nach Terminen, Aufgaben oder Mails.</p>
+          <p class="assistant-hint">{$t("assistant.hint")}</p>
         {/if}
         {#each messages as m (m.text + m.actions.length)}
           {#if m.error}
@@ -320,7 +316,7 @@
             bind:value={input}
             class="assistant-input"
             type="text"
-            placeholder="Wie kann ich helfen?"
+            placeholder={$t("assistant.placeholder")}
             onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
           />
           <button
@@ -339,7 +335,7 @@
           </button>
         </div>
         <button type="button" class="assistant-send" disabled={loading || transcribing || !input.trim()} onclick={send}>
-          {transcribing ? "…" : "Senden"}
+          {transcribing ? "…" : $t("assistant.send")}
         </button>
       </footer>
       {#if voiceError}

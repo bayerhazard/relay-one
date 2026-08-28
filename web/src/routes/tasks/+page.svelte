@@ -7,7 +7,13 @@
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import { useSidebarResize } from "$lib/composables/useSidebarResize";
+  import { t, translate } from "$lib/i18n";
+
+  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
+  $effect(() => () => destroyResize());
 
   type Filter = "all" | "open" | "done";
 
@@ -40,12 +46,12 @@
     nlLoading = true;
     nlResult = null;
     try {
-      const res = await nlCreate(text, "Aufgaben");
+      const res = await nlCreate(text, translate("tasks.title"));
       if (res.type === "event") {
-        nlResult = "Als Termin erkannt — im Kalender angelegt? Bitte dort prüfen.";
+        nlResult = translate("tasks.nlEventDetected");
       } else {
         await createTodo({ summary: res.title, due: res.due ?? undefined });
-        nlResult = `Aufgabe angelegt: ${res.title}`;
+        nlResult = translate("tasks.nlCreated", { title: res.title });
         await loadTodos();
       }
       nlInput = "";
@@ -115,8 +121,8 @@
   }
 
   async function removeTodo(t: TodoInfo) {
-    const name = t.summary || "diese Aufgabe";
-    if (!confirm(`Aufgabe „${name}" wirklich löschen?`)) return;
+    const name = t.summary || translate("tasks.untitled");
+    if (!confirm(translate("tasks.deleteConfirm", { name }))) return;
     try {
       await deleteTodo(t.uid);
       await loadTodos();
@@ -130,7 +136,7 @@
     syncMsg = null;
     try {
       const r = await syncTodos();
-      syncMsg = `${r.synced} Aufgaben synchronisiert.`;
+      syncMsg = translate("tasks.synced", { n: r.synced });
       await loadTodos();
     } catch (e: unknown) {
       syncMsg = e instanceof Error ? e.message : String(e);
@@ -154,18 +160,18 @@
 </script>
 
 <div class="tk-app">
-  <aside class="tk-sidebar">
+  <aside class="tk-sidebar" style={`width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="tk-sidebar-header">
-      <ModuleLogo to="/" label="Aufgaben" noHover />
+      <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
 
     <div class="tk-tools">
       <button type="button" class="tk-btn tk-btn-primary" onclick={openCreate}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        Neue Aufgabe
+        {$t("tasks.new")}
       </button>
       <button type="button" class="tk-btn tk-btn-ghost" onclick={onSync} disabled={syncing}>
-        {syncing ? "Synchronisiere…" : "Von CalDAV laden"}
+        {syncing ? $t("tasks.syncing") : $t("tasks.syncFromCaldav")}
       </button>
     </div>
 
@@ -174,11 +180,11 @@
         type="text"
         class="tk-nl-input"
         bind:value={nlInput}
-        placeholder="z.B. „Freitag Budget prüfen“"
+        placeholder={$t("tasks.nlPlaceholder")}
         onkeydown={(e) => { if (e.key === "Enter") handleNlCreate(); }}
       />
       <button type="button" class="tk-btn tk-btn-primary" disabled={nlLoading || !nlInput.trim()} onclick={handleNlCreate}>
-        {nlLoading ? "…" : "Anlegen"}
+        {nlLoading ? "…" : $t("tasks.create")}
       </button>
       {#if nlResult}
         <span class="tk-nl-result">{nlResult}</span>
@@ -186,75 +192,70 @@
     </div>
 
     <div class="tk-filters">
-      <button type="button" class="tk-filter" class:active={filter === "open"} onclick={() => setFilter("open")}>Offen</button>
-      <button type="button" class="tk-filter" class:active={filter === "done"} onclick={() => setFilter("done")}>Erledigt</button>
-      <button type="button" class="tk-filter" class:active={filter === "all"} onclick={() => setFilter("all")}>Alle</button>
+      <button type="button" class="tk-filter" class:active={filter === "open"} onclick={() => setFilter("open")}>{$t("tasks.filterOpen")}</button>
+      <button type="button" class="tk-filter" class:active={filter === "done"} onclick={() => setFilter("done")}>{$t("tasks.filterDone")}</button>
+      <button type="button" class="tk-filter" class:active={filter === "all"} onclick={() => setFilter("all")}>{$t("tasks.filterAll")}</button>
     </div>
 
     {#if syncMsg}
       <div class="tk-sync-msg">{syncMsg}</div>
     {/if}
-    <div class="tk-count">{visibleTodos.length} {filter === "done" ? "erledigt" : "Aufgaben"}</div>
+    <div class="tk-count">{visibleTodos.length} {filter === "done" ? $t("tasks.countDone") : $t("tasks.countTasks")}</div>
 
     <div class="tk-sidebar-footer">
-      <div class="tk-search-bar">
-        <input
-          type="text"
-          class="tk-search-input"
-          placeholder="Aufgaben suchen…"
-          aria-label="Aufgaben suchen"
-          bind:value={tkSearch}
-        />
-        {#if tkSearch}
-          <button type="button" class="tk-search-clear" onclick={() => (tkSearch = "")} aria-label="Suche löschen">✕</button>
-        {/if}
-      </div>
+      <SidebarSearch
+        bind:value={tkSearch}
+        placeholder={$t("tasks.searchPlaceholder")}
+        ariaLabel={$t("tasks.searchLabel")}
+        clearLabel={$t("tasks.clearSearch")}
+      />
       <div class="tk-module-row">
         <ModuleIcons active="tasks" />
       </div>
     </div>
   </aside>
+  <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
 
   <main class="tk-main">
     {#if loading}
-      <div class="tk-state">Lade Aufgaben…</div>
+      <div class="tk-state">{$t("tasks.loading")}</div>
     {:else if error}
       <div class="tk-state tk-state-error">
         <p>{error}</p>
-        <button type="button" class="tk-btn tk-btn-ghost" onclick={loadTodos}>Erneut laden</button>
+        <button type="button" class="tk-btn tk-btn-ghost" onclick={loadTodos}>{$t("tasks.reload")}</button>
       </div>
     {:else if visibleTodos.length === 0}
       <div class="tk-state">
-        <p>{tkSearch ? "Keine Aufgaben gefunden." : filter === "open" ? "Keine offenen Aufgaben." : filter === "done" ? "Noch nichts erledigt." : "Noch keine Aufgaben."}</p>
+        <p>{tkSearch ? $t("tasks.notFound") : filter === "open" ? $t("tasks.noOpen") : filter === "done" ? $t("tasks.noDone") : $t("tasks.empty")}</p>
         {#if filter !== "done"}
-          <button type="button" class="tk-btn tk-btn-ghost" onclick={openCreate}>Aufgabe anlegen</button>
+          <button type="button" class="tk-btn tk-btn-ghost" onclick={openCreate}>{$t("tasks.createTask")}</button>
         {/if}
       </div>
     {:else}
       <ul class="tk-list">
-        {#each visibleTodos as t (t.uid)}
-          <li class="tk-item" class:done={t.status === "COMPLETED"} class:overdue={isOverdue(t)}>
+        {#each visibleTodos as todo (todo.uid)}
+          <li class="tk-item" class:done={todo.status === "COMPLETED"} class:overdue={isOverdue(todo)}>
             <button
               type="button"
               class="tk-check"
-              class:checked={t.status === "COMPLETED"}
-              onclick={() => onToggle(t)}
-              aria-label={t.status === "COMPLETED" ? "Wieder öffnen" : "Erledigt markieren"}
+              class:checked={todo.status === "COMPLETED"}
+              onclick={() => onToggle(todo)}
+              aria-label={todo.status === "COMPLETED" ? $t("tasks.reopen") : $t("tasks.markDone")}
             >
-              {#if t.status === "COMPLETED"}✓{/if}
+              {#if todo.status === "COMPLETED"}✓{/if}
             </button>
             <div class="tk-item-body">
-              <span class="tk-item-summary">{t.summary || "Ohne Titel"}</span>
-              {#if t.due_at}
-                <span class="tk-item-due" class:overdue={isOverdue(t)}>
-                  {isOverdue(t) ? "Fällig " : "Bis "}{dueLabel(t)}
+              <span class="tk-item-summary">{todo.summary || $t("tasks.untitled")}</span>
+              {#if todo.due_at}
+                <span class="tk-item-due" class:overdue={isOverdue(todo)}>
+                  {isOverdue(todo) ? $t("tasks.overdue") : $t("tasks.due")}{dueLabel(todo)}
                 </span>
               {/if}
             </div>
-            {#if t.priority}
-              <span class="tk-prio" title="Priorität {t.priority}">P{t.priority}</span>
+            {#if todo.priority}
+              <span class="tk-prio" title={$t("tasks.priority", { p: todo.priority })}>P{todo.priority}</span>
             {/if}
-            <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => removeTodo(t)} title="Löschen">
+            <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => removeTodo(todo)} title={$t("tasks.deleteBtn")}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
             </button>
           </li>
@@ -268,28 +269,28 @@
       class="tk-modal-backdrop"
       role="button"
       tabindex="0"
-      aria-label="Dialog schließen"
+      aria-label={$t("tasks.closeDialog")}
       onclick={(e) => { if (e.target === e.currentTarget && !busy) editorOpen = false; }}
       onkeydown={(e) => { if (e.key === "Escape" || e.key === "Enter") !busy && (editorOpen = false); }}
     >
-      <div class="tk-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label="Neue Aufgabe">
-        <h2>Neue Aufgabe</h2>
-        <label>Aufgabe
-          <input type="text" bind:value={form.summary} placeholder="z.B. Rechnung bezahlen" />
+      <div class="tk-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label={$t("tasks.new")}>
+        <h2>{$t("tasks.new")}</h2>
+        <label>{$t("tasks.taskLabel")}
+          <input type="text" bind:value={form.summary} placeholder={$t("tasks.phSummary")} />
         </label>
-        <label>Beschreibung
-          <textarea bind:value={form.description} placeholder="Optional…" rows="2"></textarea>
+        <label>{$t("tasks.description")}
+          <textarea bind:value={form.description} placeholder={$t("tasks.phOptional")} rows="2"></textarea>
         </label>
-        <label>Fällig am
+        <label>{$t("tasks.dueDate")}
           <input type="date" bind:value={form.due} />
         </label>
-        <label>Priorität (1 = hoch, 9 = niedrig)
+        <label>{$t("tasks.priorityLabel")}
           <input type="number" min="1" max="9" bind:value={form.priority} />
         </label>
         <div class="tk-modal-actions">
-          <button type="button" class="tk-btn tk-btn-ghost" onclick={() => editorOpen = false} disabled={busy}>Abbrechen</button>
+          <button type="button" class="tk-btn tk-btn-ghost" onclick={() => editorOpen = false} disabled={busy}>{$t("common.cancel")}</button>
           <button type="button" class="tk-btn tk-btn-primary" onclick={saveTodo} disabled={busy || !form.summary.trim()}>
-            {busy ? "Speichern…" : "Speichern"}
+            {busy ? $t("tasks.saving") : $t("common.save")}
           </button>
         </div>
       </div>
@@ -307,8 +308,7 @@
     color: var(--color-text);
   }
   .tk-sidebar {
-    width: 240px;
-    min-width: 240px;
+    flex-shrink: 0;
     background: var(--color-sidebar);
     border-right: 1px solid var(--color-border);
     display: flex;
@@ -316,12 +316,13 @@
   }
   .tk-sidebar-header {
     height: 72px;
-    padding: 0 15px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    margin-bottom: 16px;
   }
   .tk-back {
     background: none;
@@ -332,7 +333,7 @@
     border-radius: var(--radius-s);
   }
   .tk-back:hover { color: var(--color-text); background: var(--color-active-wash); }
-  .tk-brand { font-weight: 600; font-size: 15px; }
+  .tk-brand { font-weight: 600; font-size: var(--fs-base); }
 
   .tk-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
   .tk-nl {
@@ -366,19 +367,19 @@
     border-radius: var(--radius-s);
     background: none;
     color: var(--color-text-secondary);
-    font-size: 12px;
+    font-size: var(--fs-xs);
     cursor: pointer;
   }
   .tk-filter:hover { background: var(--color-active-wash); }
   .tk-filter.active { background: var(--color-active-wash); color: var(--color-text); border-color: var(--color-border); }
   .tk-sync-msg {
     padding: 8px 16px;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     color: var(--color-text-secondary);
   }
   .tk-count {
     padding: 10px 16px;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     color: var(--color-text-secondary);
     border-top: 1px solid var(--color-border);
   }
@@ -390,32 +391,6 @@
     flex-direction: column;
     gap: 10px;
   }
-  .tk-search-bar { position: relative; display: flex; align-items: center; }
-  .tk-search-input {
-    width: 100%;
-    padding: 8px 28px 8px 12px;
-    font-size: 13px;
-    line-height: 1;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-card);
-    color: var(--color-text);
-    outline: none;
-  }
-  .tk-search-input:focus { border-color: var(--color-accent); }
-  .tk-search-input::placeholder { color: var(--color-text-secondary); }
-  .tk-search-clear {
-    position: absolute;
-    right: 6px;
-    background: none;
-    border: none;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 4px;
-    border-radius: 6px;
-  }
-  .tk-search-clear:hover { color: var(--color-text); }
   .tk-module-row { display: flex; justify-content: center; }
 
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
@@ -427,7 +402,7 @@
     gap: 12px;
     height: 100%;
     color: var(--color-text-secondary);
-    font-size: 14px;
+    font-size: var(--fs-base);
   }
   .tk-state-error { color: var(--color-danger); }
 
@@ -457,17 +432,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: var(--fs-sm);
   }
   .tk-check:hover { border-color: var(--color-accent); }
   .tk-check.checked { background: var(--color-accent); border-color: var(--color-accent); }
 
   .tk-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .tk-item-summary { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tk-item-due { font-size: 12px; color: var(--color-text-secondary); }
+  .tk-item-summary { font-weight: 500; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-item-due { font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .tk-item-due.overdue { color: var(--color-danger); font-weight: 600; }
   .tk-prio {
-    font-size: 11px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     color: var(--color-text-secondary);
     background: var(--color-active-wash);
@@ -496,7 +471,7 @@
     border-radius: var(--radius-s);
     background: var(--color-card, var(--color-list));
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     font-weight: 500;
     cursor: pointer;
   }
@@ -527,15 +502,15 @@
     flex-direction: column;
     gap: 12px;
   }
-  .tk-modal h2 { margin: 0 0 4px; font-size: 17px; }
-  .tk-modal label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--color-text-secondary); }
+  .tk-modal h2 { margin: 0 0 4px; font-size: var(--fs-md); }
+  .tk-modal label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .tk-modal input, .tk-modal textarea {
     padding: 8px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-s);
     background: var(--color-list);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     font-family: inherit;
   }
   .tk-modal input:focus, .tk-modal textarea:focus { outline: none; border-color: var(--color-accent); }

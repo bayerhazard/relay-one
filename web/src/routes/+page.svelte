@@ -6,6 +6,7 @@
   import FolderList from "$lib/components/FolderList.svelte";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AccountGroup from "$lib/components/AccountGroup.svelte";
   import PromptDialog from "$lib/components/PromptDialog.svelte";
   import ComposeWindow from "$lib/components/ComposeWindow.svelte";
@@ -2709,17 +2710,16 @@ let sentFolderName = $state<string | null>(null);
         </nav>
         <div class="sidebar-footer">
           <div class="footer-row">
-            <div class="search-bar-inner">
-              <input
-                type="text"
-                class="search-input"
-                aria-label={$t("mail.searchAria")} placeholder={searchFocused ? "" : $t("mail.search")}
-                bind:value={searchQuery}
-                oninput={onSearchInput}
-                onfocus={() => { searchFocused = true; }}
-                onblur={() => { searchFocused = false; }}
-                onkeydown={(e) => { if (e.key === 'Escape') clearSearch(); }}
-              />
+            <SidebarSearch
+              bind:value={searchQuery}
+              ariaLabel={$t("mail.searchAria")}
+              placeholder={searchFocused ? "" : $t("mail.search")}
+              clearLabel={$t("mail.clearSearch")}
+              onInput={onSearchInput}
+              onFocus={() => (searchFocused = true)}
+              onBlur={() => (searchFocused = false)}
+              onKeydown={(e) => { if (e.key === "Escape") clearSearch(); }}
+            >
               <button
                 type="button"
                 class="flag-filter-btn"
@@ -2733,10 +2733,7 @@ let sentFolderName = $state<string | null>(null);
                   <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z" />
                 </svg>
               </button>
-              {#if searchQuery}
-                <button type="button" class="search-clear" onclick={clearSearch} title={$t("mail.clearSearch")} aria-label={$t("mail.clearSearch")}>&#x2715;</button>
-              {/if}
-            </div>
+            </SidebarSearch>
           </div>
 
           <div class="footer-row module-row">
@@ -3043,7 +3040,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .sidebar-header {
     height: 72px;
-    padding: 0 15px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -3171,15 +3168,15 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 10px 14px;
+    padding: 10px 12px;
     margin-bottom: 4px;
     border: none;
     background: none;
-    font-size: 0.875rem;
+    font-size: var(--fs-base);
     font-weight: 500;
     color: var(--color-text-secondary);
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: var(--radius-m);
     font-family: inherit;
     transition: all 0.15s ease-in-out;
   }
@@ -3226,10 +3223,6 @@ let sentFolderName = $state<string | null>(null);
     margin-top: auto;
     padding: 12px;
     border-top: 1px solid var(--color-border);
-  }
-  .sidebar-footer .search-bar-inner {
-    margin: 0;
-    width: 100%;
   }
   .version {
     font-size: 0.75rem;
@@ -3327,54 +3320,6 @@ let sentFolderName = $state<string | null>(null);
     padding: 0 16px 12px 16px;
     background: transparent;
     flex-shrink: 0;
-  }
-  .search-bar-inner {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-list);
-    transition: all 0.15s ease-in-out;
-  }
-  .search-bar-inner:focus-within {
-    border-color: var(--color-accent);
-    background: var(--color-list);
-  }
-  .search-icon {
-    font-size: 0.8125rem;
-    opacity: 0.55;
-    flex-shrink: 0;
-  }
-  .search-input {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--color-text);
-    font-size: 0.875rem;
-    font-family: inherit;
-    outline: none;
-    min-width: 0;
-    text-align: center;
-  }
-  .search-input::placeholder {
-    color: var(--color-text-secondary);
-  }
-  .search-clear {
-    border: none;
-    background: none;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    font-size: 0.875rem;
-    padding: 2px 6px;    border-radius: 4px;
-    flex-shrink: 0;
-  }
-  .search-clear:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
   }
   .flag-filter-btn {
     border: none;

@@ -10,13 +10,18 @@
     type CalendarInfo, type EventInfo, type InvitationInfo, type TimeSlot,
     type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
-  import { t } from "$lib/i18n";
+  import { t, translate, lang } from "$lib/i18n";
   import { germanHolidays } from "$lib/holidays";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import RecipientInput from "$lib/components/RecipientInput.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import { useSidebarResize } from "$lib/composables/useSidebarResize";
+
+  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
+  $effect(() => () => destroyResize());
 
   // Synthetic built-in "Feiertage" calendar (German public holidays).
   const HOLIDAY_CAL_ID = -1;
@@ -111,7 +116,7 @@
     invDraftBusy = true;
     try {
       const text = await rsvpDraft(
-        inv.summary ?? "(Einladung)",
+        inv.summary ?? translate("calendar.invitation"),
         inv.start_at ?? "",
         inv.organizer,
         decision,
@@ -159,7 +164,7 @@
     try {
       const start = toUtc(form.start, form.all_day);
       const end = toUtc(form.end, form.all_day);
-      aiSlots = await getConflictAlternatives(form.summary || "Termin", start, end, defaultCalId());
+      aiSlots = await getConflictAlternatives(form.summary || translate("calendar.title"), start, end, defaultCalId());
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       aiSlots = [];
@@ -214,7 +219,7 @@
     prepResult = null;
     try {
       const start = toUtc(form.start, form.all_day);
-      prepResult = await meetingPrep(form.summary || "Termin", start, []);
+      prepResult = await meetingPrep(form.summary || translate("calendar.title"), start, []);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -228,8 +233,8 @@
     showSmart = true;
     smartSlots = [];
     try {
-      const request = `${form.summary || "Termin"}${form.start ? `, aktuell ${form.start}` : ""}`;
-      smartSlots = await smartSchedule(request, "", "", "Wochentage bevorzugt, keine Mittagspause 12-13");
+      const request = `${form.summary || translate("calendar.title")}${form.start ? `, ${translate("calendar.currently")} ${form.start}` : ""}`;
+      smartSlots = await smartSchedule(request, "", "", translate("calendar.smartScheduleHint"));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -300,7 +305,11 @@
   });
 
   // ─── Derived: month grid ─────────────────────
-  const WEEKDAYS = $derived(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+  const WEEKDAYS = $derived(
+    [1, 2, 3, 4, 5, 6, 7].map((d) =>
+      new Date(2024, 0, d).toLocaleDateString($lang === "de" ? "de-DE" : "en-US", { weekday: "short" })
+    )
+  );
 
   let monthLabel = $derived(
     viewDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })
@@ -551,7 +560,7 @@
     try {
       const ics = await file.text();
       const calId = defaultCalId();
-      if (calId === null) throw new Error("Kein Kalender für den Import verfügbar.");
+      if (calId === null) throw new Error(translate("calendar.noCalForImport"));
       const { imported } = await importEvents(calId, ics);
       await loadEvents();
       if (imported === 0) error = "Keine Termine in der Datei gefunden.";
@@ -749,7 +758,7 @@
   }
 
   function fmtEventTime(ev: EventInfo): string {
-    if (ev.all_day) return "Ganztägig";
+    if (ev.all_day) return translate("calendar.allDay");
     const d = new Date(effStart(ev));
     if (isNaN(d.getTime())) return "";
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -802,20 +811,20 @@
   {#if isNarrow && sidebarOpen}
     <div class="cal-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
   {/if}
-  <aside class="cal-sidebar">
+  <aside class="cal-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="cal-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label="Schließen">←</button>
+        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")}>←</button>
       {/if}
-      <ModuleLogo to="/" label="Kalender" noHover />
+      <ModuleLogo to="/" label={$t("calendar.title")} noHover />
     </div>
 
     <!-- Mini month for quick navigation -->
     <div class="cal-mini">
       <div class="cal-mini-head">
-        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(-1)} aria-label="Vorheriger Monat">‹</button>
+        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(-1)} aria-label={$t("calendar.prevMonth")}>‹</button>
         <span class="cal-mini-label">{miniMonthLabel}</span>
-        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(1)} aria-label="Nächster Monat">›</button>
+        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(1)} aria-label={$t("calendar.nextMonth")}>›</button>
       </div>
       <div class="cal-mini-grid">
         {#each gridDays as d (localDayKey(d))}
@@ -840,14 +849,14 @@
             onchange={() => toggleCal(cal)}
           />
           <span class="cal-cal-dot" style="background: {calColor(cal)}"></span>
-          <span class="cal-cal-name">{cal.name ?? "Kalender"}</span>
+          <span class="cal-cal-name">{cal.name ?? $t("calendar.title")}</span>
         </label>
       {/each}
       {#if calendars.length === 0}
         <div class="cal-empty">
-          <p>Keine CalDAV-Kalender verbunden.</p>
+          <p>{$t("calendar.noCaldav")}</p>
           <button type="button" class="cal-btn cal-btn-ghost" onclick={() => goto("/settings")}>
-            CalDAV verbinden
+            {$t("calendar.connectCaldav")}
           </button>
         </div>
       {/if}
@@ -856,13 +865,13 @@
     {#if invitations.length > 0}
       <div class="cal-invitations">
         <div class="cal-invitations-head">
-          <span>Einladungen</span>
+          <span>{$t("calendar.invitations")}</span>
           <span class="cal-invitations-badge">{invitations.length}</span>
         </div>
         {#each invitations as inv (inv.event_uid)}
           <div class="cal-inv-item">
             <div class="cal-inv-info">
-              <span class="cal-inv-title">{inv.summary ?? "(Einladung)"}</span>
+              <span class="cal-inv-title">{inv.summary ?? $t("calendar.invitation")}</span>
               {#if inv.start_at}<span class="cal-inv-when">{fmtInvWhen(inv.start_at)}</span>{/if}
               <span class="cal-inv-organizer">{inv.organizer}</span>
             </div>
@@ -870,21 +879,21 @@
               <button
                 type="button"
                 class="cal-inv-draft"
-                title="KI-Antwort-Entwurf"
+                title={$t("calendar.aiDraft")}
                 disabled={invDraftBusy}
                 onclick={() => draftRsvp(inv, "ACCEPTED")}
               >✎</button>
               <button
                 type="button"
                 class="cal-inv-accept"
-                title="Annehmen"
+                title={$t("calendar.accept")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "ACCEPTED")}
               >✓</button>
               <button
                 type="button"
                 class="cal-inv-decline"
-                title="Ablehnen"
+                title={$t("calendar.decline")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "DECLINED")}
               >✕</button>
@@ -901,12 +910,12 @@
 
     {#if upcoming.length > 0}
       <div class="cal-upcoming">
-        <div class="cal-upcoming-head">Nächste Erinnerungen</div>
+        <div class="cal-upcoming-head">{$t("calendar.upcoming")}</div>
         {#each upcoming as ev (ev.id)}
           <button type="button" class="cal-upcoming-item" onclick={() => selectEvent(ev)}>
             <span class="cal-upcoming-bell" aria-hidden>◷</span>
             <div class="cal-upcoming-info">
-              <span class="cal-upcoming-title">{ev.summary ?? "(ohne Titel)"}</span>
+              <span class="cal-upcoming-title">{ev.summary ?? $t("calendar.untitled")}</span>
               <span class="cal-upcoming-when">{fmtUpcomingWhen(ev)}</span>
             </div>
           </button>
@@ -915,18 +924,12 @@
     {/if}
 
     <div class="cal-sidebar-footer">
-      <div class="cal-search-bar">
-        <input
-          type="text"
-          class="cal-search-input"
-          placeholder="Termine suchen…"
-          aria-label="Termine suchen"
-          bind:value={calSearch}
-        />
-        {#if calSearch}
-          <button type="button" class="cal-search-clear" onclick={() => (calSearch = "")} aria-label="Suche löschen">✕</button>
-        {/if}
-      </div>
+      <SidebarSearch
+        bind:value={calSearch}
+        placeholder={$t("calendar.searchPlaceholder")}
+        ariaLabel={$t("calendar.searchLabel")}
+        clearLabel={$t("calendar.clearSearch")}
+      />
       <div class="cal-module-row">
         <ModuleIcons active="calendar" />
       </div>
@@ -939,27 +942,30 @@
       />
     </div>
   </aside>
+  {#if !isNarrow}
+    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
+  {/if}
 
   <main class="cal-main">
     <header class="cal-toolbar">
       <div class="cal-toolbar-left">
         {#if isNarrow}
-          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label="Menü">☰</button>
+          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}>☰</button>
         {/if}
         <h1 class="cal-month">{periodLabel}</h1>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label="Zurück">‹</button>
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={goToday}>Heute</button>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label="Vor">›</button>
+        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.back")}>‹</button>
+        <button type="button" class="cal-btn cal-btn-ghost" onclick={goToday}>{$t("calendar.today")}</button>
+        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.forward")}>›</button>
       </div>
       <div class="cal-toolbar-center">
-        <div class="cal-viewtoggle" role="tablist" aria-label="Ansicht">
-          <button type="button" class="cal-vt" class:active={viewMode === "month"} onclick={() => setViewMode("month")}>Monat</button>
-          <button type="button" class="cal-vt" class:active={viewMode === "week"} onclick={() => setViewMode("week")}>Woche</button>
-          <button type="button" class="cal-vt" class:active={viewMode === "day"} onclick={() => setViewMode("day")}>Tag</button>
+        <div class="cal-viewtoggle" role="tablist" aria-label={$t("calendar.view")}>
+          <button type="button" class="cal-vt" class:active={viewMode === "month"} onclick={() => setViewMode("month")}>{$t("calendar.viewMonth")}</button>
+          <button type="button" class="cal-vt" class:active={viewMode === "week"} onclick={() => setViewMode("week")}>{$t("calendar.viewWeek")}</button>
+          <button type="button" class="cal-vt" class:active={viewMode === "day"} onclick={() => setViewMode("day")}>{$t("calendar.viewDay")}</button>
         </div>
       </div>
       <div class="cal-toolbar-right">
-        <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>+ Termin</button>
+        <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
       </div>
     </header>
 
@@ -994,7 +1000,7 @@
                   title={ev.summary ?? ""}
                 >
                   <span class="cal-event-time">{fmtEventTime(ev)}</span>
-                  <span class="cal-event-title">{ev.summary ?? "(ohne Titel)"}</span>
+                  <span class="cal-event-title">{ev.summary ?? $t("calendar.untitled")}</span>
                 </button>
               {/each}
             </div>
@@ -1023,7 +1029,7 @@
                   onclick={(e) => { e.stopPropagation(); selectEvent(ev); }}
                 >
                   <span class="cal-event-time">{fmtEventTime(ev)}</span>
-                  <span class="cal-event-title">{ev.summary ?? "(ohne Titel)"}</span>
+                  <span class="cal-event-title">{ev.summary ?? $t("calendar.untitled")}</span>
                 </button>
               {/each}
             </div>
@@ -1034,14 +1040,14 @@
       <div class="cal-dayview">
         <div class="cal-digest-bar">
           <button type="button" class="cal-btn cal-btn-ghost" disabled={digestBusy} onclick={loadDigest}>
-            {digestBusy ? "…" : "📅 Morgen-Digest (KI)"}
+            {digestBusy ? "…" : $t("calendar.morningDigest")}
           </button>
         </div>
         {#if digest}
           <div class="cal-digest">
             <p class="cal-digest-text">{digest.digest}</p>
             {#if digest.priorities.length > 0}
-              <div class="cal-digest-section"><strong>Prioritäten</strong><ul>{#each digest.priorities as p (p)}<li>{p}</li>{/each}</ul></div>
+              <div class="cal-digest-section"><strong>{$t("calendar.priorities")}</strong><ul>{#each digest.priorities as p (p)}<li>{p}</li>{/each}</ul></div>
             {/if}
             {#if digest.followups.length > 0}
               <div class="cal-digest-section"><strong>Follow-ups</strong><ul>{#each digest.followups as f (f)}<li>{f}</li>{/each}</ul></div>
@@ -1049,7 +1055,7 @@
           </div>
         {/if}
         {#if dayEvents.length === 0}
-          <div class="cal-day-empty">Keine Termine an diesem Tag.</div>
+          <div class="cal-day-empty">{$t("calendar.noEventsToday")}</div>
         {:else}
           {#each dayEvents as ev (ev.id)}
             <button
@@ -1062,7 +1068,7 @@
               <span class="cal-day-time">{fmtEventTime(ev)}</span>
               <span class="cal-day-dot" style="background: {calColor(calById(ev.calendar_id) ?? calendars[0])}"></span>
               <div class="cal-day-info">
-                <span class="cal-day-title">{ev.summary ?? "(ohne Titel)"}</span>
+                <span class="cal-day-title">{ev.summary ?? $t("calendar.untitled")}</span>
                 {#if ev.location}<span class="cal-day-loc">{ev.location}</span>{/if}
               </div>
             </button>
@@ -1080,11 +1086,11 @@
       <div class="cal-detail-inner">
         <div class="cal-detail-top">
           <span class="cal-detail-cal" style="color: {cal ? calColor(cal) : 'var(--color-text)'}">
-            {cal?.name ?? "Kalender"}
+            {cal?.name ?? $t("calendar.title")}
           </span>
-          <button type="button" class="cal-detail-close" onclick={clearSelection} aria-label="Schließen">×</button>
+          <button type="button" class="cal-detail-close" onclick={clearSelection} aria-label={$t("calendar.close")}>×</button>
         </div>
-        <h2 class="cal-detail-title">{ev.summary ?? "(ohne Titel)"}</h2>
+        <h2 class="cal-detail-title">{ev.summary ?? $t("calendar.untitled")}</h2>
 
         <div class="cal-detail-rows">
           <div class="cal-detail-row">
@@ -1100,7 +1106,7 @@
           {#if ev.rrule}
             <div class="cal-detail-row">
               <span class="cal-detail-ico" aria-hidden>↻</span>
-              <span>Wiederholter Termin</span>
+              <span>{$t("calendar.recurring")}</span>
             </div>
           {/if}
           {#if ev.organizer}
@@ -1116,14 +1122,14 @@
         {/if}
 
         <div class="cal-detail-actions">
-          <button type="button" class="cal-btn cal-btn-ghost" onclick={() => openEditEvent(ev)}>Bearbeiten</button>
+          <button type="button" class="cal-btn cal-btn-ghost" onclick={() => openEditEvent(ev)}>{$t("calendar.edit")}</button>
           <button type="button" class="cal-btn cal-btn-ghost" onclick={() => handleExport(ev)}>ICS</button>
-          <button type="button" class="cal-btn cal-btn-danger" onclick={() => removeEvent(ev)}>Löschen</button>
+          <button type="button" class="cal-btn cal-btn-danger" onclick={() => removeEvent(ev)}>{$t("calendar.delete")}</button>
         </div>
       </div>
     {:else}
       <div class="cal-detail-empty">
-        <p>Wähle einen Termin aus, um Details zu sehen.</p>
+        <p>{$t("calendar.selectEvent")}</p>
       </div>
     {/if}
   </aside>
@@ -1133,11 +1139,11 @@
 {#if editorOpen}
   <div class="cal-modal-scrim" onclick={() => editorOpen = false}>
     <div class="cal-modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{editingId === null ? "Neuer Termin" : "Termin bearbeiten"}</h2>
+      <h2>{editingId === null ? $t("calendar.newEvent") : $t("calendar.editEvent")}</h2>
 
       <label class="cal-field">
-        <span>Titel</span>
-        <input type="text" bind:value={form.summary} class="cal-input" placeholder="Termin-Titel" />
+        <span>{$t("calendar.titleLabel")}</span>
+        <input type="text" bind:value={form.summary} class="cal-input" placeholder={$t("calendar.phTitle")} />
       </label>
 
       <div class="cal-nl">
@@ -1145,7 +1151,7 @@
           type="text"
           bind:value={nlText}
           class="cal-input"
-          placeholder="z. B. Mittwoch 14 Uhr, 1 Stunde — KI erkennt die Zeit"
+          placeholder={$t("calendar.phNl")}
           onkeydown={(e) => { if (e.key === "Enter") applyTimeExtraction(); }}
         />
         <button
@@ -1153,16 +1159,16 @@
           class="cal-btn cal-btn-ghost"
           disabled={nlBusy || !nlText.trim()}
           onclick={applyTimeExtraction}
-        >{nlBusy ? "…" : "⚡ Zeit"}</button>
+        >{nlBusy ? "…" : $t("calendar.extractTime")}</button>
       </div>
 
       <div class="cal-field-row">
         <label class="cal-field">
-          <span>Beginn</span>
+          <span>{$t("calendar.start")}</span>
           <input type={form.all_day ? "date" : "datetime-local"} bind:value={form.start} class="cal-input" />
         </label>
         <label class="cal-field">
-          <span>Ende</span>
+          <span>{$t("calendar.end")}</span>
           <input type={form.all_day ? "date" : "datetime-local"} bind:value={form.end} class="cal-input" />
         </label>
       </div>
@@ -1170,14 +1176,14 @@
       {#if conflicts.length > 0}
         <div class="cal-conflict">
           <div class="cal-conflict-head">
-            <span>⚠ Termin überschneidet sich mit {conflicts.length} {conflicts.length === 1 ? "Termin" : "Terminen"}</span>
+            <span>{$t("calendar.conflict", { n: conflicts.length, unit: conflicts.length === 1 ? $t("calendar.conflictUnit") : $t("calendar.conflictUnitPlural") })}</span>
             <button type="button" class="cal-btn cal-btn-ghost cal-conflict-ai" disabled={conflictBusy} onclick={loadAlternatives}>
-              {conflictBusy ? "…" : "⚡ KI-Alternativen"}
+              {conflictBusy ? "…" : $t("calendar.aiAlternatives")}
             </button>
           </div>
           <ul class="cal-conflict-list">
             {#each conflicts as c (c.id)}
-              <li>{c.summary ?? "(ohne Titel)"} · {fmtInvWhen(c.start)}</li>
+              <li>{c.summary ?? $t("calendar.untitled")} · {fmtInvWhen(c.start)}</li>
             {/each}
           </ul>
           {#if showAlternatives && aiSlots.length > 0}
@@ -1191,17 +1197,17 @@
             </div>
           {/if}
           {#if showAlternatives && aiSlots.length === 0 && !conflictBusy}
-            <p class="cal-conflict-none">Keine freien Alternativen gefunden.</p>
+            <p class="cal-conflict-none">{$t("calendar.noAlternatives")}</p>
           {/if}
         </div>
       {/if}
 
       <div class="cal-ai-row">
         <button type="button" class="cal-btn cal-btn-ghost" disabled={prepBusy || !form.start} onclick={loadMeetingPrep}>
-          {prepBusy ? "…" : "📋 Meeting-Prep"}
+          {prepBusy ? "…" : $t("calendar.meetingPrep")}
         </button>
         <button type="button" class="cal-btn cal-btn-ghost" disabled={smartBusy} onclick={loadSmartSchedule}>
-          {smartBusy ? "…" : "⚡ Smart Scheduling"}
+          {smartBusy ? "…" : $t("calendar.smartScheduling")}
         </button>
       </div>
 
@@ -1218,64 +1224,64 @@
 
       {#if showPrep && prepResult}
         <div class="cal-prep">
-          <div class="cal-prep-title">Meeting-Prep</div>
+          <div class="cal-prep-title">{$t("calendar.meetingPrep")}</div>
           {#if prepResult.attendees.length > 0}
-            <div class="cal-prep-section"><strong>Teilnehmer</strong><ul>{#each prepResult.attendees as a (a)}<li>{a}</li>{/each}</ul></div>
+            <div class="cal-prep-section"><strong>{$t("calendar.attendees")}</strong><ul>{#each prepResult.attendees as a (a)}<li>{a}</li>{/each}</ul></div>
           {/if}
           {#if prepResult.agenda.length > 0}
-            <div class="cal-prep-section"><strong>Agenda</strong><ul>{#each prepResult.agenda as a (a)}<li>{a}</li>{/each}</ul></div>
+            <div class="cal-prep-section"><strong>{$t("calendar.agenda")}</strong><ul>{#each prepResult.agenda as a (a)}<li>{a}</li>{/each}</ul></div>
           {/if}
           {#if prepResult.prep_notes}
-            <div class="cal-prep-section"><strong>Vorbereitung</strong><p>{prepResult.prep_notes}</p></div>
+            <div class="cal-prep-section"><strong>{$t("calendar.preparation")}</strong><p>{prepResult.prep_notes}</p></div>
           {/if}
         </div>
       {/if}
 
       <label class="cal-check">
         <input type="checkbox" bind:checked={form.all_day} />
-        <span>Ganztägig</span>
+        <span>{$t("calendar.allDay")}</span>
       </label>
 
       <label class="cal-field">
-        <span>Ort</span>
-        <input type="text" bind:value={form.location} class="cal-input" placeholder="Ort" />
+        <span>{$t("calendar.location")}</span>
+        <input type="text" bind:value={form.location} class="cal-input" placeholder={$t("calendar.phLocation")} />
       </label>
 
       <div class="cal-field">
-        <span>Teilnehmer</span>
+        <span>{$t("calendar.attendees")}</span>
         <RecipientInput bind:value={form.participants} accountId={undefined} />
       </div>
 
       <label class="cal-field">
-        <span>Beschreibung</span>
+        <span>{$t("calendar.description")}</span>
         <textarea bind:value={form.description} class="cal-input cal-textarea" rows="3"></textarea>
       </label>
 
       {#if editingId !== null}
         <button type="button" class="cal-btn cal-btn-danger" onclick={() => { const ev = events.find(x => x.id === editingId); if (ev) removeEvent(ev); editorOpen = false; }}>
-          Termin löschen
+          {$t("calendar.deleteEvent")}
         </button>
       {/if}
 
       <div class="cal-modal-actions">
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={() => editorOpen = false}>Abbrechen</button>
-        <button type="button" class="cal-btn cal-btn-primary" onclick={saveEvent}>Speichern</button>
+        <button type="button" class="cal-btn cal-btn-ghost" onclick={() => editorOpen = false}>{$t("common.cancel")}</button>
+        <button type="button" class="cal-btn cal-btn-primary" onclick={saveEvent}>{$t("common.save")}</button>
       </div>
     </div>
   </div>
 {/if}
 
-  <AssistantFab module="calendar" context={`Ansicht: ${periodLabel}`} />
+  <AssistantFab module="calendar" context={$t("calendar.viewContext", { view: periodLabel })} />
 
   <svelte:window onkeydown={handleKeydown} />
 
   {#if showDeleteConfirm && pendingDeleteEvent}
     <ConfirmationDialog
       open={showDeleteConfirm}
-      title="Termin löschen"
-      message={`„${pendingDeleteEvent.summary ?? "(ohne Titel)"}“ wirklich löschen?`}
-      confirmLabel="Löschen"
-      cancelLabel="Abbrechen"
+      title={$t("calendar.deleteEvent")}
+      message={$t("calendar.deleteConfirm", { name: pendingDeleteEvent.summary ?? $t("calendar.untitled") })}
+      confirmLabel={$t("calendar.delete")}
+      cancelLabel={$t("common.cancel")}
       danger={true}
       onconfirm={confirmDeleteEvent}
       oncancel={cancelDeleteEvent}
@@ -1292,8 +1298,7 @@
 
   /* ── Sidebar ── */
   .cal-sidebar {
-    width: 240px;
-    min-width: 240px;
+    flex-shrink: 0;
     background: var(--color-sidebar);
     border-right: 1px solid var(--color-border);
     display: flex;
@@ -1339,7 +1344,7 @@
   .cal-app:not(.narrow) .cal-sidebar-close,
   .cal-app:not(.narrow) .cal-menu-toggle { display: none; }
   .cal-app.narrow .cal-toolbar { padding: 10px 12px; }
-  .cal-app.narrow .cal-month { font-size: 17px; }
+  .cal-app.narrow .cal-month { font-size: var(--fs-md); }
   .cal-app.narrow .cal-icon-btn {
     min-width: 44px;
     min-height: 44px;
@@ -1347,12 +1352,13 @@
   }
   .cal-sidebar-header {
     height: 72px;
-    padding: 0 15px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    margin-bottom: 16px;
   }
   .cal-back {
     background: none;
@@ -1363,11 +1369,11 @@
     border-radius: var(--radius-s);
   }
   .cal-back:hover { color: var(--color-text); background: var(--color-active-wash); }
-  .cal-brand { font-weight: 600; font-size: 15px; }
+  .cal-brand { font-weight: 600; font-size: var(--fs-base); }
 
   .cal-cal-list { flex: 1; overflow-y: auto; padding: 8px; }
   .cal-upcoming { border-top: 1px solid var(--color-border); padding: 10px 8px; max-height: 200px; overflow-y: auto; }
-  .cal-upcoming-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); padding: 0 6px 8px; }
+  .cal-upcoming-head { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); padding: 0 6px 8px; }
   .cal-upcoming-item {
     display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
     background: none; border: none; color: var(--color-text); padding: 7px 8px;
@@ -1376,17 +1382,17 @@
   .cal-upcoming-item:hover { background: var(--color-active-wash); }
   .cal-upcoming-bell { color: var(--gold, #caa960); flex-shrink: 0; }
   .cal-upcoming-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
-  .cal-upcoming-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cal-upcoming-when { font-size: 11px; color: var(--color-text-secondary); }
+  .cal-upcoming-title { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-upcoming-when { font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .cal-invitations { border-top: 1px solid var(--color-border); padding: 10px 8px; max-height: 240px; overflow-y: auto; }
   .cal-invitations-head {
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
     color: var(--color-text-secondary); padding: 0 6px 8px;
   }
   .cal-invitations-badge {
     background: var(--gold, #caa960); color: var(--b-900, #051729);
-    border-radius: 999px; font-size: 10px; font-weight: 700; padding: 1px 7px;
+    border-radius: 999px; font-size: var(--fs-xs); font-weight: 700; padding: 1px 7px;
   }
   .cal-inv-item {
     display: flex; align-items: center; gap: 8px; padding: 8px;
@@ -1394,37 +1400,37 @@
   }
   .cal-inv-item:hover { background: var(--color-active-wash); }
   .cal-inv-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; flex: 1; }
-  .cal-inv-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cal-inv-when { font-size: 11px; color: var(--color-text-secondary); }
+  .cal-inv-title { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-inv-when { font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .cal-inv-organizer {
-    font-size: 11px; color: var(--color-text-secondary);
+    font-size: var(--fs-xs); color: var(--color-text-secondary);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .cal-inv-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .cal-inv-accept, .cal-inv-decline {
     width: 26px; height: 26px; border-radius: var(--radius-s);
     border: 1px solid var(--color-border); background: none; cursor: pointer;
-    font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    font-size: var(--fs-sm); line-height: 1; display: flex; align-items: center; justify-content: center;
   }
-  .cal-inv-accept { color: #7ba05b; }
-  .cal-inv-decline { color: #b3564f; }
+  .cal-inv-accept { color: var(--color-success); }
+  .cal-inv-decline { color: var(--color-danger); }
   .cal-inv-accept:hover, .cal-inv-decline:hover { background: var(--color-active-wash); }
   .cal-inv-accept:disabled, .cal-inv-decline:disabled { opacity: 0.4; cursor: default; }
   .cal-inv-draft {
     width: 26px; height: 26px; border-radius: var(--radius-s);
     border: 1px solid var(--color-border); background: none; cursor: pointer;
-    font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    font-size: var(--fs-sm); line-height: 1; display: flex; align-items: center; justify-content: center;
     color: var(--color-text-secondary);
   }
   .cal-inv-draft:hover { background: var(--color-active-wash); }
   .cal-inv-draft:disabled { opacity: 0.4; cursor: default; }
   .cal-inv-draftbox { padding: 0 8px 8px; }
-  .cal-inv-draftbox .cal-input { font-size: 12px; resize: vertical; }
+  .cal-inv-draftbox .cal-input { font-size: var(--fs-xs); resize: vertical; }
   .cal-empty {
     padding: 20px 12px;
     text-align: center;
     color: var(--color-text-secondary);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1441,7 +1447,7 @@
     color: var(--color-text);
     border-radius: var(--radius-m);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--fs-base);
     text-align: left;
   }
   .cal-cal-item:hover { background: var(--color-active-wash); }
@@ -1450,32 +1456,6 @@
   .cal-cal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .cal-sidebar-footer { padding: 12px; border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 10px; }
-  .cal-search-bar { position: relative; display: flex; align-items: center; }
-  .cal-search-input {
-    width: 100%;
-    padding: 8px 28px 8px 12px;
-    font-size: 13px;
-    line-height: 1;
-    background: var(--color-input, var(--color-list));
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    color: var(--color-text);
-    outline: none;
-  }
-  .cal-search-input:focus { border-color: var(--color-accent); }
-  .cal-search-input::placeholder { color: var(--color-text-secondary); }
-  .cal-search-clear {
-    position: absolute;
-    right: 6px;
-    background: none;
-    border: none;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 4px;
-    border-radius: 6px;
-  }
-  .cal-search-clear:hover { color: var(--color-text); }
   .cal-module-row { display: flex; justify-content: center; }
   .cal-file-input { display: none; }
 
@@ -1489,7 +1469,7 @@
     padding: 14px 20px;
     border-bottom: 1px solid var(--color-border);
   }
-  .cal-month { font-size: 20px; font-weight: 600; margin: 0; }
+  .cal-month { font-size: var(--fs-xl); font-weight: 600; margin: 0; }
   .cal-toolbar-left { display: flex; align-items: center; gap: 8px; justify-self: start; }
   .cal-toolbar-center { justify-self: center; }
   .cal-toolbar-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
@@ -1500,7 +1480,7 @@
     background: color-mix(in srgb, var(--color-danger) 12%, transparent);
     color: var(--color-danger);
     border-radius: var(--radius-m);
-    font-size: 13px;
+    font-size: var(--fs-sm);
   }
 
   /* ── Grid ── */
@@ -1516,7 +1496,7 @@
   }
   .cal-grid-head-cell {
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     color: var(--color-text-secondary);
     text-transform: uppercase;
@@ -1546,7 +1526,7 @@
     border-radius: 50%;
   }
   .cal-cell-num {
-    font-size: 12px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     width: 22px;
     height: 22px;
@@ -1566,7 +1546,7 @@
     color: var(--color-text);
     border-radius: var(--radius-s);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     text-align: left;
     overflow: hidden;
   }
@@ -1582,7 +1562,7 @@
     border: 1px solid var(--color-border);
     background: var(--color-list);
     color: var(--color-text);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     cursor: pointer;
   }
   .cal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1615,8 +1595,8 @@
     gap: 14px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   }
-  .cal-modal h2 { margin: 0 0 4px; font-size: 18px; }
-  .cal-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--color-text-secondary); }
+  .cal-modal h2 { margin: 0 0 4px; font-size: var(--fs-lg); }
+  .cal-field { display: flex; flex-direction: column; gap: 5px; font-size: var(--fs-sm); color: var(--color-text-secondary); }
   .cal-field-row { display: flex; gap: 12px; }
   .cal-field-row .cal-field { flex: 1; }
   .cal-nl { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
@@ -1627,10 +1607,10 @@
     padding: 10px 12px;
     background: var(--color-active-wash);
   }
-  .cal-conflict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
-  .cal-conflict-ai { font-size: 12px; padding: 4px 10px; }
-  .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--color-text-secondary); }
-  .cal-conflict-none { font-size: 12px; color: var(--color-text-secondary); margin: 8px 0 0; }
+  .cal-conflict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); }
+  .cal-conflict-ai { font-size: var(--fs-xs); padding: 4px 10px; }
+  .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--color-text-secondary); }
+  .cal-conflict-none { font-size: var(--fs-xs); color: var(--color-text-secondary); margin: 8px 0 0; }
   .cal-slots { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .cal-ai-row { display: flex; gap: 8px; margin-top: 12px; }
   .cal-prep {
@@ -1667,35 +1647,35 @@
     background: none; padding: 8px 10px; cursor: pointer;
   }
   .cal-slot:hover { background: var(--color-active-wash); border-color: var(--gold, #caa960); }
-  .cal-slot-when { font-size: 13px; color: var(--color-text); }
-  .cal-slot-reason { font-size: 11px; color: var(--color-text-secondary); }
+  .cal-slot-when { font-size: var(--fs-sm); color: var(--color-text); }
+  .cal-slot-reason { font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .cal-input {
     padding: 8px 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-m);
     background: var(--color-list);
     color: var(--color-text);
-    font-size: 14px;
+    font-size: var(--fs-base);
     font-family: inherit;
   }
   .cal-input:focus { outline: none; box-shadow: var(--fokus-ring); }
   .cal-textarea { resize: vertical; }
-  .cal-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text); }
+  .cal-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--color-text); }
   .cal-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 
   /* ── Mini month (left pane) ── */
   .cal-mini { padding: 12px 14px; border-bottom: 1px solid var(--color-border); }
   .cal-mini-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .cal-mini-label { font-size: 13px; font-weight: 600; }
+  .cal-mini-label { font-size: var(--fs-sm); font-weight: 600; }
   .cal-mini-nav {
     background: none; border: none; color: var(--color-text-secondary);
-    cursor: pointer; font-size: 16px; padding: 2px 8px; border-radius: var(--radius-s);
+    cursor: pointer; font-size: var(--fs-md); padding: 2px 8px; border-radius: var(--radius-s);
   }
   .cal-mini-nav:hover { background: var(--color-active-wash); color: var(--color-text); }
   .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
   .cal-mini-day {
     background: none; border: none; color: var(--color-text);
-    font-size: 11px; padding: 4px 0; cursor: pointer; border-radius: var(--radius-s);
+    font-size: var(--fs-xs); padding: 4px 0; cursor: pointer; border-radius: var(--radius-s);
     font-variant-numeric: tabular-nums;
   }
   .cal-mini-day:hover { background: var(--color-active-wash); }
@@ -1708,14 +1688,14 @@
   .cal-cal-item:has(input[type="checkbox"]:not(:checked)) { opacity: 0.5; }
 
   /* ── Toolbar additions ── */
-  .cal-nav { padding: 7px 11px; font-size: 15px; }
+  .cal-nav { padding: 7px 11px; font-size: var(--fs-base); }
   .cal-viewtoggle {
     display: inline-flex; background: var(--color-sidebar);
     border: 1px solid var(--color-border); border-radius: var(--radius-m); padding: 2px;
   }
   .cal-vt {
     background: none; border: none; color: var(--color-text-secondary);
-    font-size: 13px; padding: 5px 12px; cursor: pointer; border-radius: var(--radius-s);
+    font-size: var(--fs-sm); padding: 5px 12px; cursor: pointer; border-radius: var(--radius-s);
   }
   .cal-vt:hover { color: var(--color-text); }
   .cal-vt.active { background: var(--color-list); color: var(--color-text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
@@ -1727,8 +1707,8 @@
     display: flex; flex-direction: column; align-items: center; gap: 2px;
     padding: 8px 4px; border-right: 1px solid var(--color-border);
   }
-  .cal-week-dow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); font-weight: 600; }
-  .cal-week-num { font-size: 18px; font-weight: 600; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+  .cal-week-dow { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); font-weight: 600; }
+  .cal-week-num { font-size: var(--fs-lg); font-weight: 600; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
   .cal-week-head-cell.is-today .cal-week-num { background: var(--color-accent); color: #fff; }
   .cal-week-body { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); overflow-y: auto; }
   .cal-week-col { border-right: 1px solid var(--color-border); padding: 6px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; min-height: 120px; }
@@ -1739,7 +1719,7 @@
 
   /* ── Day view ── */
   .cal-dayview { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
-  .cal-day-empty { color: var(--color-text-secondary); font-size: 14px; padding: 40px 0; text-align: center; }
+  .cal-day-empty { color: var(--color-text-secondary); font-size: var(--fs-base); padding: 40px 0; text-align: center; }
   .cal-day-item {
     display: flex; align-items: center; gap: 12px; text-align: left;
     padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-m);
@@ -1748,11 +1728,11 @@
   .cal-day-item:hover { background: var(--color-active-wash); }
   .cal-day-item.sel { border-color: var(--color-accent); box-shadow: var(--fokus-ring); }
   .cal-day-item.cancelled { opacity: 0.5; }
-  .cal-day-time { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); min-width: 64px; font-variant-numeric: tabular-nums; }
+  .cal-day-time { font-size: var(--fs-sm); font-weight: 600; color: var(--color-text-secondary); min-width: 64px; font-variant-numeric: tabular-nums; }
   .cal-day-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .cal-day-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
-  .cal-day-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cal-day-loc { font-size: 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-day-title { font-size: var(--fs-base); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-day-loc { font-size: var(--fs-xs); color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ── Detail pane (right) ── */
   .cal-detail {
@@ -1761,14 +1741,14 @@
   }
   .cal-detail-inner { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .cal-detail-top { display: flex; align-items: center; justify-content: space-between; }
-  .cal-detail-cal { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-  .cal-detail-close { background: none; border: none; color: var(--color-text-secondary); font-size: 20px; cursor: pointer; padding: 0 6px; border-radius: var(--radius-s); line-height: 1; }
+  .cal-detail-cal { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-detail-close { background: none; border: none; color: var(--color-text-secondary); font-size: var(--fs-xl); cursor: pointer; padding: 0 6px; border-radius: var(--radius-s); line-height: 1; }
   .cal-detail-close:hover { background: var(--color-active-wash); color: var(--color-text); }
-  .cal-detail-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
+  .cal-detail-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; }
   .cal-detail-rows { display: flex; flex-direction: column; gap: 10px; }
-  .cal-detail-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--color-text); }
+  .cal-detail-row { display: flex; align-items: flex-start; gap: 10px; font-size: var(--fs-sm); color: var(--color-text); }
   .cal-detail-ico { color: var(--color-text-secondary); width: 16px; flex-shrink: 0; text-align: center; }
-  .cal-detail-desc { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word; }
+  .cal-detail-desc { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word; }
   .cal-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
-  .cal-detail-empty { padding: 40px 24px; text-align: center; color: var(--color-text-secondary); font-size: 13px; }
+  .cal-detail-empty { padding: 40px 24px; text-align: center; color: var(--color-text-secondary); font-size: var(--fs-sm); }
 </style>
