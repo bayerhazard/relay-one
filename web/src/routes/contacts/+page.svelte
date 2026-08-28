@@ -260,6 +260,7 @@
     background: var(--color-list);
     color: var(--color-text);
     font-size: 13px;
+    line-height: 1;
   }
   .ct-search:focus { outline: none; border-color: var(--color-accent); }
   .ct-count {

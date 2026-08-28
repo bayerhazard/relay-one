@@ -395,6 +395,7 @@
     width: 100%;
     padding: 8px 28px 8px 12px;
     font-size: 13px;
+    line-height: 1;
     border: 1px solid var(--color-border);
     border-radius: 8px;
     background: var(--color-card);

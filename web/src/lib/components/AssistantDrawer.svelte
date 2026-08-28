@@ -185,7 +185,12 @@
     loading = true;
     try {
       const res: AssistantResult = await askAssistant(text, fullContext);
-      messages = [...messages, { role: "assistant", text: res.reply || "(keine Antwort)", actions: res.actions }];
+      // Zeige die Antwort (ohne Action-Buttons).
+      messages = [...messages, { role: "assistant", text: res.reply || "(keine Antwort)", actions: [] }];
+      // Aktionen direkt ausführen, Output unterdrücken.
+      for (const action of res.actions) {
+        await runAction(action);
+      }
     } catch (e) {
       messages = [...messages, { role: "assistant", text: "", actions: [], error: String(e) }];
     } finally {
@@ -249,10 +254,6 @@
     }
   }
 
-  async function handleAction(action: AssistantAction) {
-    const result = await runAction(action);
-    messages = [...messages, { role: "assistant", text: result, actions: [] }];
-  }
 </script>
 
 {#if open}
@@ -271,15 +272,6 @@
           {:else}
             <div class="chat-msg {m.role}">
               <div class="chat-text">{m.text}</div>
-              {#if m.actions.length > 0}
-                <div class="chat-actions">
-                  {#each m.actions as a (a.type + JSON.stringify(a.payload))}
-                    <button type="button" class="chat-action" onclick={() => handleAction(a)}>
-                      {a.type}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
             </div>
           {/if}
         {/each}
@@ -501,26 +493,6 @@
     background: var(--color-active-wash);
     color: var(--color-danger);
     border: 1px solid var(--color-danger);
-  }
-  .chat-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .chat-action {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 5px 10px;
-    border: 1px solid var(--color-accent);
-    border-radius: var(--radius-s);
-    background: transparent;
-    color: var(--color-accent);
-    cursor: pointer;
-  }
-  .chat-action:hover {
-    background: var(--color-accent);
-    color: #fff;
   }
   .chat-typing {
     color: var(--color-text-secondary);

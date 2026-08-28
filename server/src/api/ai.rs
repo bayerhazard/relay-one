@@ -1400,6 +1400,111 @@ pub struct AssistantResult {
 
 const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, compose_mail, schedule, meeting_prep, agenda_digest";
 
+/// Gather a compact, module-spanning context (upcoming events, contacts,
+/// recent mails) so the assistant can answer cross-module questions without
+/// being limited to the module the user opened it from.
+fn gather_assistant_context(state: &AppState) -> String {
+    let db = state.cache_db.lock();
+    let Some(conn) = db.as_ref() else {
+        return String::new();
+    };
+    let now = chrono::Utc::now();
+    let week = now + chrono::Duration::days(7);
+    let start = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let end = week.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let mut parts: Vec<String> = Vec::new();
+
+    // Upcoming events (next 7 days, max 20).
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT summary, start_at, end_at, location FROM events
+         WHERE start_at >= ?1 AND start_at < ?2
+         ORDER BY start_at LIMIT 20",
+    ) {
+        if let Ok(rows) = stmt.query_map(rusqlite::params![start, end], |r| {
+            Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        }) {
+            let events: Vec<String> = rows
+                .filter_map(|row| {
+                    row.ok().and_then(|(summary, s, e, loc)| {
+                        let summary = summary.unwrap_or_else(|| "(ohne Titel)".into());
+                        let end = e.unwrap_or_else(|| s.clone());
+                        let loc = loc.filter(|l| !l.trim().is_empty());
+                        let mut line = format!("- {} bis {}: {}", s, end, summary);
+                        if let Some(l) = loc {
+                            line.push_str(&format!(" ({l})"));
+                        }
+                        Some(line)
+                    })
+                })
+                .collect();
+            if !events.is_empty() {
+                parts.push(format!("Termine (nächste 7 Tage):\n{}", events.join("\n")));
+            }
+        }
+    }
+
+    // Contacts (max 50).
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT display_name, email FROM contacts
+         WHERE display_name IS NOT NULL AND display_name != ''
+         ORDER BY display_name COLLATE NOCASE LIMIT 50",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        }) {
+            let contacts: Vec<String> = rows
+                .filter_map(|row| {
+                    row.ok().map(|(name, email)| match email {
+                        Some(e) if !e.trim().is_empty() => format!("- {name}: {e}"),
+                        _ => format!("- {name}"),
+                    })
+                })
+                .collect();
+            if !contacts.is_empty() {
+                parts.push(format!("Kontakte:\n{}", contacts.join("\n")));
+            }
+        }
+    }
+
+    // Recent mails (max 20).
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT subject, from_addr, date FROM messages
+         WHERE subject IS NOT NULL
+         ORDER BY date DESC LIMIT 20",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        }) {
+            let mails: Vec<String> = rows
+                .filter_map(|row| {
+                    row.ok().map(|(subject, from, date)| {
+                        format!(
+                            "- {}: \"{}\" von {}",
+                            date.unwrap_or_default(),
+                            subject,
+                            from.unwrap_or_default()
+                        )
+                    })
+                })
+                .collect();
+            if !mails.is_empty() {
+                parts.push(format!("Letzte Mails:\n{}", mails.join("\n")));
+            }
+        }
+    }
+
+    parts.join("\n\n")
+}
+
 /// `POST /api/v1/ai/assistant` — the global assistant (centerpiece).
 pub async fn ai_assistant(
     State(state): State<AppState>,
@@ -1407,7 +1512,13 @@ pub async fn ai_assistant(
 ) -> ApiResult<AssistantResult> {
     let context = req.context.as_deref().unwrap_or("kein Kontext");
     let now = chrono::Utc::now().to_rfc3339();
-    let (system, user) = prompts::build_assistant_prompt(&req.message, context, AVAILABLE_ACTIONS, &now);
+    let data = gather_assistant_context(&state);
+    let full_context = if data.is_empty() {
+        context.to_string()
+    } else {
+        format!("{context}\n\nVerfügbare Daten:\n{data}")
+    };
+    let (system, user) = prompts::build_assistant_prompt(&req.message, &full_context, AVAILABLE_ACTIONS, &now);
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.5), Some(1500)).await?;
     let obj = extract_json_object(&raw);
