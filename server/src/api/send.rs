@@ -102,13 +102,14 @@ pub async fn save_draft(
             ).unwrap_or(false);
             if exists {
                 conn.execute(
-                    "UPDATE messages SET subject = ?3, to_addr = ?4, date = ?5, body_text = ?6, body_html = ?7, synced = 0
-                     WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?8",
+                    "UPDATE messages SET subject = ?3, to_addr = ?4, cc_addr = ?5, date = ?6, body_text = ?7, body_html = ?8, synced = 0
+                     WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?9",
                     rusqlite::params![
                         account_id,
                         existing as i64,
                         req.subject,
                         req.to.join(", "),
+                        req.cc.as_ref().map(|v| v.join(", ")).unwrap_or_default(),
                         now,
                         req.body_text,
                         req.body_html,
@@ -128,14 +129,15 @@ pub async fn save_draft(
         )
         .map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, date, body_text, body_html, synced)
-             VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, ?7, ?8, 0)",
+            "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, to_addr, cc_addr, date, body_text, body_html, synced)
+             VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, ?7, ?8, ?9, 0)",
             rusqlite::params![
                 account_id,
                 drafts_folder_id,
                 uid,
                 req.subject,
                 req.to.join(", "),
+                req.cc.as_ref().map(|v| v.join(", ")).unwrap_or_default(),
                 now,
                 req.body_text,
                 req.body_html,

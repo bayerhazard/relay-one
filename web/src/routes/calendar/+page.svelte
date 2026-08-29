@@ -807,7 +807,7 @@
   });
 </script>
 
-<div class="cal-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
+<div class="cal-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen} class:detail-open={isNarrow && !!selectedEvent}>
   {#if isNarrow && sidebarOpen}
     <div class="cal-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
   {/if}
@@ -1349,6 +1349,17 @@
     min-width: 44px;
     min-height: 44px;
     font-size: 1.5rem;
+  }
+  /* Detail pane: hidden by default on mobile, full-screen overlay when an event is selected */
+  .cal-app.narrow .cal-detail { display: none; }
+  .cal-app.narrow.detail-open .cal-detail {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    min-width: 0;
+    z-index: 60;
+    border-left: none;
   }
   .cal-sidebar-header {
     height: 72px;

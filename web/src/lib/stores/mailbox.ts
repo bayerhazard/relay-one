@@ -17,6 +17,7 @@ export interface Message {
   ai_fraud_score?: number;
   is_read: boolean;
   is_flagged: boolean;
+  is_urgent?: boolean;
   has_attachments?: boolean;
   /** Attachments metadata, present on draft/body responses. */
   attachments?: { id: number; part_index: number; filename: string; content_type: string; size: number; content?: string }[];

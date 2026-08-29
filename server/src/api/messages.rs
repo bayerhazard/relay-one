@@ -52,6 +52,7 @@ fn message_to_json(m: &MessageRecord) -> serde_json::Value {
         "ai_fraud_score": m.ai_fraud_score,
         "is_read": m.is_read,
         "is_flagged": m.is_flagged,
+        "is_urgent": m.is_urgent,
         "has_attachments": m.has_attachments,
     })
 }
@@ -83,6 +84,7 @@ fn message_to_json_meta(m: &MessageRecord) -> serde_json::Value {
         "ai_fraud_score": m.ai_fraud_score,
         "is_read": m.is_read,
         "is_flagged": m.is_flagged,
+        "is_urgent": m.is_urgent,
         "has_attachments": m.has_attachments,
     })
 }
@@ -1288,6 +1290,34 @@ pub async fn flag_message(
         .folder_cache
         .write()
         .invalidate(account_id as i64, &folder_name);
+    Ok(Json(()))
+}
+
+/// `POST /api/v1/messages/urgent` — set/clear the local urgent annotation.
+/// DB-only (no IMAP sync): the marking is a personal, client-side annotation.
+#[derive(Deserialize)]
+pub struct UrgentRequest {
+    pub account_id: u32,
+    pub uid: u32,
+    pub folder_name: String,
+    pub urgent: bool,
+}
+
+pub async fn set_urgent(
+    State(state): State<AppState>,
+    Json(req): Json<UrgentRequest>,
+) -> ApiResult<()> {
+    let (folder_id, _folder_name, _local_only) = message_folder_info(&state, req.account_id, req.uid, Some(&req.folder_name));
+    with_db(&state, |conn| {
+        cache::messages::update_is_urgent_in_folder(
+            conn, req.account_id as i64, req.uid as i64, folder_id, req.urgent,
+        )
+        .map_err(|e| e.to_string())
+    })?;
+    state
+        .folder_cache
+        .write()
+        .invalidate(req.account_id as i64, &req.folder_name);
     Ok(Json(()))
 }
 

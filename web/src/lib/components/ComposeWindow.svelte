@@ -35,6 +35,7 @@
     ondraftSaved?: (uid: number) => void;
     // Pre-filled draft data
     draftTo?: string;
+    draftCc?: string;
     draftSubject?: string;
     draftBody?: string;
     draftUid?: number | null;
@@ -47,13 +48,13 @@
   let {
     mode, mailChain = [], sendError = null, replySubject = "", replyTo = "",
     accountId, recipientEmail, senderName = "", recipientName = "", onclose, onsend,
-    ondraftSaved, draftTo = "", draftSubject = "", draftBody = "", draftUid = null,
+    ondraftSaved, draftTo = "", draftCc = "", draftSubject = "", draftBody = "", draftUid = null,
     initialAttachments = [], prefill = null,
   }: Props = $props();
 
   let to = $state<string[]>([]);
-  let cc = $state("");
-  let bcc = $state("");
+  let cc = $state<string[]>([]);
+  let bcc = $state<string[]>([]);
   interface ComposeAttachment {
     id?: number;
     filename: string;
@@ -80,8 +81,8 @@
   // Cc and Bcc are independently toggled. Stays open if the field has content.
   let showCc = $state(false);
   let showBcc = $state(false);
-  let ccVisible = $derived(showCc || cc.trim().length > 0);
-  let bccVisible = $derived(showBcc || bcc.trim().length > 0);
+  let ccVisible = $derived(showCc || cc.length > 0);
+  let bccVisible = $derived(showBcc || bcc.length > 0);
   let subject = $state("");
   let userInput = $state("");
   let aiDraft = $state<string | null>(null);
@@ -134,8 +135,8 @@
         subject,
         userInput,
         undefined,
-        cc.trim() ? cc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
-        bcc.trim() ? bcc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        cc.length > 0 ? cc : undefined,
+        bcc.length > 0 ? bcc : undefined,
         draftUid ?? localDraftUid,
         attachments.length > 0 ? attachments : [],
       );
@@ -292,12 +293,16 @@
       if (draftUid != null && draftUid !== lastPropDraftUid) {
         // Pre-fill from draft data
         to = draftTo ? draftTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+        cc = draftCc ? draftCc.split(",").map(s => s.trim()).filter(Boolean) : [];
+        bcc = [];
         subject = draftSubject;
         userInput = draftBody;
         localDraftUid = draftUid;
         lastPropDraftUid = draftUid;
       } else {
         to = replyTo ? [replyTo] : [];
+        cc = [];
+        bcc = [];
         subject = mode === "reply" ? `Re: ${replySubject}` : mode === "forward" ? `Fwd: ${replySubject}` : "";
       }
       toneLoaded = false;
@@ -310,6 +315,8 @@
   $effect(() => {
     if (prefill) {
       to = prefill.to ? [prefill.to] : [];
+      cc = [];
+      bcc = [];
       subject = prefill.subject;
       userInput = prefill.body;
       aiDraft = null;
@@ -448,8 +455,8 @@
         subject,
         body,
         bodyHtml,
-        cc: cc.trim() || undefined,
-        bcc: bcc.trim() || undefined,
+        cc: cc.length > 0 ? cc.join(", ") : undefined,
+        bcc: bcc.length > 0 ? bcc.join(", ") : undefined,
         attachments: attachments.length > 0 ? attachments.map(a => ({
           id: a.id,
           filename: a.filename,
@@ -534,19 +541,19 @@
     </div>
     {#if ccVisible}
       <div class="field">
-        <label for="cc">{$t("compose.ccLabel")}</label>
+        <label>{$t("compose.ccLabel")}</label>
         <div class="ccbcc-input-wrapper">
-          <input id="cc" type="text" autocomplete="new-password" spellcheck="false" bind:value={cc} placeholder={$t("compose.cc")} />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { cc = ""; showCc = false; }} title={$t("compose.ccRemove")}>&times;</button>
+          <RecipientInput bind:value={cc} {accountId} />
+          <button type="button" class="ccbcc-clear-btn" onclick={() => { cc = []; showCc = false; }} title={$t("compose.ccRemove")}>&times;</button>
         </div>
       </div>
     {/if}
     {#if bccVisible}
       <div class="field">
-        <label for="bcc">Bcc:</label>
+        <label>{$t("compose.bccLabel")}</label>
         <div class="ccbcc-input-wrapper">
-          <input id="bcc" type="text" autocomplete="new-password" spellcheck="false" bind:value={bcc} placeholder={$t("compose.bcc")} />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { bcc = ""; showBcc = false; }} title={$t("compose.bccRemove")}>&times;</button>
+          <RecipientInput bind:value={bcc} {accountId} />
+          <button type="button" class="ccbcc-clear-btn" onclick={() => { bcc = []; showBcc = false; }} title={$t("compose.bccRemove")}>&times;</button>
         </div>
       </div>
     {/if}
@@ -782,9 +789,6 @@
     flex: 1;
     display: flex;
     align-items: center;
-  }
-  .ccbcc-input-wrapper input {
-    padding-right: 32px;
   }
   .ccbcc-clear-btn {
     position: absolute;

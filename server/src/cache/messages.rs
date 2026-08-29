@@ -22,6 +22,7 @@ pub struct MessageRecord {
     pub ai_fraud_score: Option<f32>,
     pub is_read: bool,
     pub is_flagged: bool,
+    pub is_urgent: bool,
     pub synced: bool,
     pub has_attachments: bool,
 }
@@ -214,7 +215,7 @@ fn fetch_inbox_impl(
     let sql = format!(
         "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                 {body_cols}, flags, ai_summary, ai_priority, ai_fraud_score,
-                is_read, is_flagged, synced, has_attachments
+                is_read, is_flagged, is_urgent, synced, has_attachments
          FROM messages
          WHERE account_id = ?1 AND folder_id = ?2
            AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
@@ -242,8 +243,9 @@ fn fetch_inbox_impl(
             ai_fraud_score: row.get(14)?,
             is_read: row.get::<_, i32>(15)? != 0,
             is_flagged: row.get::<_, i32>(16)? != 0,
-            synced: row.get::<_, i32>(17)? != 0,
-            has_attachments: row.get::<_, i32>(18)? != 0,
+            is_urgent: row.get::<_, i32>(17)? != 0,
+            synced: row.get::<_, i32>(18)? != 0,
+            has_attachments: row.get::<_, i32>(19)? != 0,
         })
     })?;
 
@@ -264,8 +266,8 @@ pub fn fetch_message_body(
         Some(fid) => conn.query_row(
             "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                     body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
-                    is_read, is_flagged, synced, has_attachments
-             FROM messages
+                    is_read, is_flagged, is_urgent, synced, has_attachments
+              FROM messages
              WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3
                AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)",
             params![account_id, uid, fid],
@@ -274,8 +276,8 @@ pub fn fetch_message_body(
         None => conn.query_row(
             "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
                     body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
-                    is_read, is_flagged, synced, has_attachments
-             FROM messages
+                    is_read, is_flagged, is_urgent, synced, has_attachments
+              FROM messages
              WHERE account_id = ?1 AND uid = ?2
                AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
              LIMIT 1",
@@ -309,8 +311,9 @@ fn row_to_message_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRec
         ai_fraud_score: row.get(14)?,
         is_read: row.get::<_, i32>(15)? != 0,
         is_flagged: row.get::<_, i32>(16)? != 0,
-        synced: row.get::<_, i32>(17)? != 0,
-        has_attachments: row.get::<_, i32>(18)? != 0,
+        is_urgent: row.get::<_, i32>(17)? != 0,
+        synced: row.get::<_, i32>(18)? != 0,
+        has_attachments: row.get::<_, i32>(19)? != 0,
     })
 }
 
@@ -323,7 +326,7 @@ pub fn fetch_message_body_with_folder(
 ) -> Result<Option<(MessageRecord, String)>, rusqlite::Error> {
     const COLS: &str = "m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.cc_addr, m.date,
                 m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority, m.ai_fraud_score,
-                m.is_read, m.is_flagged, m.synced, m.has_attachments, f.name";
+                m.is_read, m.is_flagged, m.is_urgent, m.synced, m.has_attachments, f.name";
     let result = match folder {
         Some(f) => conn.query_row(
             &format!(
@@ -335,7 +338,7 @@ pub fn fetch_message_body_with_folder(
                  LIMIT 1"
             ),
             params![account_id, uid, f],
-            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(19)?)),
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(20)?)),
         ),
         None => conn.query_row(
             &format!(
@@ -348,7 +351,7 @@ pub fn fetch_message_body_with_folder(
                  LIMIT 1"
             ),
             params![account_id, uid],
-            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(19)?)),
+            |row| Ok((message_record_from_row(row)?, row.get::<_, String>(20)?)),
         ),
     };
     match result {
@@ -379,8 +382,9 @@ fn message_record_from_row(row: &rusqlite::Row<'_>) -> Result<MessageRecord, rus
         ai_fraud_score: row.get(14)?,
         is_read: row.get::<_, i32>(15)? != 0,
         is_flagged: row.get::<_, i32>(16)? != 0,
-        synced: row.get::<_, i32>(17)? != 0,
-        has_attachments: row.get::<_, i32>(18)? != 0,
+        is_urgent: row.get::<_, i32>(17)? != 0,
+        synced: row.get::<_, i32>(18)? != 0,
+        has_attachments: row.get::<_, i32>(19)? != 0,
     })
 }
 
@@ -514,6 +518,33 @@ pub fn update_is_flagged_in_folder(
             let _ = conn.execute(
                 "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
                 params![is_flagged as i32, account_id, uid],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Local urgent annotation (context menu "Dringlich") — DB-only, never synced
+/// to IMAP.
+pub fn update_is_urgent_in_folder(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_id: Option<i64>,
+    is_urgent: bool,
+) -> Result<(), rusqlite::Error> {
+    match folder_id {
+        Some(fid) => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_urgent = ?1, updated_at = datetime('now')
+                 WHERE account_id = ?2 AND uid = ?3 AND folder_id = ?4",
+                params![is_urgent as i32, account_id, uid, fid],
+            )?;
+        }
+        None => {
+            let _ = conn.execute(
+                "UPDATE messages SET is_urgent = ?1, updated_at = datetime('now') WHERE account_id = ?2 AND uid = ?3",
+                params![is_urgent as i32, account_id, uid],
             )?;
         }
     }
@@ -1180,7 +1211,7 @@ pub fn search_messages(
     let mut sql = String::from(
         "SELECT m.id, m.account_id, m.uid, m.message_id, m.subject, m.from_addr, m.to_addr, m.cc_addr,
                 m.date, m.body_text, m.body_html, m.flags, m.ai_summary, m.ai_priority,
-                m.ai_fraud_score, m.is_read, m.is_flagged, m.synced, m.has_attachments
+                m.ai_fraud_score, m.is_read, m.is_flagged, m.is_urgent, m.synced, m.has_attachments
          FROM messages m",
     );
     if let Some(_) = &fts_terms {
@@ -1217,8 +1248,9 @@ pub fn search_messages(
             ai_fraud_score: row.get(14)?,
             is_read: row.get::<_, i32>(15)? != 0,
             is_flagged: row.get::<_, i32>(16)? != 0,
-            synced: row.get::<_, i32>(17)? != 0,
-            has_attachments: row.get::<_, i32>(18)? != 0,
+            is_urgent: row.get::<_, i32>(17)? != 0,
+            synced: row.get::<_, i32>(18)? != 0,
+            has_attachments: row.get::<_, i32>(19)? != 0,
         })
     };
 

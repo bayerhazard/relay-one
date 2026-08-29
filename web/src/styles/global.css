@@ -33,8 +33,10 @@
   --color-warning: #9f5100;
   --color-success: #007e46;
   --color-unread: var(--b-400);
+  --color-urgent: #cc0000;
   --color-active-wash: var(--b-900);
   --color-unread-wash: rgba(63, 96, 130, 0.10);
+  --color-urgent-wash: rgba(204, 0, 0, 0.08);
 
   /* Layout / Geometrie */
   --radius-s: 3px;
@@ -83,8 +85,10 @@
   --color-warning: #ed914c;
   --color-success: #55c483;
   --color-unread: var(--gold);
+  --color-urgent: #cc0000;
   --color-active-wash: rgba(202, 169, 96, 0.10);
   --color-unread-wash: rgba(202, 169, 96, 0.07);
+  --color-urgent-wash: rgba(204, 0, 0, 0.18);
 
   --fokus-ring: 2px solid var(--color-accent);
 

@@ -23,7 +23,7 @@
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
     listAccounts, fetchFromImap, listImapFolders, createLocalFolder, deleteFolder,
-    deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd,
+    deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
@@ -315,6 +315,7 @@ import {
 let sentFolderName = $state<string | null>(null);
   let draftUid = $state<number | null>(null);
   let draftTo = $state("");
+  let draftCc = $state("");
   let draftSubject = $state("");
   let draftBody = $state("");
   let draftInitialAttachments = $state<{ filename: string; content: string; contentType: string; size: number }[]>([]);
@@ -1709,6 +1710,7 @@ let sentFolderName = $state<string | null>(null);
         if (lastClickedUid !== uid) return;
         draftUid = uid;
         draftTo = full.to || "";
+        draftCc = full.cc || "";
         draftSubject = full.subject || "";
         draftBody = full.body_text || full.body_preview || "";
         draftInitialAttachments = (full.attachments ?? []).map((a: any) => ({
@@ -1765,6 +1767,7 @@ let sentFolderName = $state<string | null>(null);
     mailChain = [];
     draftUid = null;
     draftTo = "";
+    draftCc = "";
     draftSubject = "";
     draftBody = "";
     draftInitialAttachments = [];
@@ -2443,6 +2446,24 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
+  async function handleToggleUrgent(uid: number) {
+    const folder = selectedFolder ?? "INBOX";
+    if ($mailbox.messagesFolder !== null && $mailbox.messagesFolder !== folder) {
+      console.warn("handleToggleUrgent uebersprungen: Ordnerwechsel im Gange (uid", uid, ")");
+      return;
+    }
+    const msg = $mailbox.messages.find((m) => m.uid === uid);
+    if (!msg) return;
+    const next = !msg.is_urgent;
+    try {
+      await urgentMessageCmd(selectedAccountId, uid, folder, next);
+      mailbox.updateMessage(uid, $mailbox.folderId, { is_urgent: next });
+      invalidateFolderCache(selectedAccountId, folder);
+    } catch (e) {
+      console.warn("handleToggleUrgent fehlgeschlagen fuer uid", uid, e);
+    }
+  }
+
   async function confirmDelete() {
     if (isDeleting) return;
     const uids = pendingDeleteUids;
@@ -2500,6 +2521,7 @@ let sentFolderName = $state<string | null>(null);
     ondelete={handleDeleteMessage}
     ontoggleRead={handleToggleRead}
     ontoggleFlag={handleToggleFlag}
+    ontoggleUrgent={handleToggleUrgent}
     onmove={(uid, x, y) => {
       // A context-menu move acts on the right-clicked mail; select it first
       // so performMoveSelected() (which reads selectedUids) picks it up.
@@ -2531,6 +2553,7 @@ let sentFolderName = $state<string | null>(null);
       onsend={handleSend}
       ondraftSaved={(uid) => { draftUid = uid; }}
       draftTo={assistantCompose?.to ?? (draftUid ? draftTo : undefined)}
+      draftCc={draftUid ? draftCc : undefined}
       draftSubject={assistantCompose?.subject ?? (draftUid ? draftSubject : undefined)}
       draftBody={assistantCompose?.body ?? (draftUid ? draftBody : undefined)}
       draftUid={assistantCompose ? null : draftUid}

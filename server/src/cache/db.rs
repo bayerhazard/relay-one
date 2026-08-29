@@ -324,6 +324,9 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0", []);
     // Migration: flagged indicator for message star/flag support.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_flagged INTEGER NOT NULL DEFAULT 0", []);
+    // Migration: local urgent annotation (context menu "Dringlich"), DB-only —
+    // never synced to IMAP.
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_urgent INTEGER NOT NULL DEFAULT 0", []);
     // Migration: EML archive path (relative to data root) + content hash.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);

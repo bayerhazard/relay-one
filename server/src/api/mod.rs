@@ -64,6 +64,7 @@ pub fn router() -> Router<AppState> {
         .route("/messages/read-batch", post(messages::mark_batch_as_read))
         .route("/messages/unread-batch", post(messages::mark_batch_as_unseen))
         .route("/messages/flag", post(messages::flag_message))
+        .route("/messages/urgent", post(messages::set_urgent))
         .route("/messages/move-cross-account", post(messages::move_cross_account))
         .route("/messages/delete", post(messages::delete_message))
         .route("/messages/move", post(messages::move_message))

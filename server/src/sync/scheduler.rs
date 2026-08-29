@@ -2018,7 +2018,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
         let summary = match client
             .complete_background(
                 crate::ai::prompts::AI_SUMMARY_PROMPT,
-                &pii::mask_pii(&body),
+                &format!("Betreff: {}\n\n{}", pii::mask_pii(&subject), pii::mask_pii(&body)),
                 Some(0.3),
                 Some(300),
             )
@@ -2040,8 +2040,16 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             let conn = db_guard
                 .as_ref()
                 .ok_or("Datenbank nicht initialisiert")?;
-            let urgency = if summary.contains("KRITISCH") { Some(0.95f32) }
-                else if summary.contains("ZEITKRITISCH") { Some(0.8f32) }
+            // Parse the "Dringlichkeit:" line only — a free-text summary may
+            // contain the word "kritisch" without the mail actually being
+            // urgent. ZEITKRITISCH contains KRITISCH, so check it first.
+            // A missing/malformed line falls back to NORMAL (no false
+            // urgent markings).
+            let urgency_line = summary.lines()
+                .find_map(|l| l.trim().strip_prefix("Dringlichkeit:"))
+                .unwrap_or("");
+            let urgency = if urgency_line.contains("ZEITKRITISCH") { Some(0.8f32) }
+                else if urgency_line.contains("KRITISCH") { Some(0.95f32) }
                 else { Some(0.3f32) };
             let summary_text = summary.lines()
                 .find(|l| l.starts_with("Zusammenfassung:"))
@@ -2065,7 +2073,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             }
         } else {
             // Fallback: rule-based priority detection when LLM is unavailable
-            let rule_priority = priority::detect_priority("", &body);
+            let rule_priority = priority::detect_priority(&subject, &body);
             if rule_priority > 0.0 {
                 let db_guard = state.cache_db.lock();
                 if let Some(conn) = db_guard.as_ref() {

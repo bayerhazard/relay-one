@@ -15,6 +15,15 @@
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
 
+  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
+  let isNarrow = $derived(viewportWidth <= 768);
+  let sidebarOpen = $state(false);
+  $effect(() => {
+    const onResize = () => (viewportWidth = window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
+
   type Filter = "all" | "open" | "done";
 
   let todos = $state<TodoInfo[]>([]);
@@ -159,9 +168,15 @@
   }
 </script>
 
-<div class="tk-app">
-  <aside class="tk-sidebar" style={`width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
+<div class="tk-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
+  {#if isNarrow && sidebarOpen}
+    <div class="tk-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
+  {/if}
+  <aside class="tk-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="tk-sidebar-header">
+      {#if isNarrow}
+        <button type="button" class="tk-nav-btn tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")}>←</button>
+      {/if}
       <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
 
@@ -214,9 +229,17 @@
       </div>
     </div>
   </aside>
-  <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
+  {#if !isNarrow}
+    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
+  {/if}
 
   <main class="tk-main">
+    {#if isNarrow}
+      <div class="tk-mobile-header">
+        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}>☰</button>
+        <h1>{$t("tasks.title")}</h1>
+      </div>
+    {/if}
     {#if loading}
       <div class="tk-state">{$t("tasks.loading")}</div>
     {:else if error}
@@ -515,4 +538,59 @@
   }
   .tk-modal input:focus, .tk-modal textarea:focus { outline: none; border-color: var(--color-accent); }
   .tk-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  /* ── Narrow (mobile ≤768px): sidebar collapses to a slide-in overlay ── */
+  .tk-app.narrow .tk-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 85%;
+    max-width: 320px;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+  }
+  .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
+  .tk-app.narrow .tk-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 55;
+  }
+  .tk-app.narrow .tk-sidebar-close,
+  .tk-app.narrow .tk-menu-toggle { display: inline-flex; }
+  .tk-app:not(.narrow) .tk-sidebar-close,
+  .tk-app:not(.narrow) .tk-menu-toggle { display: none; }
+  .tk-app.narrow .resize-handle { display: none; }
+  .tk-app.narrow .tk-main { padding: 12px; }
+  .tk-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tk-mobile-header h1 {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tk-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    background: none;
+    border: none;
+    color: var(--color-text);
+    cursor: pointer;
+    border-radius: var(--radius-s);
+    font-size: 1.25rem;
+  }
+  .tk-nav-btn:hover { background: var(--color-active-wash); }
 </style>

@@ -506,6 +506,16 @@ export async function flagMessageCmd(
     "Die Markierung konnte nicht aktualisiert werden.");
 }
 
+export async function urgentMessageCmd(
+  accountId: number,
+  uid: number,
+  folderName: string,
+  urgent: boolean,
+): Promise<void> {
+  return post("/messages/urgent", { account_id: accountId, uid, folder_name: folderName, urgent },
+    "Die Dringlich-Markierung konnte nicht aktualisiert werden.");
+}
+
 export async function deleteMessageCmd(
   accountId: number,
   uid: number,

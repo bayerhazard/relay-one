@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Message } from "$lib/stores/mailbox";
   import SummaryLine from "./SummaryLine.svelte";
-  import PriorityBadge from "./PriorityBadge.svelte";
   import FraudWarning from "./FraudWarning.svelte";
   import ReplySuggestions from "./ReplySuggestions.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -19,6 +18,7 @@
     ondelete?: (uid: number) => void;
     ontoggleRead?: (uid: number) => void;
     ontoggleFlag?: (uid: number) => void;
+    ontoggleUrgent?: (uid: number) => void;
     onmove?: (uid: number, x: number, y: number) => void;
     ondragstart?: (e: DragEvent, uid: number) => void;
     loading: boolean;
@@ -28,7 +28,14 @@
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+
+  // Urgent = manually marked OR detected by the AI (high priority, no fraud
+  // suspicion). Shown with the unread-style marking in red.
+  function isUrgent(msg: Message): boolean {
+    if (msg.is_urgent) return true;
+    return (msg.ai_priority ?? 0) > 0.7 && (msg.ai_fraud_score ?? 0) < 0.3;
+  }
 
   let pendingReadUids = $state(new Set<number>());
   let pendingReadTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -344,6 +351,7 @@
             class="message-item"
             class:selected={selectedSet.has(msg.uid)}
             class:unread={!msg.is_read && !pendingReadUids.has(msg.uid)}
+            class:urgent={isUrgent(msg)}
             style="height: {itemHeight}px; {swipeStyle(msg.uid)}"
             draggable={!isTouch}
             onclick={(e) => handleClick(e, msg.uid, startIndex + i)}
@@ -421,6 +429,7 @@
       <div class="ctx-menu-separator" role="separator"></div>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleRead?.(uid))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleFlag?.(uid))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleUrgent?.(uid))}>{contextMsg?.is_urgent ? "Dringlich löschen" : "Dringlich"}</button>
       {#if onmove}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={(e) => {
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -495,6 +504,7 @@
     margin-left: 5px;
     vertical-align: -2px;
     flex-shrink: 0;
+    color: var(--gold);
   }
   .msg-header-right {
     display: flex;
@@ -532,6 +542,22 @@
   }
   .unread:hover {
     background: var(--color-active-wash);
+  }
+  /* Urgent: same marking as unread, in red (AI-detected or manually marked).
+     Declared after .unread so it wins when both apply. */
+  .urgent {
+    background: var(--color-urgent-wash);
+    border-left-color: var(--color-urgent);
+  }
+  .urgent:hover {
+    background: var(--color-urgent-wash);
+  }
+  .urgent .sender {
+    font-weight: 500;
+    color: var(--color-text);
+  }
+  .urgent .msg-subject {
+    font-weight: 500;
   }
   .loading-indicator {
     text-align: center;

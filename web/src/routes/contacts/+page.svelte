@@ -16,6 +16,15 @@
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
 
+  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
+  let isNarrow = $derived(viewportWidth <= 768);
+  let sidebarOpen = $state(false);
+  $effect(() => {
+    const onResize = () => (viewportWidth = window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  });
+
   let contacts = $state<ContactInfo[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -121,9 +130,15 @@
   }
 </script>
 
-<div class="ct-app">
-  <aside class="ct-sidebar" style={`width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
+<div class="ct-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
+  {#if isNarrow && sidebarOpen}
+    <div class="ct-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
+  {/if}
+  <aside class="ct-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="ct-sidebar-header">
+      {#if isNarrow}
+        <button type="button" class="ct-nav-btn ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")}>←</button>
+      {/if}
       <ModuleLogo to="/" label={$t("contacts.title")} noHover />
     </div>
 
@@ -149,9 +164,17 @@
       </div>
     </div>
   </aside>
-  <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
+  {#if !isNarrow}
+    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
+  {/if}
 
   <main class="ct-main">
+    {#if isNarrow}
+      <div class="ct-mobile-header">
+        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}>☰</button>
+        <h1>{$t("contacts.title")}</h1>
+      </div>
+    {/if}
     {#if loading}
       <div class="ct-state">{$t("contacts.loading")}</div>
     {:else if error}
@@ -406,4 +429,59 @@
   }
   .ct-modal input:focus { outline: none; border-color: var(--color-accent); }
   .ct-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  /* ── Narrow (mobile ≤768px): sidebar collapses to a slide-in overlay ── */
+  .ct-app.narrow .ct-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 85%;
+    max-width: 320px;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+  }
+  .ct-app.narrow.sidebar-open .ct-sidebar { transform: translateX(0); }
+  .ct-app.narrow .ct-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 55;
+  }
+  .ct-app.narrow .ct-sidebar-close,
+  .ct-app.narrow .ct-menu-toggle { display: inline-flex; }
+  .ct-app:not(.narrow) .ct-sidebar-close,
+  .ct-app:not(.narrow) .ct-menu-toggle { display: none; }
+  .ct-app.narrow .resize-handle { display: none; }
+  .ct-app.narrow .ct-main { padding: 12px; }
+  .ct-mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .ct-mobile-header h1 {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ct-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    background: none;
+    border: none;
+    color: var(--color-text);
+    cursor: pointer;
+    border-radius: var(--radius-s);
+    font-size: 1.25rem;
+  }
+  .ct-nav-btn:hover { background: var(--color-active-wash); }
 </style>

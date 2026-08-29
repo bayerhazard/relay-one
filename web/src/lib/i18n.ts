@@ -336,8 +336,6 @@ export const translations: Record<Lang, Dict> = {
     "compose.replyTitle": "Antworten",
     "compose.close": "Schließen",
     "compose.back": "Zurück",
-    "compose.cc": "Empfänger in Kopie (Cc)...",
-    "compose.bcc": "Empfänger in Blindkopie (Bcc)...",
     "compose.subjectLabel": "Betreff:",
     "compose.subject": "Betreff",
     "compose.attachment": "Anhang",
@@ -385,6 +383,7 @@ export const translations: Record<Lang, Dict> = {
     "compose.discard": "Verwerfen",
     "compose.toLabel": "An:",
     "compose.ccLabel": "Cc:",
+    "compose.bccLabel": "Bcc:",
     "compose.ccAdd": "Cc hinzufügen",
     "compose.bccAdd": "Bcc hinzufügen",
     "compose.ccRemove": "Cc entfernen",
@@ -428,6 +427,8 @@ export const translations: Record<Lang, Dict> = {
 
     // Contacts
     "contacts.title": "Kontakte",
+    "contacts.menu": "Menü",
+    "contacts.close": "Schließen",
     "contacts.new": "Neuer Kontakt",
     "contacts.edit": "Kontakt bearbeiten",
     "contacts.count": "{n} Kontakte",
@@ -460,6 +461,8 @@ export const translations: Record<Lang, Dict> = {
 
     // Tasks
     "tasks.title": "Aufgaben",
+    "tasks.menu": "Menü",
+    "tasks.close": "Schließen",
     "tasks.new": "Neue Aufgabe",
     "tasks.syncing": "Synchronisiere…",
     "tasks.syncFromCaldav": "Von CalDAV laden",
@@ -892,8 +895,6 @@ export const translations: Record<Lang, Dict> = {
     "compose.replyTitle": "Reply",
     "compose.close": "Close",
     "compose.back": "Back",
-    "compose.cc": "Carbon copy (Cc)...",
-    "compose.bcc": "Blind carbon copy (Bcc)...",
     "compose.subjectLabel": "Subject:",
     "compose.subject": "Subject",
     "compose.attachment": "Attachment",
@@ -941,6 +942,7 @@ export const translations: Record<Lang, Dict> = {
     "compose.discard": "Discard",
     "compose.toLabel": "To:",
     "compose.ccLabel": "Cc:",
+    "compose.bccLabel": "Bcc:",
     "compose.ccAdd": "Add Cc",
     "compose.bccAdd": "Add Bcc",
     "compose.ccRemove": "Remove Cc",
@@ -984,6 +986,8 @@ export const translations: Record<Lang, Dict> = {
 
     // Contacts
     "contacts.title": "Contacts",
+    "contacts.menu": "Menu",
+    "contacts.close": "Close",
     "contacts.new": "New Contact",
     "contacts.edit": "Edit Contact",
     "contacts.count": "{n} contacts",
@@ -1016,6 +1020,8 @@ export const translations: Record<Lang, Dict> = {
 
     // Tasks
     "tasks.title": "Tasks",
+    "tasks.menu": "Menu",
+    "tasks.close": "Close",
     "tasks.new": "New Task",
     "tasks.syncing": "Syncing…",
     "tasks.syncFromCaldav": "Load from CalDAV",
