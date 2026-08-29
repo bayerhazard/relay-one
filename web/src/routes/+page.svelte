@@ -31,6 +31,7 @@ import {
     type FollowupAction, type FollowupTimeSlot,
   } from "$lib/services/tauri";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
+  import { getDoneFingerprints, followupFingerprint, markFollowupDone } from "$lib/utils/followupMemory";
   import type { MailChainEntry } from "$lib/types/mail";
 
   let sidebarWidth = $state(220);
@@ -111,7 +112,8 @@ import {
     if (uid == null || showCompose) return;
     followupsForUid = uid;
     if (followupsCache.has(uid)) {
-      followups = followupsCache.get(uid)!;
+      const done = getDoneFingerprints(uid);
+      followups = followupsCache.get(uid)!.filter((a) => !done.has(followupFingerprint(a)));
       followupsLoading = false;
       followupsError = null;
       return;
@@ -135,7 +137,8 @@ import {
       .then((actions) => {
         if (followupsForUid !== uid) return;
         followupsCache.set(uid, actions);
-        followups = actions;
+        const done = getDoneFingerprints(uid);
+        followups = actions.filter((a) => !done.has(followupFingerprint(a)));
       })
       .catch((e) => {
         if (followupsForUid !== uid) return;
@@ -2319,15 +2322,19 @@ let sentFolderName = $state<string | null>(null);
     try {
       if (a.kind === "task" && a.task) {
         await createTodo({ summary: a.task.summary, due: a.task.due ?? undefined });
+        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
         followups = followups.filter((x) => x.id !== a.id);
         return;
       }
       if (a.kind === "event" && a.event) {
         await createFollowupEvent(a.event.summary, a.event.start, a.event.end ?? undefined, a.event.attendees);
+        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
         return;
       }
       if (a.kind === "email" && a.email) {
         assistantAction.set({ type: "open_compose", to: a.email.to, subject: a.email.subject, body: a.email.body });
+        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
+        followups = followups.filter((x) => x.id !== a.id);
         return;
       }
     } catch (e) {
@@ -3537,7 +3544,12 @@ let sentFolderName = $state<string | null>(null);
     background: var(--color-card);
     display: flex;
     flex-direction: column;
-    max-height: 220px;
+    /* Gleiche Hoehe wie der untere Sidebar-Block (.sidebar-footer):
+       Abstand Trennlinie -> untere Fensterkante = 107px (inkl. 1px border) */
+    height: 107px;
+    box-sizing: border-box;
+    padding: 12px 16px;
+    gap: 8px;
   }
   .followups-footer-head {
     flex-shrink: 0;
@@ -3545,8 +3557,6 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--color-border);
   }
   .followups-footer-title {
     font-size: 0.72rem;
@@ -3563,9 +3573,9 @@ let sentFolderName = $state<string | null>(null);
     white-space: nowrap;
   }
   .followups-footer-scroll {
-    overflow-y: auto;
+    flex: 1;
     min-height: 0;
-    padding: 8px 16px;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -3573,16 +3583,22 @@ let sentFolderName = $state<string | null>(null);
   .followups-footer-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
+    min-width: 0;
   }
   .followups-footer-label {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    flex: 0 1 auto;
     font-size: 0.85rem;
     color: var(--color-text);
+  }
+  .followups-footer-label > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .followups-footer-conflict {
     font-size: 0.76rem;

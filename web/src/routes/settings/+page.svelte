@@ -16,11 +16,15 @@ import {
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
   import { settings, showDiffEnabled } from "$lib/stores/settings";
+  import { clearFollowupMemory } from "$lib/utils/followupMemory";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
+
+  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
+  $effect(() => () => destroyResize());
 
   // ─── Active Tab State ────────────────────────
   let activeTab = $state("general"); // 'general' | 'accounts' | 'ai' | 'carddav' | 'voice'
@@ -314,6 +318,23 @@ import {
       console.error("KI-Zusammenfassungen löschen fehlgeschlagen", e);
     } finally {
       aiSummariesClearing = false;
+    }
+  }
+
+  let aiActionsClearing = $state(false);
+  let aiActionsResult = $state<number | null>(null);
+
+  async function handleClearAiActions() {
+    aiActionsClearing = true;
+    aiActionsResult = null;
+    try {
+      const cleared = clearFollowupMemory();
+      aiActionsResult = cleared;
+      setTimeout(() => (aiActionsResult = null), 6000);
+    } catch (e: unknown) {
+      console.error("KI-Aktionen löschen fehlgeschlagen", e);
+    } finally {
+      aiActionsClearing = false;
     }
   }
 
@@ -669,9 +690,9 @@ async function handleSaveCardDav() {
 
 <div class="settings-page" class:narrow={isNarrow} class:mobile-content={isNarrow && mobileContentOpen}>
   <!-- 1. LEFT SIDEBAR (HubSpot-Style Navigation) -->
-  <aside class="settings-sidebar">
+  <aside class="settings-sidebar" style={`width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="sidebar-header">
-      <ModuleLogo to="/" label={$t("settings.title")} />
+      <ModuleLogo to="/" label={$t("settings.title")} noHover />
     </div>
 
     <nav class="sidebar-menu">
@@ -751,11 +772,8 @@ async function handleSaveCardDav() {
         <span>{$t("settings.archive")}</span>
       </button>
     </nav>
-
-    <div class="settings-module-row">
-      <ModuleIcons active="settings" />
-    </div>
   </aside>
+  <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
 
   <!-- 2. RIGHT MAIN CONTENT AREA -->
   <main class="settings-content-wrapper">
@@ -1626,6 +1644,29 @@ async function handleSaveCardDav() {
             </div>
           </div>
         </section>
+
+        <!-- Card: KI-Aktionen -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>{$t("settings.aiActions")}</h3>
+            <p class="card-desc">{$t("settings.aiActionsDesc")}</p>
+          </div>
+
+          <div class="card-body">
+            {#if aiActionsResult !== null}
+              <div class="alert-box success">
+                <div class="alert-icon">✓</div>
+                <div class="alert-text">{$t("settings.aiActionsCleared", { count: aiActionsResult })}</div>
+              </div>
+            {/if}
+
+            <div class="form-actions-row">
+              <button type="button" class="btn-danger" onclick={handleClearAiActions} disabled={aiActionsClearing}>
+                {aiActionsClearing ? $t("settings.clearing") : $t("settings.aiActionsClearAll")}
+              </button>
+            </div>
+          </div>
+        </section>
       {/if}
 
     </div>
@@ -1657,24 +1698,22 @@ async function handleSaveCardDav() {
 
   /* ─── SIDEBAR ─── */
   .settings-sidebar {
-    width: 280px;
     background: var(--color-sidebar);
     border-right: 1px solid var(--color-border);
-    padding: 28px 20px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
     flex-shrink: 0;
   }
 
   .sidebar-header {
     height: 72px;
-    padding: 0 15px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    margin-bottom: 16px;
   }
 
   .back-btn {
@@ -1716,13 +1755,7 @@ async function handleSaveCardDav() {
     display: flex;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .settings-module-row {
-    margin-top: auto;
-    display: flex;
-    justify-content: center;
-    padding-top: 12px;
+    padding: 0 16px;
   }
 
   .menu-item {
@@ -1800,12 +1833,15 @@ async function handleSaveCardDav() {
 
   @media (max-width: 600px) {
     .settings-sidebar {
-      width: 100%;
+      width: 100% !important;
+      min-width: 0 !important;
       border-right: none;
-      padding: 16px;
-      padding-top: max(16px, env(safe-area-inset-top, 0px));
-      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    }
+    .resize-handle {
+      display: none;
     }
     .settings-page.mobile-content .settings-sidebar {
       display: none;

@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.09.109
+  version: 26.09.110
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.09.109
+  versionName: 26.09.110
   upgradeDescription: |
+    v26.09.110: KI-Vorschläge-Layout + Followup-Dedup + Settings-Sidebar — (1) KI-Vorschläge-Block im Mail-Bereich: Höhe jetzt exakt wie der untere Sidebar-Block (107px, Abstand Trennlinie → untere Fensterkante), keine inneren Trennlinien, kompakte Darstellung (Aktions-Button direkt neben dem Vorschlag statt am Rand). (2) Followup-Dedup: Bereits ausgeführte KI-Aktionen (Aufgabe anlegen, Termin eintragen, Entwurf öffnen) werden beim erneuten Öffnen der Mail oder nach einem App-Neustart nicht erneut angeboten — die Erinnerung wird im Browser gespeichert. (3) Einstellungen → Cache-Verwaltung: Neuer Button "KI-Aktionen löschen" (analog zu KI-Zusammenfassungen), setzt die Dedup-Erinnerung zurück. (4) Settings-Sidebar: Logo-Bereich und Modul-Icons entfernt, Sidebar jetzt resizierbar wie in den anderen Modulen. Built for Olares 1.12.6.
     v26.09.109: Design-Konsistenz + vollständige englische Sprachversion — (1) Einheitliches Modul-Design: Resizierbare Sidebar (per Drag am Rand) in Mail, Kalender, Kontakte und Aufgaben; einheitliche Modul-Header (gleiche Höhe und Abstände). (2) Gemeinsame Suchfeld-Komponente in allen Modulen (einheitliches Look & Feel). (3) Schriftgrad-Design-Tokens statt fester Pixelwerte; Farbtokens vereinheitlicht (Semantik-Farben für Termin-Akzeptanz/Ablehnung, Gold-Tokens). (4) Vollständige englische Sprachversion (EN) für Kalender, Kontakte, Aufgaben und den globalen Assistenten — Sprachumschalter DE/EN auf dem Startbildschirm. Built for Olares 1.12.6.
     v26.09.108: Robustheit & Performance (Code-Review) — (1) FIX: Beim Oeffnen von Mails mit groesseren Anhaengen blockiert der Dateilesevorgang nicht mehr die gesamte Datenbank (alle anderen API-/Sync-Operationen laufen parallel weiter). (2) FIX Reply-All: Die eigene Absenderadresse wird nicht mehr in den Verteiler aufgenommen. (3) KI-Requests warten jetzt begrenzt (max. 30 s) auf die KI-Engine und zeigen "gerade ausgelastet" statt endlos zu hängen. (4) Sicherheit: Externe Links (open-url) werden nur für http/https geöffnet. (5) /health ist jetzt eine echte Readiness-Pruefung (Datenbank-Check). Built for Olares 1.12.6.
     v26.09.107: Automatische KI-Follow-ups — (1) Beim Oeffnen einer Mail erkennt die KI im Hintergrund Termin-Anfragen und weitere To-dos (ohne manuellen Button, Mail bleibt w&auml;hrend der Analyse lesbar). (2) Die Vorschläge erscheinen als Einzelaktionen in einem fixen Footer im Mail-Bereich: Termin eintragen, Antwort/Bestätigung als Entwurf öffnen (vom Nutzer prüfen/bearbeiten/versenden) oder Aufgabe anlegen. (3) Bei Termin-Konflikten werden alternative freie Zeitfenster vorgeschlagen. (4) Der Assistent findet Kontakte jetzt auch über eine interne Suche (robuster) und zeigt für jede ausgeführte Aktion ein Ergebnis an. (5) VCard-Korrektur: Vor-/Nachname wurden vertauscht gespeichert. Built for Olares 1.12.6.
