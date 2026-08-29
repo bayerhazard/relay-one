@@ -27,7 +27,7 @@ import {
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
-    getFollowups, createTodo, createEvent, getCalendars,
+    getFollowups, generateCounterEmail, createTodo, createEvent, getCalendars,
     type FollowupAction, type FollowupTimeSlot,
   } from "$lib/services/tauri";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
@@ -104,6 +104,9 @@ import {
   let followupsForUid = $state<number | null>(null);
   let followupsInFlight: number | null = null; // nicht reaktiv, nur Duplikat-Guard
   const followupsCache = new Map<number, FollowupAction[]>();
+  // Vom Nutzer gewaehlter Alternativ-Slot (belegt) — wird von der
+  // "Alternative per Mail vorschlagen"-Aktion fuer den Gegenvorschlag genutzt.
+  let pickedAlternative = $state<FollowupTimeSlot | null>(null);
 
   // Automatische Erkennung: wenn eine Mail geoeffnet wird (und kein Compose),
   // prueft die KI im Hintergrund auf Termin-Anfragen + weitere Aktionen.
@@ -111,6 +114,7 @@ import {
     const uid = selectedMessage?.uid;
     if (uid == null || showCompose) return;
     followupsForUid = uid;
+    pickedAlternative = null;
     if (followupsCache.has(uid)) {
       const done = getDoneFingerprints(uid);
       followups = followupsCache.get(uid)!.filter((a) => !done.has(followupFingerprint(a)));
@@ -2332,7 +2336,24 @@ let sentFolderName = $state<string | null>(null);
         return;
       }
       if (a.kind === "email" && a.email) {
-        assistantAction.set({ type: "open_compose", to: a.email.to, subject: a.email.subject, body: a.email.body });
+        let subject = a.email.subject;
+        let body = a.email.body;
+        // Gegenvorschlag: gewaehlten Alternativ-Slot als konkrete Mail generieren.
+        if (a.email.purpose === "counter" && pickedAlternative) {
+          const ev = followups.find((x) => x.kind === "event" && x.event);
+          if (ev?.event) {
+            const res = await generateCounterEmail({
+              from: a.email.to,
+              meeting_title: ev.event.summary,
+              requested_start: ev.event.start,
+              alternative_start: pickedAlternative.start,
+              alternative_end: pickedAlternative.end,
+            });
+            subject = res.subject;
+            body = res.body;
+          }
+        }
+        assistantAction.set({ type: "open_compose", to: a.email.to, subject, body });
         if (followupsForUid != null) markFollowupDone(followupsForUid, a);
         followups = followups.filter((x) => x.id !== a.id);
         return;
@@ -2342,11 +2363,18 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
-  // Alternativ-Termin (bei Konflikt) eintragen.
-  async function handleFollowupAlternative(a: FollowupAction, slot: FollowupTimeSlot) {
+  // Alternativ-Slot (bei Konflikt) waehlen — wird gemerkt und von der
+  // "Alternative per Mail vorschlagen"-Aktion fuer den Gegenvorschlag genutzt.
+  function handleFollowupAlternative(a: FollowupAction, slot: FollowupTimeSlot) {
     if (a.kind !== "event" || !a.event) return;
+    pickedAlternative = slot;
+  }
+
+  // Gewaehlten Alternativ-Slot als Termin eintragen.
+  async function handleBookPickedAlternative(a: FollowupAction) {
+    if (a.kind !== "event" || !a.event || !pickedAlternative) return;
     try {
-      await createFollowupEvent(a.event.summary, slot.start, slot.end, a.event.attendees);
+      await createFollowupEvent(a.event.summary, pickedAlternative.start, pickedAlternative.end, a.event.attendees);
     } catch (e) {
       followupsError = localizeError(String(e));
     }
@@ -2845,10 +2873,20 @@ let sentFolderName = $state<string | null>(null);
                 {#if a.kind === "event" && a.event?.availability === "busy" && a.event.alternatives.length > 0}
                   <div class="followups-footer-alts">
                     {#each a.event.alternatives as slot (slot.start)}
-                      <button type="button" class="followups-footer-alt" onclick={() => handleFollowupAlternative(a, slot)}>
+                      <button
+                        type="button"
+                        class="followups-footer-alt"
+                        class:followups-footer-alt--picked={pickedAlternative?.start === slot.start}
+                        onclick={() => handleFollowupAlternative(a, slot)}
+                      >
                         {formatAltSlot(slot.start)}
                       </button>
                     {/each}
+                    {#if pickedAlternative}
+                      <button type="button" class="followups-footer-btn" onclick={() => handleBookPickedAlternative(a)}>
+                        Termin eintragen
+                      </button>
+                    {/if}
                   </div>
                 {/if}
               {/each}
@@ -3641,6 +3679,15 @@ let sentFolderName = $state<string | null>(null);
   .followups-footer-alt:hover {
     border-color: var(--color-accent);
     color: var(--color-accent);
+  }
+  .followups-footer-alt--picked {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: #fff;
+  }
+  .followups-footer-alt--picked:hover {
+    color: #fff;
+    filter: brightness(1.1);
   }
   .attachments {
     margin-top: 20px;

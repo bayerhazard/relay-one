@@ -1091,6 +1091,9 @@ pub struct FollowupEmail {
     pub to: String,
     pub subject: String,
     pub body: String,
+    /// "confirmation" | "counter"
+    #[serde(default)]
+    pub purpose: String,
 }
 
 #[derive(Deserialize)]
@@ -1192,7 +1195,7 @@ pub async fn ai_followups(
             let event_label = if availability == "free" {
                 format!("Termin eintragen: {title}")
             } else {
-                format!("Termin belegt: {title} — Alternativ vorschlagen")
+                format!("Alternative finden: {title}")
             };
             actions.push(FollowupAction {
                 id: format!("fu-{counter}"),
@@ -1218,13 +1221,14 @@ pub async fn ai_followups(
                 let body = email.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
                 if !body.is_empty() {
                     counter += 1;
+                    let purpose = if availability == "free" { "confirmation" } else { "counter" };
                     actions.push(FollowupAction {
                         id: format!("fu-{counter}"),
                         kind: "email".into(),
-                        label: if availability == "free" { "Bestätigung senden".into() } else { "Antwort vorbereiten".into() },
+                        label: if availability == "free" { "Bestätigung senden".into() } else { "Alternative per Mail vorschlagen".into() },
                         task: None,
                         event: None,
-                        email: Some(FollowupEmail { to: req.from.clone(), subject, body }),
+                        email: Some(FollowupEmail { to: req.from.clone(), subject, body, purpose: purpose.into() }),
                     });
                 }
             }
@@ -1252,6 +1256,39 @@ pub async fn ai_followups(
     }
 
     Ok(Json(actions))
+}
+
+#[derive(Deserialize)]
+pub struct CounterEmailRequest {
+    pub from: String,
+    pub meeting_title: String,
+    pub requested_start: String,
+    pub alternative_start: String,
+    pub alternative_end: String,
+}
+
+/// `POST /api/v1/ai/followups/counter-email` — draft a counter-offer email that
+/// proposes the specific alternative slot the user picked.
+pub async fn ai_followups_counter_email(
+    State(state): State<AppState>,
+    Json(req): Json<CounterEmailRequest>,
+) -> ApiResult<serde_json::Value> {
+    let (system, user) = prompts::build_counter_email_prompt(
+        &req.from,
+        &req.meeting_title,
+        &req.requested_start,
+        &req.alternative_start,
+        &req.alternative_end,
+    );
+    let client = get_ai_client(&state)?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(400)).await?;
+    let obj = extract_json_object(&raw);
+    let subject = obj.get("subject").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let body = obj.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if body.is_empty() {
+        return Err(ApiError("KI lieferte keinen E-Mail-Text.".to_string()));
+    }
+    Ok(Json(serde_json::json!({ "subject": subject, "body": body })))
 }
 
 // ─── Phase 4 — AI-First helpers ─────────────────────────────

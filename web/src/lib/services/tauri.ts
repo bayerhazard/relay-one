@@ -1313,6 +1313,7 @@ export interface FollowupEmail {
   to: string;
   subject: string;
   body: string;
+  purpose?: "confirmation" | "counter";
 }
 
 export interface FollowupAction {
@@ -1330,6 +1331,25 @@ export async function getFollowups(
   body: string,
 ): Promise<FollowupAction[]> {
   return post<FollowupAction[]>("/ai/followups", { subject, from, body }, "Aufgaben konnten nicht generiert werden.");
+}
+
+export interface CounterEmailResult {
+  subject: string;
+  body: string;
+}
+
+export async function generateCounterEmail(params: {
+  from: string;
+  meeting_title: string;
+  requested_start: string;
+  alternative_start: string;
+  alternative_end: string;
+}): Promise<CounterEmailResult> {
+  return post<CounterEmailResult>(
+    "/ai/followups/counter-email",
+    params,
+    "Gegenvorschlag-E-Mail konnte nicht generiert werden.",
+  );
 }
 
 // ─── Phase 4 — AI-First ─────────────────────────────────────
