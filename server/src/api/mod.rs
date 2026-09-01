@@ -145,7 +145,6 @@ pub fn router() -> Router<AppState> {
         .route("/migrate/start-folder", post(migrate::start_folder_migration))
         .route("/migrate/status", get(migrate::migration_status))
         // Profile photo + Voice
-        .route("/profile/photo", get(profile::get_own_photo).post(profile::save_own_photo))
         .route("/voice/config", get(profile::get_voice_config).post(profile::save_voice_config))
         .route("/voice/transcribe", post(profile::transcribe_voice))
         // CardDAV
