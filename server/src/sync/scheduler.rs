@@ -308,18 +308,27 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
             }
 
             let uid_list: Vec<String> = local_msgs.iter().map(|uid| uid.to_string()).collect();
-            let uid_set = uid_list.join(",");
-
-            let fetched = match client.fetch_flags(&uid_set).await {
-                    Ok(f) => f,
+            // Batch UIDs in chunks of 500 to avoid oversized IMAP commands
+            // that some servers reject or that cause long response times.
+            let mut fetched: Vec<(u32, bool, bool)> = Vec::new();
+            let mut batch_failed = false;
+            for chunk in uid_list.chunks(500) {
+                let uid_set = chunk.join(",");
+                match client.fetch_flags(&uid_set).await {
+                    Ok(f) => fetched.extend(f),
                     Err(e) => {
                         tracing::warn!(
                             "flag_refresh: fetch_flags fuer '{}' (account {}) fehlgeschlagen: {}",
                             folder_name, account_id, e
                         );
-                        continue;
+                        batch_failed = true;
+                        break;
                     }
-                };
+                }
+            }
+            if batch_failed {
+                continue;
+            }
 
             let updated = {
                 let mut db_guard = state.cache_db.lock();
@@ -1510,11 +1519,14 @@ async fn process_sync_task(
                 }
             };
             if has_more {
+                // retries: 1 → queue applies base_delay (1 s) before next
+                // execution, preventing a zero-delay busy loop when many
+                // diffs are queued (each cycle processes up to 3).
                 queue.enqueue(SyncTask {
                     account_id: task.account_id,
                     task_type: SyncTaskType::AnalyzeDiff,
                     created_at: tokio::time::Instant::now(),
-                    retries: 0,
+                    retries: 1,
                     max_retries: 0,
                     priority: 3,
                 }).await;

@@ -59,15 +59,11 @@ impl SmtpClient {
         let is_ip = is_ip_address(&config.host);
 
         let transport = if config.use_tls && is_ip {
-            tracing::warn!(
-                "SMTP: use_tls=true, host='{}' is an IP address — using builder_dangerous (opportunistic STARTTLS, no hostname validation)",
+            return Err(AppError::smtp(format!(
+                "SMTP: TLS ist mit IP-Adressen nicht sicher möglich (keine Hostname-Validierung). \
+                 Bitte einen DNS-Namen statt '{}' verwenden oder TLS deaktivieren.",
                 config.host
-            );
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
-                .port(config.port)
-                .timeout(Some(SMTP_TIMEOUT))
-                .credentials(creds)
-                .build()
+            ), "tls_config"));
         } else if config.use_tls {
             tracing::info!(
                 "SMTP: use_tls=true, host='{}' is a DNS name — using starttls_relay",
@@ -428,4 +424,25 @@ mod tests {
         assert!(raw_str.contains("application/pdf"), 
             "Content-Type 'application/pdf' nicht gefunden in: {}", raw_str);
     }
+
+    #[test]
+    fn test_tls_with_ip_address_rejected() {
+        let config = SmtpConfig {
+            host: "192.168.1.1".into(),
+            port: 587,
+            username: "user".into(),
+            password: "pass".into(),
+            use_tls: true,
+            sender_name: "Tester".into(),
+            sender_email: "tester@example.com".into(),
+        };
+        match SmtpClient::new(config) {
+            Ok(_) => panic!("TLS mit IP-Adresse muss abgelehnt werden"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(msg.contains("DNS-Namen"), "Error sollte DNS-Namen erwähnen: {}", msg);
+            }
+        }
+    }
+
 }

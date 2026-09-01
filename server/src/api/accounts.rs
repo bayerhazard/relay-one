@@ -95,6 +95,9 @@ pub async fn connect_account(
     } else {
         req.smtp_password.clone()
     };
+    if smtp_pass.is_empty() {
+        return Err(ApiError("SMTP-Passwort fehlt: weder smtp_password noch imap_password gesetzt".into()));
+    }
     let smtp_client = SmtpClient::new(SmtpConfig {
         host: req.smtp_host.clone(),
         port: req.smtp_port,

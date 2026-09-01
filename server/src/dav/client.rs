@@ -175,17 +175,39 @@ pub fn parse_sync_token_xml(xml: &str) -> Option<String> {
 /// Resolve a potentially-relative href against a base URL.
 /// If href starts with `/`, it's an absolute-path reference → resolve against origin.
 /// Otherwise return as-is.
-pub fn resolve_href(base_url: &str, href: &str) -> String {
+pub fn resolve_href(base_url: &str, href: &str) -> Option<String> {
     if href.starts_with('/') {
         let parts: Vec<&str> = base_url.splitn(4, '/').collect();
         if parts.len() >= 3 {
             let origin = &parts[..3].join("/");
-            format!("{}{}", origin, href)
+            Some(format!("{}{}", origin, href))
         } else {
-            href.to_string()
+            None
+        }
+    } else if href.starts_with("http://") || href.starts_with("https://") {
+        // Absolute URL: only allow if same origin as base_url (SSRF guard)
+        let base_origin = base_url.splitn(3, '/').take(3).collect::<Vec<_>>().join("/");
+        let href_origin = href.splitn(3, '/').take(3).collect::<Vec<_>>().join("/");
+        if base_origin == href_origin {
+            Some(href.to_string())
+        } else {
+            tracing::warn!(
+                "DAV: href '{}' verweist auf fremden Origin (base: '{}') — verworfen",
+                href, base_origin
+            );
+            None
         }
     } else {
-        href.to_string()
+        // Relative path without leading slash
+        let parts: Vec<&str> = base_url.splitn(4, '/').collect();
+        if parts.len() >= 3 {
+            let origin = &parts[..3].join("/");
+            let base_path = base_url.strip_prefix(origin).unwrap_or("");
+            let trimmed = base_path.trim_end_matches('/');
+            Some(format!("{}{}{}", origin, trimmed, href))
+        } else {
+            None
+        }
     }
 }
 

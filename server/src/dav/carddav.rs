@@ -121,7 +121,8 @@ impl CardDavClient {
             );
         }
 
-        let abs_url = resolve_href(&base_url, &book.href);
+        let abs_url = resolve_href(&base_url, &book.href)
+            .ok_or_else(|| format!("CardDAV: href '{}' konnte nicht sicher aufgelöst werden", book.href))?;
         tracing::info!(
             "CardDAV: Adressbuch '{}' auf {} gefunden",
             book.display_name.as_deref().unwrap_or("(unbenannt)"),
@@ -236,7 +237,13 @@ impl CardDavClient {
                 // /user/addressbook/kontakt.vcf) — resolve them against the
                 // configured base URL, like list_contacts() does, otherwise
                 // reqwest fails with a builder error and no contact is saved.
-                let abs_url = resolve_href(&self.settings.url, url);
+                let abs_url = match resolve_href(&self.settings.url, url) {
+                    Some(u) => u,
+                    None => {
+                        tracing::warn!("CardDAV: href '{}' verworfen (fremder Origin)", url);
+                        continue;
+                    }
+                };
                 match self.fetch_vcard(&abs_url).await {
                     Ok(vcard) => {
                         let contact = vcard::parse_vcard(&vcard);
@@ -282,8 +289,8 @@ impl CardDavClient {
             return Err(format!("PROPFIND: unerwarteter Status {}", status));
         }
 
-        let urls = parse_hrefs(&text)?.into_iter()
-            .map(|u| resolve_href(base_url, &u))
+        let urls: Vec<String> = parse_hrefs(&text)?.into_iter()
+            .filter_map(|u| resolve_href(base_url, &u))
             .collect();
 
         Ok(urls)

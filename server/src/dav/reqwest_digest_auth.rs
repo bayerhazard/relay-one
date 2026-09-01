@@ -105,7 +105,17 @@ impl RequestBuilder {
             Err(_) => return Ok(resp),
         };
 
-        let context = AuthContext::new(&self.username, &self.password, &self.url);
+        // Use the actual HTTP method in the digest hash calculation —
+        // AuthContext::new defaults to GET, which would produce an invalid
+        // response for PROPFIND/REPORT/PUT requests.
+        let method_str = self.method.as_str();
+        let context = AuthContext::new_with_method(
+            &self.username,
+            &self.password,
+            &self.url,
+            None::<Vec<u8>>,
+            digest_auth::HttpMethod(std::borrow::Cow::Borrowed(method_str)),
+        );
         let answer = match parsed.respond(&context) {
             Ok(a) => a.to_string(),
             Err(_) => return Ok(resp),

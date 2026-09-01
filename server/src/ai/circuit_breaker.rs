@@ -108,6 +108,18 @@ impl CircuitBreaker {
         let window = inner.failure_window;
         inner.failures.retain(|t| now.duration_since(*t) < window);
 
+        // A failure in HalfOpen always re-opens the circuit — otherwise the
+        // breaker latches in HalfOpen (probe failed but threshold not met)
+        // and no further requests are ever allowed.
+        if matches!(inner.state, CircuitState::HalfOpen) {
+            inner.state = CircuitState::Open(now);
+            inner.half_open_permitted = false;
+            tracing::warn!(
+                "Circuit Breaker: HALF-OPEN Probe fehlgeschlagen → wieder OFFEN"
+            );
+            return;
+        }
+
         // Check if threshold is exceeded
         if (inner.failures.len() as u32) >= inner.failure_threshold {
             inner.state = CircuitState::Open(now);
@@ -194,5 +206,32 @@ mod tests {
         let cb = CircuitBreaker::new();
         cb.record_success();
         assert_eq!(cb.state(), "geschlossen (0 Fehler im Fenster)");
+    }
+
+    #[test]
+    fn test_half_open_failure_reopens_circuit() {
+        let cb = CircuitBreaker::new();
+        {
+            let mut inner = cb.inner.write();
+            inner.reset_timeout = Duration::from_millis(50);
+        }
+        // Open the circuit
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.allow_request().is_err());
+
+        // Wait for half-open
+        tokio_test::block_on(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+        // First request in half-open is allowed (the probe)
+        assert!(cb.allow_request().is_ok());
+
+        // Probe fails → must go back to Open (not latch in HalfOpen)
+        cb.record_failure();
+        assert!(cb.allow_request().is_err());
+        let state = cb.state();
+        assert!(state.contains("offen"), "Expected 'offen', got: {}", state);
     }
 }

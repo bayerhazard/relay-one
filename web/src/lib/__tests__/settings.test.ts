@@ -30,7 +30,7 @@ describe("settings store", () => {
     expect(value.model).toBe("llama3.2");
   });
 
-  it("loads custom settings and persists to localStorage", () => {
+  it("loads custom settings and persists to localStorage (without api_key)", () => {
     const custom: AISettings = {
       url: "https://llm.aimighty.de/v1",
       api_key: "secret-key",
@@ -39,9 +39,11 @@ describe("settings store", () => {
     settings.load(custom);
     expect(get(settings)).toEqual(custom);
 
-    // Verify localStorage was written
-    const stored = localStorage.getItem(STORAGE_KEY);
-    expect(stored).toBe(JSON.stringify(custom));
+    // Verify localStorage was written WITHOUT api_key
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(stored.url).toBe("https://llm.aimighty.de/v1");
+    expect(stored.model).toBe("chat");
+    expect(stored.api_key).toBeUndefined();
   });
 
   it("resets to defaults and persists to localStorage", () => {
@@ -82,26 +84,28 @@ describe("settings.init()", () => {
 
     expect(result).toEqual(expected);
     expect(get(settings)).toEqual(expected);
-    // Should also persist to localStorage
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(expected);
+    // Should also persist to localStorage (without api_key)
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(stored.url).toBe(expected.url);
+    expect(stored.model).toBe(expected.model);
+    expect(stored.api_key).toBeUndefined();
   });
 
   it("falls back to localStorage when backend fails", async () => {
-    // Pre-populate localStorage
-    const localData: AISettings = {
+    // Pre-populate localStorage (without api_key, as per new security policy)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
       url: "https://local-llm.example.com/v1",
-      api_key: "local-key",
       model: "llama3",
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(localData));
+    }));
 
     // Backend fails
     fetchMock.mockRejectedValue(new Error("Backend unavailable"));
 
     const result = await settings.init();
 
-    expect(result).toEqual(localData);
-    expect(get(settings)).toEqual(localData);
+    expect(result.url).toBe("https://local-llm.example.com/v1");
+    expect(result.model).toBe("llama3");
+    expect(result.api_key).toBe("");
   });
 
 it("returns defaults when both backend and localStorage are unavailable", async () => {
@@ -117,6 +121,8 @@ it("returns defaults when both backend and localStorage are unavailable", async 
 
   it("returns defaults when backend returns null", async () => {
     fetchMock.mockResolvedValue(jsonResponse(null));
+    // Clear localStorage so we get true defaults (not the reset() fallback)
+    localStorage.clear();
 
     const result = await settings.init();
 
@@ -173,15 +179,13 @@ describe("settings.save()", () => {
       })
     );
 
-    // Verify localStorage was written
+    // Verify localStorage was written (without api_key)
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-    expect(stored).toEqual({
-      url: "https://llm.example.com/v1",
-      api_key: "sk-test",
-      model: "gpt-4",
-    });
+    expect(stored.url).toBe("https://llm.example.com/v1");
+    expect(stored.model).toBe("gpt-4");
+    expect(stored.api_key).toBeUndefined();
 
-    // Verify store was updated
+    // Verify store was updated (in-memory still has api_key)
     expect(get(settings)).toEqual({
       url: "https://llm.example.com/v1",
       api_key: "sk-test",
@@ -196,13 +200,11 @@ describe("settings.save()", () => {
       settings.save("https://llm.example.com/v1", "sk-test", "gpt-4")
     ).rejects.toThrow("IPC connection failed");
 
-    // Data should still be in localStorage
+    // Data should still be in localStorage (without api_key)
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-    expect(stored).toEqual({
-      url: "https://llm.example.com/v1",
-      api_key: "sk-test",
-      model: "gpt-4",
-    });
+    expect(stored.url).toBe("https://llm.example.com/v1");
+    expect(stored.model).toBe("gpt-4");
+    expect(stored.api_key).toBeUndefined();
 
     // Store should still be updated
     expect(get(settings)).toEqual({
@@ -222,50 +224,42 @@ describe("settings.syncToBackend()", () => {
   });
 
   it("syncs localStorage data to backend when different from store", async () => {
-    // Set up localStorage with different data
-    const localData: AISettings = {
+    // Set up localStorage with different data (no api_key per security policy)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
       url: "https://local-llm.com/v1",
-      api_key: "local-key",
       model: "local-model",
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(localData));
+    }));
     fetchMock.mockResolvedValue(jsonResponse(undefined));
 
     const synced = await settings.syncToBackend();
 
     expect(synced).toBe(true);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/settings",
-      expect.objectContaining({
-        body: JSON.stringify({
-          url: "https://local-llm.com/v1",
-          api_key: "local-key",
-          model: "local-model",
-        }),
-      })
-    );
-    // Store should be updated
-    expect(get(settings)).toEqual(localData);
+    // Store should be updated with api_key="" (not loaded from localStorage)
+    expect(get(settings).url).toBe("https://local-llm.com/v1");
+    expect(get(settings).model).toBe("local-model");
+    expect(get(settings).api_key).toBe("");
   });
 
   it("returns false when localStorage matches store", async () => {
-    // Store and localStorage are in sync (both have defaults after reset)
+    // Store has defaults (api_key="ollama"), localStorage has url+model only.
+    // syncToBackend compares url+model (ignores api_key since it's not persisted).
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         url: "https://llm.aimighty.de/v1",
-        api_key: "ollama",
         model: "llama3.2",
       })
     );
 
     const synced = await settings.syncToBackend();
 
+    // localStorage matches store on url+model → no sync needed
     expect(synced).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns false when localStorage is empty", async () => {
+    localStorage.clear();
     const synced = await settings.syncToBackend();
     expect(synced).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();

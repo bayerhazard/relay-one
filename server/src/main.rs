@@ -70,7 +70,7 @@ async fn main() {
     tracing::info!("Datenbank-Pfad: {:?}", db_path);
     let conn = rusqlite::Connection::open(&db_path).expect("DB öffnen fehlgeschlagen");
     conn.execute_batch(
-        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000; PRAGMA busy_timeout=5000;",
+        "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;",
     )
     .expect("DB-PRAGMA fehlgeschlagen");
     cache::db::init_db(&conn).expect("DB-Schema-Initialisierung fehlgeschlagen");

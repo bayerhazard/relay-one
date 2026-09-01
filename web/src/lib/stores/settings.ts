@@ -17,7 +17,11 @@ const DEFAULTS: AISettings = {
 
 function saveToLocalStorage(value: AISettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    // Never persist the API key in localStorage — it lives only in memory
+    // and on the server. (Security: localStorage is readable by any script
+    // on the same origin, including compromised iframes.)
+    const { api_key: _omit, ...safe } = value;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
   } catch (e) {
     console.warn("Failed to save settings to localStorage", e);
   }
@@ -32,10 +36,10 @@ function loadFromLocalStorage(): AISettings | null {
         parsed &&
         typeof parsed === "object" &&
         typeof parsed.url === "string" &&
-        typeof parsed.api_key === "string" &&
         typeof parsed.model === "string"
       ) {
-        return parsed as AISettings;
+        // api_key is intentionally not loaded from localStorage
+        return { url: parsed.url, api_key: "", model: parsed.model };
       }
     }
   } catch (e) {
@@ -111,16 +115,16 @@ function createSettingsStore() {
       const local = loadFromLocalStorage();
       if (!local) return false;
       const current = get(settings);
-      // Only sync if localStorage has different data than current store
+      // Only compare url+model — api_key is not persisted in localStorage
       if (
         local.url === current.url &&
-        local.api_key === current.api_key &&
         local.model === current.model
       ) {
         return false;
       }
       try {
-        await saveSettingsIpc(local.url, local.api_key, local.model);
+        // Use the store's api_key (in-memory) since localStorage doesn't have it
+        await saveSettingsIpc(local.url, current.api_key, local.model);
         set(local);
         return true;
       } catch (e) {

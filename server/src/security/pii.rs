@@ -4,11 +4,19 @@ use once_cell::sync::Lazy;
 pub fn mask_pii(text: &str) -> String {
     let mut result = text.to_string();
     result = EMAIL_RE.replace_all(&result, "[EMAIL_REDACTED]").into_owned();
+    // IBAN/BIC before phone: digit runs inside IBANs would otherwise be
+    // partially consumed by the phone regex.
+    result = IBAN_RE.replace_all(&result, "[IBAN_REDACTED]").into_owned();
+    result = BIC_RE.replace_all(&result, "[BIC_REDACTED]").into_owned();
     result = PHONE_RE
+        .replace_all(&result, "[PHONE_REDACTED]")
+        .into_owned();
+    result = GERMAN_PHONE_RE
         .replace_all(&result, "[PHONE_REDACTED]")
         .into_owned();
     result = CC_RE.replace_all(&result, "[CC_REDACTED]").into_owned();
     result = SSN_RE.replace_all(&result, "[SSN_REDACTED]").into_owned();
+    result = DATE_RE.replace_all(&result, "[DATE_REDACTED]").into_owned();
     result = IP_RE.replace_all(&result, "[IP_REDACTED]").into_owned();
     result
 }
@@ -18,6 +26,22 @@ static EMAIL_RE: Lazy<Regex> =
 
 static PHONE_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"((?:\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})").expect("statische Regex")
+});
+
+static GERMAN_PHONE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b0\d{2,5}[\s/-]?\d{3,8}\b").expect("statische Regex")
+});
+
+static IBAN_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b").expect("statische Regex")
+});
+
+static BIC_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b").expect("statische Regex")
+});
+
+static DATE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b\d{2}[/.\-]\d{2}[/.\-]\d{4}\b").expect("statische Regex")
 });
 
 static CC_RE: Lazy<Regex> = Lazy::new(|| {
@@ -224,5 +248,86 @@ mod tests {
         let text = "!@#$%^&*()_+-=[]{}|;':\",./<>?`~";
         let result = mask_pii(text);
         assert_eq!(result, text);
+    }
+
+    #[test]
+    fn test_iban_masking() {
+        let text = "Konto: DE89370400440532013000";
+        let result = mask_pii(text);
+        assert!(!result.contains("DE89370400440532013000"));
+        assert!(result.contains("[IBAN_REDACTED]"));
+    }
+
+    #[test]
+    fn test_iban_with_spaces() {
+        let text = "IBAN: DE89 3704 0044 0532 0130 00";
+        let result = mask_pii(text);
+        assert!(result.contains("[IBAN_REDACTED]"));
+    }
+
+    #[test]
+    fn test_bic_masking() {
+        let text = "Bank: COBADEFFXXX";
+        let result = mask_pii(text);
+        assert!(!result.contains("COBADEFFXXX"));
+        assert!(result.contains("[BIC_REDACTED]"));
+    }
+
+    #[test]
+    fn test_bic_8_char() {
+        let text = "SWIFT: DEUTDEFF";
+        let result = mask_pii(text);
+        assert!(result.contains("[BIC_REDACTED]"));
+    }
+
+    #[test]
+    fn test_german_phone_masking() {
+        let text = "Tel: 030 1234567";
+        let result = mask_pii(text);
+        assert!(!result.contains("030 1234567"));
+        assert!(result.contains("[PHONE_REDACTED]"));
+    }
+
+    #[test]
+    fn test_german_phone_mobile() {
+        let text = "Handy: 0171 2345678";
+        let result = mask_pii(text);
+        assert!(result.contains("[PHONE_REDACTED]"));
+    }
+
+    #[test]
+    fn test_german_phone_with_dash() {
+        let text = "Ruf: 089-123456";
+        let result = mask_pii(text);
+        assert!(result.contains("[PHONE_REDACTED]"));
+    }
+
+    #[test]
+    fn test_date_masking_dots() {
+        let text = "Fällig am 15.03.2026";
+        let result = mask_pii(text);
+        assert!(!result.contains("15.03.2026"));
+        assert!(result.contains("[DATE_REDACTED]"));
+    }
+
+    #[test]
+    fn test_date_masking_slashes() {
+        let text = "Datum: 25/12/2025";
+        let result = mask_pii(text);
+        assert!(result.contains("[DATE_REDACTED]"));
+    }
+
+    #[test]
+    fn test_no_false_positive_iban_on_words() {
+        let text = "The QUICK brown fox JUMPS over the lazy dog";
+        let result = mask_pii(text);
+        assert!(!result.contains("[IBAN_REDACTED]"));
+    }
+
+    #[test]
+    fn test_no_false_positive_bic_on_words() {
+        let text = "Hello World Test Case";
+        let result = mask_pii(text);
+        assert!(!result.contains("[BIC_REDACTED]"));
     }
 }

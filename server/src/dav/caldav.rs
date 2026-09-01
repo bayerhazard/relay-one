@@ -104,13 +104,13 @@ impl CalDavClient {
         let calendars = parse_multistatus(&text)?
             .into_iter()
             .filter(|r| r.is_calendar && !r.href.is_empty())
-            .map(|r| {
-                let url = resolve_href(&base_url, &r.href);
-                Calendar {
+            .filter_map(|r| {
+                let url = resolve_href(&base_url, &r.href)?;
+                Some(Calendar {
                     href: r.href,
                     display_name: r.display_name,
                     url,
-                }
+                })
             })
             .collect();
 
@@ -144,9 +144,9 @@ impl CalDavClient {
             return Err(format!("CalDAV-PROPFIND: unerwarteter Status {status}"));
         }
 
-        let urls = parse_hrefs(&text)?
+        let urls: Vec<String> = parse_hrefs(&text)?
             .into_iter()
-            .map(|u| resolve_href(calendar_url, &u))
+            .filter_map(|u| resolve_href(calendar_url, &u))
             .collect();
 
         Ok(urls)
@@ -279,7 +279,13 @@ impl CalDavClient {
             let (added_urls, deleted_uids) = parse_sync_response(&text)?;
             let mut added = Vec::new();
             for url in &added_urls {
-                let abs = resolve_href(&cal.url, url);
+                let abs = match resolve_href(&cal.url, url) {
+                    Some(a) => a,
+                    None => {
+                        tracing::warn!("CalDAV: href '{}' verworfen (fremder Origin)", url);
+                        continue;
+                    }
+                };
                 match self.fetch_event(&abs).await {
                     Ok(ics) => match ics::parse_event(&ics) {
                         Ok(mut ev) => {

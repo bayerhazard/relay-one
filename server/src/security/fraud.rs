@@ -111,7 +111,44 @@ fn detect_allcaps_subject(subject: &str) -> Option<String> {
     None
 }
 
-fn detect_display_mismatch(_body: &str) -> bool {
+fn detect_display_mismatch(body: &str) -> bool {
+    static LINK_TAG: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"<a\s+[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([^<]*)</a>"#).expect("statische Regex")
+    });
+    static DOMAIN_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\b[a-zA-Z0-9][a-zA-Z0-9\-]*(?:\.[a-zA-Z0-9][a-zA-Z0-9\-]*)*\.[a-zA-Z]{2,}\b").expect("statische Regex")
+    });
+
+    for caps in LINK_TAG.captures_iter(body) {
+        let url = caps.get(1).expect("capture group 1").as_str();
+        let text = caps.get(2).expect("capture group 2").as_str().trim().to_lowercase();
+
+        // Extract domain from URL
+        let url_domain = url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .and_then(|host| host.split(':').next())
+            .map(|d| d.to_lowercase());
+
+        if let Some(domain) = url_domain {
+            // Case 1: visible text contains a different domain
+            if let Some(text_domain) = DOMAIN_RE.find(&text) {
+                let td = text_domain.as_str().to_lowercase();
+                if td != domain && !domain.ends_with(&td) && !td.ends_with(&domain) {
+                    return true;
+                }
+            }
+            // Case 2: hidden link (display:none, visibility:hidden, 0x0 size)
+            let tag = caps.get(0).expect("full match").as_str().to_lowercase();
+            if tag.contains("display:none") || tag.contains("visibility:hidden")
+                || tag.contains("width:0") || tag.contains("height:0")
+                || tag.contains("font-size:0") || tag.contains("position:absolute;left:-9999")
+            {
+                return true;
+            }
+        }
+    }
     false
 }
 
@@ -335,8 +372,24 @@ mod tests {
 
     #[test]
     fn test_detect_display_mismatch_direct() {
-        // detect_display_mismatch always returns false (stub)
-        assert!(!super::detect_display_mismatch("anything"));
+        // No links → no mismatch
+        assert!(!super::detect_display_mismatch("No links here"));
         assert!(!super::detect_display_mismatch(""));
+        // Legitimate link: text matches domain
+        assert!(!super::detect_display_mismatch(
+            r#"<a href="https://google.com/search">Google</a>"#
+        ));
+        // Mismatch: text shows one domain, href is another
+        assert!(super::detect_display_mismatch(
+            r#"<a href="https://evil-clone.com/login">google.com</a>"#
+        ));
+        // Hidden link with display:none
+        assert!(super::detect_display_mismatch(
+            r#"<a href="http://evil.ml/hidden" style="display:none;"> </a>"#
+        ));
+        // Hidden link with position absolute off-screen
+        assert!(super::detect_display_mismatch(
+            r#"<a href="http://evil.com" style="position:absolute;left:-9999px;">x</a>"#
+        ));
     }
 }

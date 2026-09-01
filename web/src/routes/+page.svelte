@@ -1187,8 +1187,8 @@ let sentFolderName = $state<string | null>(null);
     const imgSrc = autoDownload ? "https: http: data: cid:" : "data: cid:";
     const cspMeta =
       `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; ` +
-      `img-src ${imgSrc}; style-src 'unsafe-inline'; font-src https: data:; ` +
-      `script-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">`;
+      `img-src ${imgSrc}; style-src 'unsafe-inline'; font-src data:; ` +
+      `script-src 'unsafe-inline'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">`;
 
     // Placeholder styling for blocked images
     const phBg = isDark ? "#142e47" : "#E8E8E8";
