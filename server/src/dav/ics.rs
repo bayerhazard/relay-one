@@ -51,6 +51,7 @@ pub struct IcsAttendee {
     pub name: Option<String>,
     /// NEEDS-ACTION / ACCEPTED / DECLINED / TENTATIVE
     pub part_stat: Option<String>,
+    #[serde(default)]
     pub rsvp: bool,
 }
 

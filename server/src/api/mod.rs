@@ -43,6 +43,10 @@ pub fn router() -> Router<AppState> {
             "/settings/move-to-trash",
             get(settings::get_move_to_trash).post(settings::set_move_to_trash),
         )
+        .route(
+            "/settings/removal-check",
+            get(settings::get_removal_check).post(settings::set_removal_check),
+        )
         // Accounts
         .route("/accounts", get(accounts::list_accounts).post(accounts::connect_account))
         .route("/accounts/delete", post(accounts::delete_account))

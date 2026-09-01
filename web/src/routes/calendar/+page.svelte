@@ -680,7 +680,7 @@
       const attendees = form.participants
         .map((e) => e.trim())
         .filter(Boolean)
-        .map((email) => ({ email }));
+        .map((email) => ({ email, rsvp: true }));
       if (editingId === null) {
         await createEvent({
           calendar_id: defaultCalId()!,

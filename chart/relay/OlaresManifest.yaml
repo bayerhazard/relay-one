@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.120
+  version: 26.9.121
   categories:
     - Utilities
 entrances:
@@ -24,9 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.120
+  versionName: 26.9.121
   upgradeDescription: |
-    v26.9.120: Dringlich-Kennzeichnung + Mobile-Views + CC/Bcc — (1) Dringliche Mails: neue rote Kennzeichnung (roter Balken + Unterlegung, wie bei Ungelesen) für Mails, die die KI als KRITISCH einstufte oder die manuell per Kontextmenü „Dringlich“ markiert wurden; der alte Prioritäts-Punkt wurde entfernt. (2) Markierungs-Stern in Gold. (3) Mobile Ansicht (Kontakte/Aufgaben/Kalender): Sidebar als Overlay mit Burger-Button; Detail-Pane im Kalender als Vollbild-Overlay. (4) CC/Bcc: Pillen-Eingabe wie bei „An“ (Kontakt-Vorschläge + Auto-Completion); CC wird jetzt im Entwurf gespeichert. (5) KI-Urgency: Dringlichkeit wird jetzt aus der Dringlichkeits-Zeile der KI-Zusammenfassung abgeleitet (statt Volltext-Suche) und der Betreff fließt in die Analyse ein. Built for Olares 1.12.6.
+    v26.9.121: IMAP-Connection-Leak-Fix + Calendar-Attendee-Fix — (1) IMAP: Socket-Timeout-Refactor verhindert Connection-Leaks bei toten Verbindungen (1&1 Limit mail_max_userip_connections=25); TcpStream mit 30s Read-Timeout statt spawn_blocking-Hang. (2) Calendar: IcsAttendee.rsvp mit serde(default) — Events mit Teilnehmern funktionieren jetzt ohne HTTP 422. (3) Removal-Check: API-Endpoint zum Aktivieren/Deaktivieren. Built for Olares 1.12.6.
   fullDescription: |
     - **AI Email Generation** – quickly draft precise emails and replies in your individual tone. It learns automatically to adapt generated email texts for different recipient groups (work, private) and even for individual recipients.
     - **Voice-to-Mail** – voice input that automatically becomes a finished email. It recognizes recipients and subject lines to generate complete templates.

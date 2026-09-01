@@ -106,6 +106,23 @@ pub async fn set_move_to_trash(
     }))
 }
 
+/// `GET /api/v1/settings/removal-check`
+pub async fn get_removal_check(State(state): State<AppState>) -> ApiResult<bool> {
+    ok(with_db(&state, |conn| {
+        cache::settings::get_removal_check_enabled(conn).map_err(|e| e.to_string())
+    }))
+}
+
+/// `POST /api/v1/settings/removal-check`
+pub async fn set_removal_check(
+    State(state): State<AppState>,
+    Json(enabled): Json<bool>,
+) -> ApiResult<()> {
+    ok(with_db(&state, |conn| {
+        cache::settings::set_setting(conn, cache::settings::REMOVAL_CHECK_KEY, if enabled { "true" } else { "false" }).map_err(|e| e.to_string())
+    }))
+}
+
 // ─── CardDAV ─────────────────────────────────────────────────────
 
 /// `GET /api/v1/carddav/settings` — stored CardDAV connection settings.

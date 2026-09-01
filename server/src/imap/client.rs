@@ -5,9 +5,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use imap::types::Flag;
-use imap::ClientBuilder;
 use imap::Connection;
-use imap::ConnectionMode;
 
 const IMAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -119,22 +117,21 @@ impl ImapClient {
 
         let join_handle = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             tracing::info!("IMAP: Verbinde zu {}:{} (SSL: {}, insecure: {}) ...", host, port, use_ssl, insecure);
-            let client = if use_ssl {
-                let mut builder = ClientBuilder::new(&host, port)
-                    .mode(ConnectionMode::Tls);
-                if insecure {
-                    tracing::warn!("IMAP: Zertifikatsprüfung übersprungen für {}", host);
-                    builder = builder.danger_skip_tls_verify(true);
-                }
-                builder
-                    .connect()
-                    .map_err(|e| AppError::imap(format!("IMAP SSL connect fehlgeschlagen: {}", e), "ssl_connect"))?
+            let tcp = std::net::TcpStream::connect((host.as_str(), port))
+                .map_err(|e| AppError::imap(format!("IMAP TCP connect fehlgeschlagen: {}", e), "tcp_connect"))?;
+            tcp.set_read_timeout(Some(Duration::from_secs(30)))
+                .map_err(|e| AppError::imap(format!("IMAP set_read_timeout fehlgeschlagen: {}", e), "set_read_timeout"))?;
+            let stream: Connection = if use_ssl {
+                let connector = build_rustls_connector(insecure)?;
+                let tls = connector.connect(&host, tcp)
+                    .map_err(|e| AppError::imap(format!("IMAP TLS Handshake fehlgeschlagen: {}", e), "tls_handshake"))?;
+                Box::new(tls)
             } else {
-                ClientBuilder::new(&host, port)
-                    .mode(ConnectionMode::Plaintext)
-                    .connect()
-                    .map_err(|e| AppError::imap(format!("IMAP connect fehlgeschlagen: {}", e), "plain_connect"))?
+                Box::new(tcp)
             };
+            let mut client = imap::Client::new(stream);
+            client.read_greeting()
+                .map_err(|e| AppError::imap(format!("IMAP Greeting fehlgeschlagen: {}", e), "greeting"))?;
 
             tracing::info!("IMAP: Login als {} ...", username);
             let session = client
@@ -1074,6 +1071,66 @@ async fn logout_session(mut session: imap::Session<Connection>) {
         .await
     })
     .await;
+}
+
+fn build_rustls_connector(insecure: bool) -> Result<rustls_connector::RustlsConnector, AppError> {
+    use rustls_connector::rustls;
+    use rustls_connector::rustls_native_certs;
+    let mut store = rustls::RootCertStore::empty();
+    for cert in rustls_native_certs::load_native_certs().unwrap_or_default() {
+        let _ = store.add(cert);
+    }
+    let mut config = rustls::ClientConfig::builder()
+        .with_root_certificates(store)
+        .with_no_client_auth();
+    if insecure {
+        tracing::warn!("IMAP: Zertifikatsprüfung übersprungen");
+        config.dangerous().set_certificate_verifier(std::sync::Arc::new(NoCertVerification));
+    }
+    Ok(rustls_connector::RustlsConnector::from(config))
+}
+
+#[derive(Debug)]
+struct NoCertVerification;
+
+impl rustls_connector::rustls::client::danger::ServerCertVerifier for NoCertVerification {
+    fn supported_verify_schemes(&self) -> Vec<rustls_connector::rustls::SignatureScheme> {
+        vec![
+            rustls_connector::rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls_connector::rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls_connector::rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls_connector::rustls::SignatureScheme::RSA_PSS_SHA256,
+        ]
+    }
+
+    fn verify_server_cert(
+        &self,
+        _: &rustls_connector::rustls::pki_types::CertificateDer<'_>,
+        _: &[rustls_connector::rustls::pki_types::CertificateDer<'_>],
+        _: &rustls_connector::rustls::pki_types::ServerName<'_>,
+        _: &[u8],
+        _: rustls_connector::rustls::pki_types::UnixTime,
+    ) -> std::result::Result<rustls_connector::rustls::client::danger::ServerCertVerified, rustls_connector::rustls::Error> {
+        Ok(rustls_connector::rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls_connector::rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls_connector::rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls_connector::rustls::client::danger::HandshakeSignatureValid, rustls_connector::rustls::Error> {
+        Ok(rustls_connector::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls_connector::rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls_connector::rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls_connector::rustls::client::danger::HandshakeSignatureValid, rustls_connector::rustls::Error> {
+        Ok(rustls_connector::rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
 }
 
 #[cfg(test)]
