@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use axum::{Router, extract::DefaultBodyLimit};
 use tokio::sync::mpsc;
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use relay_server::api;
@@ -50,6 +51,19 @@ async fn main() {
 
     // Encryption key (file-based, 0600) — protects passwords at rest.
     crypto::init_key(&data_dir).expect("Encryption-Key-Initialisierung fehlgeschlagen");
+
+    // SEC-01: Warn (or refuse to start) when the API key is not configured.
+    let relay_key = std::env::var("RELAY_API_KEY").unwrap_or_default();
+    if relay_key.is_empty() {
+        if std::env::var("RELAY_REQUIRE_KEY").unwrap_or_default() == "1" {
+            panic!("RELAY_REQUIRE_KEY=1 ist gesetzt, aber RELAY_API_KEY fehlt — Server startet nicht.");
+        }
+        tracing::warn!(
+            "RELAY_API_KEY ist nicht gesetzt — die API ist für alle cluster-internen \
+             Aufrufer ohne Key-Schutz erreichbar. Setze RELAY_API_KEY (K8s Secret) \
+             oder RELAY_REQUIRE_KEY=1, um den Start ohne Key zu verbieten."
+        );
+    }
 
     // SQLite cache/archive DB (WAL).
     let db_path = data_dir.join("index.db");
@@ -97,12 +111,13 @@ async fn main() {
     });
 
     // Build the axum app: API under /api/v1.
-    // DefaultBodyLimit: axum caps JSON bodies at 2 MB by default — base64
-    // attachment uploads from the compose window exceed that quickly and the
-    // send would fail with 413 (observed: attachments > ~1.5 MB never sent).
+    // SEC-15: Global body limit is 1 MB. Routes that accept large payloads
+    // (send, import) override with 64 MB via route_layer in api/mod.rs.
+    // SEC-16: Max 50 concurrent requests (prevents resource exhaustion).
     let app = Router::new()
         .nest("/api/v1", api::router())
-        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .layer(ConcurrencyLimitLayer::new(50))
         .layer(TraceLayer::new_for_http())
         .with_state((*state).clone());
 

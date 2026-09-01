@@ -1115,6 +1115,20 @@
               <span>{ev.organizer}</span>
             </div>
           {/if}
+          {#if ev.attendees?.length}
+            <div class="cal-detail-row">
+              <span class="cal-detail-ico" aria-hidden>👥</span>
+              <div class="cal-attendees">
+                {#each ev.attendees as a (a.email)}
+                  {@const ps = a.part_stat?.toLowerCase() ?? 'needsaction'}
+                  <div class="cal-attendee cal-attendee-{ps}">
+                    <span class="cal-attendee-name">{a.name ?? a.email}</span>
+                    <span class="cal-attendee-status">{$t(`calendar.rsvp.${ps === 'needsaction' ? 'needsAction' : ps}`)}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         {#if ev.description}
@@ -1762,4 +1776,12 @@
   .cal-detail-desc { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word; }
   .cal-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
   .cal-detail-empty { padding: 40px 24px; text-align: center; color: var(--color-text-secondary); font-size: var(--fs-sm); }
+  .cal-attendees { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .cal-attendee { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--fs-sm); }
+  .cal-attendee-name { color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-attendee-status { font-size: var(--fs-xs); flex-shrink: 0; padding: 1px 8px; border-radius: 10px; }
+  .cal-attendee-needsaction .cal-attendee-status { color: var(--color-text-secondary); background: var(--color-surface); }
+  .cal-attendee-accepted .cal-attendee-status { color: #16a34a; background: #16a34a18; }
+  .cal-attendee-declined .cal-attendee-status { color: #dc2626; background: #dc262618; }
+  .cal-attendee-tentative .cal-attendee-status { color: #ca8a04; background: #ca8a0418; }
 </style>

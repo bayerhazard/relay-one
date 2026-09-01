@@ -127,18 +127,21 @@ pub fn encrypt(plaintext: &str) -> Result<String, String> {
 pub fn decrypt(encrypted: &str) -> Result<String, String> {
     let key = get_key()?;
 
-    // Plaintext passthrough for migration
+    // Plaintext passthrough for migration (SEC-08: log at debug level)
     let encoded = match encrypted.strip_prefix(ENCRYPTED_PREFIX) {
         Some(s) => s,
-        None => return Ok(encrypted.to_string()),
+        None => {
+            tracing::debug!("crypto::decrypt: Plaintext-Wert (Migration) — Wert wird nicht verschlüsselt gespeichert");
+            return Ok(encrypted.to_string());
+        }
     };
 
     let combined = BASE64
         .decode(encoded)
-        .map_err(|e| format!("Failed to decode base64: {e}"))?;
+        .map_err(|e| format!("Decryption failed: invalid base64 ({e}) — möglicher Key-Mismatch oder korrupte Daten"))?;
 
     if combined.len() < 12 {
-        return Err("Encrypted data too short".into());
+        return Err("Decryption failed: Daten zu kurz — möglicher Key-Mismatch oder korrupte Daten".into());
     }
 
     let (nonce_bytes, ciphertext) = combined.split_at(12);
@@ -149,7 +152,7 @@ pub fn decrypt(encrypted: &str) -> Result<String, String> {
 
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| format!("Decryption failed: {e}"))?;
+        .map_err(|_| "Decryption failed (Key-Mismatch oder korrupte Daten) — der Encryption-Key wurde möglicherweise ersetzt".to_string())?;
 
     String::from_utf8(plaintext).map_err(|e| format!("Decrypted data is not valid UTF-8: {e}"))
 }

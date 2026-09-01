@@ -22,6 +22,7 @@ pub mod send;
 pub mod settings;
 pub mod todos;
 
+use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
@@ -31,8 +32,20 @@ use serde::Serialize;
 use crate::AppState;
 
 /// Assemble the full API router. `api_state` is cloned into the router.
+///
+/// SEC-15: Large-payload routes (send, import, photo) get a 64 MB body limit
+/// via `route_layer`. All other routes inherit the 1 MB global limit from
+/// `main.rs`.
 pub fn router() -> Router<AppState> {
     Router::new()
+        // ── Large-payload routes (64 MB) ──────────────────────
+        .route("/send", post(send::send_message))
+        .route("/import/mbox", post(import::import_mbox))
+        .route("/import/mbox-dir", post(import::import_mbox_dir))
+        .route("/import/attachments-backfill", post(import::attachments_backfill))
+        .route("/profile/photo", get(profile::get_own_photo).post(profile::save_own_photo))
+        .route_layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        // ── Standard routes (1 MB from main.rs) ───────────────
         // Health / meta
         .route("/health", get(health::health))
         .route("/info", get(health::info))
@@ -62,7 +75,7 @@ pub fn router() -> Router<AppState> {
         .route("/messages/reparse", post(messages::reparse_eml_bodies))
         .route("/messages/raw", get(messages::fetch_raw_message))
         .route("/messages/attachments", get(messages::fetch_attachments))
-.route("/messages/attachment", get(messages::fetch_attachment_content))
+        .route("/messages/attachment", get(messages::fetch_attachment_content))
         .route("/messages/read", post(messages::mark_as_read))
         .route("/messages/unread", post(messages::mark_as_unseen))
         .route("/messages/read-batch", post(messages::mark_batch_as_read))
@@ -72,8 +85,6 @@ pub fn router() -> Router<AppState> {
         .route("/messages/move-cross-account", post(messages::move_cross_account))
         .route("/messages/delete", post(messages::delete_message))
         .route("/messages/move", post(messages::move_message))
-        // Send
-        .route("/send", post(send::send_message))
         // Drafts (local)
         .route("/draft/save", post(send::save_draft))
         .route("/draft/discard", post(send::discard_draft))
@@ -108,13 +119,10 @@ pub fn router() -> Router<AppState> {
         .route("/push/unsubscribe", post(push::unsubscribe))
         // Delete queue (verify pipeline review)
         .route("/archive/delete-queue", get(delete_queue::list_delete_queue))
-.route("/archive/queue-retry", post(delete_queue::retry_delete_queue))
-.route("/archive/queue-remove", post(delete_queue::remove_delete_queue))
+        .route("/archive/queue-retry", post(delete_queue::retry_delete_queue))
+        .route("/archive/queue-remove", post(delete_queue::remove_delete_queue))
         // Export (EML/MBox)
         .route("/export", get(export::export_archive))
-        .route("/import/mbox", post(import::import_mbox))
-        .route("/import/mbox-dir", post(import::import_mbox_dir))
-        .route("/import/attachments-backfill", post(import::attachments_backfill))
         // Attachment maintenance (GC / repair / cache stats)
         .route("/attachments/gc", post(attachments::gc_attachments))
         .route("/attachments/repair", post(attachments::repair_attachments))
@@ -189,12 +197,27 @@ pub fn router() -> Router<AppState> {
 /// Host must also end with that suffix — otherwise the key is required even
 /// for a public Host (an internal caller cannot bypass by faking an arbitrary
 /// public Host header).
+///
+/// SEC-01: Emits a one-time warning when `RELAY_API_KEY` is unset.
+/// SEC-02: IPv6 bracket notation (`[::1]:8080`) is treated as internal.
+/// SEC-03: Key comparison uses constant-time XOR-fold.
+static MISSING_KEY_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 async fn relay_key_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let configured = std::env::var("RELAY_API_KEY").unwrap_or_default();
     if configured.is_empty() {
+        if MISSING_KEY_WARNED
+            .compare_exchange(false, true, std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed)
+            .is_ok()
+        {
+            tracing::warn!(
+                "RELAY_API_KEY ist nicht gesetzt — die API ist ohne Key-Schutz erreichbar. \
+                 Setze RELAY_API_KEY (K8s Secret) oder RELAY_REQUIRE_KEY=1 zum Schutz."
+            );
+        }
         return next.run(req).await;
     }
 
@@ -204,13 +227,14 @@ async fn relay_key_guard(
     }
 
     // Browser path: public Host header (entrance domain). Internal callers
-    // present an IP or a bare service name as Host.
+    // present an IP, an IPv6 address, or a bare service name as Host.
     let host = req
         .headers()
         .get(axum::http::header::HOST)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let looks_internal = host.is_empty()
+        || host.starts_with('[')
         || host.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '-')
         || !host.contains('.');
 
@@ -230,7 +254,7 @@ async fn relay_key_guard(
         .headers()
         .get("x-relay-key")
         .and_then(|v| v.to_str().ok())
-        .map(|v| v == configured)
+        .map(|v| constant_time_eq(v.as_bytes(), configured.as_bytes()))
         .unwrap_or(false);
 
     if has_key {
@@ -240,12 +264,25 @@ async fn relay_key_guard(
     }
 }
 
+/// Constant-time byte comparison (prevents timing side-channel on the key).
+/// Length mismatch is checked first (acceptable: key length is not secret).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn reject_key() -> axum::response::Response {
     let body = axum::Json(serde_json::json!({ "error": "X-Relay-Key fehlt oder ungültig" }));
     (StatusCode::UNAUTHORIZED, body).into_response()
 }
 
 /// Shared error type: turns a `String` error into `500 {"error": "…"}`.
+///
+/// SEC-17: Full error detail is logged server-side. The HTTP response includes
+/// the detail only when `RELAY_VERBOSE_ERRORS=1` (default). Set to `0` in
+/// production to return a generic message + `X-Request-Id` for correlation.
 #[derive(Debug)]
 pub struct ApiError(pub String);
 
@@ -257,8 +294,21 @@ impl From<String> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(serde_json::json!({ "error": self.0 }));
-        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+        tracing::error!(error = %self.0, "API-Error");
+        let verbose = std::env::var("RELAY_VERBOSE_ERRORS")
+            .unwrap_or_else(|_| "1".into())
+            != "0";
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let body = if verbose {
+            serde_json::json!({ "error": self.0, "request_id": request_id })
+        } else {
+            serde_json::json!({ "error": "Interner Fehler — siehe Server-Logs", "request_id": request_id })
+        };
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(body),
+        )
+            .into_response()
     }
 }
 
@@ -359,5 +409,38 @@ mod tests {
         std::env::remove_var("RELAY_API_KEY");
         std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
         assert_eq!(status("/events", "10.0.0.1:8080", None), 200);
+    }
+
+    // SEC-02: IPv6 Host headers must be treated as internal (require key).
+    #[test]
+    fn ipv6_loopback_host_requires_key() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/events", "[::1]:8080", None), 401);
+        assert_eq!(status("/events", "[::1]:8080", Some("secret")), 200);
+    }
+
+    #[test]
+    fn ipv6_public_address_host_requires_key() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("RELAY_API_KEY", "secret");
+        std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
+        assert_eq!(status("/info", "[2001:db8::1]:3000", None), 401);
+        assert_eq!(status("/info", "[2001:db8::1]:3000", Some("secret")), 200);
+    }
+
+    // SEC-03: constant_time_eq unit tests.
+    #[test]
+    fn constant_time_eq_matches() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn constant_time_eq_mismatches() {
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(!constant_time_eq(b"", b"x"));
     }
 }

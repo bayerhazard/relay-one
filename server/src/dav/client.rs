@@ -112,6 +112,9 @@ pub fn parse_multistatus(xml: &str) -> Result<Vec<DavResponse>, String> {
                     }
                 }
             }
+            Ok(Event::DocType(_)) => {
+                return Err("DAV-XML: DTD/DOCTYPE wird nicht unterstützt (XXE-Schutz)".into());
+            }
             Ok(Event::Eof) => break,
             Err(e) => return Err(format!("DAV-XML-Parsing fehlgeschlagen: {}", e)),
             _ => {}

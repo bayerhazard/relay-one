@@ -166,6 +166,12 @@ describe("i18n t() key reference scan", () => {
       "assistant.module.contacts",
       "assistant.module.tasks",
       "assistant.module.settings",
+      // Referenziert über das dynamische $t(`calendar.rsvp.${ps}`) in
+      // calendar/+page.svelte (kein statisches t()-Literal).
+      "calendar.rsvp.needsAction",
+      "calendar.rsvp.accepted",
+      "calendar.rsvp.declined",
+      "calendar.rsvp.tentative",
     ]);
     const realUnused = unused.filter((k) => !allowedUnused.has(k));
     expect(realUnused).toEqual([]);
