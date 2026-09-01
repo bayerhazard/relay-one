@@ -17,3 +17,10 @@ nodeSelector:
 storage:
   mountPath: /data/Relay
   size: 100Gi
+
+# Trusted host suffix for the relay_key_guard: browser traffic arriving with
+# a Host header ending in this suffix bypasses the X-Relay-Key requirement
+# (protected by the entrance authLevel instead). Leave empty to require the
+# key for ALL requests (fail-closed). Set to your entrance domain, e.g.
+# "olares.de" for Olares or "example.com" for other deployments.
+trustedHostSuffix: ""

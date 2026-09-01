@@ -238,15 +238,26 @@ async fn relay_key_guard(
         || !host.contains('.');
 
     if !looks_internal {
-        // A public Host is only trusted when it matches the configured
-        // entrance domain suffix. Without the env var we keep the legacy
-        // behavior for backward compatibility.
-        if let Ok(suffix) = std::env::var("RELAY_TRUSTED_HOST_SUFFIX") {
-            if !suffix.is_empty() && !host.ends_with(suffix.as_str()) {
-                return reject_key();
+        // A public Host is only trusted (key-free) when it matches the
+        // configured entrance domain suffix. Without the env var we FAIL
+        // CLOSED: the key is required even for public-looking Hosts. This
+        // prevents a cluster-internal attacker from bypassing the key by
+        // setting an arbitrary Host header (CWE-290).
+        match std::env::var("RELAY_TRUSTED_HOST_SUFFIX") {
+            Ok(suffix) if !suffix.is_empty() => {
+                if host.ends_with(suffix.as_str()) {
+                    // Trusted entrance domain → browser traffic, auth handled
+                    // by the entrance (authLevel). Pass through without key.
+                    return next.run(req).await;
+                }
+                // Suffix mismatch → spoofed or wrong domain → require key.
+            }
+            _ => {
+                // No trusted suffix configured → cannot trust any public Host
+                // → require key (fail-closed).
             }
         }
-        return next.run(req).await;
+        // Fall through to key check below.
     }
 
     let has_key = req
@@ -379,11 +390,13 @@ mod tests {
     }
 
     #[test]
-    fn public_host_passes_legacy_without_suffix() {
+    fn public_host_requires_key_without_suffix_fail_closed() {
         let _g = ENV_LOCK.lock().unwrap();
         std::env::set_var("RELAY_API_KEY", "secret");
         std::env::remove_var("RELAY_TRUSTED_HOST_SUFFIX");
-        assert_eq!(status("/info", "mail.example.com", None), 200);
+        // Without a trusted suffix, even a public-looking Host must present the key.
+        assert_eq!(status("/info", "mail.example.com", None), 401);
+        assert_eq!(status("/info", "mail.example.com", Some("secret")), 200);
     }
 
     #[test]

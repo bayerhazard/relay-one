@@ -45,6 +45,10 @@ spec:
               value: "{{ .Values.storage.mountPath }}"
             - name: RELAY_WEB_DIR
               value: "/opt/relay/web"
+            {{- if .Values.trustedHostSuffix }}
+            - name: RELAY_TRUSTED_HOST_SUFFIX
+              value: {{ .Values.trustedHostSuffix | quote }}
+            {{- end }}
           ports:
             - containerPort: 3000
               name: http
