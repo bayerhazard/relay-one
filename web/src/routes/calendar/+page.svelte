@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
-    getCalendars, listEvents, createEvent, updateEvent, deleteEvent,
+    getCalendars, listEvents, createEvent, updateEvent, deleteEvent, inviteEvent,
     getCalDavSettings, syncCalDav, importEvents, getEventIcs,
     listInvitations, acceptInvitation, declineInvitation, listAccounts,
     getConflicts, getConflictAlternatives, extractTime, rsvpDraft,
@@ -671,6 +671,10 @@
     return c ? c.id : calendars[0]?.id ?? null;
   }
 
+  let showInviteDialog = $state(false);
+  let pendingInviteEventId: number | null = $state(null);
+  let pendingInviteAttendees: { email: string; name?: string }[] = $state([]);
+
   async function saveEvent() {
     if (editingId === null && defaultCalId() === null) return;
     error = null;
@@ -681,8 +685,9 @@
         .map((e) => e.trim())
         .filter(Boolean)
         .map((email) => ({ email, rsvp: true }));
+      let eventId: number | null = null;
       if (editingId === null) {
-        await createEvent({
+        const created = await createEvent({
           calendar_id: defaultCalId()!,
           summary: form.summary,
           start,
@@ -693,6 +698,7 @@
           reminder_minutes: form.reminder_minutes,
           attendees,
         });
+        eventId = created.id;
       } else {
         await updateEvent(editingId, {
           summary: form.summary,
@@ -704,13 +710,41 @@
           reminder_minutes: form.reminder_minutes,
           attendees,
         });
+        eventId = editingId;
       }
       editorOpen = false;
+      if (attendees.length > 0 && eventId != null) {
+        pendingInviteEventId = eventId;
+        pendingInviteAttendees = attendees;
+        showInviteDialog = true;
+      }
       await loadEvents();
       await loadUpcoming();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  async function confirmSendInvites() {
+    showInviteDialog = false;
+    const eventId = pendingInviteEventId;
+    const attendees = pendingInviteAttendees;
+    pendingInviteEventId = null;
+    pendingInviteAttendees = [];
+    if (eventId == null || attendees.length === 0) return;
+    try {
+      const accts = await listAccounts();
+      const acctId = accts.length > 0 ? accts[0].id : 1;
+      await inviteEvent(eventId, acctId, attendees);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  function skipInvites() {
+    showInviteDialog = false;
+    pendingInviteEventId = null;
+    pendingInviteAttendees = [];
   }
 
   // Open the delete-confirmation dialog for an event (button or Backspace/Delete).
@@ -1299,6 +1333,19 @@
       danger={true}
       onconfirm={confirmDeleteEvent}
       oncancel={cancelDeleteEvent}
+    />
+  {/if}
+
+  {#if showInviteDialog}
+    <ConfirmationDialog
+      open={showInviteDialog}
+      title={$t("calendar.sendInvites")}
+      message={$t("calendar.inviteMessage", { count: pendingInviteAttendees.length, names: pendingInviteAttendees.map(a => a.email).join(", ") })}
+      confirmLabel={$t("calendar.sendInvites")}
+      cancelLabel={$t("common.skip")}
+      danger={false}
+      onconfirm={confirmSendInvites}
+      oncancel={skipInvites}
     />
   {/if}
 

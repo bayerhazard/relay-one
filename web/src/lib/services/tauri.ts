@@ -901,6 +901,10 @@ export async function deleteEvent(id: number): Promise<void> {
   return del(`/calendars/events/${id}`, "Der Termin konnte nicht gelöscht werden.");
 }
 
+export async function inviteEvent(eventId: number, accountId: number, attendees: { email: string; name?: string }[]): Promise<void> {
+  return post(`/calendars/events/${eventId}/invite`, { account_id: accountId, attendees }, "Die Einladungen konnten nicht gesendet werden.");
+}
+
 export async function importEvents(calendarId: number, ics: string): Promise<{ imported: number }> {
   return post<{ imported: number }>(
     "/calendars/events/import",
