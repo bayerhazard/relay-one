@@ -2358,7 +2358,17 @@ let sentFolderName = $state<string | null>(null);
 
   // Eine Follow-up-Aktion ausfuehren (Aufgabe anlegen, Termin eintragen oder
   // Mail-Entwurf oeffnen). Die Aktion wird danach aus dem Footer entfernt.
+  let confirmAction: FollowupAction | null = $state(null);
+
   async function handleFollowupAction(a: FollowupAction) {
+    // Show confirmation dialog before executing
+    confirmAction = a;
+  }
+
+  async function confirmFollowupAction() {
+    const a = confirmAction;
+    confirmAction = null;
+    if (!a) return;
     try {
       if (a.kind === "task" && a.task) {
         await createTodo({ summary: a.task.summary, due: a.task.due ?? undefined });
@@ -2366,17 +2376,17 @@ let sentFolderName = $state<string | null>(null);
         followups = followups.filter((x) => x.id !== a.id);
         return;
       }
-      if (a.kind === "event" && a.event) {
+      if ((a.kind === "event" || a.kind === "calendar_confirm" || a.kind === "calendar_counter") && a.event) {
         await createFollowupEvent(a.event.summary, a.event.start, a.event.end ?? undefined, a.event.attendees);
         if (followupsForUid != null) markFollowupDone(followupsForUid, a);
+        followups = followups.filter((x) => x.id !== a.id);
         return;
       }
-      if (a.kind === "email" && a.email) {
+      if ((a.kind === "email" || a.kind === "reply_draft") && a.email) {
         let subject = a.email.subject;
         let body = a.email.body;
-        // Gegenvorschlag: gewaehlten Alternativ-Slot als konkrete Mail generieren.
         if (a.email.purpose === "counter" && pickedAlternative) {
-          const ev = followups.find((x) => x.kind === "event" && x.event);
+          const ev = followups.find((x) => (x.kind === "event" || x.kind === "calendar_confirm" || x.kind === "calendar_counter") && x.event);
           if (ev?.event) {
             const res = await generateCounterEmail({
               from: a.email.to,
@@ -2397,6 +2407,10 @@ let sentFolderName = $state<string | null>(null);
     } catch (e) {
       followupsError = localizeError(String(e));
     }
+  }
+
+  function cancelFollowupAction() {
+    confirmAction = null;
   }
 
   // Alternativ-Slot (bei Konflikt) waehlen — wird gemerkt und von der
@@ -2914,19 +2928,21 @@ let sentFolderName = $state<string | null>(null);
                 <div class="followups-footer-row">
                   <div class="followups-footer-label">
                     <span>{a.label}</span>
-                    {#if a.kind === "event" && a.event?.availability === "busy" && a.event.conflicts.length > 0}
+                    {#if (a.kind === "event" || a.kind === "calendar_counter") && a.event?.availability === "busy" && a.event.conflicts.length > 0}
                       <span class="followups-footer-conflict">Belegt: {a.event.conflicts.join(", ")}</span>
                     {/if}
                   </div>
                   {#if a.kind === "task"}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Als Aufgabe</button>
-                  {:else if a.kind === "event" && a.event?.availability === "free"}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Termin eintragen</button>
-                  {:else if a.kind === "email"}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Entwurf öffnen</button>
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Aufgabe anlegen</button>
+                  {:else if (a.kind === "calendar_confirm" || (a.kind === "event" && a.event?.availability === "free"))}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Termin bestätigen</button>
+                  {:else if (a.kind === "calendar_counter" || (a.kind === "event" && a.event?.availability === "busy"))}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Alternative vorschlagen</button>
+                  {:else if a.kind === "reply_draft" || a.kind === "email"}
+                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Antwort erstellen</button>
                   {/if}
                 </div>
-                {#if a.kind === "event" && a.event?.availability === "busy" && a.event.alternatives.length > 0}
+                {#if (a.kind === "event" || a.kind === "calendar_counter") && a.event?.availability === "busy" && a.event.alternatives.length > 0}
                   <div class="followups-footer-alts">
                     {#each a.event.alternatives as slot (slot.start)}
                       <button
@@ -2951,6 +2967,19 @@ let sentFolderName = $state<string | null>(null);
         </div>
       {/if}
     </section>
+
+    {#if confirmAction}
+      <ConfirmationDialog
+        open={true}
+        title={$t("followups.confirmTitle")}
+        message={confirmAction.label}
+        confirmLabel={$t("followups.confirmBtn")}
+        cancelLabel={$t("common.cancel")}
+        danger={false}
+        onconfirm={confirmFollowupAction}
+        oncancel={cancelFollowupAction}
+      />
+    {/if}
   </div>
 {/if}
 

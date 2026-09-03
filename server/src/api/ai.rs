@@ -1113,135 +1113,157 @@ pub async fn ai_followups(
     State(state): State<AppState>,
     Json(req): Json<FollowupsRequest>,
 ) -> ApiResult<Vec<FollowupAction>> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let (system, user) = prompts::build_followups_prompt(&req.subject, &req.from, &req.body, &now);
+    let now = chrono::Utc::now();
+    let now_str = now.to_rfc3339();
+
+    // Load calendar context: busy slots for next 14 days.
+    let cal_start = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let cal_end = (now + chrono::Duration::days(14)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let calendar_context = with_db(&state, |conn| {
+        let events = crate::cache::cal::list_events(conn, None, Some(&cal_start), Some(&cal_end))
+            .map_err(|e| e.to_string())?;
+        if events.is_empty() {
+            Ok("(keine Termine in den naechsten 14 Tagen)".to_string())
+        } else {
+            Ok(events.iter()
+                .map(|e| {
+                    let s = e.start_at.clone();
+                    let title = e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into());
+                    format!("- {s}: {title}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+    }).unwrap_or_else(|_| "(Kalender nicht verfuegbar)".to_string());
+
+    let (system, user) = prompts::build_followups_prompt(
+        &req.subject, &req.from, &req.body, &now_str, &calendar_context,
+    );
     let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
+    let raw = client.complete_user(&system, &user, Some(0.4), Some(2000)).await?;
     let obj = extract_json_object(&raw);
     let mut actions: Vec<FollowupAction> = Vec::new();
     let mut counter = 0u32;
 
-    // Meeting-Anfrage → Event-Aktion + E-Mail-Aktion.
-    if let Some(meeting) = obj.get("meeting").and_then(|m| m.as_object()) {
-        let title = meeting.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let start = meeting.get("start").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let end = meeting.get("end").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let attendees: Vec<String> = meeting
+    // [A] KALENDER
+    if let Some(cal) = obj.get("calendar").and_then(|c| c.as_object()) {
+        let title = cal.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let start = cal.get("start").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let end = cal.get("end").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let action = cal.get("action").and_then(|v| v.as_str()).unwrap_or("confirm").to_string();
+        let conflict = cal.get("conflict").and_then(|v| v.as_str()).map(String::from);
+        let attendees: Vec<String> = cal
             .get("attendees")
             .and_then(|v| v.as_array())
             .map(|arr| arr.iter().filter_map(|a| a.as_str().map(String::from)).collect())
             .unwrap_or_default();
-        let (start_ok, end_ok) = (
-            chrono::DateTime::parse_from_rfc3339(&start).is_ok(),
-            chrono::DateTime::parse_from_rfc3339(&end).is_ok(),
-        );
-        if !title.is_empty() && start_ok && end_ok {
-            // Verfuegbarkeit ueber alle Kalender pruefen.
+
+        if !title.is_empty() && !start.is_empty() {
+            // Resolve relative dates: try RFC3339 first, fallback to naive parse.
+            let (resolved_start, resolved_end) = resolve_dates(&start, &end, &now);
+
+            // Verify availability server-side.
             let conflicts = with_db(&state, |conn| {
-                crate::cache::cal::find_conflicts(conn, None, &start, &end, None)
-                    .map(|c| {
-                        c.iter()
-                            .map(|e| e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into()))
-                            .collect::<Vec<_>>()
-                    })
+                crate::cache::cal::find_conflicts(conn, None, &resolved_start, &resolved_end, None)
+                    .map(|c| c.iter().map(|e| e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into())).collect::<Vec<_>>())
                     .map_err(|e| e.to_string())
             })
             .unwrap_or_default();
-            let availability = if conflicts.is_empty() { "free" } else { "busy" };
+            let is_busy = !conflicts.is_empty();
 
-            // Alternativen, wenn belegt.
+            // Alternatives if busy.
             let mut alternatives: Vec<TimeSlot> = Vec::new();
-            if availability == "busy" {
-                let duration = match (
-                    chrono::DateTime::parse_from_rfc3339(&start).ok(),
-                    chrono::DateTime::parse_from_rfc3339(&end).ok(),
-                ) {
-                    (Some(s), Some(e)) => ((e - s).num_minutes()).max(1).min(480) as u32,
-                    _ => 60,
-                };
+            if is_busy {
+                let duration = 60u32;
                 let (sys, usr) = prompts::build_conflict_alternatives_prompt(
-                    &title, &start, &end, &conflicts.join("; "), duration,
+                    &title, &resolved_start, &resolved_end, &conflicts.join("; "), duration,
                 );
                 if let Ok(raw2) = client.complete_user(&sys, &usr, Some(0.4), Some(600)).await {
                     for slot in extract_json_array(&raw2) {
                         let (Some(s), Some(e)) = (
                             slot.get("start").and_then(|v| v.as_str()),
                             slot.get("end").and_then(|v| v.as_str()),
-                        ) else {
-                            continue;
-                        };
+                        ) else { continue; };
                         let still = with_db(&state, |conn| {
                             crate::cache::cal::find_conflicts(conn, None, s, e, None)
-                                .map(|c| !c.is_empty())
-                                .map_err(|err| err.to_string())
-                        })
-                        .unwrap_or(false);
-                        if still {
-                            continue;
-                        }
+                                .map(|c| !c.is_empty()).map_err(|err| err.to_string())
+                        }).unwrap_or(false);
+                        if still { continue; }
                         alternatives.push(TimeSlot {
-                            start: s.to_string(),
-                            end: e.to_string(),
+                            start: s.to_string(), end: e.to_string(),
                             reason: slot.get("reason").and_then(|v| v.as_str()).map(String::from),
                         });
-                        if alternatives.len() >= 3 {
-                            break;
-                        }
+                        if alternatives.len() >= 3 { break; }
                     }
                 }
             }
 
             counter += 1;
-            let event_label = if availability == "free" {
-                format!("Termin eintragen: {title}")
+            let kind = if is_busy { "calendar_counter" } else { "calendar_confirm" };
+            let label = if is_busy {
+                format!("Konflikt: {title} — Alternative vorschlagen")
             } else {
-                format!("Alternative finden: {title}")
+                format!("Termin bestätigen: {title}")
             };
             actions.push(FollowupAction {
                 id: format!("fu-{counter}"),
-                kind: "event".into(),
-                label: event_label,
+                kind: kind.into(),
+                label,
                 task: None,
                 event: Some(FollowupEvent {
-                    summary: title.clone(),
-                    start: start.clone(),
-                    end: Some(end.clone()),
-                    attendees: attendees.clone(),
-                    availability: availability.to_string(),
-                    conflicts: conflicts.clone(),
+                    summary: title,
+                    start: resolved_start,
+                    end: Some(resolved_end),
+                    attendees,
+                    availability: if is_busy { "busy".into() } else { "free".into() },
+                    conflicts,
                     alternatives,
                 }),
                 email: None,
             });
 
-            // E-Mail-Aktion: Bestaetigung (frei) oder Gegenvorschlag (belegt).
-            let email_key = if availability == "free" { "confirmation_email" } else { "counter_email" };
-            if let Some(email) = obj.get(email_key).and_then(|e| e.as_object()) {
-                let subject = email.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let body = email.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-                if !body.is_empty() {
+            // [B] MAILANTWORT (reply draft for calendar or standalone)
+            if let Some(reply) = obj.get("reply").and_then(|r| r.as_object()) {
+                let r_subject = reply.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let r_body = reply.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+                if !r_body.is_empty() {
                     counter += 1;
-                    let purpose = if availability == "free" { "confirmation" } else { "counter" };
+                    let purpose = if is_busy { "counter" } else { "confirmation" };
                     actions.push(FollowupAction {
                         id: format!("fu-{counter}"),
-                        kind: "email".into(),
-                        label: if availability == "free" { "Bestätigung senden".into() } else { "Alternative per Mail vorschlagen".into() },
+                        kind: "reply_draft".into(),
+                        label: if is_busy { "Antwort mit Alternative erstellen".into() } else { "Zusage-Entwurf erstellen".into() },
                         task: None,
                         event: None,
-                        email: Some(FollowupEmail { to: req.from.clone(), subject, body, purpose: purpose.into() }),
+                        email: Some(FollowupEmail { to: req.from.clone(), subject: r_subject, body: r_body, purpose: purpose.into() }),
                     });
                 }
             }
+
+            let _ = conflict; // used for future context
+        }
+    } else if let Some(reply) = obj.get("reply").and_then(|r| r.as_object()) {
+        // [B] Standalone reply (no calendar action)
+        let r_subject = reply.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let r_body = reply.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        if !r_body.is_empty() {
+            counter += 1;
+            actions.push(FollowupAction {
+                id: format!("fu-{counter}"),
+                kind: "reply_draft".into(),
+                label: "Antwort-Entwurf erstellen".into(),
+                task: None,
+                event: None,
+                email: Some(FollowupEmail { to: req.from.clone(), subject: r_subject, body: r_body, purpose: "reply".into() }),
+            });
         }
     }
 
-    // Aufgaben.
+    // [C] AUFGABEN
     if let Some(tasks) = obj.get("tasks").and_then(|t| t.as_array()) {
-        for task in tasks.iter().take(4) {
+        for task in tasks.iter().take(3) {
             let summary = task.get("task").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if summary.is_empty() {
-                continue;
-            }
+            if summary.is_empty() { continue; }
             let due = task.get("due").and_then(|v| v.as_str()).map(String::from);
             counter += 1;
             actions.push(FollowupAction {
@@ -1256,6 +1278,39 @@ pub async fn ai_followups(
     }
 
     Ok(Json(actions))
+}
+
+/// Resolve potentially relative dates to RFC3339 UTC.
+fn resolve_dates(start: &str, end: &str, now: &chrono::DateTime<chrono::Utc>) -> (String, String) {
+    // Try RFC3339 first
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start) {
+        let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
+            .map(|e| e.to_rfc3339())
+            .unwrap_or_else(|_| (dt.with_timezone(&chrono::Utc) + chrono::Duration::hours(1)).to_rfc3339());
+        return (dt.to_rfc3339(), resolved_end);
+    }
+    // Try common formats
+    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"] {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(start, fmt) {
+            let utc = dt.and_utc();
+            let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
+                .map(|e| e.to_rfc3339())
+                .unwrap_or_else(|_| (utc + chrono::Duration::hours(1)).to_rfc3339());
+            return (utc.to_rfc3339(), resolved_end);
+        }
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(start, fmt) {
+            if let Some(dt) = date.and_hms_opt(9, 0, 0) {
+                let utc = dt.and_utc();
+                let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
+                    .map(|e| e.to_rfc3339())
+                    .unwrap_or_else(|_| (utc + chrono::Duration::hours(1)).to_rfc3339());
+                return (utc.to_rfc3339(), resolved_end);
+            }
+        }
+    }
+    // Fallback: now + 1 day
+    let fallback = *now + chrono::Duration::days(1);
+    (fallback.to_rfc3339(), (fallback + chrono::Duration::hours(1)).to_rfc3339())
 }
 
 #[derive(Deserialize)]

@@ -1332,7 +1332,7 @@ export interface FollowupEmail {
 
 export interface FollowupAction {
   id: string;
-  kind: "task" | "event" | "email";
+  kind: "task" | "event" | "email" | "calendar_confirm" | "calendar_counter" | "reply_draft";
   label: string;
   task?: FollowupTask;
   event?: FollowupEvent;
