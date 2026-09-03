@@ -362,10 +362,15 @@ let sentFolderName = $state<string | null>(null);
       }
     } catch { /* ignore */ }
 
-    // Background: refresh folder list from IMAP (non-blocking, 3 retries).
-    // The server-side scheduler keeps the message cache fresh; the frontend
-    // reads from cache via loadFolder() which is triggered by the $effect.
-    refreshFoldersBackground(acct.id);
+    // Background: refresh folder list from IMAP (deferred to idle, 3 retries).
+    // The sidebar already has the localStorage folder cache; the live IMAP
+    // LIST (TLS handshake) is deferred so it doesn't compete with first paint.
+    const doRefresh = () => refreshFoldersBackground(acct.id);
+    if (typeof requestIdleCallback !== "undefined") {
+      requestIdleCallback(doRefresh, { timeout: 5000 });
+    } else {
+      setTimeout(doRefresh, 3000);
+    }
   }
 
   async function refreshFoldersBackground(accountId: number) {
@@ -1625,14 +1630,9 @@ let sentFolderName = $state<string | null>(null);
       showSplash = true;
     }
     initOk = true;
-    try {
-      moveToTrash = await getMoveToTrash();
-    } catch (e) { /* use default */ }
-
-    // Load own photo
-    try {
-      ownPhoto = await getOwnPhoto();
-    } catch {}
+    // Fire-and-forget: not needed for first paint
+    getMoveToTrash().then(v => { moveToTrash = v; }).catch(() => {});
+    getOwnPhoto().then(v => { ownPhoto = v; }).catch(() => {});
 
     // Offline support: listen for connectivity changes, sync queued drafts on reconnect
     initOnlineListener();

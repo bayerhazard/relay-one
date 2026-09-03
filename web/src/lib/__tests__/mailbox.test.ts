@@ -222,12 +222,15 @@ describe("folder cache", () => {
     expect(cached!.map((m) => m.uid)).toEqual([1, 2]);
   });
 
-  it("persists to localStorage", () => {
+  it("persists to localStorage", async () => {
+    vi.useFakeTimers();
     setFolderCache(1, "INBOX", [meta(7)]);
+    await vi.advanceTimersByTimeAsync(1000);
     const raw = localStorage.getItem(FOLDER_CACHE_KEY);
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed["1:INBOX"].map((m: Message) => m.uid)).toEqual([7]);
+    vi.useRealTimers();
   });
 
   it("is per (account, folder)", () => {
@@ -288,7 +291,7 @@ describe("folder freshness window", () => {
     markFolderFetched(1, "INBOX");
     vi.useFakeTimers();
     try {
-      vi.setSystemTime(Date.now() + 16_000);
+      vi.setSystemTime(Date.now() + 31_000);
       expect(isFolderFresh(1, "INBOX")).toBe(false);
     } finally {
       vi.useRealTimers();

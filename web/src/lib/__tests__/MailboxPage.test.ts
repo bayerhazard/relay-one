@@ -163,7 +163,7 @@ describe("Sent Folder - Shows Recipient Instead of Sender (Regression Test)", ()
     // Enter the Sent folder (label is rendered via translateFolder("Sent")).
     await waitFor(() => {
       expect(screen.getByText("Gesendet")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     await fireEvent.click(screen.getByText("Gesendet"));
     await waitFor(() => {
       expect(screen.getByText(/Empfänger/)).toBeTruthy();

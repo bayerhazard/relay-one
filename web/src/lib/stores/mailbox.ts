@@ -31,28 +31,39 @@ export interface Message {
 
 const FOLDER_CACHE_KEY = "relay:folderCache:v1";
 const FOLDER_CACHE_MAX = 10000;
+const FRESH_KEY = "relay:folderFresh:v1";
 
 type FolderCacheMap = Record<string, Message[]>;
 
+let _cacheLoaded = false;
+let folderCache: FolderCacheMap = {};
+
 function loadFolderCache(): FolderCacheMap {
+  if (_cacheLoaded) return folderCache;
+  _cacheLoaded = true;
   try {
     const raw = localStorage.getItem(FOLDER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    folderCache = raw ? JSON.parse(raw) : {};
   } catch {
-    return {};
+    folderCache = {};
   }
+  return folderCache;
 }
 
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
 function persistFolderCache(cache: FolderCacheMap) {
-  try {
-    localStorage.setItem(FOLDER_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // Quota exceeded or unavailable (e.g. private mode) — cache stays in
-    // memory for the session and is simply not persisted.
+  if (_persistTimer) clearTimeout(_persistTimer);
+  const doWrite = () => {
+    try {
+      localStorage.setItem(FOLDER_CACHE_KEY, JSON.stringify(cache));
+    } catch { /* quota exceeded */ }
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    _persistTimer = requestIdleCallback(doWrite, { timeout: 2000 }) as unknown as ReturnType<typeof setTimeout>;
+  } else {
+    _persistTimer = setTimeout(doWrite, 500);
   }
 }
-
-let folderCache: FolderCacheMap = loadFolderCache();
 
 function cacheKey(accountId: number, folderId: string): string {
   return `${accountId}:${folderId}`;
@@ -60,11 +71,13 @@ function cacheKey(accountId: number, folderId: string): string {
 
 /** Meta-only message list for (account, folder), or `null` when not cached. */
 export function getFolderCache(accountId: number, folderId: string): Message[] | null {
+  loadFolderCache();
   return folderCache[cacheKey(accountId, folderId)] ?? null;
 }
 
 /** Store a meta-only list for (account, folder) and persist it. */
 export function setFolderCache(accountId: number, folderId: string, messages: Message[]) {
+  loadFolderCache();
   const key = cacheKey(accountId, folderId);
   folderCache = {
     ...folderCache,
@@ -78,6 +91,7 @@ export function setFolderCache(accountId: number, folderId: string, messages: Me
 export function invalidateFolderCache(accountId: number, folderId: string) {
   const key = cacheKey(accountId, folderId);
   delete lastFetchAt[key];
+  persistFreshness();
   if (!(key in folderCache)) return;
   const next = { ...folderCache };
   delete next[key];
@@ -96,9 +110,11 @@ export function invalidateFolderCache(accountId: number, folderId: string) {
 /** Clear the in-memory folder cache (test isolation). */
 export function resetFolderCache() {
   folderCache = {};
+  _cacheLoaded = false;
   lastFetchAt = {};
   try {
     localStorage.removeItem(FOLDER_CACHE_KEY);
+    localStorage.removeItem(FRESH_KEY);
   } catch {
     // ignore
   }
@@ -112,9 +128,24 @@ export function resetFolderCache() {
 // view of the folder re-fetches. Event-driven reloads ("new-messages") pass
 // force=true and bypass the window.
 
-const FOLDER_FRESH_MS = 15_000;
+const FOLDER_FRESH_MS = 30_000;
 
-let lastFetchAt: Record<string, number> = {};
+function loadFreshness(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(FRESH_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+let lastFetchAt: Record<string, number> = loadFreshness();
+
+function persistFreshness() {
+  try {
+    localStorage.setItem(FRESH_KEY, JSON.stringify(lastFetchAt));
+  } catch { /* ignore */ }
+}
 
 /** True when (account, folder) was fetched within the freshness window. */
 export function isFolderFresh(accountId: number | null, folderId: string): boolean {
@@ -127,6 +158,7 @@ export function isFolderFresh(accountId: number | null, folderId: string): boole
 export function markFolderFetched(accountId: number | null, folderId: string) {
   if (accountId == null) return;
   lastFetchAt[cacheKey(accountId, folderId)] = Date.now();
+  persistFreshness();
 }
 
 interface MailboxState {
