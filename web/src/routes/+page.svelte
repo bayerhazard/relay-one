@@ -22,7 +22,7 @@
   import { assistantAction } from "$lib/stores/assistantAction";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
-    listAccounts, fetchFromImap, listImapFolders, createLocalFolder, deleteFolder,
+    listAccounts, listImapFolders, createLocalFolder, deleteFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
@@ -332,43 +332,48 @@ let sentFolderName = $state<string | null>(null);
     showSplash = false;
   }
 
-  async function initWithAccount(acct: any) {
+  function initWithAccount(acct: any) {
     selectedAccountId = acct.id;
     accounts.selectAccount(acct.id);
     senderName = acct.sender_name || acct.name || "";
 
-   // Restore cached folder list from localStorage so sidebar never goes blank
-    // during navigation (SPA route change from settings back to inbox).
+    // Restore cached folder list from localStorage so sidebar is instant.
     try {
       const cacheKey = `relay_folder_cache_${acct.id}`;
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached) as string[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Apply the saved reorder BEFORE seeding the sidebar store — the
-          // tree renders from foldersByAccount, so an unordered seed would
-          // show the server order until the IMAP fetch completes (or forever
-          // if the fetch fails).
           const ordered = applySavedFolderOrder(acct.id, parsed);
           folderNames = ordered;
-          // Seed the per-account cache too (raw/delim defaults to "."), so
-          // other account groups render their trees immediately.
           setAccountFolders(acct.id, { names: ordered, local: new Set(), raw: {}, delim: {} });
         }
       }
     } catch { /* ignore stale cache */ }
 
-    // Fetch fresh folder list from IMAP (up to 3 retries for transient failures)
-    let foldersFetched = false;
+    // Load collapsed folders for this account
+    try {
+      const raw = localStorage.getItem(`relay_folder_collapsed_${acct.id}`);
+      if (raw) {
+        collapsedFoldersMap = { ...collapsedFoldersMap, [acct.id]: new Set(JSON.parse(raw) as string[]) };
+      }
+    } catch { /* ignore */ }
+
+    // Background: refresh folder list from IMAP (non-blocking, 3 retries).
+    // The server-side scheduler keeps the message cache fresh; the frontend
+    // reads from cache via loadFolder() which is triggered by the $effect.
+    refreshFoldersBackground(acct.id);
+  }
+
+  async function refreshFoldersBackground(accountId: number) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const f = await listImapFolders(acct.id);
+        const f = await listImapFolders(accountId);
         const seen = new Set<string>();
         const names: string[] = [];
         const rawMap: Record<string, string> = {};
         const delimMap: Record<string, string> = {};
         const localSet = new Set<string>();
-        // Detect Drafts & Sent folders from SPECIAL-USE attributes or fallback names
         draftsFolderName = null;
         sentFolderName = null;
         const draftFallbacks = ["drafts", "entwürfe", "inbox.drafts"];
@@ -383,29 +388,22 @@ let sentFolderName = $state<string | null>(null);
           rawMap[x.name] = x.raw_name || x.name;
           delimMap[x.name] = x.delimiter || ".";
           if ((x as { local_only?: boolean }).local_only) localSet.add(x.name);
-          // Check if this folder is the Drafts folder (SPECIAL-USE or fallback)
           if (!draftsFolderName && (x.attributes?.some(a => a.includes("Drafts")) || draftFallbacks.includes(key))) {
             draftsFolderName = x.name;
           }
-          // Check if this folder is the Sent folder (SPECIAL-USE or fallback)
           if (!sentFolderName && (x.attributes?.some(a => a.includes("Sent")) || sentFallbacks.includes(key))) {
             sentFolderName = x.name;
           }
         }
-        // Apply saved folder order BEFORE seeding the sidebar store — the
-        // tree renders from foldersByAccount (account-id scoped), so an
-        // unordered names list would keep the server order in the sidebar.
-        const orderedNames = applySavedFolderOrder(acct.id, names);
+        const orderedNames = applySavedFolderOrder(accountId, names);
         folderNames = orderedNames;
         folderRawNames = rawMap;
         folderDelimiters = delimMap;
         localFolderNames = localSet;
-       // Persist to localStorage cache for fast recovery on navigation
-        const cacheKey = `relay_folder_cache_${acct.id}`;
+        const cacheKey = `relay_folder_cache_${accountId}`;
         localStorage.setItem(cacheKey, JSON.stringify(orderedNames));
-        setAccountFolders(acct.id, { names: orderedNames, local: localSet, raw: rawMap, delim: delimMap });
-        foldersFetched = true;
-        break;
+        setAccountFolders(accountId, { names: orderedNames, local: localSet, raw: rawMap, delim: delimMap });
+        return;
       } catch (e: unknown) {
         if (attempt < 2) {
           await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
@@ -414,27 +412,6 @@ let sentFolderName = $state<string | null>(null);
         }
       }
     }
-    if (!foldersFetched && folderNames.length === 0) {
-      initError = translate("mail.folderListError");
-    }
-
-    try {
-      await fetchFromImap(acct.id, "INBOX", fetchLimit);
-      updateBadgeCount(acct.id).catch(() => {});
-    } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      if (!isTransientConnError(errMsg)) {
-        initError = "IMAP: " + errMsg;
-      }
-    }
-
-   // Load collapsed folders for this account
-    try {
-      const raw = localStorage.getItem(`relay_folder_collapsed_${acct.id}`);
-      if (raw) {
-        collapsedFoldersMap = { ...collapsedFoldersMap, [acct.id]: new Set(JSON.parse(raw) as string[]) };
-      }
-    } catch { /* ignore */ }
   }
 
   // ─── Folder Customization (Rename/Hide) ──────────────────
@@ -1619,29 +1596,27 @@ let sentFolderName = $state<string | null>(null);
     try {
       accts = await listAccounts();
     } catch (e: unknown) {
-      // Keine Kontenliste verfügbar (z.B. Backend nicht erreichbar) → trotzdem
-      // den Splash (Konto-Einrichtung) zeigen statt einer leeren App.
       console.error("[init] listAccounts fehlgeschlagen:", e);
     }
     accounts.setAccounts(accts);
     if (accts.length > 0) {
-      // Poll until at least one account is connected (max 15s)
-      let ready = accts.some(a => a.connected);
-      if (!ready) {
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 500));
-          accts = await listAccounts();
-          accounts.setAccounts(accts);
-          if (accts.some(a => a.connected)) {
-            ready = true;
-            break;
+      // Init immediately from cache — the server-side scheduler keeps data fresh.
+      // No need to wait for IMAP connection; the background folder refresh
+      // and SSE events handle real-time updates.
+      initWithAccount(accts[0]);
+      // Background: poll for connection status (non-blocking, max 10s).
+      // If not connected yet, the UI still shows cached data.
+      if (!accts.some(a => a.connected)) {
+        (async () => {
+          for (let i = 0; i < 20; i++) {
+            await new Promise(r => setTimeout(r, 500));
+            try {
+              const fresh = await listAccounts();
+              accounts.setAccounts(fresh);
+              if (fresh.some(a => a.connected)) return;
+            } catch { /* ignore */ }
           }
-        }
-      }
-      if (ready) {
-        await initWithAccount(accts[0]);
-      } else {
-        initError = translate("mail.imapConnectError");
+        })();
       }
     } else {
       showSplash = true;

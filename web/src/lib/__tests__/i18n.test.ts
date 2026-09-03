@@ -139,6 +139,8 @@ describe("i18n t() key reference scan", () => {
       "error.invalidRecipient",
       "error.imapSmtpConnect",
       "error.connection",
+      "mail.folderListError",
+      "mail.imapConnectError",
       "confirmation.title",
       "confirmation.confirm",
       "prompt.title",
