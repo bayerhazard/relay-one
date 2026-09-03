@@ -26,6 +26,18 @@ vi.mock("$lib/stores/settings", () => ({
   showDiffEnabled: { subscribe: (fn: (v: boolean) => void) => { fn(false); return () => {}; } },
 }));
 
+function getEditor(): HTMLElement {
+  const el = document.querySelector<HTMLElement>('[contenteditable="true"]');
+  if (!el) throw new Error("contenteditable not found");
+  return el;
+}
+
+async function setEditorText(text: string) {
+  const el = getEditor();
+  el.textContent = text;
+  await fireEvent.input(el);
+}
+
 describe("ComposeWindow - mode new", () => {
   const defaultProps = {
     mode: "new" as const,
@@ -194,9 +206,8 @@ describe("ComposeWindow - field validation (send button disabled state)", () => 
   it("send button is disabled when An: field is empty (subject and body filled)", async () => {
     render(ComposeWindow, defaultProps);
     const subjectInput = screen.getByPlaceholderText("Betreff");
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/);
     await fireEvent.input(subjectInput, { target: { value: "Test Betreff" } });
-    await fireEvent.input(bodyInput, { target: { value: "Test body content" } });
+    await setEditorText("Test body content");
     const sendBtn = screen.getByText("Senden") as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
   });
@@ -212,9 +223,8 @@ describe("ComposeWindow - field validation (send button disabled state)", () => 
 
   it("send button is disabled when Betreff field is empty (to and body filled)", async () => {
     render(ComposeWindow, defaultProps);
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/);
     await fillTo("user@example.com");
-    await fireEvent.input(bodyInput, { target: { value: "Test body content" } });
+    await setEditorText("Test body content");
     const sendBtn = screen.getByText("Senden") as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
   });
@@ -231,15 +241,13 @@ describe("ComposeWindow - field validation (send button disabled state)", () => 
   it("send button becomes enabled when all required fields are filled", async () => {
     render(ComposeWindow, defaultProps);
     const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
     await fillTo("user@example.com");
     await waitFor(() => {
       expect(screen.getByText("user@example.com")).toBeTruthy();
     });
     subjectInput.value = "Test Betreff";
     await fireEvent.input(subjectInput);
-    bodyInput.value = "Test body content";
-    await fireEvent.input(bodyInput);
+    await setEditorText("Test body content");
     const sendBtn = screen.getByText("Senden") as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(false);
   });
@@ -248,9 +256,8 @@ describe("ComposeWindow - field validation (send button disabled state)", () => 
     const onsend = vi.fn().mockResolvedValue(undefined);
     render(ComposeWindow, { ...defaultProps, onsend });
     const subjectInput = screen.getByPlaceholderText("Betreff");
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/);
     await fireEvent.input(subjectInput, { target: { value: "Test Betreff" } });
-    await fireEvent.input(bodyInput, { target: { value: "Test body content" } });
+    await setEditorText("Test body content");
     const sendBtn = screen.getByText("Senden") as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
     expect(sendBtn.hasAttribute("disabled")).toBe(true);
@@ -260,15 +267,13 @@ describe("ComposeWindow - field validation (send button disabled state)", () => 
     const onsend = vi.fn().mockResolvedValue(undefined);
     render(ComposeWindow, { ...defaultProps, onsend });
     const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
     await fillTo("user@example.com");
     await waitFor(() => {
       expect(screen.getByText("user@example.com")).toBeTruthy();
     });
     subjectInput.value = "Test Betreff";
     await fireEvent.input(subjectInput);
-    bodyInput.value = "Test body content";
-    await fireEvent.input(bodyInput);
+    await setEditorText("Test body content");
     const sendBtn = screen.getByText("Senden") as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(false);
     await fireEvent.click(sendBtn);
@@ -306,8 +311,8 @@ describe("ComposeWindow - draft functionality", () => {
     });
     const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
     expect(subjectInput.value).toBe("Entwurf Betreff");
-    const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
-    expect(bodyInput.value).toBe("Entwurf Inhalt");
+    const editor = getEditor();
+    expect(editor.textContent).toBe("Entwurf Inhalt");
   });
 });
 
@@ -352,8 +357,8 @@ describe("ComposeWindow - initial attachments", () => {
     });
     // draft pre-fill populates userInput, so the close dialog offers "Speichern".
     await waitFor(() => {
-      const bodyInput = screen.getByPlaceholderText(/Gib Deine/) as HTMLTextAreaElement;
-      expect(bodyInput.value).toBe("Inhalt");
+      const editor = getEditor();
+      expect(editor.textContent).toBe("Inhalt");
     });
 
     const closeBtn = screen.getByText("\u2715");

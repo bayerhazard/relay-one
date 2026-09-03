@@ -12,7 +12,6 @@
   import { get } from "svelte/store";
   import { showDiffEnabled } from "$lib/stores/settings";
   import { textToHtml, wrapHtmlQuote, sanitizeHtml } from "$lib/utils/format";
-  import { marked } from "marked";
   import { blobToWavBase64 } from "$lib/utils/wav";
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
@@ -86,7 +85,7 @@
   let bccVisible = $derived(showBcc || bcc.length > 0);
   let subject = $state("");
   let userInput = $state("");
-  let markdownMode = $state(false);
+  let editorEl: HTMLElement | undefined = $state();
   let aiDraft = $state<string | null>(null);
   let showDiff = $state(false);
   let tone = $state<ToneValues>({ seriositaet: 4, textumfang: 4 });
@@ -217,7 +216,7 @@
         try {
           const transcript = await voiceTranscribe(base64);
           if (transcript.trim()) {
-            userInput = transcript;
+            setEditorText(transcript);
             // Auto-generate after successful transcription
             await generate();
           } else {
@@ -298,7 +297,7 @@
         cc = draftCc ? draftCc.split(",").map(s => s.trim()).filter(Boolean) : [];
         bcc = [];
         subject = draftSubject;
-        userInput = draftBody;
+        setEditorText(draftBody);
         localDraftUid = draftUid;
         lastPropDraftUid = draftUid;
       } else {
@@ -320,7 +319,7 @@
       cc = [];
       bcc = [];
       subject = prefill.subject;
-      userInput = prefill.body;
+      setEditorText(prefill.body);
       aiDraft = null;
       toneLoaded = false;
     }
@@ -396,7 +395,7 @@
       if (get(showDiffEnabled)) {
         showDiff = true;
       } else {
-        userInput = result;
+        setEditorText(result);
       }
     } catch (e: unknown) {
       generationError = e instanceof Error ? e.message : String(e);
@@ -422,7 +421,7 @@
     if (!userInput.trim()) return;
     isGenerating = true;
     try {
-      userInput = await aiFormatText(userInput);
+      setEditorText(await aiFormatText(userInput));
     } catch (e: unknown) {
       generationError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -431,7 +430,7 @@
   }
 
   function acceptDraft() {
-    userInput = aiDraft ?? userInput;
+    setEditorText(aiDraft ?? userInput);
     aiDraft = null;
     showDiff = false;
   }
@@ -441,44 +440,49 @@
     showDiff = false;
   }
 
-  function mdToHtml(text: string): string {
-    return marked.parse(text, { async: false }) as string;
+  function syncInput() {
+    if (editorEl) userInput = editorEl.innerText ?? editorEl.textContent ?? "";
   }
 
-  function wrapSelection(before: string, after: string = before) {
-    const ta = document.querySelector<HTMLTextAreaElement>("#compose-body");
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = userInput.substring(start, end);
-    const replacement = before + selected + after;
-    userInput = userInput.substring(0, start) + replacement + userInput.substring(end);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
+  function setEditorText(text: string) {
+    if (editorEl) {
+      editorEl.textContent = text;
+      userInput = text;
+    }
   }
 
-  function insertText(text: string) {
-    const ta = document.querySelector<HTMLTextAreaElement>("#compose-body");
-    if (!ta) { userInput += text; return; }
-    const start = ta.selectionStart;
-    userInput = userInput.substring(0, start) + text + userInput.substring(start);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + text.length, start + text.length);
-    });
+  function execCmd(cmd: string, value?: string) {
+    editorEl?.focus();
+    document.execCommand(cmd, false, value);
+    syncInput();
   }
 
-  function insertLink() {
-    const url = prompt($t("md.linkPrompt"));
-    if (!url) return;
-    wrapSelection("[", `](${url})`);
+  function execLink() {
+    const url = prompt($t("compose.linkPrompt"));
+    if (url) execCmd("createLink", url);
+  }
+
+  function execCode() {
+    const sel = window.getSelection();
+    if (!sel || !sel.toString()) return;
+    const text = sel.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    execCmd("insertHTML", `<code>${text}</code>&nbsp;`);
+  }
+
+  function execHeading() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const node = sel.anchorNode?.parentElement;
+    if (node?.tagName === "H3") {
+      execCmd("formatBlock", "P");
+    } else {
+      execCmd("formatBlock", "H3");
+    }
   }
 
   async function handleSend() {
     let body = userInput;
-    let bodyHtml = markdownMode ? mdToHtml(userInput) : textToHtml(userInput);
+    let bodyHtml = editorEl?.innerHTML || textToHtml(userInput);
     if (mailChain.length > 0) {
       body += "\n\n" + mailChain.map(m => "> " + m.text.replace(/\n/g, "\n> ")).join("\n\n");
       const htmlQuotes = mailChain.map(m =>
@@ -634,27 +638,36 @@
         <div class="editor-resize">
           <div class="editor-header">
           <span>Deine Nachricht:</span>
-          <div class="md-toolbar">
-            <button type="button" class="md-btn" class:active={markdownMode} onclick={() => markdownMode = !markdownMode} title="Markdown umschalten">M↓</button>
-            {#if markdownMode}
-              <button type="button" class="md-btn" onclick={() => wrapSelection("**")} title="Fett"><b>B</b></button>
-              <button type="button" class="md-btn" onclick={() => wrapSelection("*")} title="Kursiv"><i>I</i></button>
-              <button type="button" class="md-btn" onclick={() => insertText("\n## ")} title="Überschrift">H</button>
-              <button type="button" class="md-btn" onclick={() => insertText("\n- ")} title="Liste">•</button>
-              <button type="button" class="md-btn" onclick={insertLink} title="Link">🔗</button>
-              <button type="button" class="md-btn" onclick={() => wrapSelection("`")} title="Code">&lt;/&gt;</button>
-            {/if}
+          <div class="fmt-toolbar">
+            <button type="button" class="fmt-btn" onclick={() => execCmd("bold")} title="Fett">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg>
+            </button>
+            <button type="button" class="fmt-btn" onclick={() => execCmd("italic")} title="Kursiv">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+            </button>
+            <button type="button" class="fmt-btn" onclick={execHeading} title="Überschrift">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
+            </button>
+            <button type="button" class="fmt-btn" onclick={() => execCmd("insertUnorderedList")} title="Liste">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>
+            </button>
+            <button type="button" class="fmt-btn" onclick={execLink} title="Link">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+            <button type="button" class="fmt-btn" onclick={execCode} title="Code">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </button>
           </div>
         </div>
           <div class="editor-wrapper" class:has-attachments={attachments.length > 0}>
-        <textarea
-          id="compose-body"
+        <div
           class="editor"
-          bind:value={userInput}
-          placeholder={markdownMode ? $t("compose.messagePlaceholderMd") : $t("compose.messagePlaceholder")}
-          rows={isNarrow ? 8 : 12}
+          contenteditable="true"
+          bind:this={editorEl}
+          oninput={syncInput}
+          data-placeholder={$t("compose.messagePlaceholder")}
           aria-label={$t("compose.messageAria")}
-        ></textarea>
+        ></div>
         {#if isGenerating && generationStep > 0}
           <div class="generation-status">
             <span class="dot"></span>
@@ -939,9 +952,16 @@
      viewport by an overgrown textarea — the textarea scrolls internally
      instead (fixed toolbar + scrollable input, incl. reply/forward chains). */
   .editor {
+    width: 100%;
+    min-height: 120px;
     max-height: min(55vh, 480px);
     overflow-y: auto;
     overscroll-behavior: contain;
+    outline: none;
+    padding: 10px 12px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--color-text);
   }
   .editor-header {
     font-size: 0.875rem;
@@ -955,28 +975,49 @@
     align-items: center;
     justify-content: space-between;
   }
-  .md-toolbar {
+  .fmt-toolbar {
     display: flex;
-    gap: 2px;
+    gap: 1px;
   }
-  .md-btn {
+  .fmt-btn {
     background: transparent;
-    border: 1px solid var(--color-border);
-    border-radius: 3px;
+    border: none;
+    border-radius: 4px;
     color: var(--color-text-secondary);
-    font-size: 0.75rem;
-    padding: 2px 6px;
+    padding: 4px 5px;
     cursor: pointer;
-    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .md-btn:hover {
+  .fmt-btn:hover {
     background: var(--color-hover);
     color: var(--color-text);
   }
-  .md-btn.active {
-    background: var(--color-accent);
-    color: #fff;
-    border-color: var(--color-accent);
+  .editor:empty::before {
+    content: attr(data-placeholder);
+    color: var(--color-text-tertiary);
+    pointer-events: none;
+  }
+  .editor h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0.5em 0 0.25em;
+  }
+  .editor ul {
+    margin: 0.25em 0;
+    padding-left: 1.2em;
+  }
+  .editor code {
+    background: var(--color-border);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 0.85em;
+    font-family: var(--font-mono, monospace);
+  }
+  .editor a {
+    color: var(--color-accent);
+    text-decoration: underline;
   }
   .editor-wrapper {
     position: relative;
