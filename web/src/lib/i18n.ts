@@ -390,7 +390,9 @@ export const translations: Record<Lang, Dict> = {
     "compose.bccRemove": "Bcc entfernen",
     "compose.attachFile": "Datei anhängen",
     "compose.messagePlaceholder": "Gib Deine eigene Nachricht oder Stichpunkte ein...",
+    "compose.messagePlaceholderMd": "Markdown-Nachricht schreiben...",
     "compose.messageAria": "Nachrichtentext",
+    "md.linkPrompt": "URL:",
 
     // Reply suggestions
     "reply.suggestions": "Antwortvorschläge:",
@@ -953,7 +955,9 @@ export const translations: Record<Lang, Dict> = {
     "compose.bccRemove": "Remove Bcc",
     "compose.attachFile": "Attach file",
     "compose.messagePlaceholder": "Enter your own message or bullet points...",
+    "compose.messagePlaceholderMd": "Write your message in Markdown...",
     "compose.messageAria": "Message text",
+    "md.linkPrompt": "URL:",
 
     // Reply suggestions
     "reply.suggestions": "Reply suggestions:",

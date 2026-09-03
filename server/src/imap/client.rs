@@ -43,6 +43,8 @@ pub struct ImapClient {
     /// Serializes `with_session_blocking` operations per client so concurrent
     /// IMAP ops queue instead of racing (see connect_limit fix).
     op_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Tracks the last SELECTed folder to skip redundant SELECT round-trips.
+    current_folder: Arc<std::sync::Mutex<Option<String>>>,
     #[cfg(test)]
     pub test_override: Option<ImapTestOverride>,
 }
@@ -78,6 +80,7 @@ impl ImapClient {
             operation_timeout: Duration::from_secs(60),
             connect_lock: Arc::new(tokio::sync::Mutex::new(())),
             op_lock: Arc::new(tokio::sync::Mutex::new(())),
+            current_folder: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             test_override: None,
         }
@@ -490,16 +493,23 @@ impl ImapClient {
         uid: u32,
         folder: Option<String>,
     ) -> Result<(String, Option<String>), AppError> {
-        self.with_session_blocking("fetch_body", move |session| {
-            // Select the target folder if specified
-            if let Some(f) = folder {
+        // Check if we need to SELECT (skip if already in the target folder).
+        let needs_select = {
+            let cur = self.current_folder.lock().unwrap();
+            cur.as_deref() != folder.as_deref()
+        };
+        let select_folder = if needs_select { folder.clone() } else { None };
+
+        let result = self.with_session_blocking("fetch_body", move |session| {
+            if let Some(ref f) = select_folder {
                 session
-                    .select(&f)
+                    .select(f)
                     .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
             }
 
+            // BODY.PEEK[TEXT] only fetches text/* parts (skips attachments, images).
             let msgs = session
-                .uid_fetch(uid.to_string(), "(BODY.PEEK[])")
+                .uid_fetch(uid.to_string(), "(BODY.PEEK[TEXT])")
                 .map_err(|e| AppError::imap(e.to_string(), "fetch_body"))?;
 
             let msg = msgs
@@ -510,7 +520,15 @@ impl ImapClient {
 
             Ok(parse_message_bodies(raw))
         })
-        .await
+        .await;
+
+        // Update the tracked folder on success.
+        if result.is_ok() {
+            if let Some(f) = &folder {
+                *self.current_folder.lock().unwrap() = Some(f.clone());
+            }
+        }
+        result
     }
 
     /// Fetch the complete raw RFC822 message (headers + all MIME parts),
@@ -932,6 +950,7 @@ impl ImapClient {
         // its timeout, accumulating connections until the per-user limit hits.
         let old = self.session.lock().await.take();
         *self.connected.lock().await = false;
+        *self.current_folder.lock().unwrap() = None;
         if let Some(session) = old {
             logout_session(session).await;
         }
@@ -1022,6 +1041,7 @@ impl ImapClient {
                 // handed into it and is now unreachable. Log it out if it is
                 // still alive so the provider doesn't hold the connection open
                 // until its own timeout (per-user connection limit).
+                *self.current_folder.lock().unwrap() = None;
                 if let Some(s) = self.session.lock().await.take() {
                     logout_session(s).await;
                 }
@@ -1041,6 +1061,7 @@ impl ImapClient {
                 // async block and dropped there; the provider keeps the TCP
                 // connection until its timeout. Nothing we can recover here,
                 // but make sure no stale session object survives in the slot.
+                *self.current_folder.lock().unwrap() = None;
                 if let Some(s) = self.session.lock().await.take() {
                     logout_session(s).await;
                 }
@@ -1527,6 +1548,7 @@ mod tests {
                 operation_timeout: client.operation_timeout,
                 connect_lock: client.connect_lock.clone(),
                 op_lock: client.op_lock.clone(),
+                current_folder: client.current_folder.clone(),
                 test_override: client.test_override.clone(),
             };
             handles.push(tokio::spawn(async move { c.connect().await }));

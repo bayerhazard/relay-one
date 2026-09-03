@@ -4234,8 +4234,8 @@ let sentFolderName = $state<string | null>(null);
     position: fixed;
     z-index: 1001;
     min-width: 200px;
-    max-width: 260px;
-    max-height: 320px;
+    max-width: 280px;
+    max-height: 420px;
     overflow-y: auto;
     background: var(--color-list);
     border: 1px solid var(--color-border);
@@ -4244,12 +4244,13 @@ let sentFolderName = $state<string | null>(null);
     padding: 6px;
     display: flex;
     flex-direction: column;
+    gap: 2px;
   }
   .ctx-menu-item {
     display: block;
     width: 100%;
     text-align: left;
-    padding: 8px 12px;
+    padding: 6px 12px;
     border: none;
     background: none;
     border-radius: 6px;

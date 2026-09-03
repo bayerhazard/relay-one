@@ -12,6 +12,7 @@
   import { get } from "svelte/store";
   import { showDiffEnabled } from "$lib/stores/settings";
   import { textToHtml, wrapHtmlQuote, sanitizeHtml } from "$lib/utils/format";
+  import { marked } from "marked";
   import { blobToWavBase64 } from "$lib/utils/wav";
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
@@ -85,6 +86,7 @@
   let bccVisible = $derived(showBcc || bcc.length > 0);
   let subject = $state("");
   let userInput = $state("");
+  let markdownMode = $state(false);
   let aiDraft = $state<string | null>(null);
   let showDiff = $state(false);
   let tone = $state<ToneValues>({ seriositaet: 4, textumfang: 4 });
@@ -439,9 +441,44 @@
     showDiff = false;
   }
 
+  function mdToHtml(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
+
+  function wrapSelection(before: string, after: string = before) {
+    const ta = document.querySelector<HTMLTextAreaElement>("#compose-body");
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = userInput.substring(start, end);
+    const replacement = before + selected + after;
+    userInput = userInput.substring(0, start) + replacement + userInput.substring(end);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + before.length, start + before.length + selected.length);
+    });
+  }
+
+  function insertText(text: string) {
+    const ta = document.querySelector<HTMLTextAreaElement>("#compose-body");
+    if (!ta) { userInput += text; return; }
+    const start = ta.selectionStart;
+    userInput = userInput.substring(0, start) + text + userInput.substring(start);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + text.length, start + text.length);
+    });
+  }
+
+  function insertLink() {
+    const url = prompt($t("md.linkPrompt"));
+    if (!url) return;
+    wrapSelection("[", `](${url})`);
+  }
+
   async function handleSend() {
     let body = userInput;
-    let bodyHtml = textToHtml(userInput);
+    let bodyHtml = markdownMode ? mdToHtml(userInput) : textToHtml(userInput);
     if (mailChain.length > 0) {
       body += "\n\n" + mailChain.map(m => "> " + m.text.replace(/\n/g, "\n> ")).join("\n\n");
       const htmlQuotes = mailChain.map(m =>
@@ -595,13 +632,26 @@
     {:else}
       <div class="editor-preview">
         <div class="editor-resize">
-          <div class="editor-header">Deine Nachricht:</div>
+          <div class="editor-header">
+          <span>Deine Nachricht:</span>
+          <div class="md-toolbar">
+            <button type="button" class="md-btn" class:active={markdownMode} onclick={() => markdownMode = !markdownMode} title="Markdown umschalten">M↓</button>
+            {#if markdownMode}
+              <button type="button" class="md-btn" onclick={() => wrapSelection("**")} title="Fett"><b>B</b></button>
+              <button type="button" class="md-btn" onclick={() => wrapSelection("*")} title="Kursiv"><i>I</i></button>
+              <button type="button" class="md-btn" onclick={() => insertText("\n## ")} title="Überschrift">H</button>
+              <button type="button" class="md-btn" onclick={() => insertText("\n- ")} title="Liste">•</button>
+              <button type="button" class="md-btn" onclick={insertLink} title="Link">🔗</button>
+              <button type="button" class="md-btn" onclick={() => wrapSelection("`")} title="Code">&lt;/&gt;</button>
+            {/if}
+          </div>
+        </div>
           <div class="editor-wrapper" class:has-attachments={attachments.length > 0}>
         <textarea
-          id="editor"
+          id="compose-body"
           class="editor"
           bind:value={userInput}
-          placeholder={$t("compose.messagePlaceholder")}
+          placeholder={markdownMode ? $t("compose.messagePlaceholderMd") : $t("compose.messagePlaceholder")}
           rows={isNarrow ? 8 : 12}
           aria-label={$t("compose.messageAria")}
         ></textarea>
@@ -901,6 +951,32 @@
     background: var(--color-sidebar);
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .md-toolbar {
+    display: flex;
+    gap: 2px;
+  }
+  .md-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  .md-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
+  }
+  .md-btn.active {
+    background: var(--color-accent);
+    color: #fff;
+    border-color: var(--color-accent);
   }
   .editor-wrapper {
     position: relative;

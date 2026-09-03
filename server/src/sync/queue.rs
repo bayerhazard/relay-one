@@ -22,6 +22,9 @@ pub enum SyncTaskType {
     /// Background: write missing EML archive files for already-cached messages
     /// (backfill after switching an account to archive mode).
     BackfillEmails,
+    /// Background: pre-fetch message bodies for recently synced messages so
+    /// the user doesn't wait for IMAP when opening them.
+    FetchBodies,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

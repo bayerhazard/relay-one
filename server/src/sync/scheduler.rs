@@ -852,6 +852,18 @@ async fn do_sync_cycle(
             .await;
     }
 
+    // Enqueue background body pre-fetch (runs after FetchNew, before AI analysis)
+    for (account_id, _) in &imap_client_ids {
+        queue.enqueue(SyncTask {
+            account_id: *account_id,
+            task_type: SyncTaskType::FetchBodies,
+            created_at: tokio::time::Instant::now(),
+            retries: 0,
+            max_retries: 1,
+            priority: 5,
+        }).await;
+    }
+
     // Enqueue background diff analysis (low priority, runs after mail sync)
     queue.enqueue(SyncTask {
         account_id: 0,
@@ -1445,6 +1457,64 @@ async fn process_sync_task(
                     .await;
             }
             Ok(backfilled)
+        }
+        SyncTaskType::FetchBodies => {
+            // Background: pre-fetch bodies for recently synced messages that
+            // don't have a cached body yet. Max 5 per cycle to stay bounded.
+            let account_id = task.account_id;
+            let client = {
+                let guard = state.imap_clients.read();
+                guard
+                    .get(&account_id)
+                    .cloned()
+                    .ok_or("IMAP-Client nicht gefunden")?
+            };
+            if !client.is_connected().await {
+                client.reconnect().await.map_err(|e| e.to_string())?;
+            }
+
+            // Find up to 5 messages without a body, most recent first.
+            let pending: Vec<(i64, u32, String)> = {
+                let db_guard = state.cache_db.lock();
+                let conn = db_guard
+                    .as_ref()
+                    .ok_or("Datenbank nicht initialisiert")?;
+                let mut stmt = conn.prepare(
+                    "SELECT id, uid, folder FROM messages \
+                     WHERE account_id = ?1 AND (body_text IS NULL OR body_text = '') \
+                     ORDER BY id DESC LIMIT 5"
+                ).map_err(|e| e.to_string())?;
+                let rows = stmt.query_map(rusqlite::params![account_id as i64], |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?))
+                }).map_err(|e| e.to_string())?;
+                rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+            };
+
+            let mut fetched = 0;
+            for (msg_id, uid, folder) in &pending {
+                match client.fetch_body_from_folder(*uid, Some(folder.clone())).await {
+                    Ok((body_text, body_html)) => {
+                        let _ = {
+                            let db_guard = state.cache_db.lock();
+                            let conn = db_guard.as_ref().ok_or("DB nicht initialisiert")?;
+                            crate::cache::messages::update_body_by_id(
+                                conn, *msg_id, &body_text, body_html.as_deref(),
+                            ).map_err(|e| e.to_string())
+                        };
+                        fetched += 1;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            "FetchBodies: uid {} ({}): {}", uid, folder, e
+                        );
+                        break;
+                    }
+                }
+            }
+            if fetched > 0 {
+                tracing::info!("FetchBodies: {} Bodies vorab geladen (account {})", fetched, account_id);
+            }
+            Ok(fetched)
         }
         SyncTaskType::GenerateAiSummary(uid, folder_id) => {
             // Handled by the dedicated AI worker (run_ai_summary_worker).
