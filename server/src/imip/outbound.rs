@@ -71,7 +71,7 @@ pub async fn send_invitation(
     );
     let mut sent = 0usize;
     for a in attendees {
-        let to = vec![(a.name.as_deref().unwrap_or(""), a.email.as_str())];
+        let to = vec![(a.email.as_str(), a.name.as_deref().unwrap_or(""))];
         smtp.send(
             to,
             vec![],
@@ -217,7 +217,7 @@ pub async fn send_rsvp(
     let subject = format!("Re: Einladung: {title}");
     let body_text =
         format!("Ich habe die Einladung zu \"{title}\" erhalten und antworte: {decision}.");
-    let to = vec![("", organizer.as_str())];
+    let to = vec![(organizer.as_str(), "")];
     smtp.send(
         to,
         vec![],
