@@ -1006,7 +1006,10 @@
   }
   .editor ul {
     margin: 0.25em 0;
-    padding-left: 1.2em;
+    padding-left: 1em;
+  }
+  .editor ul li {
+    margin-left: 0.2em;
   }
   .editor code {
     background: var(--color-border);
