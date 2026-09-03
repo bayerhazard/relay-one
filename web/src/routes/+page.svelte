@@ -1712,16 +1712,26 @@ let sentFolderName = $state<string | null>(null);
       return;
     }
 
+    // Short-circuit: if the body is already in the in-memory store, skip the API call.
+    const existing = $mailbox.messages.find(m => m.uid === uid);
+    if (existing?.body_text && existing.body_text.trim().length > 0) {
+      markAsRead(selectedAccountId, uid, selectedFolder).catch(() => {});
+      mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
+      loadingBodyUid = null;
+      selectingUid = null;
+      return;
+    }
+
+    // Optimistic: show the preview immediately while the full body loads.
+    if (existing?.body_preview) {
+      mailbox.updateMessage(uid, $mailbox.folderId, { body_text: existing.body_preview, is_read: true });
+    }
+
     try {
       await markAsRead(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
       const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
-      // Always take the fresh body from fetchMessageBody. A uid-keyed lookup
-      // into the store is ambiguous (uid is only unique per folder), and a
-      // "keep whichever body is longer" heuristic can permanently show another
-      // mail's text. updateMessage() itself is folder-scoped, so this only
-      // touches the row for the currently viewed folder.
       mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
       loadingBodyUid = null;
       selectingUid = null;

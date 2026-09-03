@@ -1482,7 +1482,7 @@ async fn process_sync_task(
                 let mut stmt = conn.prepare(
                     "SELECT id, uid, folder FROM messages \
                      WHERE account_id = ?1 AND (body_text IS NULL OR body_text = '') \
-                     ORDER BY id DESC LIMIT 5"
+                     ORDER BY id DESC LIMIT 25"
                 ).map_err(|e| e.to_string())?;
                 let rows = stmt.query_map(rusqlite::params![account_id as i64], |r| {
                     Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?))
