@@ -15,6 +15,7 @@
   import { blobToWavBase64 } from "$lib/utils/wav";
   import type { MailChainEntry } from "$lib/types/mail";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
+  import { isOnline } from "$lib/offline/online";
 
   type ComposeMode = "new" | "reply" | "forward";
   export type ToneValues = { seriositaet: number; textumfang: number };
@@ -729,7 +730,7 @@
     </button>
     <div class="spacer"></div>
     <button type="button" class="btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
-      {$t("compose.send")}
+      {$isOnline ? $t("compose.send") : $t("compose.saveOffline")}
     </button>
   </div>
 </div>

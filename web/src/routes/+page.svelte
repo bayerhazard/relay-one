@@ -33,6 +33,9 @@ import {
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import { getDoneFingerprints, followupFingerprint, markFollowupDone } from "$lib/utils/followupMemory";
   import type { MailChainEntry } from "$lib/types/mail";
+  import { cacheBody, getCachedBody } from "$lib/offline/bodyCache";
+  import { queueDraft, getQueuedDrafts, removeQueuedDraft } from "$lib/offline/draftQueue";
+  import { isOnline, initOnlineListener } from "$lib/offline/online";
 
   let sidebarWidth = $state(220);
   let listWidth = $state(380);
@@ -1630,6 +1633,23 @@ let sentFolderName = $state<string | null>(null);
     try {
       ownPhoto = await getOwnPhoto();
     } catch {}
+
+    // Offline support: listen for connectivity changes, sync queued drafts on reconnect
+    initOnlineListener();
+    window.addEventListener("online", async () => {
+      const drafts = await getQueuedDrafts();
+      for (const d of drafts) {
+        try {
+          await sendMessage(
+            d.accountId, d.to, d.subject, d.bodyText, d.bodyHtml,
+            d.inReplyTo, d.references, d.recipientEmail, d.cc, d.bcc,
+            d.attachments?.map(a => ({ filename: a.filename, content: a.content, contentType: a.content_type })),
+          );
+          if (d.id != null) await removeQueuedDraft(d.id);
+        } catch { /* keep in queue for next retry */ }
+      }
+      if (drafts.length > 0) loadInbox().catch(() => {});
+    });
   });
 
   async function loadInbox() {
@@ -1733,11 +1753,20 @@ let sentFolderName = $state<string | null>(null);
       const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
       mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: full.body_text, body_html: full.body_html });
+      cacheBody(selectedAccountId, selectedFolder, uid, {
+        body_text: full.body_text ?? "", body_html: full.body_html,
+        subject: full.subject, from: full.from, to: full.to, cc: full.cc,
+        date: full.date, flags: full.flags,
+      }).catch(() => {});
       loadingBodyUid = null;
       selectingUid = null;
       updateBadgeCount(selectedAccountId).catch(() => {});
     } catch (e: unknown) {
-      console.warn("handleSelectMessage fehlgeschlagen für uid", uid, e);
+      // Offline fallback: try IndexedDB cache
+      const cached = await getCachedBody(selectedAccountId, selectedFolder, uid);
+      if (cached) {
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true, body_text: cached.body_text, body_html: cached.body_html });
+      }
       loadingBodyUid = null;
       selectingUid = null;
     }
@@ -2093,6 +2122,25 @@ let sentFolderName = $state<string | null>(null);
     if (isSending) return;
     isSending = true;
     sendError = null;
+
+    // Offline: queue as local draft, will sync on reconnect
+    if (!navigator.onLine) {
+      await queueDraft({
+        accountId: selectedAccountId,
+        to: data.to.split(",").map((s) => s.trim()),
+        cc: data.cc ? data.cc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        bcc: data.bcc ? data.bcc.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+        subject: data.subject,
+        bodyText: data.body,
+        bodyHtml: data.bodyHtml,
+        attachments: data.attachments?.map(a => ({ filename: a.filename, content: a.content ?? "", content_type: a.contentType, size: Math.ceil((a.content ?? "").length * 0.75) })),
+      });
+      showCompose = false;
+      assistantCompose = null;
+      isSending = false;
+      return;
+    }
+
     try {
       // Resolve lazy forward-attachment content (metadata-only pills) before
       // building the SMTP payload. Per-attachment, folder-scoped.

@@ -2,6 +2,7 @@
   import "../styles/global.css";
   import { onMount } from "svelte";
   import { cacheInit } from "$lib/services/tauri";
+  import { isOnline } from "$lib/offline/online";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -21,6 +22,10 @@
     }
   });
 </script>
+
+{#if !loading && !error && !$isOnline}
+  <div class="offline-banner">Offline — gelesene Mails bleiben verfügbar</div>
+{/if}
 
 {#if error}
   <div class="fatal-error">
@@ -74,5 +79,20 @@
   @keyframes pulse {
     0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
     40% { opacity: 1; transform: scale(1); }
+  }
+
+  .offline-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    padding: 6px 16px;
+    background: #1a1a2e;
+    color: #f0c040;
+    font-size: 12px;
+    font-family: "Geist", sans-serif;
+    text-align: center;
+    border-bottom: 1px solid #2a2a3e;
   }
 </style>
