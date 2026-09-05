@@ -20,6 +20,7 @@ vi.mock("$lib/services/tauri", () => ({
   deleteMessageCmd: vi.fn(),
   moveMessageCmd: vi.fn(),
   getMoveToTrash: vi.fn().mockResolvedValue(true),
+  getOwnPhoto: vi.fn().mockResolvedValue(null),
   setMoveToTrash: vi.fn(),
   updateBadgeCount: vi.fn().mockResolvedValue(0),
   ping: vi.fn().mockResolvedValue("pong"),
