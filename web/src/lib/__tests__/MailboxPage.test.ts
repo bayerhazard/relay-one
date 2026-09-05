@@ -98,6 +98,7 @@ vi.mock("$lib/stores/mailbox", () => ({
       mailboxState.subscribers.forEach((cb) => cb(mailboxState.value));
     }),
     updateMessage: vi.fn(),
+    removeMessage: vi.fn(),
     setFolderId: vi.fn(),
     setLoading: vi.fn(),
     setError: vi.fn(),

@@ -215,6 +215,28 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         CREATE INDEX IF NOT EXISTS idx_delete_queue_state ON delete_queue(state);
         CREATE INDEX IF NOT EXISTS idx_delete_queue_account ON delete_queue(account_id);
 
+        -- Provider-op queue (local-first mutations): the API writes the
+        -- SQLite change, invalidates caches and returns immediately; this
+        -- queue replays the mutation on the IMAP provider in the background.
+        --   kind: 'flag' (STORE) | 'move' (COPY+STORE) | 'delete' (STORE \\Deleted)
+        --   state: pending → done | failed
+        CREATE TABLE IF NOT EXISTS provider_ops (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            uid INTEGER NOT NULL,
+            folder TEXT NOT NULL,
+            target_folder TEXT,
+            flag TEXT,
+            set_flag INTEGER NOT NULL DEFAULT 1,
+            state TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_ops_state ON provider_ops(state, account_id);
+
         -- Sync state per folder (CONDSTORE modseq + last UID) — Phase 4K
         CREATE TABLE IF NOT EXISTS sync_state (
             folder_id INTEGER PRIMARY KEY,
@@ -330,6 +352,9 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Migration: EML archive path (relative to data root) + content hash.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
+    // Migration: cached AI followup actions (JSON array of FollowupAction).
+    // Pre-generated for new INBOX mail; written on first open for the rest.
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN ai_followups TEXT", []);
     // Migration: attachment dedup storage path (relative to data root).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN disk_path TEXT", []);
     // Migration (Phase 2): stable per-message part index + content sha256.

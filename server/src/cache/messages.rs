@@ -819,6 +819,68 @@ pub fn update_body_by_id(
     Ok(())
 }
 
+/// Read the cached AI followup actions JSON for a message. Folder is resolved
+/// by name when given (uid is only unique per folder), else the lowest-id row.
+pub fn get_ai_followups(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_name: Option<&str>,
+) -> Result<Option<String>, rusqlite::Error> {
+    let sql = match folder_name {
+        Some(_) => "SELECT m.ai_followups FROM messages m \
+                    JOIN folders f ON m.folder_id = f.id \
+                    WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1",
+        None => "SELECT ai_followups FROM messages \
+                 WHERE account_id = ?1 AND uid = ?2 ORDER BY id ASC LIMIT 1",
+    };
+    let val: Option<String> = match folder_name {
+        Some(f) => conn.query_row(sql, params![account_id, uid, f], |r| r.get(0)).ok().flatten(),
+        None => conn.query_row(sql, params![account_id, uid], |r| r.get(0)).ok().flatten(),
+    };
+    Ok(val)
+}
+
+/// Store the AI followup actions JSON for a message (see get_ai_followups).
+pub fn set_ai_followups(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_name: Option<&str>,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    match folder_name {
+        Some(f) => conn.execute(
+            "UPDATE messages SET ai_followups = ?1, updated_at = datetime('now') \
+             WHERE account_id = ?2 AND uid = ?3 \
+               AND folder_id = (SELECT id FROM folders WHERE account_id = ?2 AND name = ?4)",
+            params![json, account_id, uid, f],
+        )?,
+        None => conn.execute(
+            "UPDATE messages SET ai_followups = ?1, updated_at = datetime('now') \
+             WHERE account_id = ?2 AND uid = ?3",
+            params![json, account_id, uid],
+        )?,
+    };
+    Ok(())
+}
+
+/// Store the AI followup actions JSON by folder id (background worker path).
+pub fn set_ai_followups_by_folder_id(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE messages SET ai_followups = ?1, updated_at = datetime('now') \
+         WHERE account_id = ?2 AND uid = ?3 AND folder_id = ?4",
+        params![json, account_id, uid, folder_id],
+    )?;
+    Ok(())
+}
+
 /// Update body + archive path (raw EML file location) for a message.
 pub fn update_body_with_raw(
     conn: &Connection,
@@ -1562,5 +1624,29 @@ mod tests {
             |r| r.get(0),
         ).unwrap();
         assert_eq!(auto_body, "Auto-Body", "Auto row must keep its body");
+    }
+
+    #[test]
+    fn test_ai_followups_cache_roundtrip() {
+        let conn = setup_db();
+        let acc = create_test_account(&conn);
+        let fid = conn.query_row(
+            "INSERT INTO folders (account_id, name) VALUES (?1, 'INBOX') RETURNING id",
+            params![acc], |r| r.get::<_, i64>(0)).unwrap();
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, date) VALUES (?1, ?2, 7, 'T', '2026-09-05')",
+            params![acc, fid]).unwrap();
+
+        assert_eq!(get_ai_followups(&conn, acc, 7, Some("INBOX")).unwrap(), None);
+        set_ai_followups(&conn, acc, 7, Some("INBOX"), "[{\"id\":\"fu-1\"}]").unwrap();
+        assert_eq!(
+            get_ai_followups(&conn, acc, 7, Some("INBOX")).unwrap().as_deref(),
+            Some("[{\"id\":\"fu-1\"}]")
+        );
+        // Wrong folder name must not hit the row.
+        assert_eq!(get_ai_followups(&conn, acc, 7, Some("Trash")).unwrap(), None);
+        // By folder id (worker path).
+        set_ai_followups_by_folder_id(&conn, acc, 7, fid, "[]").unwrap();
+        assert_eq!(get_ai_followups(&conn, acc, 7, None).unwrap().as_deref(), Some("[]"));
     }
 }

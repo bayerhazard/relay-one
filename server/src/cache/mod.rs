@@ -5,6 +5,7 @@ pub mod cal;
 pub mod contacts;
 pub mod db;
 pub mod delete_queue;
+pub mod provider_ops;
 pub mod fingerprint;
 pub mod learning;
 pub mod messages;

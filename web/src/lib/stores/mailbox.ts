@@ -280,6 +280,8 @@ function createMailboxStore() {
         updated[idx] = { ...updated[idx], ...changes };
         return { ...s, messages: updated };
       }),
+    removeMessage: (uid: number) =>
+      update((s) => ({ ...s, messages: s.messages.filter((m) => m.uid !== uid) })),
     setFolderId: (folderId: string) => update((s) => ({ ...s, folderId })),
     setLoading: (loading: boolean) => update((s) => ({ ...s, loading })),
     setError: (error: string | null) => update((s) => ({ ...s, error })),

@@ -1343,8 +1343,20 @@ export async function getFollowups(
   subject: string,
   from: string,
   body: string,
+  opts?: { accountId?: number; uid?: number; folder?: string },
 ): Promise<FollowupAction[]> {
-  return post<FollowupAction[]>("/ai/followups", { subject, from, body }, "Aufgaben konnten nicht generiert werden.");
+  return post<FollowupAction[]>(
+    "/ai/followups",
+    {
+      subject,
+      from,
+      body,
+      account_id: opts?.accountId ?? null,
+      uid: opts?.uid ?? null,
+      folder: opts?.folder ?? null,
+    },
+    "Aufgaben konnten nicht generiert werden.",
+  );
 }
 
 export interface CounterEmailResult {

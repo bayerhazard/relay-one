@@ -578,21 +578,9 @@ pub async fn move_message(
         return move_to_local_folder(&state, &req, uid, account_id_i64, uid_i64).await;
     }
 
-    // Step 1: Get IMAP client and ensure connected
-    let client = {
-        let guard = state.imap_clients.read();
-        guard
-            .get(&req.account_id)
-            .cloned()
-            .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?
-    };
-
-    if !client.is_connected().await {
-        client.connect().await.map_err(|e| ApiError(e.to_string()))?;
-    }
-
-    // Step 2: Update cache to target folder (use decoded name for cache)
-    //    Scoped to the source folder — uid is only unique per folder.
+    // Local-first: update the cache and return; the IMAP COPY+STORE is
+    // replayed by the provider-op worker. (Previously the browser waited on
+    // SELECT+COPY+STORE+EXPUNGE — seconds to minutes on large mailboxes.)
     with_db(&state, |conn| {
         cache::messages::update_folder_from(
             conn,
@@ -601,40 +589,18 @@ pub async fn move_message(
             &req.source_folder,
             &req.target_folder,
         )
+        .map_err(|e| e.to_string())?;
+        // Decoded names: the worker's ensure_selected() UTF-7-encodes once.
+        cache::provider_ops::enqueue_move(
+            conn,
+            account_id_i64,
+            uid_i64,
+            &req.source_folder,
+            &req.target_folder,
+        )
+        .map(|_| ())
         .map_err(|e| e.to_string())
     })?;
-
-    // Step 3: Attempt IMAP move (use raw IMAP-UTF7 names for server operations)
-    let imap_source = if req.raw_source_folder.is_empty() {
-        &req.source_folder
-    } else {
-        &req.raw_source_folder
-    };
-    let imap_target = if req.raw_target_folder.is_empty() {
-        &req.target_folder
-    } else {
-        &req.raw_target_folder
-    };
-    if let Err(e) = client.move_message(uid, imap_source, imap_target).await {
-        tracing::error!(
-            "move_message: account={}, uid={} — IMAP move failed: {}. Rolling back cache to folder '{}'.",
-            req.account_id, uid, e, req.source_folder
-        );
-        let _ = with_db(&state, |conn| {
-            cache::messages::update_folder_from(
-                conn,
-                account_id_i64,
-                uid_i64,
-                &req.target_folder,
-                &req.source_folder,
-            )
-            .map_err(|e| e.to_string())
-        });
-        return Err(ApiError(format!(
-            "Verschieben von '{}' nach '{}' fehlgeschlagen: {}",
-            req.source_folder, req.target_folder, e
-        )));
-    }
 
     // Bust both folder listings so the raised cache TTL never serves a list
     // that misses this move.
@@ -698,35 +664,23 @@ async fn move_to_local_folder(
         })
         .unwrap_or(false);
 
-    // 3. Provider copy: hard delete (EXPUNGE) only with guarantee, else soft.
-    let client = {
-        let guard = state.imap_clients.read();
-        guard
-            .get(&req.account_id)
-            .cloned()
-            .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?
-    };
-    if client.is_connected().await {
-        let imap_source = if req.raw_source_folder.is_empty() {
-            &req.source_folder
-        } else {
-            &req.raw_source_folder
-        };
-        let result = if eml_ok {
-            client.hard_delete_message(uid, imap_source).await
-        } else {
-            tracing::warn!(
-                "move_to_local: Verify-Garantie fehlt für uid {} (account {}) — weiches Löschen (Provider-Trash)",
-                uid, req.account_id
-            );
-            client.move_message(uid, imap_source, "Trash").await
-        };
-        if let Err(e) = result {
-            tracing::warn!(
-                "move_to_local: Provider-Kopie für uid {} konnte nicht entfernt werden: {}",
-                uid, e
-            );
-        }
+    // 3. Provider copy: queue removal (hard delete with guarantee, else soft
+    // move into provider Trash) — replayed by the provider-op worker.
+    {
+        let _ = with_db(&state, |conn| {
+            if eml_ok {
+                let _ = cache::provider_ops::enqueue_delete(conn, req.account_id as i64, uid as i64, &req.source_folder);
+            } else {
+                tracing::warn!(
+                    "move_to_local: Verify-Garantie fehlt für uid {} (account {}) — weiches Löschen (Provider-Trash)",
+                    uid, req.account_id
+                );
+                let _ = cache::provider_ops::enqueue_move(conn, req.account_id as i64, uid as i64, &req.source_folder, "Trash");
+            }
+            Ok::<_, String>(())
+        });
+        let mut cache = state.folder_cache.write();
+        cache.invalidate(req.account_id as i64, &req.source_folder);
     }
 
     tracing::info!(
@@ -1132,22 +1086,36 @@ pub async fn mark_as_read(
         cache::messages::mark_as_read_in_folder(conn, req.account_id as i64, uid as i64, folder_id)
             .map_err(|e| e.to_string())
     })?;
-    // Local-only folders (e.g. "Mama und Papa") don't exist on the IMAP server:
-    // skip the remote flag entirely — the DB update above is authoritative.
+    // Local-first: the DB update above is authoritative for the UI. The IMAP
+    // STORE is queued and replayed by the provider-op worker in the
+    // background, so opening/reading mail never waits on an IMAP round-trip.
+    // Local-only folders have no provider counterpart — nothing to queue.
     if !local_only {
-        let client = {
-            let guard = state.imap_clients.read();
-            guard.get(&req.account_id).cloned()
-        };
-        if let Some(client) = client {
-            client.mark_flag(uid, "\\Seen", true, folder_name.clone()).await.map_err(|e| ApiError(e.to_string()))?;
-        }
+        defer_flag_op(&state, req.account_id, uid, folder_name.as_deref(), "\\Seen", true);
     }
     state
         .folder_cache
         .write()
         .invalidate(req.account_id as i64, folder_name.as_deref().unwrap_or("INBOX"));
     Ok(Json(()))
+}
+
+/// Queue a flag mutation for background replay on the provider (best-effort:
+/// a queue failure must never fail the user's request).
+fn defer_flag_op(
+    state: &AppState,
+    account_id: u32,
+    uid: u32,
+    folder: Option<&str>,
+    flag: &str,
+    set: bool,
+) {
+    let folder = folder.unwrap_or("INBOX").to_string();
+    let _ = with_db(state, |conn| {
+        cache::provider_ops::enqueue_flag(conn, account_id as i64, uid as i64, &folder, flag, set)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
 }
 
 /// `POST /api/v1/messages/{uid}/unread` body: `{"account_id": N}`
@@ -1162,13 +1130,7 @@ pub async fn mark_as_unseen(
             .map_err(|e| e.to_string())
     })?;
     if !local_only {
-        let client = {
-            let guard = state.imap_clients.read();
-            guard.get(&req.account_id).cloned()
-        };
-        if let Some(client) = client {
-            client.mark_flag(uid, "\\Seen", false, folder_name.clone()).await.map_err(|e| ApiError(e.to_string()))?;
-        }
+        defer_flag_op(&state, req.account_id, uid, folder_name.as_deref(), "\\Seen", false);
     }
     state
         .folder_cache
@@ -1220,23 +1182,20 @@ async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> 
         Ok::<_, String>(())
     })?;
 
-    // Remote \Seen sync: run after the DB writes; the per-UID client call is
-    // cheap and failures are only logged (the DB state is authoritative).
+    // Remote \Seen sync is queued (local-first): one STORE per UID runs on
+    // the provider in the background; failures are retried by the worker.
     // Local-only folders (e.g. "Mama und Papa", archived Sent) don't exist on
-    // the IMAP server — skip the remote flag entirely, mirroring the singular
-    // handlers.
+    // the IMAP server — nothing to queue.
     if !local_only {
-        let client = {
-            let guard = state.imap_clients.read();
-            guard.get(&account_id).cloned()
-        };
-        if let Some(client) = client {
+        let folder = folder_name.clone().unwrap_or_else(|| "INBOX".to_string());
+        let _ = with_db(state, |conn| {
             for uid in &req.uids {
-                if let Err(e) = client.mark_flag(*uid, "\\Seen", read, Some(folder_name.clone().unwrap_or_else(|| "INBOX".to_string()))).await {
-                    tracing::warn!("batch_set_read: IMAP-Flag uid {} fehlgeschlagen: {}", uid, e);
-                }
+                let _ = cache::provider_ops::enqueue_flag(
+                    conn, account_id as i64, *uid as i64, &folder, "\\Seen", read,
+                );
             }
-        }
+            Ok::<_, String>(())
+        });
     }
     state
         .folder_cache
@@ -1279,17 +1238,12 @@ pub async fn flag_message(
         )
         .map_err(|e| e.to_string())
     })?;
-    // IMAP flag sync runs in a helper so the TLS session never crosses await
-    // points inside this handler.
-    let account_id = req.account_id;
-    let uid = req.uid;
-    let flagged = req.flagged;
-    let folder_name = req.folder_name.clone();
-    set_imap_flag(&state, account_id, uid, flagged, Some(&folder_name)).await;
+    // Local-first: queue the provider STORE (see defer_flag_op).
+    defer_flag_op(&state, req.account_id, req.uid, Some(&req.folder_name), "\\Flagged", req.flagged);
     state
         .folder_cache
         .write()
-        .invalidate(account_id as i64, &folder_name);
+        .invalidate(req.account_id as i64, &req.folder_name);
     Ok(Json(()))
 }
 
@@ -1319,25 +1273,6 @@ pub async fn set_urgent(
         .write()
         .invalidate(req.account_id as i64, &req.folder_name);
     Ok(Json(()))
-}
-
-async fn set_imap_flag(state: &AppState, account_id: u32, uid: u32, flagged: bool, source_folder: Option<&str>) {
-    let Some(client) = state.imap_clients.read().get(&account_id).cloned() else {
-        return;
-    };
-    if client.is_connected().await {
-        let (_folder_id, folder_name, local_only) = message_folder_info(state, account_id, uid, source_folder);
-        if local_only {
-            return;
-        }
-        // Folder-scoped mark: the IMAP session is shared with the sync
-        // scheduler and other API calls, so the flag must be set on the
-        // message's OWN folder — an unscoped mark_flag writes to whichever
-        // folder the session happens to have selected.
-        let _ = client
-            .mark_flag(uid, "\\Flagged", flagged, folder_name)
-            .await;
-    }
 }
 
 /// Resolve folder identity for a message. UID is only unique per folder, so
@@ -1738,41 +1673,21 @@ async fn delete_message_trash_mode(
         }
     };
 
-    // Step 2: Get IMAP client
-    let client = match state.imap_clients.read().get(&account_id).cloned() {
-        None => {
-            // No client: local fallback move into Trash, scoped to the
-            // source folder (uid is only unique per folder).
-            let _ = with_db(state, |conn| {
-                cache::messages::update_folder_from(conn, account_id_i64, uid_i64, &source_folder, "Trash")
-                    .map_err(|e| e.to_string())
-            });
-            return Ok(Json(()));
-        }
-        Some(c) => c,
-    };
-
-    // Step 3: Ensure IMAP connection
-    if !client.is_connected().await {
-        client
-            .connect()
-            .await
-            .map_err(|e| ApiError(format!("IMAP reconnect fehlgeschlagen: {}", e)))?;
-    }
-
-    // Step 4: Auto-create Trash folder if it doesn't exist
-    let _ = client.create_folder("Trash").await;
-
-    // Step 5: Move message to Trash on IMAP
-    if let Err(e) = client.move_message(uid, &source_folder, "Trash").await {
-        return Err(ApiError(format!("Verschieben in Papierkorb fehlgeschlagen: {}", e)));
-    }
-
-    // Step 6: Update folder in cache (scoped to the source folder)
+    // Local-first: move the index row into Trash and return; the provider
+    // COPY+STORE runs in the background (folder auto-creation included — see
+    // run_provider_ops). The browser never waits for IMAP again.
     with_db(state, |conn| {
         cache::messages::update_folder_from(conn, account_id_i64, uid_i64, &source_folder, "Trash")
+            .map_err(|e| e.to_string())?;
+        cache::provider_ops::enqueue_move(conn, account_id_i64, uid_i64, &source_folder, "Trash")
+            .map(|_| ())
             .map_err(|e| e.to_string())
     })?;
+    {
+        let mut cache = state.folder_cache.write();
+        cache.invalidate(account_id_i64, &source_folder);
+        cache.invalidate(account_id_i64, "Trash");
+    }
     Ok(Json(()))
 }
 

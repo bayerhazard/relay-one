@@ -22,7 +22,7 @@ describe("followups service", () => {
     expect(String(url)).toContain("/ai/followups");
     expect(opts?.method).toBe("POST");
     const body = JSON.parse(opts?.body as string);
-    expect(body).toEqual({ subject: "Q3-Budget", from: "chef@example.com", body: "bitte bis Freitag" });
+    expect(body).toEqual({ subject: "Q3-Budget", from: "chef@example.com", body: "bitte bis Freitag", account_id: null, uid: null, folder: null });
     expect(res).toHaveLength(1);
     expect(res[0].kind).toBe("task");
     expect(res[0].task?.summary).toBe("Antworten");

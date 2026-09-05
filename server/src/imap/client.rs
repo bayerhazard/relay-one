@@ -26,6 +26,17 @@ pub struct ImapTestOverrideInner {
 #[cfg(test)]
 pub type ImapTestOverride = std::sync::Arc<ImapTestOverrideInner>;
 
+/// Which physical connection an operation runs on. Background work (IDLE,
+/// folder sync, body prefetch, provider delete/move queue) uses `Sync`;
+/// user-facing API calls (read, move, delete, body fetch) use `User`.
+/// The split ensures a 20s IDLE wait or a slow provider-side EXPUNGE can
+/// never block the interactive request path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Slot {
+    User,
+    Sync,
+}
+
 pub struct ImapClient {
     host: String,
     port: u16,
@@ -35,6 +46,10 @@ pub struct ImapClient {
     insecure: bool,
     session: Arc<Mutex<Option<imap::Session<Connection>>>>,
     connected: Arc<Mutex<bool>>,
+    /// Second physical connection dedicated to background/sync work so the
+    /// user-facing `session` is never serialized behind IDLE or batch fetches.
+    sync_session: Arc<Mutex<Option<imap::Session<Connection>>>>,
+    sync_connected: Arc<Mutex<bool>>,
     operation_timeout: Duration,
     /// Serializes connect/reconnect so concurrent callers (sync scheduler
     /// flag_refresh / removal_check / health check + move API) never open
@@ -43,8 +58,10 @@ pub struct ImapClient {
     /// Serializes `with_session_blocking` operations per client so concurrent
     /// IMAP ops queue instead of racing (see connect_limit fix).
     op_lock: Arc<tokio::sync::Mutex<()>>,
+    sync_op_lock: Arc<tokio::sync::Mutex<()>>,
     /// Tracks the last SELECTed folder to skip redundant SELECT round-trips.
     current_folder: Arc<std::sync::Mutex<Option<String>>>,
+    sync_current_folder: Arc<std::sync::Mutex<Option<String>>>,
     #[cfg(test)]
     pub test_override: Option<ImapTestOverride>,
 }
@@ -77,38 +94,58 @@ impl ImapClient {
             insecure,
             session: Arc::new(Mutex::new(None)),
             connected: Arc::new(Mutex::new(false)),
+            sync_session: Arc::new(Mutex::new(None)),
+            sync_connected: Arc::new(Mutex::new(false)),
             operation_timeout: Duration::from_secs(60),
             connect_lock: Arc::new(tokio::sync::Mutex::new(())),
             op_lock: Arc::new(tokio::sync::Mutex::new(())),
+            sync_op_lock: Arc::new(tokio::sync::Mutex::new(())),
             current_folder: Arc::new(std::sync::Mutex::new(None)),
+            sync_current_folder: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             test_override: None,
         }
     }
 
     pub async fn connect(&self) -> Result<(), AppError> {
-        // Single-flight: only one physical connection per client at a time.
-        // Without this, concurrent callers (sync scheduler + move API) all see
-        // is_connected()==false and each open a new IMAP connection, blowing
-        // through the provider's per-user connection limit.
+        // Single-flight: only one connect pass per client at a time.
+        // Connects BOTH slots (user + sync). The sync slot is best-effort:
+        // if it fails the user slot still works and the next sync operation
+        // auto-reconnects it.
         let _guard = self.connect_lock.lock().await;
         // Double-checked: another task may have connected while we waited.
-        if *self.connected.lock().await {
-            return Ok(());
+        if !*self.connected.lock().await {
+            self.connect_inner(Slot::User).await?;
         }
-        self.connect_inner().await
+        if !*self.sync_connected.lock().await {
+            if let Err(e) = self.connect_inner(Slot::Sync).await {
+                tracing::warn!("IMAP sync-slot connect fehlgeschlagen (User-Slot ok): {}", e);
+            }
+        }
+        Ok(())
     }
 
-    /// Actually opens the TCP+TLS connection and logs in. Only called while
-    /// holding `connect_lock` (see `connect`).
-    async fn connect_inner(&self) -> Result<(), AppError> {
+    /// Connect a single slot while holding `connect_lock` (auto-reconnect
+    /// path from `with_slot_blocking`; the slot's op_lock is already held so
+    /// at most one reconnect per slot runs concurrently).
+    async fn reconnect_slot(&self, slot: Slot) -> Result<(), AppError> {
+        let _guard = self.connect_lock.lock().await;
+        self.connect_inner(slot).await
+    }
+
+    /// Actually opens the TCP+TLS connection and logs in for one slot. Only
+    /// called while holding `connect_lock` (see `connect`/`reconnect_slot`).
+    async fn connect_inner(&self, slot: Slot) -> Result<(), AppError> {
         #[cfg(test)]
         if let Some(ref o) = self.test_override {
             if o.fail_connect {
                 return Err(AppError::imap("simulierter Verbindungsfehler", "connect"));
             }
             *o.connect_count.lock().unwrap() += 1;
-            *self.connected.lock().await = true;
+            match slot {
+                Slot::User => *self.connected.lock().await = true,
+                Slot::Sync => *self.sync_connected.lock().await = true,
+            }
             return Ok(());
         }
         let host = self.host.clone();
@@ -152,8 +189,16 @@ impl ImapClient {
         .await
         .map_err(|_| AppError::imap("IMAP-Timeout nach 30s", "timeout"))??;
 
-        *self.session.lock().await = Some(session);
-        *self.connected.lock().await = true;
+        match slot {
+            Slot::User => {
+                *self.session.lock().await = Some(session);
+                *self.connected.lock().await = true;
+            }
+            Slot::Sync => {
+                *self.sync_session.lock().await = Some(session);
+                *self.sync_connected.lock().await = true;
+            }
+        }
         Ok(())
     }
 
@@ -167,7 +212,17 @@ impl ImapClient {
         .await
     }
 
-    pub async fn list_folders(&self) -> Result<Vec<(String, String, String, String)>, AppError> {        self.with_session_blocking("list_folders", |session| {
+    pub async fn list_folders(&self) -> Result<Vec<(String, String, String, String)>, AppError> {
+        self.list_folders_on(Slot::User).await
+    }
+
+    /// LIST on the sync connection (scheduler).
+    pub async fn list_folders_sync(&self) -> Result<Vec<(String, String, String, String)>, AppError> {
+        self.list_folders_on(Slot::Sync).await
+    }
+
+    async fn list_folders_on(&self, slot: Slot) -> Result<Vec<(String, String, String, String)>, AppError> {
+        self.with_slot_blocking(slot, "list_folders", |session| {
             let folders = session
                 .list(None, Some("*"))
                 .map_err(|e| AppError::imap(format!("IMAP list fehlgeschlagen: {}", e), "list_folders"))?;
@@ -207,8 +262,16 @@ impl ImapClient {
     }
 
     pub async fn select_folder(&self, folder: &str) -> Result<(), AppError> {
+        self.select_folder_on(Slot::User, folder).await
+    }
+
+    pub async fn select_folder_sync(&self, folder: &str) -> Result<(), AppError> {
+        self.select_folder_on(Slot::Sync, folder).await
+    }
+
+    async fn select_folder_on(&self, slot: Slot, folder: &str) -> Result<(), AppError> {
         let folder = encode_imap_utf7(folder);
-        self.with_session_blocking("select_folder", move |session| {
+        self.with_slot_blocking(slot, "select_folder", move |session| {
             session
                 .select(&folder)
                 .map_err(|e| AppError::imap(e.to_string(), "select_folder"))?;
@@ -222,7 +285,7 @@ impl ImapClient {
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        self.fetch_recent_impl(None, since_uid, limit).await
+        self.fetch_recent_impl(Slot::User, None, since_uid, limit).await
     }
 
     /// SELECT `folder` + fetch recent messages atomically under the session
@@ -236,21 +299,31 @@ impl ImapClient {
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        self.fetch_recent_impl(Some(folder), since_uid, limit).await
+        self.fetch_recent_impl(Slot::User, Some(folder), since_uid, limit).await
+    }
+
+    /// Folder-scoped fetch on the sync connection (scheduler).
+    pub async fn fetch_recent_in_folder_sync(
+        &self,
+        folder: &str,
+        since_uid: u32,
+        limit: u32,
+    ) -> Result<Vec<CachedMessage>, AppError> {
+        self.fetch_recent_impl(Slot::Sync, Some(folder), since_uid, limit).await
     }
 
     async fn fetch_recent_impl(
         &self,
+        slot: Slot,
         folder: Option<&str>,
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        let folder = folder.map(|f| encode_imap_utf7(f));
-        self.with_session_blocking("fetch_recent", move |session| {
+        let folder = folder.map(|f| f.to_string());
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "fetch_recent", move |session| {
         if let Some(f) = &folder {
-            session
-                .select(f)
-                .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+            ensure_selected(session, &tracker, f)?;
         }
         // Server-side UID filtering: only fetch UIDs newer than since_uid.
         // "UID {N}:*" means UIDs from N to the highest UID on the server.
@@ -422,11 +495,19 @@ impl ImapClient {
     /// lock). Avoids the race where another thread selects a different
     /// folder between our SELECT and UID SEARCH.
     pub async fn fetch_all_uids_in_folder(&self, folder: &str) -> Result<Vec<u32>, AppError> {
-        let folder = encode_imap_utf7(folder);
-        self.with_session_blocking("fetch_all_uids_in_folder", move |session| {
-            session
-                .select(&folder)
-                .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", folder, e), "fetch_all_uids_in_folder"))?;
+        self.fetch_all_uids_in_folder_on(Slot::User, folder).await
+    }
+
+    /// ALL-UIDs fetch on the sync connection (scheduler prune/removal check).
+    pub async fn fetch_all_uids_in_folder_sync(&self, folder: &str) -> Result<Vec<u32>, AppError> {
+        self.fetch_all_uids_in_folder_on(Slot::Sync, folder).await
+    }
+
+    async fn fetch_all_uids_in_folder_on(&self, slot: Slot, folder: &str) -> Result<Vec<u32>, AppError> {
+        let folder = folder.to_string();
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "fetch_all_uids_in_folder", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
             let uid_set = session
                 .uid_search("ALL")
                 .map_err(|e| AppError::imap(format!("IMAP uid_search ALL fehlgeschlagen: {}", e), "fetch_all_uids_in_folder"))?;
@@ -463,12 +544,28 @@ impl ImapClient {
         uid: u32,
         folder: Option<String>,
     ) -> Result<(String, Option<String>, Vec<u8>), AppError> {
-        let folder = folder.map(|f| encode_imap_utf7(&f));
-        self.with_session_blocking("fetch_body_with_raw", move |session| {
-            if let Some(f) = folder {
-                session
-                    .select(&f)
-                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+        self.fetch_body_with_raw_on(Slot::User, uid, folder).await
+    }
+
+    /// Body+raw fetch on the sync connection (scheduler body prefetch).
+    pub async fn fetch_body_with_raw_from_folder_sync(
+        &self,
+        uid: u32,
+        folder: Option<String>,
+    ) -> Result<(String, Option<String>, Vec<u8>), AppError> {
+        self.fetch_body_with_raw_on(Slot::Sync, uid, folder).await
+    }
+
+    async fn fetch_body_with_raw_on(
+        &self,
+        slot: Slot,
+        uid: u32,
+        folder: Option<String>,
+    ) -> Result<(String, Option<String>, Vec<u8>), AppError> {
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "fetch_body_with_raw", move |session| {
+            if let Some(f) = &folder {
+                ensure_selected(session, &tracker, f)?;
             }
 
             let msgs = session
@@ -493,18 +590,28 @@ impl ImapClient {
         uid: u32,
         folder: Option<String>,
     ) -> Result<(String, Option<String>), AppError> {
-        // Check if we need to SELECT (skip if already in the target folder).
-        let needs_select = {
-            let cur = self.current_folder.lock().unwrap();
-            cur.as_deref() != folder.as_deref()
-        };
-        let select_folder = if needs_select { folder.clone() } else { None };
+        self.fetch_body_from_folder_on(Slot::User, uid, folder).await
+    }
 
-        let result = self.with_session_blocking("fetch_body", move |session| {
-            if let Some(ref f) = select_folder {
-                session
-                    .select(f)
-                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+    /// Body-only fetch on the sync connection (scheduler backfill).
+    pub async fn fetch_body_from_folder_sync(
+        &self,
+        uid: u32,
+        folder: Option<String>,
+    ) -> Result<(String, Option<String>), AppError> {
+        self.fetch_body_from_folder_on(Slot::Sync, uid, folder).await
+    }
+
+    async fn fetch_body_from_folder_on(
+        &self,
+        slot: Slot,
+        uid: u32,
+        folder: Option<String>,
+    ) -> Result<(String, Option<String>), AppError> {
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "fetch_body", move |session| {
+            if let Some(ref f) = folder {
+                ensure_selected(session, &tracker, f)?;
             }
 
             // BODY.PEEK[TEXT] only fetches text/* parts (skips attachments, images).
@@ -520,15 +627,7 @@ impl ImapClient {
 
             Ok(parse_message_bodies(raw))
         })
-        .await;
-
-        // Update the tracked folder on success.
-        if result.is_ok() {
-            if let Some(f) = &folder {
-                *self.current_folder.lock().unwrap() = Some(f.clone());
-            }
-        }
-        result
+        .await
     }
 
     /// Fetch the complete raw RFC822 message (headers + all MIME parts),
@@ -579,13 +678,33 @@ impl ImapClient {
         set: bool,
         folder: Option<String>,
     ) -> Result<(), AppError> {
+        self.mark_flag_on(Slot::User, uid, flag, set, folder).await
+    }
+
+    /// STORE a flag on the sync connection (background workers).
+    pub async fn mark_flag_sync(
+        &self,
+        uid: u32,
+        flag: &str,
+        set: bool,
+        folder: Option<String>,
+    ) -> Result<(), AppError> {
+        self.mark_flag_on(Slot::Sync, uid, flag, set, folder).await
+    }
+
+    async fn mark_flag_on(
+        &self,
+        slot: Slot,
+        uid: u32,
+        flag: &str,
+        set: bool,
+        folder: Option<String>,
+    ) -> Result<(), AppError> {
         let flag = flag.to_string();
-        let folder = folder.map(|f| encode_imap_utf7(&f));
-        self.with_session_blocking("mark_flag", move |session| {
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "mark_flag", move |session| {
             if let Some(ref f) = folder {
-                session
-                    .select(f)
-                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "mark_flag"))?;
+                ensure_selected(session, &tracker, f)?;
             }
             let op = if set {
                 format!("+FLAGS ({})", flag)
@@ -607,8 +726,17 @@ impl ImapClient {
 
     /// Fetch FLAGS for a set of UIDs. Returns Vec<(uid, is_read, is_flagged)>.
     pub async fn fetch_flags(&self, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
+        self.fetch_flags_on(Slot::User, uid_set).await
+    }
+
+    /// FLAGS fetch on the sync connection (scheduler flag refresh).
+    pub async fn fetch_flags_sync(&self, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
+        self.fetch_flags_on(Slot::Sync, uid_set).await
+    }
+
+    async fn fetch_flags_on(&self, slot: Slot, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
         let uid_set = uid_set.to_string();
-        self.with_session_blocking("fetch_flags", move |session| {
+        self.with_slot_blocking(slot, "fetch_flags", move |session| {
             let messages = session
                 .uid_fetch(&uid_set, "(FLAGS)")
                 .map_err(|e| AppError::imap(format!("IMAP uid_fetch FLAGS fehlgeschlagen: {}", e), "fetch_flags"))?;
@@ -627,7 +755,20 @@ impl ImapClient {
     }
 
     pub async fn delete_message(&self, uid: u32, folder: &str) -> Result<(), AppError> {
-        let folder = encode_imap_utf7(folder);
+        self.delete_message_on(Slot::User, uid, folder).await
+    }
+
+    /// Soft-delete (STORE \Deleted) on the sync connection (background workers).
+    pub async fn delete_message_sync(&self, uid: u32, folder: &str) -> Result<(), AppError> {
+        self.delete_message_on(Slot::Sync, uid, folder).await
+    }
+
+    /// STORE \Deleted WITHOUT EXPUNGE. Expunging on every single operation is
+    /// brutally slow on large provider mailboxes (the server rewrites the
+    /// whole mailbox). The scheduler batches EXPUNGE per folder periodically
+    /// (see run_periodic_expunge).
+    async fn delete_message_on(&self, slot: Slot, uid: u32, folder: &str) -> Result<(), AppError> {
+        let folder = folder.to_string();
         #[cfg(test)]
         if let Some(ref o) = self.test_override {
             if o.fail_delete {
@@ -635,14 +776,30 @@ impl ImapClient {
             }
             return Ok(());
         }
-        let folder = folder.to_string();
-        self.with_session_blocking("delete_message", move |session| {
-            session
-                .select(&folder)
-                .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", folder, e), "select_folder"))?;
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "delete_message", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
             session
                 .uid_store(uid.to_string(), "+FLAGS (\\Deleted)")
                 .map_err(|e| AppError::imap(format!("STORE DELETED fehlgeschlagen: {}", e), "store_deleted"))?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Expunge all messages flagged \Deleted in `folder` (sync connection).
+    pub async fn expunge_folder_sync(&self, folder: &str) -> Result<(), AppError> {
+        let folder = folder.to_string();
+        #[cfg(test)]
+        if let Some(ref o) = self.test_override {
+            if o.fail_delete {
+                return Err(AppError::imap("simulierter Loeschfehler", "expunge_folder"));
+            }
+            return Ok(());
+        }
+        let tracker = self.tracker(Slot::Sync);
+        self.with_slot_blocking(Slot::Sync, "expunge_folder", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
             session
                 .expunge()
                 .map_err(|e| AppError::imap(format!("EXPUNGE fehlgeschlagen: {}", e), "expunge"))?;
@@ -651,10 +808,16 @@ impl ImapClient {
         .await
     }
 
-    /// Hard-delete a message on the provider (STORE \Deleted + EXPUNGE).
-    /// Only to be called after the local archive guarantee holds (F1).
+    /// Hard-delete a message on the provider (STORE \Deleted; EXPUNGE is
+    /// batched by the scheduler). Only to be called after the local archive
+    /// guarantee holds (F1).
     pub async fn hard_delete_message(&self, uid: u32, folder: &str) -> Result<(), AppError> {
         self.delete_message(uid, folder).await
+    }
+
+    /// Hard-delete on the sync connection (delete queue worker).
+    pub async fn hard_delete_message_sync(&self, uid: u32, folder: &str) -> Result<(), AppError> {
+        self.delete_message_sync(uid, folder).await
     }
 
     /// IMAP IDLE: wait up to `timeout` for a mailbox change in `folder`.
@@ -662,11 +825,10 @@ impl ImapClient {
     /// Falls back to false on any error (the caller then polls normally).
     /// The read timeout is restored afterwards so the session stays reusable.
     pub async fn idle_wait(&self, folder: &str, timeout: std::time::Duration) -> bool {
-        let folder = encode_imap_utf7(folder);
-        let result = self.with_session_blocking("idle_wait", move |session| {
-            session
-                .select(&folder)
-                .map_err(|e| AppError::imap(format!("IDLE select '{}': {}", folder, e), "select_folder"))?;
+        let folder = folder.to_string();
+        let tracker = self.tracker(Slot::Sync);
+        let result = self.with_sync_session_blocking("idle_wait", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
             let mut handle = session.idle();
             handle.timeout(timeout);
             let outcome = handle
@@ -679,17 +841,21 @@ impl ImapClient {
     }
 
     pub async fn move_message(&self, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
-        let source = encode_imap_utf7(source);
+        self.move_message_on(Slot::User, uid, source, target).await
+    }
+
+    /// Provider move on the sync connection (background workers).
+    pub async fn move_message_sync(&self, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
+        self.move_message_on(Slot::Sync, uid, source, target).await
+    }
+
+    /// COPY + STORE \Deleted (no per-op EXPUNGE — batched by the scheduler).
+    async fn move_message_on(&self, slot: Slot, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
+        let source = source.to_string();
         let target = encode_imap_utf7(target);
-        self.with_session_blocking("move_message", move |session| {
-            session
-                .select(&source)
-                .map_err(|e| {
-                    AppError::imap(
-                        format!("SELECT source '{}' fehlgeschlagen: {}", source, e),
-                        "select_folder",
-                    )
-                })?;
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "move_message", move |session| {
+            ensure_selected(session, &tracker, &source)?;
 
             // Try UID COPY first
             let copy_result = session.uid_copy(uid.to_string(), &target);
@@ -753,14 +919,6 @@ impl ImapClient {
                     AppError::imap(
                         format!("STORE DELETED in '{}' fehlgeschlagen: {}", source, e),
                         "store_deleted",
-                    )
-                })?;
-            session
-                .expunge()
-                .map_err(|e| {
-                    AppError::imap(
-                        format!("EXPUNGE in '{}' fehlgeschlagen: {}", source, e),
-                        "expunge",
                     )
                 })?;
             Ok(())
@@ -887,9 +1045,14 @@ impl ImapClient {
     }
 
     pub async fn shutdown(&self) {
-        let session_opt = self.session.lock().await.take();
+        let user = self.session.lock().await.take();
+        let sync = self.sync_session.lock().await.take();
         *self.connected.lock().await = false;
-        if let Some(session) = session_opt {
+        *self.sync_connected.lock().await = false;
+        if let Some(session) = user {
+            logout_session(session).await;
+        }
+        if let Some(session) = sync {
             logout_session(session).await;
         }
     }
@@ -902,12 +1065,34 @@ impl ImapClient {
         *self.connected.lock().await
     }
 
+    /// Whether the dedicated sync connection is up (scheduler health check).
+    pub async fn sync_is_connected(&self) -> bool {
+        #[cfg(test)]
+        if let Some(ref o) = self.test_override {
+            return o.is_connected;
+        }
+        *self.sync_connected.lock().await
+    }
+
     /// Check if the IMAP connection is still alive by sending a NOOP command.
     /// Returns `true` if the server responds within the timeout (5s).
     /// On failure (timeout, IO error, or not connected), marks the connection
     /// as disconnected and returns `false`.
     pub async fn ping(&self) -> bool {
-        let mut guard = self.session.lock().await;
+        self.ping_slot(Slot::User).await
+    }
+
+    /// NOOP health check on the sync connection.
+    pub async fn sync_ping(&self) -> bool {
+        self.ping_slot(Slot::Sync).await
+    }
+
+    async fn ping_slot(&self, slot: Slot) -> bool {
+        let (session_arc, connected_arc) = match slot {
+            Slot::User => (self.session.clone(), self.connected.clone()),
+            Slot::Sync => (self.sync_session.clone(), self.sync_connected.clone()),
+        };
+        let mut guard = session_arc.lock().await;
         let Some(mut session) = guard.take() else {
             return false;
         };
@@ -924,37 +1109,57 @@ impl ImapClient {
 
         match result {
             Ok(Ok((session, true))) => {
-                *self.session.lock().await = Some(session);
+                *session_arc.lock().await = Some(session);
                 true
             }
             Ok(Ok((_session, false))) => {
-                *self.connected.lock().await = false;
+                *connected_arc.lock().await = false;
                 false
             }
             Ok(Err(_)) => {
-                *self.connected.lock().await = false;
+                *connected_arc.lock().await = false;
                 false
             }
             Err(_) => {
-                *self.connected.lock().await = false;
+                *connected_arc.lock().await = false;
                 false
             }
         }
     }
 
     pub async fn reconnect(&self) -> Result<(), AppError> {
-        // Serialize with connect(): only one physical connection per client.
+        // Serialize with connect(): only one connect pass per client.
         let _guard = self.connect_lock.lock().await;
+        self.reconnect_slot_locked(Slot::User).await?;
+        if let Err(e) = self.reconnect_slot_locked(Slot::Sync).await {
+            tracing::warn!("IMAP sync-slot reconnect fehlgeschlagen (User-Slot ok): {}", e);
+        }
+        Ok(())
+    }
+
+    async fn reconnect_slot_locked(&self, slot: Slot) -> Result<(), AppError> {
         // Best-effort logout of the old session instead of dropping it — a
         // dropped session leaves the TCP connection open at the provider until
         // its timeout, accumulating connections until the per-user limit hits.
-        let old = self.session.lock().await.take();
-        *self.connected.lock().await = false;
-        *self.current_folder.lock().unwrap() = None;
+        let (session_arc, connected_arc, folder_arc) = match slot {
+            Slot::User => (
+                self.session.clone(),
+                self.connected.clone(),
+                self.current_folder.clone(),
+            ),
+            Slot::Sync => (
+                self.sync_session.clone(),
+                self.sync_connected.clone(),
+                self.sync_current_folder.clone(),
+            ),
+        };
+        let old = session_arc.lock().await.take();
+        *connected_arc.lock().await = false;
+        *folder_arc.lock().unwrap() = None;
         if let Some(session) = old {
             logout_session(session).await;
         }
-        self.connect_inner().await
+        self.connect_inner(slot).await
     }
 
     /// Runs a blocking IMAP session operation on a dedicated blocking thread,
@@ -972,6 +1177,20 @@ impl ImapClient {
     /// before proceeding, resetting the tag counter.
     /// On other errors or timeout the session is dropped and the client marked
     /// disconnected, so a half-broken session is never reused.
+    fn tracker(&self, slot: Slot) -> Arc<std::sync::Mutex<Option<String>>> {
+        match slot {
+            Slot::User => self.current_folder.clone(),
+            Slot::Sync => self.sync_current_folder.clone(),
+        }
+    }
+
+    fn session_arc(&self, slot: Slot) -> Arc<Mutex<Option<imap::Session<Connection>>>> {
+        match slot {
+            Slot::User => self.session.clone(),
+            Slot::Sync => self.sync_session.clone(),
+        }
+    }
+
     async fn with_session_blocking<T, F>(
         &self,
         op_name: &'static str,
@@ -981,11 +1200,52 @@ impl ImapClient {
         T: Send + 'static,
         F: FnOnce(&mut imap::Session<Connection>) -> Result<T, AppError> + Send + 'static,
     {
-        // Serialize IMAP operations per client so concurrent callers (sync
-        // scheduler + move API) queue instead of interleaving on one session
-        // and racing auto-reconnects (see connect_limit fix).
-        let _op_guard = self.op_lock.lock().await;
-        let mut guard = self.session.lock().await;
+        self.with_slot_blocking(Slot::User, op_name, f).await
+    }
+
+    /// Same as `with_session_blocking` but on the dedicated sync connection.
+    async fn with_sync_session_blocking<T, F>(
+        &self,
+        op_name: &'static str,
+        f: F,
+    ) -> Result<T, AppError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut imap::Session<Connection>) -> Result<T, AppError> + Send + 'static,
+    {
+        self.with_slot_blocking(Slot::Sync, op_name, f).await
+    }
+
+    async fn with_slot_blocking<T, F>(
+        &self,
+        slot: Slot,
+        op_name: &'static str,
+        f: F,
+    ) -> Result<T, AppError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut imap::Session<Connection>) -> Result<T, AppError> + Send + 'static,
+    {
+        // Serialize IMAP operations per slot so concurrent callers queue
+        // instead of interleaving on one session and racing auto-reconnects
+        // (see connect_limit fix). User and sync work on separate physical
+        // connections, so IDLE/sync never blocks the interactive path.
+        let (session_arc, connected_arc, op_lock_arc, folder_arc) = match slot {
+            Slot::User => (
+                self.session.clone(),
+                self.connected.clone(),
+                self.op_lock.clone(),
+                self.current_folder.clone(),
+            ),
+            Slot::Sync => (
+                self.sync_session.clone(),
+                self.sync_connected.clone(),
+                self.sync_op_lock.clone(),
+                self.sync_current_folder.clone(),
+            ),
+        };
+        let _op_guard = op_lock_arc.lock().await;
+        let mut guard = session_arc.lock().await;
         let mut session = match guard.take() {
             Some(s) => {
                 drop(guard);
@@ -993,9 +1253,9 @@ impl ImapClient {
             }
             None => {
                 drop(guard);
-                tracing::info!("IMAP Session fehlt, versuche Auto-Reconnect fuer '{}'", op_name);
-                self.connect().await?;
-                self.session.lock().await
+                tracing::info!("IMAP Session fehlt (slot {:?}), versuche Auto-Reconnect fuer '{}'", slot, op_name);
+                self.reconnect_slot(slot).await?;
+                session_arc.lock().await
                     .take()
                     .ok_or_else(|| AppError::imap("Auto-Reconnect fehlgeschlagen", op_name))?
             }
@@ -1015,7 +1275,7 @@ impl ImapClient {
             Ok(Ok((session, result))) => {
                 match result {
                     Ok(value) => {
-                        *self.session.lock().await = Some(session);
+                        *session_arc.lock().await = Some(session);
                         Ok(value)
                     }
                     Err(e) => {
@@ -1027,22 +1287,23 @@ impl ImapClient {
                             // Logout instead of dropping so the connection is
                             // closed at the provider (prevents connection leaks).
                             logout_session(session).await;
-                            *self.connected.lock().await = false;
+                            *connected_arc.lock().await = false;
+                            *folder_arc.lock().unwrap() = None;
                         } else {
-                            *self.session.lock().await = Some(session);
+                            *session_arc.lock().await = Some(session);
                         }
                         Err(e)
                     }
                 }
             }
             Ok(Err(join_err)) => {
-                *self.connected.lock().await = false;
+                *connected_arc.lock().await = false;
                 // The blocking closure returned a JoinError — the session was
                 // handed into it and is now unreachable. Log it out if it is
                 // still alive so the provider doesn't hold the connection open
                 // until its own timeout (per-user connection limit).
-                *self.current_folder.lock().unwrap() = None;
-                if let Some(s) = self.session.lock().await.take() {
+                *folder_arc.lock().unwrap() = None;
+                if let Some(s) = session_arc.lock().await.take() {
                     logout_session(s).await;
                 }
                 Err(AppError::imap(
@@ -1051,7 +1312,7 @@ impl ImapClient {
                 ))
             }
             Err(_) => {
-                *self.connected.lock().await = false;
+                *connected_arc.lock().await = false;
                 tracing::warn!(
                     "IMAP-Operation '{}' Zeitüberschreitung nach {}s — Session verworfen",
                     op_name,
@@ -1061,8 +1322,8 @@ impl ImapClient {
                 // async block and dropped there; the provider keeps the TCP
                 // connection until its timeout. Nothing we can recover here,
                 // but make sure no stale session object survives in the slot.
-                *self.current_folder.lock().unwrap() = None;
-                if let Some(s) = self.session.lock().await.take() {
+                *folder_arc.lock().unwrap() = None;
+                if let Some(s) = session_arc.lock().await.take() {
                     logout_session(s).await;
                 }
                 Err(AppError::imap(
@@ -1070,6 +1331,38 @@ impl ImapClient {
                     "timeout",
                 ))
             }
+        }
+    }
+}
+
+/// SELECT `folder` on the session unless the slot's tracker says it is
+/// already selected. Updates (or invalidates) the tracker around the SELECT.
+/// Folder names are UTF-7 encoded here; callers pass decoded names.
+fn ensure_selected(
+    session: &mut imap::Session<Connection>,
+    tracker: &std::sync::Mutex<Option<String>>,
+    folder: &str,
+) -> Result<(), AppError> {
+    let encoded = encode_imap_utf7(folder);
+    {
+        let cur = tracker.lock().unwrap();
+        if cur.as_deref() == Some(encoded.as_str()) {
+            return Ok(());
+        }
+    }
+    match session.select(&encoded) {
+        Ok(_) => {
+            *tracker.lock().unwrap() = Some(encoded);
+            Ok(())
+        }
+        Err(e) => {
+            // Unknown session state after a failed SELECT — force a fresh
+            // SELECT on the next operation instead of trusting the tracker.
+            *tracker.lock().unwrap() = None;
+            Err(AppError::imap(
+                format!("SELECT '{}' fehlgeschlagen: {}", encoded, e),
+                "select_folder",
+            ))
         }
     }
 }
@@ -1545,10 +1838,14 @@ mod tests {
                 insecure: client.insecure,
                 session: client.session.clone(),
                 connected: client.connected.clone(),
+                sync_session: client.sync_session.clone(),
+                sync_connected: client.sync_connected.clone(),
                 operation_timeout: client.operation_timeout,
                 connect_lock: client.connect_lock.clone(),
                 op_lock: client.op_lock.clone(),
+                sync_op_lock: client.sync_op_lock.clone(),
                 current_folder: client.current_folder.clone(),
+                sync_current_folder: client.sync_current_folder.clone(),
                 test_override: client.test_override.clone(),
             };
             handles.push(tokio::spawn(async move { c.connect().await }));
@@ -1556,8 +1853,11 @@ mod tests {
         for h in handles {
             h.await.unwrap().expect("connect sollte ok sein");
         }
-        assert_eq!(*ov.connect_count.lock().unwrap(), 1);
+        // Single-flight: 8 concurrent connect() calls open exactly one
+        // connection PER slot (user + sync), never one per caller.
+        assert_eq!(*ov.connect_count.lock().unwrap(), 2);
         assert!(client.is_connected().await);
+        assert!(client.sync_is_connected().await);
     }
 
     #[tokio::test]
@@ -1566,7 +1866,8 @@ mod tests {
         client.connect().await.expect("connect ok");
         client.connect().await.expect("zweiter connect ok (noop)");
         client.connect().await.expect("dritter connect ok (noop)");
-        assert_eq!(*ov.connect_count.lock().unwrap(), 1);
+        // First connect opens both slots (user + sync); repeats are no-ops.
+        assert_eq!(*ov.connect_count.lock().unwrap(), 2);
     }
 
     #[tokio::test]

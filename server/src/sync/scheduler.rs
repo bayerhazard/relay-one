@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Instant};
@@ -9,6 +9,46 @@ use crate::security::pii;
 use crate::security::priority;
 use crate::sync::queue::{SyncQueue, SyncTask, SyncTaskType};
 use crate::AppState;
+
+/// Folders that hold messages flagged \Deleted from queued provider ops and
+/// need a batched EXPUNGE. Per-op EXPUNGE was the single biggest latency
+/// killer on large mailboxes (provider rewrites the whole mailbox each time).
+static EXPUNGE_PENDING: OnceLock<std::sync::Mutex<HashSet<(u32, String)>>> = OnceLock::new();
+
+/// Register a folder for the next batched EXPUNGE flush.
+pub fn queue_expunge(account_id: u32, folder: &str) {
+    let reg = EXPUNGE_PENDING.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    reg.lock().unwrap().insert((account_id, folder.to_string()));
+}
+
+/// How often queued \Deleted flags are expunged per folder.
+const EXPUNGE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Drain the pending-expunge set and run one EXPUNGE per (account, folder).
+async fn run_periodic_expunge(state: &AppState) {
+    let reg = EXPUNGE_PENDING.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    let pending: Vec<(u32, String)> = {
+        let mut guard = reg.lock().unwrap();
+        if guard.is_empty() {
+            return;
+        }
+        guard.drain().collect()
+    };
+    for (account_id, folder) in pending {
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&account_id).cloned()
+        };
+        let Some(client) = client else { continue };
+        if let Err(e) = client.expunge_folder_sync(&folder).await {
+            tracing::warn!(
+                "periodic EXPUNGE in '{}' (account {}) fehlgeschlagen: {} — erneut im nächsten Flush",
+                folder, account_id, e
+            );
+            queue_expunge(account_id, &folder);
+        }
+    }
+}
 
 /// Interval between proactive IMAP connection health checks.
 /// Each client is pinged at most once per interval to detect stale connections.
@@ -78,6 +118,8 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
     let mut last_flag_refresh: Option<Instant> = None;
     // Track last dedup-store GC (runs on ATTACHMENT_GC_INTERVAL, daily).
     let mut last_attachment_gc: Option<Instant> = None;
+    // Track last batched provider EXPUNGE flush (runs on EXPUNGE_FLUSH_INTERVAL).
+    let mut last_expunge: Option<Instant> = None;
     // Smart sync: exponential backoff when no new mail arrives (20s → 40s → 80s → 160s → 300s).
     // Resets to base_interval as soon as any new message is found.
     let mut consecutive_empty: u32 = 0;
@@ -143,6 +185,17 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
                 }
                 // Delete-queue worker: verify → hard/soft provider delete.
                 run_delete_queue(&state).await;
+                // Provider-op queue: replay user read/move/delete mutations
+                // that the API deferred for an instant response.
+                run_provider_ops(&state).await;
+                // Batched EXPUNGE for \Deleted flags set by queued ops.
+                let expunge_due = last_expunge
+                    .map(|t| Instant::now().duration_since(t) >= EXPUNGE_FLUSH_INTERVAL)
+                    .unwrap_or(true);
+                if expunge_due {
+                    last_expunge = Some(Instant::now());
+                    run_periodic_expunge(&state).await;
+                }
                 // Local-trash retention (archive mode): remove local copies
                 // older than the per-account retention window.
                 run_trash_retention(&state);
@@ -257,7 +310,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
             }
         }
 
-        let folders = match client.list_folders().await {
+        let folders = match client.list_folders_sync().await {
             Ok(f) => f,
             Err(e) => {
                 tracing::warn!(
@@ -278,7 +331,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
             // UTF-7 internally. Passing raw_name (already UTF-7) would
             // double-encode (& → &-) and fail with "unknown folder".
 
-            if let Err(e) = client.select_folder(folder_name).await {
+            if let Err(e) = client.select_folder_sync(folder_name).await {
                 tracing::warn!(
                     "flag_refresh: select_folder '{}' fuer account {} fehlgeschlagen: {}",
                     folder_name, account_id, e
@@ -314,7 +367,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
             let mut batch_failed = false;
             for chunk in uid_list.chunks(500) {
                 let uid_set = chunk.join(",");
-                match client.fetch_flags(&uid_set).await {
+                match client.fetch_flags_sync(&uid_set).await {
                     Ok(f) => fetched.extend(f),
                     Err(e) => {
                         tracing::warn!(
@@ -542,7 +595,7 @@ async fn run_delete_queue(state: &AppState) {
         }
 
         let result = if ok {
-            client.hard_delete_message(row.uid as u32, &row.folder).await
+            client.hard_delete_message_sync(row.uid as u32, &row.folder).await
         } else {
             // Soft fallback: move into the PROVIDER trash folder (never the
             // local-only "Trash" — that name does not exist on the server).
@@ -554,7 +607,7 @@ async fn run_delete_queue(state: &AppState) {
                 row.id, row.uid, row.account_id, provider_trash.as_deref().unwrap_or("Trash")
             );
             match provider_trash {
-                Some(trash) => client.move_message(row.uid as u32, &row.folder, &trash).await,
+                Some(trash) => client.move_message_sync(row.uid as u32, &row.folder, &trash).await,
                 None => {
                     // No provider trash folder found: fall back to a hard
                     // delete ONLY when the message row still exists in the
@@ -563,7 +616,7 @@ async fn run_delete_queue(state: &AppState) {
                     // copy is gone anyway, so keeping the server copy does
                     // not help the user; the queue entry would otherwise
                     // retry forever).
-                    client.hard_delete_message(row.uid as u32, &row.folder).await
+                    client.hard_delete_message_sync(row.uid as u32, &row.folder).await
                 }
             }
         };
@@ -574,6 +627,9 @@ async fn run_delete_queue(state: &AppState) {
                 if let Some(conn) = db_guard.as_ref() {
                     let _ = crate::cache::delete_queue::mark_deleted(conn, row.id);
                 }
+                // \Deleted was just set on the source folder — batch the
+                // EXPUNGE instead of paying for one per delete.
+                queue_expunge(row.account_id as u32, &row.folder);
                 tracing::info!("delete_queue {}: Provider-Kopie entfernt (uid {})", row.id, row.uid);
             }
             Err(e) => {
@@ -587,13 +643,108 @@ async fn run_delete_queue(state: &AppState) {
     }
 }
 
+/// Drain the provider-op queue (local-first mutations deferred by the API).
+/// Runs on the USER connection slot: these are user-intent mutations and must
+/// never sit behind IDLE/batch-fetch work on the sync slot. Bounded per cycle
+/// so one account's backlog cannot starve the sync loop.
+async fn run_provider_ops(state: &AppState) {
+    const OPS_PER_CYCLE: i64 = 10;
+    let account_ids: Vec<u32> = {
+        let guard = state.imap_clients.read();
+        guard.keys().copied().collect()
+    };
+    for account_id in account_ids {
+        let rows = {
+            let db_guard = state.cache_db.lock();
+            let Some(conn) = db_guard.as_ref() else { continue };
+            match crate::cache::provider_ops::take_pending_for_account(conn, account_id as i64, OPS_PER_CYCLE) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("provider_ops: Liste fehlgeschlagen: {}", e);
+                    continue;
+                }
+            }
+        };
+        if rows.is_empty() {
+            continue;
+        }
+        let client = {
+            let guard = state.imap_clients.read();
+            guard.get(&account_id).cloned()
+        };
+        let Some(client) = client else { continue };
+        for op in rows {
+            let result = match op.kind.as_str() {
+                "flag" => match op.flag.as_deref() {
+                    Some(flag) => client
+                        .mark_flag(op.uid as u32, flag, op.set_flag, Some(op.folder.clone()))
+                        .await
+                        .map(|_| ()),
+                    None => Err(crate::error::AppError::imap("flag-Op ohne Flag", "provider_ops")),
+                },
+                "move" => match op.target_folder.as_deref() {
+                    Some(target) => {
+                        match client.move_message(op.uid as u32, &op.folder, target).await {
+                            Ok(()) => Ok(()),
+                            // The old sync path pre-created "Trash" before every
+                            // delete; do it lazily here: create + retry once.
+                            Err(e1) => {
+                                let _ = client.create_folder(target).await;
+                                client
+                                    .move_message(op.uid as u32, &op.folder, target)
+                                    .await
+                                    .map_err(|e2| {
+                                        crate::error::AppError::imap(
+                                            format!("{} (nach Ordner-Anlage: {})", e1, e2),
+                                            "move_retry",
+                                        )
+                                    })
+                            }
+                        }
+                    }
+                    None => Err(crate::error::AppError::imap("move-Op ohne Zielordner", "provider_ops")),
+                },
+                "delete" => client.delete_message(op.uid as u32, &op.folder).await,
+                other => {
+                    tracing::warn!("provider_ops {}: unbekannter Typ '{}'", op.id, other);
+                    let db_guard = state.cache_db.lock();
+                    if let Some(conn) = db_guard.as_ref() {
+                        let _ = crate::cache::provider_ops::mark_failed(conn, op.id, "unbekannter Typ");
+                    }
+                    continue;
+                }
+            };
+            let db_guard = state.cache_db.lock();
+            match result {
+                Ok(()) => {
+                    if let Some(conn) = db_guard.as_ref() {
+                        let _ = crate::cache::provider_ops::mark_done(conn, op.id);
+                    }
+                    if op.kind == "move" || op.kind == "delete" {
+                        queue_expunge(account_id, &op.folder);
+                    }
+                }
+                Err(e) => {
+                    if let Some(conn) = db_guard.as_ref() {
+                        let _ = crate::cache::provider_ops::mark_failed(conn, op.id, &e.to_string());
+                    }
+                    tracing::warn!(
+                        "provider_ops {} ({} uid {} in '{}') fehlgeschlagen: {}",
+                        op.id, op.kind, op.uid, op.folder, e
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Find the provider-side trash folder for an account. Returns the decoded
 /// folder name (as accepted by select_folder/move_message) or None when the
 /// server has no trash folder at all.
 async fn find_provider_trash_folder(
     client: &Arc<crate::imap::client::ImapClient>,
 ) -> Option<String> {
-    let folders = client.list_folders().await.ok()?;
+    let folders = client.list_folders_sync().await.ok()?;
     // Common trash names across providers, checked case-insensitively.
     const TRASH_ALIASES: [&str; 7] = [
         "trash", "gelöscht", "papierkorb", "deleted", "deleted items",
@@ -646,7 +797,7 @@ async fn run_removal_check(state: &AppState) {
             }
         }
 
-        let folders = match client.list_folders().await {
+        let folders = match client.list_folders_sync().await {
             Ok(f) => f,
             Err(e) => {
                 tracing::warn!(
@@ -663,7 +814,7 @@ async fn run_removal_check(state: &AppState) {
             }
             // Decoded name — select_folder() re-encodes to UTF-7 internally
             // (raw_name would be double-encoded → "unknown folder").
-            if let Err(e) = client.select_folder(folder_name).await {
+            if let Err(e) = client.select_folder_sync(folder_name).await {
                 tracing::warn!(
                     "removal_check: select_folder '{}' fuer account {} fehlgeschlagen: {}",
                     folder_name, account_id, e
@@ -675,7 +826,7 @@ async fn run_removal_check(state: &AppState) {
             // fetch_all_uids() would read whatever folder a parallel API
             // operation left selected on the shared session and prune the
             // wrong mailbox.
-            let server_uids = match client.fetch_all_uids_in_folder(folder_name).await {
+            let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
                 Ok(uids) => uids,
                 Err(e) => {
                     tracing::warn!(
@@ -759,7 +910,7 @@ fn calculate_wait_time(fail_count: u32, base_interval: Duration) -> Duration {
 
 async fn do_sync_cycle(
     state: &AppState,
-    queue: &SyncQueue,
+    queue: &Arc<SyncQueue>,
     _base_interval: Duration,
     last_health_checks: &mut HashMap<u32, Instant>,
     ai_tx: &mpsc::Sender<SyncTask>,
@@ -786,7 +937,7 @@ async fn do_sync_cycle(
             continue;
         }
 
-        let healthy = client.ping().await;
+        let healthy = client.ping().await && client.sync_ping().await;
         if healthy {
             tracing::debug!(
                 "IMAP health check OK fuer account {}",
@@ -812,24 +963,31 @@ async fn do_sync_cycle(
         }
     }
 
-    // ── Connection check + sync phase ───────────────────────────────────
-    for (account_id, client) in &imap_client_ids {
-        if !client.is_connected().await {
-            if let Err(e) = client.reconnect().await {
-                tracing::warn!("IMAP reconnect fuer account {} fehlgeschlagen: {}", account_id, e);
-                continue;
+    // ── Connection check + IDLE phase (parallel per account) ────────────
+    // IDLE blocks up to IDLE_TIMEOUT_SECS per account — running it in one
+    // sequential loop made every later account wait minutes behind the
+    // earlier ones. Spawn one waiter per account instead.
+    let mut idle_handles = Vec::new();
+    for (account_id, client) in imap_client_ids.clone() {
+        let queue = queue.clone();
+        idle_handles.push(tokio::spawn(async move {
+            if !client.is_connected().await {
+                if let Err(e) = client.reconnect().await {
+                    tracing::warn!("IMAP reconnect fuer account {} fehlgeschlagen: {}", account_id, e);
+                    return;
+                }
             }
-        }
 
-        // IDLE fast-path: wait up to IDLE_TIMEOUT for an INBOX change. On a
-        // mailbox change we enqueue FetchNew immediately (low latency); on
-        // timeout the regular poll below still runs (fallback).
-        let changed = client.idle_wait("INBOX", Duration::from_secs(IDLE_TIMEOUT_SECS)).await;
-        if changed {
-            tracing::debug!("IMAP IDLE: INBOX-Änderung für account {}", account_id);
+            // IDLE fast-path: wait up to IDLE_TIMEOUT for an INBOX change. On a
+            // mailbox change we enqueue FetchNew immediately (low latency); on
+            // timeout the regular poll below still runs (fallback).
+            let changed = client.idle_wait("INBOX", Duration::from_secs(IDLE_TIMEOUT_SECS)).await;
+            if changed {
+                tracing::debug!("IMAP IDLE: INBOX-Änderung für account {}", account_id);
+            }
             queue
                 .enqueue(SyncTask {
-                    account_id: *account_id,
+                    account_id,
                     task_type: SyncTaskType::FetchNew,
                     created_at: tokio::time::Instant::now(),
                     retries: 0,
@@ -837,19 +995,10 @@ async fn do_sync_cycle(
                     priority: 10,
                 })
                 .await;
-            continue;
-        }
-
-        queue
-            .enqueue(SyncTask {
-                account_id: *account_id,
-                task_type: SyncTaskType::FetchNew,
-                created_at: tokio::time::Instant::now(),
-                retries: 0,
-                max_retries: 3,
-                priority: 10,
-            })
-            .await;
+        }));
+    }
+    for h in idle_handles {
+        let _ = h.await;
     }
 
     // Enqueue background body pre-fetch (runs after FetchNew, before AI analysis)
@@ -953,7 +1102,7 @@ async fn process_sync_task(
                 client.reconnect().await.map_err(|e| e.to_string())?;
             }
 
-            let folders = client.list_folders().await.map_err(|e| e.to_string())?;
+            let folders = client.list_folders_sync().await.map_err(|e| e.to_string())?;
 
             let mut total_new: usize = 0;
             for (folder_name, _raw_name, _, tag) in &folders {
@@ -1022,7 +1171,7 @@ async fn process_sync_task(
                     }
                 };
 
-                if let Err(e) = client.select_folder(folder_name).await {
+                if let Err(e) = client.select_folder_sync(folder_name).await {
                     tracing::warn!(
                         "FetchNew: select_folder '{}' (account {}): {}",
                         folder_name, task.account_id, e
@@ -1030,7 +1179,7 @@ async fn process_sync_task(
                     continue;
                 }
 
-                let messages = match client.fetch_recent_in_folder(folder_name, max_uid as u32, 50).await {
+                let messages = match client.fetch_recent_in_folder_sync(folder_name, max_uid as u32, 50).await {
                     Ok(msgs) => msgs,
                     Err(e) => {
                         tracing::warn!(
@@ -1122,7 +1271,7 @@ async fn process_sync_task(
                 // a plain fetch_all_uids() would read whatever folder a parallel API operation
                 // (fetch_body/move/delete) left selected, pruning the WRONG folder (observed live:
                 // every new INBOX mail was deleted right after being saved).
-                let server_uids = match client.fetch_all_uids_in_folder(folder_name).await {
+                let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
                     Ok(uids) => uids,
                     Err(e) => {
                         tracing::warn!(
@@ -1196,7 +1345,7 @@ async fn process_sync_task(
                         // the session could be on a different mailbox (parallel
                         // API ops), making the UID lookup fail or read the
                         // wrong message.
-                        match client.fetch_body_with_raw_from_folder(msg.uid, Some(folder_name.to_string())).await {
+                        match client.fetch_body_with_raw_from_folder_sync(msg.uid, Some(folder_name.to_string())).await {
                             Ok((body_text, body_html, raw)) => {
                                 let raw_path = crate::cache::archive::write_eml(
                                     &state.data_root,
@@ -1386,7 +1535,7 @@ async fn process_sync_task(
 
             let mut backfilled = 0usize;
             for (uid, folder) in pending {
-                match client.fetch_body_with_raw_from_folder(uid, Some(folder.clone())).await {
+                match client.fetch_body_with_raw_from_folder_sync(uid, Some(folder.clone())).await {
                     Ok((_text, _html, raw)) => {
                         let (msg_id, date) = {
                             let db_guard = state.cache_db.lock();
@@ -1460,7 +1609,7 @@ async fn process_sync_task(
         }
         SyncTaskType::FetchBodies => {
             // Background: pre-fetch bodies for recently synced messages that
-            // don't have a cached body yet. Max 5 per cycle to stay bounded.
+            // don't have a cached body yet. 25 per cycle, all folders.
             let account_id = task.account_id;
             let client = {
                 let guard = state.imap_clients.read();
@@ -1473,7 +1622,7 @@ async fn process_sync_task(
                 client.reconnect().await.map_err(|e| e.to_string())?;
             }
 
-            // Find up to 5 messages without a body, most recent first.
+            // Find up to 25 messages without a body, most recent first.
             let pending: Vec<(i64, u32, String)> = {
                 let db_guard = state.cache_db.lock();
                 let conn = db_guard
@@ -1492,7 +1641,7 @@ async fn process_sync_task(
 
             let mut fetched = 0;
             for (msg_id, uid, folder) in &pending {
-                match client.fetch_body_from_folder(*uid, Some(folder.clone())).await {
+                match client.fetch_body_from_folder_sync(*uid, Some(folder.clone())).await {
                     Ok((body_text, body_html)) => {
                         let _ = {
                             let db_guard = state.cache_db.lock();
@@ -2164,6 +2313,47 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
                     );
                     let folder_name = resolve_folder_name(conn, account_id as i64, folder_id);
                     let _ = state.events.emit("ai-summary-updated", (uid, account_id, String::new(), Some(rule_priority), folder_name, Some(fraud.score)));
+                }
+            }
+        }
+    }
+    // Pre-generate followup actions for new INBOX mail so the browser footer
+    // shows them instantly (on-demand generation stays as fallback for other
+    // folders and is cached by the API handler).
+    let fid = folder_id.unwrap_or(-1);
+    let is_inbox = {
+        let db_guard = state.cache_db.lock();
+        db_guard
+            .as_ref()
+            .map(|conn| resolve_folder_name(conn, account_id as i64, folder_id).eq_ignore_ascii_case("INBOX"))
+            .unwrap_or(false)
+    };
+    if is_inbox {
+        let msg = {
+            let db_guard = state.cache_db.lock();
+            match db_guard.as_ref() {
+                Some(conn) => crate::cache::messages::fetch_message_body(conn, account_id as i64, uid as i64, folder_id).ok().flatten(),
+                None => None,
+            }
+        };
+        if let Some(m) = msg {
+            let body = m.body_text.unwrap_or_default();
+            if !body.trim().is_empty() {
+                let from = m.from_addr.unwrap_or_default();
+                let subject = m.subject.unwrap_or_default();
+                match crate::api::ai::generate_followups(state, &subject, &from, &body).await {
+                    Ok(actions) if !actions.is_empty() => {
+                        if let Ok(json) = serde_json::to_string(&actions) {
+                            let db_guard = state.cache_db.lock();
+                            if let Some(conn) = db_guard.as_ref() {
+                                let _ = crate::cache::messages::set_ai_followups_by_folder_id(
+                                    conn, account_id as i64, uid as i64, fid, &json,
+                                );
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::debug!("Followup-PreGen uid {} skipped: {:?}", uid, e),
                 }
             }
         }

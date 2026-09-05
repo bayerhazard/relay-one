@@ -140,7 +140,11 @@ import {
     followupsError = null;
     followups = [];
     const body = parsedContent.text || msg.body_preview || "";
-    getFollowups(msg.subject || "", msg.from || "", body)
+    getFollowups(msg.subject || "", msg.from || "", body, {
+      accountId: selectedAccountId,
+      uid,
+      folder: selectedFolder,
+    })
       .then((actions) => {
         if (followupsForUid !== uid) return;
         followupsCache.set(uid, actions);
@@ -1045,6 +1049,10 @@ let sentFolderName = $state<string | null>(null);
     }
     const rawSource = folderRawNames[selectedFolder] || selectedFolder;
     const rawTarget = folderRawNames[targetFolder] || targetFolder;
+    // Optimistic: drop the row from the visible list immediately; the server
+    // applies the local DB move synchronously and syncs the provider in the
+    // background, so a rollback is only ever cosmetic (loadFolder on error).
+    mailbox.removeMessage(uid);
     moveMessageCmd(selectedAccountId, uid, selectedFolder, targetFolder, rawSource, rawTarget)
       .then(() => {
         invalidateFolderCache(selectedAccountId, selectedFolder);
@@ -1054,6 +1062,7 @@ let sentFolderName = $state<string | null>(null);
       .catch((e) => {
         console.warn("Verschieben fehlgeschlagen", e);
         mailbox.setError(translate("mail.moveFailed") + (e instanceof Error ? e.message : String(e)));
+        loadFolder();
       });
   }
 
@@ -1748,7 +1757,7 @@ let sentFolderName = $state<string | null>(null);
     }
 
     try {
-      await markAsRead(selectedAccountId, uid, selectedFolder);
+      markAsRead(selectedAccountId, uid, selectedFolder).catch(() => {});
       if (lastClickedUid !== uid) return;
       const full = await fetchMessageBody(selectedAccountId, uid, selectedFolder);
       if (lastClickedUid !== uid) return;
@@ -2519,13 +2528,18 @@ let sentFolderName = $state<string | null>(null);
     pendingDeleteUids = [];
     showDeleteConfirm = false;
     try {
-      for (const uid of uids) {
-        try {
-          await deleteMessageCmd(selectedAccountId, uid, selectedFolder);
-        } catch (e) {
-          console.warn("Loeschen von uid", uid, "fehlgeschlagen", e);
-        }
-      }
+      // Optimistic + parallel: the server applies local deletes instantly and
+      // replays the provider moves in the background.
+      for (const uid of uids) mailbox.removeMessage(uid);
+      await Promise.all(
+        uids.map(async (uid) => {
+          try {
+            await deleteMessageCmd(selectedAccountId, uid, selectedFolder);
+          } catch (e) {
+            console.warn("Loeschen von uid", uid, "fehlgeschlagen", e);
+          }
+        }),
+      );
       invalidateFolderCache(selectedAccountId, selectedFolder);
       await loadFolder();
     } finally {
