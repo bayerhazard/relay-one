@@ -6,7 +6,9 @@ import {
     connectAccount, listAccounts, deleteAccount, updateAccountSettings,
     getMoveToTrash, setMoveToTrash,
     getCardDavSettings, setCardDavSettings, syncCardDav, getOwnPhoto, saveOwnPhoto,
-    getCalDavSettings, setCalDavSettings, syncCalDav,
+    syncCalDav,
+    listCalDavAccounts, createCalDavAccount, updateCalDavAccount, deleteCalDavAccount,
+    type CalDavAccount,
     getVoiceSettings, saveVoiceSettings,
     resetCircuitBreaker,
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache, clearAiSummaries,
@@ -103,7 +105,11 @@ import {
   let carddavSyncing = $state(false);
   let carddavSyncResult = $state<number | null>(null);
 
-  // ─── CalDAV State ───────────────────────────
+  // ─── CalDAV State (multi-account) ───────────
+  let caldavAccounts = $state<CalDavAccount[]>([]);
+  /** null = no form open; "new" = add; otherwise the account id being edited. */
+  let caldavEditingId = $state<string | null>(null);
+  let caldavName = $state("");
   let caldavUrl = $state("https://");
   let caldavUser = $state("");
   let caldavPass = $state("");
@@ -112,6 +118,8 @@ import {
   let caldavError = $state<string | null>(null);
   let caldavSyncing = $state(false);
   let caldavSyncResult = $state<number | null>(null);
+  let showDeleteCalDavConfirm = $state(false);
+  let pendingDeleteCalDavId = $state<string | null>(null);
   let ownPhoto = $state<{ data: string; type: string } | null>(null);
 
   // ─── Voice ───────────────────────────────────
@@ -232,16 +240,8 @@ import {
       }
     } catch (e) { console.warn("CardDAV settings load failed", e); }
 
-    // Load CalDAV settings
-    try {
-      const cs = await getCalDavSettings();
-      if (cs) {
-        caldavUrl = cs.url;
-        caldavUser = cs.username;
-        caldavPass = cs.password;
-        caldavInterval = cs.sync_interval_minutes;
-      }
-    } catch (e) { console.warn("CalDAV settings load failed", e); }
+    // Load CalDAV accounts
+    await loadCaldavAccounts();
 
     // Load own photo
     try {
@@ -468,18 +468,96 @@ async function handleSaveCardDav() {
     }
   }
 
+  async function loadCaldavAccounts() {
+    try {
+      caldavAccounts = await listCalDavAccounts();
+    } catch (e) {
+      console.warn("CalDAV accounts load failed", e);
+      caldavAccounts = [];
+    }
+  }
+
+  function caldavStartAdd() {
+    caldavEditingId = "new";
+    caldavName = "";
+    caldavUrl = "https://";
+    caldavUser = "";
+    caldavPass = "";
+    caldavInterval = 30;
+    caldavError = null;
+  }
+
+  function caldavStartEdit(a: CalDavAccount) {
+    caldavEditingId = a.id;
+    caldavName = a.name;
+    caldavUrl = a.url;
+    caldavUser = a.username;
+    caldavPass = "";
+    caldavInterval = a.sync_interval_minutes;
+    caldavError = null;
+  }
+
+  function caldavCancelEdit() {
+    caldavEditingId = null;
+    caldavError = null;
+  }
+
   async function handleSaveCalDav() {
     caldavError = null;
     caldavSaved = false;
     try {
-      await setCalDavSettings({
-        url: caldavUrl,
-        username: caldavUser,
-        password: caldavPass,
-        sync_interval_minutes: caldavInterval,
-      });
+      if (caldavEditingId && caldavEditingId !== "new") {
+        await updateCalDavAccount(caldavEditingId, {
+          name: caldavName,
+          url: caldavUrl,
+          username: caldavUser,
+          password: caldavPass || undefined,
+          sync_interval_minutes: caldavInterval,
+        });
+      } else {
+        await createCalDavAccount({
+          name: caldavName,
+          url: caldavUrl,
+          username: caldavUser,
+          password: caldavPass,
+          sync_interval_minutes: caldavInterval,
+        });
+      }
       caldavSaved = true;
       setTimeout(() => (caldavSaved = false), 2000);
+      caldavEditingId = null;
+      await loadCaldavAccounts();
+    } catch (e: unknown) {
+      caldavError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  function cancelDeleteCalDav() {
+    pendingDeleteCalDavId = null;
+    showDeleteCalDavConfirm = false;
+  }
+
+  async function doDeleteCalDav() {
+    const id = pendingDeleteCalDavId;
+    showDeleteCalDavConfirm = false;
+    pendingDeleteCalDavId = null;
+    if (!id) return;
+    try {
+      await deleteCalDavAccount(id);
+      if (caldavEditingId === id) caldavEditingId = null;
+      await loadCaldavAccounts();
+    } catch (e: unknown) {
+      caldavError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function handleToggleCalDav(a: CalDavAccount) {
+    try {
+      await updateCalDavAccount(a.id, {
+        name: a.name, url: a.url, username: a.username,
+        enabled: !a.enabled, sync_interval_minutes: a.sync_interval_minutes,
+      });
+      await loadCaldavAccounts();
     } catch (e: unknown) {
       caldavError = e instanceof Error ? e.message : String(e);
     }
@@ -1338,56 +1416,85 @@ async function handleSaveCardDav() {
           </div>
 
           <div class="card-body">
-            <div class="form-grid-1">
-              <div class="form-group">
-                <label for="caldav-url">{$t("settings.serverUrl")}</label>
-                <input id="caldav-url" type="url" bind:value={caldavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/calendars/username/" class="form-control" />
+            {#if caldavAccounts.length === 0 && caldavEditingId === null}
+              <p class="caldav-empty">{$t("settings.caldavNoAccounts")}</p>
+            {:else}
+              <div class="caldav-list">
+                {#each caldavAccounts as a (a.id)}
+                  <div class="caldav-row" class:caldav-row--disabled={!a.enabled}>
+                    <div class="caldav-row-main">
+                      <span class="caldav-row-name">{a.name || a.username}</span>
+                      <span class="caldav-row-meta">{a.url} · {$t("settings.syncIntervalShort", { count: a.sync_interval_minutes })}</span>
+                    </div>
+                    <div class="caldav-row-actions">
+                      <button type="button" class="caldav-toggle" class:caldav-toggle--on={a.enabled} onclick={() => handleToggleCalDav(a)} aria-pressed={a.enabled} title={$t("settings.caldavEnable")}></button>
+                      <button type="button" class="btn-cancel btn-sm" onclick={() => caldavStartEdit(a)}>{$t("settings.caldavEdit")}</button>
+                      <button type="button" class="btn-danger btn-sm" onclick={() => { pendingDeleteCalDavId = a.id; showDeleteCalDavConfirm = true; }}>{$t("settings.remove")}</button>
+                    </div>
+                  </div>
+                {/each}
               </div>
-            </div>
+            {/if}
 
-            <div class="form-grid-2">
-              <div class="form-group">
-                <label for="caldav-user">{$t("settings.usernameShort")}</label>
-                <input id="caldav-user" type="text" bind:value={caldavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
+            {#if caldavEditingId === null}
+              <div class="form-actions-row">
+                <button type="button" class="btn-submit" onclick={caldavStartAdd}>{$t("settings.caldavAdd")}</button>
+                <button type="button" class="btn-cancel" onclick={handleSyncCalDav} disabled={caldavSyncing}>
+                  {caldavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
+                </button>
               </div>
-              <div class="form-group">
-                <label for="caldav-pass">{$t("settings.passwordToken")}</label>
-                <input id="caldav-pass" type="password" bind:value={caldavPass} placeholder={$t("settings.passwordToken")} class="form-control" />
-              </div>
-            </div>
-
-            <div class="form-grid-1">
-              <div class="form-group">
-                <label for="caldav-interval">{$t("settings.syncInterval")}</label>
-                <div class="input-with-badge">
-                  <input id="caldav-interval" type="number" bind:value={caldavInterval} min="1" max="1440" class="form-control" />
-                  <span class="input-badge">{$t("settings.minutes")}</span>
+            {:else}
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="caldav-name">{$t("settings.caldavAccountName")}</label>
+                  <input id="caldav-name" type="text" bind:value={caldavName} placeholder={$t("settings.caldavAccountNamePlaceholder")} class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label for="caldav-interval">{$t("settings.syncInterval")}</label>
+                  <div class="input-with-badge">
+                    <input id="caldav-interval" type="number" bind:value={caldavInterval} min="1" max="1440" class="form-control" />
+                    <span class="input-badge">{$t("settings.minutes")}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {#if caldavError}
-              <div class="alert-box error">
-                <div class="alert-icon">⚠️</div>
-                <div class="alert-text">{caldavError}</div>
+              <div class="form-grid-1">
+                <div class="form-group">
+                  <label for="caldav-url">{$t("settings.serverUrl")}</label>
+                  <input id="caldav-url" type="url" bind:value={caldavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/calendars/username/" class="form-control" />
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="caldav-user">{$t("settings.usernameShort")}</label>
+                  <input id="caldav-user" type="text" bind:value={caldavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label for="caldav-pass">{$t("settings.passwordToken")}</label>
+                  <input id="caldav-pass" type="password" bind:value={caldavPass} placeholder={caldavEditingId !== "new" ? $t("settings.caldavPasswordKeep") : $t("settings.passwordToken")} class="form-control" />
+                </div>
+              </div>
+
+              {#if caldavError}
+                <div class="alert-box error">
+                  <div class="alert-icon">⚠️</div>
+                  <div class="alert-text">{caldavError}</div>
+                </div>
+              {/if}
+
+              {#if caldavSaved}
+                <div class="alert-box success">
+                  <div class="alert-icon">✓</div>
+                  <div class="alert-text">{$t("settings.caldavSaved")}</div>
+                </div>
+              {/if}
+
+              <div class="form-actions-row">
+                <button type="button" class="btn-cancel" onclick={caldavCancelEdit}>{$t("common.cancel")}</button>
+                <button type="button" class="btn-submit" onclick={handleSaveCalDav}>{$t("common.save")}</button>
               </div>
             {/if}
-
-            {#if caldavSaved}
-              <div class="alert-box success">
-                <div class="alert-icon">✓</div>
-                <div class="alert-text">{$t("settings.caldavSaved")}</div>
-              </div>
-            {/if}
-
-            <div class="form-actions-row">
-              <button type="button" class="btn-cancel" onclick={handleSyncCalDav} disabled={caldavSyncing}>
-                {caldavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
-              </button>
-              <button type="button" class="btn-submit" onclick={handleSaveCalDav}>
-                {$t("common.save")}
-              </button>
-            </div>
 
             {#if caldavSyncResult !== null}
               <div class="sync-success-pill">
@@ -1682,6 +1789,17 @@ async function handleSaveCardDav() {
   danger={true}
   onconfirm={confirmDeleteAccount}
   oncancel={cancelDeleteAccount}
+/>
+
+<ConfirmationDialog
+  open={showDeleteCalDavConfirm}
+  title={$t("settings.caldavDeleteTitle")}
+  message={$t("settings.caldavDeleteMessage")}
+  confirmLabel={$t("settings.remove")}
+  cancelLabel={$t("common.cancel")}
+  danger={true}
+  onconfirm={doDeleteCalDav}
+  oncancel={cancelDeleteCalDav}
 />
 
   <AssistantFab module="settings" />
@@ -2831,5 +2949,88 @@ async function handleSaveCardDav() {
     display: flex;
     flex-direction: row;
     gap: 8px;
+  }
+
+  /* ─── CalDAV multi-account list ─────────────── */
+  .caldav-empty {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    margin: 0 0 var(--am-raum-12);
+  }
+  .caldav-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--am-raum-8);
+    margin-bottom: var(--am-raum-16);
+  }
+  .caldav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--am-raum-12);
+    padding: var(--am-raum-12) var(--am-raum-16);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-list);
+  }
+  .caldav-row--disabled {
+    opacity: 0.55;
+  }
+  .caldav-row-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .caldav-row-name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .caldav-row-meta {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .caldav-row-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-8);
+    flex-shrink: 0;
+  }
+  .btn-sm {
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+  }
+  .caldav-toggle {
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--color-border);
+    background: var(--color-border);
+    position: relative;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease;
+  }
+  .caldav-toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-list);
+    transition: transform 0.15s ease;
+  }
+  .caldav-toggle--on {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .caldav-toggle--on::after {
+    transform: translateX(16px);
   }
 </style>

@@ -299,3 +299,49 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3)", () => {
     expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Mail-Link Kontextmenü (iframe link-contextmenu)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function dispatchLinkMenu(url: string) {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "link-contextmenu", url, x: 120, y: 140 },
+      }),
+    );
+  }
+
+  it("zeigt das eigene Menü mit beiden Einträgen bei sicherer URL", async () => {
+    await renderPageWithAccount();
+    dispatchLinkMenu("https://example.com/report");
+    await waitFor(() => {
+      expect(screen.getByText("Link öffnen")).toBeTruthy();
+    });
+    expect(screen.getByText("Link im Standardbrowser öffnen")).toBeTruthy();
+  });
+
+  it("zeigt KEIN Menü bei javascript:-URL (Phishing-Vektor)", async () => {
+    await renderPageWithAccount();
+    dispatchLinkMenu("javascript:alert(1)");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Link öffnen")).toBeNull();
+  });
+
+  it("öffnet den Link per window.open('_blank') und schließt das Menü", async () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal("open", openSpy);
+    await renderPageWithAccount();
+    dispatchLinkMenu("https://example.com/report");
+    await waitFor(() => {
+      expect(screen.getByText("Link öffnen")).toBeTruthy();
+    });
+    await fireEvent.click(screen.getByText("Link öffnen"));
+    expect(openSpy).toHaveBeenCalledWith("https://example.com/report", "_blank", "noopener");
+    await waitFor(() => {
+      expect(screen.queryByText("Link öffnen")).toBeNull();
+    });
+    vi.unstubAllGlobals();
+  });
+});

@@ -6,28 +6,17 @@ use serde::Deserialize;
 
 use crate::api::ApiError;
 use crate::cache::{self, todo::TodoRow};
-use crate::dav::{CalDavClient, CalDavSettings};
+use crate::dav::CalDavClient;
 use crate::db::with_db;
 use crate::AppState;
 
 use super::ApiResult;
 
-/// Build a CalDAV client from in-memory settings, falling back to the DB.
+/// Build a CalDAV client from the first configured account (VTODOs live in
+/// the primary calendar account).
 fn caldav_client(state: &AppState) -> Result<CalDavClient, ApiError> {
-    if let Some(settings) = state.caldav_settings.read().clone() {
-        return Ok(CalDavClient::new(settings));
-    }
-    let json = with_db(state, |conn| {
-        cache::settings::get_setting(conn, "caldav_settings").map_err(|e| e.to_string())
-    })?;
-    match json {
-        Some(raw) => {
-            let mut settings: CalDavSettings =
-                serde_json::from_str(&raw).map_err(|e| ApiError(format!("CalDAV parse: {e}")))?;
-            settings.password =
-                crate::crypto::decrypt(&settings.password).unwrap_or(settings.password);
-            Ok(CalDavClient::new(settings))
-        }
+    match state.caldav_accounts.read().first().cloned() {
+        Some(settings) => Ok(CalDavClient::new(settings)),
         None => Err(ApiError(
             "Kein CalDAV-Server konfiguriert — bitte zuerst im Settings-Tab verbinden.".to_string(),
         )),

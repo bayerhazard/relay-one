@@ -17,15 +17,30 @@ use super::reqwest_digest_auth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CalDavSettings {
+    /// Stable account id ("default" for the legacy single-account config).
+    #[serde(default)]
+    pub id: String,
+    /// Display name shown in the settings account list.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     pub url: String,
     pub username: String,
     pub password: String,
     pub sync_interval_minutes: u64,
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 impl Default for CalDavSettings {
     fn default() -> Self {
         Self {
+            id: "default".into(),
+            name: "Standard".into(),
+            enabled: true,
             url: String::new(),
             username: String::new(),
             password: String::new(),
@@ -439,6 +454,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            ..Default::default()
         });
         let calendars = client.discover_calendars().await.unwrap();
         println!("Calendars: {calendars:?}");

@@ -88,6 +88,22 @@ import {
         // aus (sandboxed) Mail-HTML. (M2, Code-Review 2026-08-28)
         if (isSafeOpenUrl(data.url)) window.open(data.url, "_blank");
       }
+      if (
+        data && typeof data === 'object' && data.type === 'link-contextmenu' &&
+        typeof data.url === 'string' && typeof data.x === 'number' && typeof data.y === 'number'
+      ) {
+        if (!isSafeOpenUrl(data.url)) return;
+        // iframe-Viewport-Koordinaten → Seitenkoordinaten
+        const frame = document.querySelector(".mail-iframe") as HTMLIFrameElement | null;
+        const rect = frame?.getBoundingClientRect();
+        const pos = clampMenuPosition(
+          (rect?.left ?? 0) + data.x,
+          (rect?.top ?? 0) + data.y,
+          260,
+          96,
+        );
+        linkMenu = { url: data.url, x: pos.x, y: pos.y };
+      }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
@@ -680,13 +696,36 @@ let sentFolderName = $state<string | null>(null);
 
   // ─── Plain HTML context menus (replaces the Tauri native menus) ────────
   let folderCtxMenu = $state<{ x: number; y: number; folderName: string } | null>(null);
-  interface MoveTarget { name: string; label: string; accountId: number; }
+  interface MoveTarget { name: string; label: string; accountId: number; depth?: number; full?: string; }
   interface MoveSection { header: string | null; items: MoveTarget[]; }
   let moveMenu = $state<{ x: number; y: number; sections: MoveSection[] } | null>(null);
+
+  // Eigenes Kontextmenü für Rechtsklick/Long-Press auf Links im Mail-iframe
+  // (das native Menü schlägt dort fehl: "Link öffnen" navigiert das Sandbox-Frame).
+  let linkMenu = $state<{ url: string; x: number; y: number } | null>(null);
+
+  function openLinkInTab() {
+    if (!linkMenu) return;
+    window.open(linkMenu.url, "_blank", "noopener");
+    linkMenu = null;
+  }
+
+  function openLinkInBrowser() {
+    if (!linkMenu) return;
+    // popup-Fenster: in der installierten PWA öffnet der Browser damit den
+    // System-Standardbrowser (man verlässt Relay); im Tab ein echtes Neues Fenster.
+    window.open(linkMenu.url, "_blank", "popup=yes,width=1100,height=800");
+    linkMenu = null;
+  }
+
+  function closeLinkMenu() {
+    linkMenu = null;
+  }
 
   function closeMenus() {
     folderCtxMenu = null;
     moveMenu = null;
+    linkMenu = null;
   }
 
   // Close any open context menu when the window loses focus.
@@ -775,14 +814,11 @@ let sentFolderName = $state<string | null>(null);
   // The button-triggered "move selected to folder" menu (replaces the Tauri
   // menu). Targets are grouped by account: the current account first (no
   // header), then every other account under its name — enabling cross-account
-  // moves for single mails and multi-selections alike.
+  // moves for single mails and multi-selections alike. Nested folders appear
+  // in tree order, indented, with the leaf name as label (full path in title)
+  // so a deep Yahoo structure stays readable.
   function buildMoveSections(): MoveSection[] {
     const sections: MoveSection[] = [];
-    const item = (accountId: number, name: string): MoveTarget => ({
-      name,
-      accountId,
-      label: customFolderNames[name] || translate(translateFolder(name)),
-    });
     // Known folders of an account: live per-account state, falling back to
     // the localStorage folder cache; INBOX is always available.
     const foldersOf = (accountId: number): string[] => {
@@ -796,14 +832,36 @@ let sentFolderName = $state<string | null>(null);
       } catch { /* ignore */ }
       return ["INBOX"];
     };
-    const own = foldersOf(selectedAccountId)
-      .filter((name) => name !== selectedFolder)
-      .map((name) => item(selectedAccountId, name));
+    const itemsOf = (accountId: number): MoveTarget[] => {
+      let names = foldersOf(accountId);
+      const out: MoveTarget[] = [];
+      // INBOX is excluded from the tree (sidebar renders it as fixed row) —
+      // it must still be a move target. Use the account's own alias name.
+      const inboxName = names.find((n) => isInboxAlias(n)) ?? "INBOX";
+      if (!names.includes(inboxName)) names = [...names, inboxName];
+      out.push({
+        name: inboxName,
+        accountId,
+        label: customFolderNames[inboxName] || translate(translateFolder("INBOX")),
+        depth: 0,
+        full: inboxName,
+      });
+      const tree = buildFolderTree(names, getAccountFolders(accountId).delim);
+      const walk = (nodes: FolderNode[], depth: number) => {
+        for (const n of nodes) {
+          out.push({ name: n.name, accountId, label: n.label || n.name, depth, full: n.name });
+          walk(n.children, depth + 1);
+        }
+      };
+      walk(tree.children, 1);
+      return out;
+    };
+    const own = itemsOf(selectedAccountId).filter((t) => t.name !== selectedFolder);
     if (own.length > 0) sections.push({ header: null, items: own });
     for (const acct of accountList) {
       if (acct.id === selectedAccountId) continue;
       if (!acct.connected) continue;
-      sections.push({ header: acct.name, items: foldersOf(acct.id).map((name) => item(acct.id, name)) });
+      sections.push({ header: acct.name, items: itemsOf(acct.id) });
     }
     return sections;
   }
@@ -1256,8 +1314,16 @@ let sentFolderName = $state<string | null>(null);
       ? '<' + 'script>function loadImage(el){var u=el.dataset.src;var d=document.createElement(\'img\');d.src=u;d.style.maxWidth=\'100%\';d.style.height=\'auto\';el.replaceWith(d);}</' + 'script>'
       : '';
 
-    // Inject link-click handler to open URLs in system browser
-    const linkScript = '<' + 'script>document.addEventListener(\'click\',function(e){var t=e.target;while(t&&t.nodeName!==\'A\'){t=t.parentElement}if(t&&t.href&&t.hostname){e.preventDefault();parent.postMessage({type:\'open-url\',url:t.href},\'*\')}});</' + 'script>';
+    // Inject link handlers: left-click opens via the parent (system browser);
+    // right-click/long-press suppresses the broken native menu (its "Link
+    // öffnen" navigates this sandboxed frame and dies on X-Frame-Options) and
+    // asks the parent to show Relay's own link menu.
+    const linkScript =
+      '<' + 'script>' +
+      'function findA(t){while(t&&t.nodeName!==\'A\'){t=t.parentElement}return t&&t.href&&t.hostname?t:null}' +
+      'document.addEventListener(\'click\',function(e){var a=findA(e.target);if(a){e.preventDefault();parent.postMessage({type:\'open-url\',url:a.href},\'*\')}});' +
+      'document.addEventListener(\'contextmenu\',function(e){var a=findA(e.target);if(a){e.preventDefault();parent.postMessage({type:\'link-contextmenu\',url:a.href,x:e.clientX,y:e.clientY},\'*\')}});' +
+      '</' + 'script>';
 
     if (!isPlain && processed.includes("<head>")) {
       return processed.replace("<head>", `<head>${baseStyle}${loadScript}${linkScript}`);
@@ -2045,7 +2111,7 @@ let sentFolderName = $state<string | null>(null);
   function handleKeydown(e: KeyboardEvent) {
     // Escape: close context menus, compose or confirmation dialog, or clear multi-selection
     if (e.key === "Escape") {
-      if (folderCtxMenu || moveMenu) {
+      if (folderCtxMenu || moveMenu || linkMenu) {
         closeMenus();
         return;
       }
@@ -3117,6 +3183,8 @@ let sentFolderName = $state<string | null>(null);
             type="button"
             class="ctx-menu-item"
             role="menuitem"
+            title={target.full ?? target.name}
+            style={target.depth ? `padding-left: calc(var(--am-raum-12) + ${target.depth} * var(--am-raum-16));` : ""}
             onclick={() => {
               const uids = [...$mailbox.selectedUids];
               const name = target.name;
@@ -3127,6 +3195,14 @@ let sentFolderName = $state<string | null>(null);
           >{target.label ?? target.name}</button>
         {/each}
       {/each}
+    </div>
+  {/if}
+
+  {#if linkMenu}
+    <div class="ctx-menu-scrim" role="presentation" onclick={closeLinkMenu} oncontextmenu={(e) => e.preventDefault()}></div>
+    <div class="ctx-menu" style={`left: ${linkMenu.x}px; top: ${linkMenu.y}px;`} role="menu">
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInTab}>{$t("mail.linkOpen")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInBrowser}>{$t("mail.linkOpenBrowser")}</button>
     </div>
   {/if}
 
@@ -4310,27 +4386,28 @@ let sentFolderName = $state<string | null>(null);
     position: fixed;
     z-index: 1001;
     min-width: 200px;
-    max-width: 280px;
-    max-height: 420px;
+    max-width: 320px;
+    max-height: min(70vh, 560px);
     overflow-y: auto;
     background: var(--color-list);
     border: 1px solid var(--color-border);
     border-radius: 8px;
     box-shadow: none;
-    padding: 6px;
+    padding: var(--am-raum-8);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--am-raum-4);
   }
   .ctx-menu-item {
     display: block;
     width: 100%;
     text-align: left;
-    padding: 6px 12px;
+    padding: var(--am-raum-8) var(--am-raum-12);
     border: none;
     background: none;
     border-radius: 6px;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
     color: var(--color-text);
     cursor: pointer;
     font-family: inherit;

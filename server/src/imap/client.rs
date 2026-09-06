@@ -1184,13 +1184,6 @@ impl ImapClient {
         }
     }
 
-    fn session_arc(&self, slot: Slot) -> Arc<Mutex<Option<imap::Session<Connection>>>> {
-        match slot {
-            Slot::User => self.session.clone(),
-            Slot::Sync => self.sync_session.clone(),
-        }
-    }
-
     async fn with_session_blocking<T, F>(
         &self,
         op_name: &'static str,

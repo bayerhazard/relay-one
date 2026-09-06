@@ -802,6 +802,27 @@ export interface CalDavSettings {
   sync_interval_minutes: number;
 }
 
+export interface CalDavAccount {
+  id: string;
+  name: string;
+  url: string;
+  username: string;
+  enabled: boolean;
+  sync_interval_minutes: number;
+  has_password: boolean;
+}
+
+export interface CalDavAccountInput {
+  id?: string;
+  name?: string;
+  url: string;
+  username: string;
+  /** Empty keeps the stored password on update. */
+  password?: string;
+  enabled?: boolean;
+  sync_interval_minutes?: number;
+}
+
 export interface CalendarInfo {
   id: number;
   name: string | null;
@@ -848,6 +869,25 @@ export async function getCalDavSettings(): Promise<CalDavSettings | null> {
 export async function setCalDavSettings(settings: CalDavSettings): Promise<void> {
   return post("/calendars/settings", settings,
     "Die CalDAV-Einstellungen konnten nicht gespeichert werden.");
+}
+
+export async function listCalDavAccounts(): Promise<CalDavAccount[]> {
+  return get("/calendars/caldav-accounts", "Die CalDAV-Konten konnten nicht geladen werden.");
+}
+
+export async function createCalDavAccount(account: CalDavAccountInput): Promise<void> {
+  return post("/calendars/caldav-accounts", account,
+    "Das CalDAV-Konto konnte nicht angelegt werden.");
+}
+
+export async function updateCalDavAccount(id: string, account: CalDavAccountInput): Promise<void> {
+  return put(`/calendars/caldav-accounts/${id}`, account,
+    "Das CalDAV-Konto konnte nicht aktualisiert werden.");
+}
+
+export async function deleteCalDavAccount(id: string): Promise<void> {
+  return del(`/calendars/caldav-accounts/${id}`,
+    "Das CalDAV-Konto konnte nicht gelöscht werden.");
 }
 
 export async function syncCalDav(): Promise<number> {

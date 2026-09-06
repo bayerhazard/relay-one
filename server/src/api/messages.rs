@@ -605,7 +605,7 @@ pub async fn move_message(
     // Bust both folder listings so the raised cache TTL never serves a list
     // that misses this move.
     {
-        let mut cache = state.folder_cache.write();
+        let cache = state.folder_cache.write();
         cache.invalidate(account_id_i64, &req.source_folder);
         cache.invalidate(account_id_i64, &req.target_folder);
     }
@@ -679,7 +679,7 @@ async fn move_to_local_folder(
             }
             Ok::<_, String>(())
         });
-        let mut cache = state.folder_cache.write();
+        let cache = state.folder_cache.write();
         cache.invalidate(req.account_id as i64, &req.source_folder);
     }
 
@@ -688,7 +688,7 @@ async fn move_to_local_folder(
         uid, req.account_id, req.target_folder, eml_ok
     );
     {
-        let mut cache = state.folder_cache.write();
+        let cache = state.folder_cache.write();
         cache.invalidate(account_id_i64, &req.source_folder);
         cache.invalidate(account_id_i64, &req.target_folder);
     }
@@ -1482,7 +1482,7 @@ pub async fn move_cross_account(
         .map_err(|e: String| ApiError(e))?;
 
         {
-            let mut cache = state.folder_cache.write();
+            let cache = state.folder_cache.write();
             cache.invalidate(req.account_id as i64, &req.source_folder);
             cache.invalidate(req.target_account_id as i64, &req.target_folder);
         }
@@ -1536,7 +1536,7 @@ pub async fn move_cross_account(
     })?;
 
     {
-        let mut cache = state.folder_cache.write();
+        let cache = state.folder_cache.write();
         cache.invalidate(req.account_id as i64, &req.source_folder);
         cache.invalidate(req.target_account_id as i64, &req.target_folder);
     }
@@ -1684,7 +1684,7 @@ async fn delete_message_trash_mode(
             .map_err(|e| e.to_string())
     })?;
     {
-        let mut cache = state.folder_cache.write();
+        let cache = state.folder_cache.write();
         cache.invalidate(account_id_i64, &source_folder);
         cache.invalidate(account_id_i64, "Trash");
     }

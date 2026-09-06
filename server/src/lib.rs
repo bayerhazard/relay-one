@@ -48,8 +48,9 @@ pub struct AppState {
     pub carddav_settings: Arc<parking_lot::RwLock<Option<dav::CardDavSettings>>>,
     pub carddav_sync_token: Arc<parking_lot::RwLock<String>>,
     pub carddav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
-    /// CalDAV (Phase 0): calendar/event sync state.
-    pub caldav_settings: Arc<parking_lot::RwLock<Option<dav::CalDavSettings>>>,
+    /// CalDAV (Phase 0): calendar/event sync state. Multiple accounts are
+    /// supported; the legacy single-account settings migrate to id "default".
+    pub caldav_accounts: Arc<parking_lot::RwLock<Vec<dav::CalDavSettings>>>,
     pub caldav_sync_token: Arc<parking_lot::RwLock<String>>,
     pub caldav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Server → client notification bus (replaces Tauri `Emitter`).
@@ -78,7 +79,7 @@ impl AppState {
             carddav_settings: Arc::new(parking_lot::RwLock::new(None)),
             carddav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             carddav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
-            caldav_settings: Arc::new(parking_lot::RwLock::new(None)),
+            caldav_accounts: Arc::new(parking_lot::RwLock::new(Vec::new())),
             caldav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             caldav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             events: events::EventBus::new(),
@@ -90,6 +91,22 @@ impl AppState {
                 crate::cache::FolderListCache::new(),
             )),
         }
+    }
+
+    /// The CalDAV account with this id (""/"default" resolves to the first
+    /// account for legacy rows that predate multi-account support).
+    pub fn caldav_account_by_id(&self, id: &str) -> Option<dav::CalDavSettings> {
+        let guard = self.caldav_accounts.read();
+        if id.is_empty() || id == "default" {
+            return guard.iter().find(|a| a.id == id).cloned().or_else(|| guard.first().cloned());
+        }
+        guard.iter().find(|a| a.id == id).cloned()
+    }
+
+    /// First enabled CalDAV account — fallback for flows without an explicit
+    /// calendar→account resolution (legacy single-account behavior).
+    pub fn first_enabled_caldav_account(&self) -> Option<dav::CalDavSettings> {
+        self.caldav_accounts.read().iter().find(|a| a.enabled).cloned()
     }
 
     /// Graceful shutdown: closes IMAP/SMTP connections, stops sync schedulers.

@@ -355,6 +355,10 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Migration: cached AI followup actions (JSON array of FollowupAction).
     // Pre-generated for new INBOX mail; written on first open for the rest.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN ai_followups TEXT", []);
+    // Migration: multi CalDAV support — every calendar belongs to one account
+    // (legacy rows → 'default').
+    let _ = conn.execute("ALTER TABLE calendars ADD COLUMN caldav_account_id TEXT NOT NULL DEFAULT 'default'", []);
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_calendars_caldav_account ON calendars(caldav_account_id)", []);
     // Migration: attachment dedup storage path (relative to data root).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN disk_path TEXT", []);
     // Migration (Phase 2): stable per-message part index + content sha256.

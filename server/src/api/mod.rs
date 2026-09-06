@@ -154,6 +154,8 @@ pub fn router() -> Router<AppState> {
         .route("/carddav/resolve", post(settings::resolve_carddav))
         // CalDAV (Phase 0)
         .route("/calendars/settings", get(calendars::get_caldav_settings).post(calendars::set_caldav_settings))
+        .route("/calendars/caldav-accounts", get(calendars::list_caldav_accounts).post(calendars::create_caldav_account))
+        .route("/calendars/caldav-accounts/:id", axum::routing::put(calendars::update_caldav_account).delete(calendars::delete_caldav_account))
         .route("/calendars/sync", post(calendars::sync_caldav))
         .route("/calendars", get(calendars::list_calendars))
         .route("/calendars/events", get(calendars::list_events).post(calendars::create_event))

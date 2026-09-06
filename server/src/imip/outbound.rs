@@ -141,8 +141,7 @@ async fn persist_event(
     row: &crate::cache::cal::EventRow,
     ics: &str,
 ) -> Result<(), String> {
-    let settings = state.caldav_settings.read().clone();
-    if let Some(settings) = settings {
+    if let Some(settings) = crate::api::calendars::account_for_calendar(state, row.calendar_id) {
         let client = CalDavClient::new(settings);
         if !row.url.is_empty() {
             client

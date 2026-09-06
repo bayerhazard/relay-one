@@ -22,22 +22,15 @@ use super::{ApiResult, ok};
 // Settings
 // ---------------------------------------------------------------------------
 
-/// `GET /api/v1/calendars/settings` — stored CalDAV connection settings.
+/// `GET /api/v1/calendars/settings` — legacy single-account view: returns the
+/// FIRST stored account in the old flat shape (kept for compatibility).
 pub async fn get_caldav_settings(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
-    let json = with_db(&state, |conn| {
-        cache::settings::get_setting(conn, "caldav_settings").map_err(|e| e.to_string())
-    })?;
-    match json {
-        Some(raw) => {
-            let mut settings: CalDavSettings =
-                serde_json::from_str(&raw).map_err(|e| ApiError(format!("CalDAV parse: {e}")))?;
-            settings.password =
-                crypto::decrypt(&settings.password).unwrap_or(settings.password);
-            Ok(Json(serde_json::json!({
-                "url": settings.url, "username": settings.username, "password": settings.password,
-                "sync_interval_minutes": settings.sync_interval_minutes,
-            })))
-        }
+    let account = state.caldav_accounts.read().first().cloned();
+    match account {
+        Some(s) => Ok(Json(serde_json::json!({
+            "url": s.url, "username": s.username, "password": s.password,
+            "sync_interval_minutes": s.sync_interval_minutes,
+        }))),
         None => Ok(Json(serde_json::json!({
             "url": "", "username": "", "password": "", "sync_interval_minutes": 30,
         }))),
@@ -53,46 +46,210 @@ pub struct CalDavSettingsRequest {
     pub sync_interval_minutes: Option<u64>,
 }
 
-/// `POST /api/v1/calendars/settings` — save the CalDAV connection settings.
+/// `POST /api/v1/calendars/settings` — legacy save: upserts the "default"
+/// account (new frontend uses /calendars/caldav-accounts).
 pub async fn set_caldav_settings(
     State(state): State<AppState>,
     Json(req): Json<CalDavSettingsRequest>,
 ) -> ApiResult<serde_json::Value> {
-    let encrypted_pw =
-        crypto::encrypt(&req.password).unwrap_or_else(|_| req.password.clone());
-    let settings = CalDavSettings {
-        url: req.url.clone(),
-        username: req.username.clone(),
-        password: encrypted_pw,
-        sync_interval_minutes: req.sync_interval_minutes.unwrap_or(30),
+    let account = CalDavAccountInput {
+        id: Some("default".into()),
+        name: Some("Standard".into()),
+        url: req.url,
+        username: req.username,
+        password: Some(req.password),
+        enabled: None,
+        sync_interval_minutes: req.sync_interval_minutes,
     };
-    let raw = serde_json::to_string(&settings).map_err(|e| ApiError(e.to_string()))?;
-    with_db(&state, |conn| {
-        cache::settings::set_setting(conn, "caldav_settings", &raw).map_err(|e| e.to_string())
+    upsert_account(&state, account).await
+}
+
+// ---------------------------------------------------------------------------
+// Multi-account settings
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Clone)]
+pub struct CalDavAccountInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub url: String,
+    pub username: String,
+    /// Empty/None on update keeps the stored password.
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub sync_interval_minutes: Option<u64>,
+}
+
+/// Persist the account list (passwords encrypted) + refresh live state.
+fn store_accounts(state: &AppState, mut accounts: Vec<CalDavSettings>) -> Result<(), ApiError> {
+    for a in accounts.iter_mut() {
+        if a.id.is_empty() {
+            a.id = format!("cal-{}", uuid::Uuid::new_v4());
+        }
+    }
+    let mut encrypted = accounts.clone();
+    for a in encrypted.iter_mut() {
+        a.password = crypto::encrypt(&a.password).unwrap_or_else(|_| a.password.clone());
+    }
+    let raw = serde_json::to_string(&encrypted).map_err(|e| ApiError(e.to_string()))?;
+    with_db(state, |conn| {
+        cache::settings::set_setting(conn, "caldav_accounts", &raw).map_err(|e| e.to_string())
     })?;
-    let mut live = settings.clone();
-    live.password = req.password.clone();
-    *state.caldav_settings.write() = Some(live);
-    tracing::info!("CalDAV-Einstellungen gespeichert: {}", req.url);
+    *state.caldav_accounts.write() = accounts;
+    Ok(())
+}
+
+/// `GET /api/v1/calendars/caldav-accounts` — list accounts (no passwords).
+pub async fn list_caldav_accounts(State(state): State<AppState>) -> ApiResult<Vec<serde_json::Value>> {
+    let accounts: Vec<serde_json::Value> = state
+        .caldav_accounts
+        .read()
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "id": a.id, "name": a.name, "url": a.url, "username": a.username,
+                "enabled": a.enabled, "sync_interval_minutes": a.sync_interval_minutes,
+                "has_password": !a.password.is_empty(),
+            })
+        })
+        .collect();
+    Ok(Json(accounts))
+}
+
+/// Add or update one account (id present & known → update, else add).
+pub async fn upsert_account(
+    state: &AppState,
+    req: CalDavAccountInput,
+) -> ApiResult<serde_json::Value> {
+    let mut accounts = state.caldav_accounts.read().clone();
+    let existing = req
+        .id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .and_then(|id| accounts.iter().position(|a| a.id == id));
+    let password = req.password.filter(|p| !p.is_empty());
+    if let Some(pos) = existing {
+        let a = &mut accounts[pos];
+        a.url = req.url.clone();
+        a.username = req.username.clone();
+        if let Some(p) = password {
+            a.password = p;
+        }
+        if let Some(n) = req.name {
+            a.name = n;
+        }
+        if let Some(e) = req.enabled {
+            a.enabled = e;
+        }
+        if let Some(i) = req.sync_interval_minutes {
+            a.sync_interval_minutes = i.max(1);
+        }
+    } else {
+        accounts.push(CalDavSettings {
+            id: req.id.unwrap_or_default(),
+            name: req.name.unwrap_or_else(|| req.username.clone()),
+            enabled: req.enabled.unwrap_or(true),
+            url: req.url.clone(),
+            username: req.username.clone(),
+            password: password.unwrap_or_default(),
+            sync_interval_minutes: req.sync_interval_minutes.unwrap_or(30).max(1),
+        });
+    }
+    store_accounts(state, accounts)?;
+    tracing::info!("CalDAV-Konto gespeichert: {}", req.url);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// `POST /api/v1/calendars/caldav-accounts` — add a CalDAV account.
+pub async fn create_caldav_account(
+    State(state): State<AppState>,
+    Json(req): Json<CalDavAccountInput>,
+) -> ApiResult<serde_json::Value> {
+    upsert_account(&state, req).await
+}
+
+/// `PUT /api/v1/calendars/caldav-accounts/{id}` — update one account.
+pub async fn update_caldav_account(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(mut req): Json<CalDavAccountInput>,
+) -> ApiResult<serde_json::Value> {
+    req.id = Some(id);
+    upsert_account(&state, req).await
+}
+
+/// `DELETE /api/v1/calendars/caldav-accounts/{id}` — remove an account AND
+/// cascade its calendars + events out of the local cache (provider data
+/// untouched).
+pub async fn delete_caldav_account(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let accounts: Vec<CalDavSettings> = state
+        .caldav_accounts
+        .read()
+        .iter()
+        .filter(|a| a.id != id)
+        .cloned()
+        .collect();
+    let removed = with_db(&state, |conn| {
+        crate::cache::cal::delete_calendars_for_account(conn, &id).map_err(|e| e.to_string())
+    })?;
+    store_accounts(&state, accounts)?;
+    tracing::info!("CalDAV-Konto '{}' gelöscht ({} Kalender entfernt)", id, removed);
+    Ok(Json(serde_json::json!({ "ok": true, "calendars_removed": removed })))
 }
 
 // ---------------------------------------------------------------------------
 // Sync
 // ---------------------------------------------------------------------------
 
-/// `POST /api/v1/calendars/sync` — trigger a manual CalDAV sync.
+/// `POST /api/v1/calendars/sync` — manual sync of ALL enabled accounts.
 pub async fn sync_caldav(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
     do_caldav_sync(&state).await
 }
 
-/// Shared sync logic (manual endpoint + background scheduler).
+/// Sync every enabled account; aggregate result.
 pub async fn do_caldav_sync(state: &AppState) -> ApiResult<serde_json::Value> {
-    let settings = state.caldav_settings.read().clone();
-    let Some(settings) = settings else {
+    let accounts: Vec<CalDavSettings> = state
+        .caldav_accounts
+        .read()
+        .iter()
+        .filter(|a| a.enabled && !a.url.is_empty())
+        .cloned()
+        .collect();
+    if accounts.is_empty() {
         return Err(ApiError("CalDAV nicht konfiguriert".into()));
-    };
-    let client = CalDavClient::new(settings);
+    }
+    let mut synced = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+    for account in &accounts {
+        match do_caldav_sync_account(state, account).await {
+            Ok(v) => {
+                if let Some(n) = v.get("synced").and_then(|s| s.as_u64()) {
+                    synced += n as usize;
+                }
+            }
+            Err(e) => errors.push(format!("{}: {}", account.name, e.0)),
+        }
+    }
+    if !errors.is_empty() && synced == 0 {
+        return Err(ApiError(errors.join("; ")));
+    }
+    Ok(Json(serde_json::json!({ "ok": true, "synced": synced, "errors": errors })))
+}
+
+/// Shared sync logic for ONE account (manual endpoint + background scheduler).
+pub async fn do_caldav_sync_account(
+    state: &AppState,
+    settings: &CalDavSettings,
+) -> ApiResult<serde_json::Value> {
+    let client = CalDavClient::new(settings.clone());
 
     // Always full-sync: the incremental (SYNC-COLLECTION) path only covers the
     // first discovered calendar (single-token model), so multi-calendar setups
@@ -106,7 +263,7 @@ pub async fn do_caldav_sync(state: &AppState) -> ApiResult<serde_json::Value> {
     if let Ok(mut guard) = get_db(state) {
         if let Some(conn) = guard.as_mut() {
             for cal in &calendars {
-                if let Ok(cid) = crate::cache::cal::upsert_calendar(conn, cal) {
+                if let Ok(cid) = crate::cache::cal::upsert_calendar(conn, cal, &settings.id) {
                     let _ = crate::cache::cal::mark_calendar_synced(conn, &cal.url, &new_token);
                     for ev in events.iter().filter(|e| e.url.starts_with(&cal.url)) {
                         if crate::cache::cal::save_event(conn, cid, ev).is_ok() {
@@ -119,11 +276,12 @@ pub async fn do_caldav_sync(state: &AppState) -> ApiResult<serde_json::Value> {
     }
 
     *state.caldav_sync_token.write() = new_token.clone();
+    let token_key = format!("caldav_sync_token:{}", settings.id);
     let _ = with_db(state, |conn| {
-        cache::settings::set_setting(conn, "caldav_sync_token", &new_token).map_err(|e| e.to_string())
+        cache::settings::set_setting(conn, &token_key, &new_token).map_err(|e| e.to_string())
     });
 
-    tracing::info!("CalDAV-Sync: {} Events gespeichert", saved);
+    tracing::info!("CalDAV-Sync '{}': {} Events gespeichert", settings.name, saved);
     Ok(Json(serde_json::json!({ "ok": true, "synced": saved })))
 }
 
@@ -209,11 +367,6 @@ pub async fn create_event(
     State(state): State<AppState>,
     Json(req): Json<CreateEventRequest>,
 ) -> ApiResult<crate::cache::cal::EventRow> {
-    let settings = state.caldav_settings.read().clone().ok_or_else(|| {
-        ApiError("CalDAV nicht konfiguriert — Event kann nicht angelegt werden".into())
-    })?;
-    let client = CalDavClient::new(settings);
-
     let start = parse_dt(&req.start)?;
     let end = match &req.end {
         Some(e) => Some(parse_dt(e)?),
@@ -235,16 +388,20 @@ pub async fn create_event(
     )
     .map_err(ApiError)?;
 
-    // Resolve the calendar URL.
-    let cal_url = with_db(&state, |conn| {
+    // Resolve the calendar URL + owning CalDAV account.
+    let (cal_url, cal_account_id) = with_db(&state, |conn| {
         conn.query_row(
-            "SELECT url FROM calendars WHERE id = ?1",
+            "SELECT url, COALESCE(caldav_account_id, 'default') FROM calendars WHERE id = ?1",
             rusqlite::params![req.calendar_id],
-            |r| r.get::<_, String>(0),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         )
         .map_err(|e| e.to_string())
     })
     .map_err(ApiError)?;
+    let settings = state
+        .caldav_account_by_id(&cal_account_id)
+        .ok_or_else(|| ApiError("CalDAV nicht konfiguriert — Event kann nicht angelegt werden".into()))?;
+    let client = CalDavClient::new(settings);
 
     let url = client.create_event(&cal_url, &ics).await.map_err(ApiError)?;
     let mut ev = crate::dav::ics::parse_event(&ics).map_err(ApiError)?;
@@ -264,6 +421,20 @@ pub struct UpdateEventRequest {
     pub attendees: Option<Vec<IcsAttendee>>,
     pub rrule: Option<String>,
     pub reminder_minutes: Option<u32>,
+}
+
+/// The CalDAV account owning a calendar (""/legacy rows → first account).
+pub(crate) fn account_for_calendar(state: &AppState, calendar_id: i64) -> Option<CalDavSettings> {
+    let acct_id = with_db(state, |conn| {
+        conn.query_row(
+            "SELECT COALESCE(caldav_account_id, 'default') FROM calendars WHERE id = ?1",
+            rusqlite::params![calendar_id],
+            |r| r.get::<_, String>(0),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .ok()?;
+    state.caldav_account_by_id(&acct_id)
 }
 
 /// `PUT /api/v1/events/:id` — update an event (PUT to the server + DB).
@@ -300,8 +471,7 @@ pub async fn update_event(
     )
     .map_err(ApiError)?;
 
-    let settings = state.caldav_settings.read().clone();
-    if let Some(settings) = settings {
+    if let Some(settings) = account_for_calendar(&state, existing.calendar_id) {
         let client = CalDavClient::new(settings);
         client.update_event(&existing.url, &ics).await.map_err(ApiError)?;
     }
@@ -318,8 +488,7 @@ pub async fn delete_event(
     Path(id): Path<i64>,
 ) -> ApiResult<serde_json::Value> {
     let existing = get_event_inner(&state, id)?;
-    let settings = state.caldav_settings.read().clone();
-    if let Some(settings) = settings {
+    if let Some(settings) = account_for_calendar(&state, existing.calendar_id) {
         let client = CalDavClient::new(settings);
         client.delete_event(&existing.url).await.map_err(ApiError)?;
     }
@@ -431,11 +600,7 @@ pub async fn import_events(
     })
     .map_err(ApiError)?;
 
-    let client = state
-        .caldav_settings
-        .read()
-        .clone()
-        .map(CalDavClient::new);
+    let client = account_for_calendar(&state, req.calendar_id).map(CalDavClient::new);
 
     let mut imported = 0usize;
     for ev in &events {
@@ -507,4 +672,133 @@ fn save_event_row(
     .map_err(ApiError)?
         .ok_or_else(|| ApiError("Event nach Save nicht gefunden".into()))?;
     Ok(row)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::Path;
+
+    fn state_with_db() -> AppState {
+        let state = AppState::new();
+        let _ = crate::crypto::init_key(&std::env::temp_dir().join("relay-test-crypto"));
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        *state.cache_db.lock() = Some(conn);
+        state
+    }
+
+    #[test]
+    fn legacy_single_account_json_deserializes_with_defaults() {
+        let legacy = r#"{"url":"https://cal/x/","username":"u","password":"p","sync_interval_minutes":30}"#;
+        let s: CalDavSettings = serde_json::from_str(legacy).unwrap();
+        assert!(s.enabled);
+        assert_eq!(s.id, "");
+        assert_eq!(s.url, "https://cal/x/");
+    }
+
+    #[tokio::test]
+    async fn upsert_add_assigns_id_and_persists() {
+        let state = state_with_db();
+        let req = CalDavAccountInput {
+            id: None,
+            name: Some("Privat".into()),
+            url: "https://c1/".into(),
+            username: "u1".into(),
+            password: Some("pw1".into()),
+            enabled: None,
+            sync_interval_minutes: Some(15),
+        };
+        upsert_account(&state, req).await.unwrap();
+        let accounts = state.caldav_accounts.read();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].name, "Privat");
+        assert!(!accounts[0].id.is_empty());
+        assert_eq!(accounts[0].sync_interval_minutes, 15);
+        drop(accounts);
+        // Stored under the new key, password encrypted (not plaintext).
+        let raw = with_db(&state, |conn| {
+            cache::settings::get_setting(conn, "caldav_accounts").map_err(|e| e.to_string())
+        })
+        .unwrap()
+        .unwrap();
+        assert!(!raw.contains("pw1"), "password must not be stored in plaintext");
+    }
+
+    #[tokio::test]
+    async fn upsert_update_keeps_password_when_empty() {
+        let state = state_with_db();
+        let mut req = CalDavAccountInput {
+            id: None,
+            name: Some("A".into()),
+            url: "https://c1/".into(),
+            username: "u1".into(),
+            password: Some("pw1".into()),
+            enabled: None,
+            sync_interval_minutes: None,
+        };
+        upsert_account(&state, req.clone()).await.unwrap();
+        let id = state.caldav_accounts.read()[0].id.clone();
+        req.id = Some(id.clone());
+        req.password = Some("".into());
+        req.url = "https://c1-changed/".into();
+        upsert_account(&state, req).await.unwrap();
+        let accounts = state.caldav_accounts.read();
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].url, "https://c1-changed/");
+        assert_eq!(accounts[0].password, "pw1", "empty password keeps existing");
+    }
+
+    #[tokio::test]
+    async fn delete_account_cascades_calendars_and_events() {
+        let state = state_with_db();
+        let req = CalDavAccountInput {
+            id: Some("acct-x".into()),
+            name: Some("X".into()),
+            url: "https://cx/".into(),
+            username: "u".into(),
+            password: Some("p".into()),
+            enabled: None,
+            sync_interval_minutes: None,
+        };
+        upsert_account(&state, req).await.unwrap();
+        // Seed a calendar + event for that account.
+        {
+            let mut guard = state.cache_db.lock();
+            let conn = guard.as_mut().unwrap();
+            let cal = crate::dav::Calendar {
+                href: "/x/".into(),
+                display_name: Some("X".into()),
+                url: "https://cx/x/".into(),
+            };
+            let cid = crate::cache::cal::upsert_calendar(conn, &cal, "acct-x").unwrap();
+            let mut ev = crate::dav::IcsEvent {
+                uid: "e1".into(),
+                url: "https://cx/x/e1.ics".into(),
+                summary: Some("T".into()),
+                description: None,
+                location: None,
+                start: "2026-09-01T13:00:00Z".into(),
+                end: None,
+                all_day: false,
+                organizer: None,
+                attendees: vec![],
+                status: None,
+                sequence: 0,
+                method: None,
+                raw: "BEGIN:VEVENT\\nUID:e1\\nEND:VEVENT".into(),
+                rrule: None,
+                alarms: 0,
+            };
+            crate::cache::cal::save_event(conn, cid, &mut ev).ok();
+        }
+        delete_caldav_account(State(state.clone()), Path("acct-x".into())).await.unwrap();
+        assert!(state.caldav_accounts.read().is_empty());
+        let guard = state.cache_db.lock();
+        let conn = guard.as_ref().unwrap();
+        let cals: i64 = conn.query_row("SELECT COUNT(*) FROM calendars", [], |r| r.get(0)).unwrap();
+        let evs: i64 = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        assert_eq!(cals, 0);
+        assert_eq!(evs, 0);
+    }
 }

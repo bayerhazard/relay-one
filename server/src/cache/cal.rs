@@ -61,14 +61,15 @@ pub struct EventRow {
 }
 
 /// Insert or update a calendar by URL. Returns the calendar id.
-pub fn upsert_calendar(conn: &Connection, cal: &Calendar) -> Result<i64, rusqlite::Error> {
+pub fn upsert_calendar(conn: &Connection, cal: &Calendar, caldav_account_id: &str) -> Result<i64, rusqlite::Error> {
     conn.execute(
-        "INSERT INTO calendars (url, display_name, description, color, updated_at)
-         VALUES (?1, ?2, ?3, ?4, datetime('now'))
+        "INSERT INTO calendars (url, display_name, description, color, caldav_account_id, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
          ON CONFLICT(url) DO UPDATE SET
             display_name = excluded.display_name,
+            caldav_account_id = excluded.caldav_account_id,
             updated_at = datetime('now')",
-        params![cal.url, cal.display_name, Option::<String>::None, Option::<String>::None],
+        params![cal.url, cal.display_name, Option::<String>::None, Option::<String>::None, caldav_account_id],
     )?;
     let id: i64 = conn
         .query_row("SELECT id FROM calendars WHERE url = ?1", params![cal.url], |r| {
@@ -76,6 +77,30 @@ pub fn upsert_calendar(conn: &Connection, cal: &Calendar) -> Result<i64, rusqlit
         })
         .unwrap_or(0);
     Ok(id)
+}
+
+/// Delete all calendars (and via FK cascade their events) of one CalDAV
+/// account. Returns the number of calendar rows removed.
+pub fn delete_calendars_for_account(conn: &Connection, caldav_account_id: &str) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM calendars WHERE caldav_account_id = ?1",
+        params![caldav_account_id],
+    )
+}
+
+/// The CalDAV account id an event belongs to (via its calendar). Empty string
+/// when the calendar predates multi-account (treated as "default").
+pub fn event_caldav_account_id(conn: &Connection, event_id: i64) -> Result<String, rusqlite::Error> {
+    let id: Option<String> = conn
+        .query_row(
+            "SELECT c.caldav_account_id FROM events e \
+             JOIN calendars c ON e.calendar_id = c.id WHERE e.id = ?1",
+            params![event_id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    Ok(id.unwrap_or_else(|| "default".into()))
 }
 
 pub fn list_calendars(conn: &Connection) -> Result<Vec<CalendarRow>, rusqlite::Error> {
@@ -487,7 +512,7 @@ mod tests {
             display_name: Some("Arbeit".into()),
             url: "https://cal.example.com/Marc/Arbeit/".into(),
         };
-        let cid = upsert_calendar(&mut conn, &cal).unwrap();
+        let cid = upsert_calendar(&mut conn, &cal, "default").unwrap();
         assert!(cid > 0);
 
         let eid = save_event(&mut conn, cid, &sample_event("uid-1")).unwrap();
@@ -528,7 +553,7 @@ mod tests {
             display_name: Some("Arbeit".into()),
             url: "https://cal.example.com/Marc/Arbeit/".into(),
         };
-        let cid = upsert_calendar(&mut conn, &cal).unwrap();
+        let cid = upsert_calendar(&mut conn, &cal, "default").unwrap();
 
         // A: exact same slot, C: ends during candidate, B: starts at candidate end,
         // D: entirely before candidate.
@@ -559,7 +584,7 @@ mod tests {
             display_name: Some("Privat".into()),
             url: "https://cal.example.com/Marc/Privat/".into(),
         };
-        let cid = upsert_calendar(&mut conn, &cal).unwrap();
+        let cid = upsert_calendar(&mut conn, &cal, "default").unwrap();
         save_event(&mut conn, cid, &sample_event("uid-a")).unwrap();
         save_event(&mut conn, cid, &sample_event("uid-b")).unwrap();
         assert_eq!(list_events(&conn, Some(cid), None, None).unwrap().len(), 2);
@@ -574,5 +599,37 @@ mod tests {
         mark_calendar_synced(&mut conn, "https://cal.example.com/Marc/Privat/", "0-1234").unwrap();
         let cals = list_calendars(&conn).unwrap();
         assert!(cals.iter().find(|c| c.id == cid).unwrap().last_synced_at.is_some());
+    }
+
+    #[test]
+    fn test_multi_account_stamping_and_cascade() {
+        let mut conn = temp_db();
+        let mut cal = Calendar {
+            href: "/Marc/Privat/".into(),
+            display_name: Some("Privat".into()),
+            url: "https://cal1.example.com/Marc/Privat/".into(),
+        };
+        let cid1 = upsert_calendar(&mut conn, &cal, "acct-a").unwrap();
+        let ev = sample_event("e1");
+        save_event(&mut conn, cid1, &ev).unwrap();
+
+        // Second account, different server URL.
+        cal.url = "https://cal2.example.com/Marc/Privat/".into();
+        let cid2 = upsert_calendar(&mut conn, &cal, "acct-b").unwrap();
+        let mut ev2 = sample_event("e2");
+        ev2.url = cal.url.clone();
+        save_event(&mut conn, cid2, &ev2).unwrap();
+
+        // Event → account resolution.
+        let eid1: i64 = conn.query_row("SELECT id FROM events WHERE uid='e1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(event_caldav_account_id(&conn, eid1).unwrap(), "acct-a");
+
+        // Deleting account A removes its calendar + event (FK cascade), not B.
+        let removed = delete_calendars_for_account(&mut conn, "acct-a").unwrap();
+        assert_eq!(removed, 1);
+        let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM calendars", [], |r| r.get(0)).unwrap();
+        assert_eq!(remaining, 1);
+        let events: i64 = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 1, "cascade must drop only acct-a events");
     }
 }

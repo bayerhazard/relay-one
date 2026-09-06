@@ -641,11 +641,12 @@
     display: block;
     width: 100%;
     text-align: left;
-    padding: 8px 12px;
+    padding: var(--am-raum-8) var(--am-raum-12);
     border: none;
     background: none;
     border-radius: 6px;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    line-height: 1.45;
     color: var(--color-text);
     cursor: pointer;
     font-family: inherit;

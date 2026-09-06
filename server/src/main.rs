@@ -164,10 +164,45 @@ fn load_caldav_settings(state: &AppState) {
     let Some(conn) = guard.as_ref() else {
         return;
     };
-    if let Ok(Some(json)) = cache::settings::get_setting(conn, "caldav_settings") {
-        if let Ok(mut settings) = serde_json::from_str::<dav::CalDavSettings>(&json) {
-            settings.password = crypto::decrypt(&settings.password).unwrap_or(settings.password);
-            *state.caldav_settings.write() = Some(settings);
+    // Multi-account settings; fall back to migrating the legacy single-account
+    // blob (id "default") when the array key does not exist yet.
+    let raw = match cache::settings::get_setting(conn, "caldav_accounts").ok().flatten() {
+        Some(json) => Some(json),
+        None => cache::settings::get_setting(conn, "caldav_settings").ok().flatten().map(|legacy| {
+            let migrated: Vec<serde_json::Value> = serde_json::from_str::<dav::CalDavSettings>(&legacy)
+                .map(|s| {
+                    let mut v = serde_json::to_value(&s).unwrap_or_default();
+                    v["id"] = serde_json::json!("default");
+                    v["name"] = serde_json::json!("Standard");
+                    vec![v]
+                })
+                .unwrap_or_default();
+            serde_json::to_string(&migrated).unwrap_or_else(|_| "[]".into())
+        }),
+    };
+    if let Some(json) = raw {
+        if let Ok(list) = serde_json::from_str::<Vec<dav::CalDavSettings>>(&json) {
+            let list: Vec<dav::CalDavSettings> = list
+                .into_iter()
+                .map(|mut a| {
+                    a.password = crypto::decrypt(&a.password).unwrap_or(a.password);
+                    if a.id.is_empty() {
+                        a.id = "default".into();
+                    }
+                    a
+                })
+                .collect();
+            // Persist the (possibly migrated) array under the new key once so
+            // the next boot does not re-run the legacy path. The in-memory
+            // list keeps plaintext passwords; the stored copy is encrypted.
+            let mut encrypted = list.clone();
+            for a in encrypted.iter_mut() {
+                a.password = crypto::encrypt(&a.password).unwrap_or_else(|_| a.password.clone());
+            }
+            if let Ok(store) = serde_json::to_string(&encrypted) {
+                let _ = cache::settings::set_setting(conn, "caldav_accounts", &store);
+            }
+            *state.caldav_accounts.write() = list;
         }
     }
     if let Ok(Some(token)) = cache::settings::get_setting(conn, "caldav_sync_token") {

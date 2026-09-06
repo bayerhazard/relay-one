@@ -75,8 +75,7 @@ async fn handle_request(
 
     let mut url = String::new();
     if !already_known {
-        let settings = state.caldav_settings.read().clone();
-        if let Some(settings) = settings {
+        if let Some(settings) = crate::api::calendars::account_for_calendar(state, cal_id) {
             let client = CalDavClient::new(settings);
             match client.create_event(&cal_url, &block).await {
                 Ok(u) => url = u,

@@ -137,33 +137,18 @@ async fn do_sync(state: &AppState) {
     }
 }
 
-/// CalDAV background sync (Phase 0). Mirrors the CardDAV scheduler but drives
-/// the CalDAV client and persists calendars + events. Delegates the actual
-/// sync to the shared `api::calendars::do_caldav_sync` so manual and
-/// background syncs behave identically.
+/// CalDAV background sync (Phase 0 + multi-account). Mirrors the CardDAV
+/// scheduler but drives the CalDAV client and persists calendars + events.
+/// Delegates the actual sync to the shared `api::calendars::do_caldav_sync_account`
+/// so manual and background syncs behave identically. One ticker covers ALL
+/// enabled accounts, each on its own interval — and it keeps running when no
+/// account is configured yet, so adding one takes effect without a restart.
 pub async fn start_caldav_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Receiver<()>) {
-    let settings = {
-        let guard = state.caldav_settings.read();
-        guard.clone()
-    };
-
-    let (interval_minutes, has_settings) = match settings {
-        Some(s) => (s.sync_interval_minutes, !s.url.is_empty()),
-        None => (30, false),
-    };
-
-    if !has_settings {
-        tracing::info!("CalDAV-Sync: nicht konfiguriert, Scheduler nicht gestartet");
-        return;
-    }
-
-    tracing::info!("CalDAV-Sync: gestartet (Interval: {} Min)", interval_minutes);
-
-    let interval = Duration::from_secs(interval_minutes * 60);
-    let mut interval = tokio::time::interval(interval);
-
+    tracing::info!("CalDAV-Sync: Multi-Account-Ticker gestartet (Prüfung alle 60s)");
+    let mut last_sync: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    // Initial pass shortly after boot.
     tokio::time::sleep(Duration::from_secs(8)).await;
-    run_caldav_sync(&state).await;
 
     loop {
         tokio::select! {
@@ -171,17 +156,30 @@ pub async fn start_caldav_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Rece
                 tracing::info!("CalDAV-Sync: gestoppt");
                 break;
             }
-            _ = interval.tick() => {
-                run_caldav_sync(&state).await;
+            _ = tokio::time::sleep(Duration::from_secs(60)) => {}
+        }
+        let accounts: Vec<crate::dav::CalDavSettings> = state
+            .caldav_accounts
+            .read()
+            .iter()
+            .filter(|a| a.enabled && !a.url.is_empty())
+            .cloned()
+            .collect();
+        for account in accounts {
+            let interval = Duration::from_secs(account.sync_interval_minutes.max(1) * 60);
+            let due = last_sync
+                .get(&account.id)
+                .map(|t| tokio::time::Instant::now().duration_since(*t) >= interval)
+                .unwrap_or(true);
+            if !due {
+                continue;
+            }
+            last_sync.insert(account.id.clone(), tokio::time::Instant::now());
+            match crate::api::calendars::do_caldav_sync_account(&state, &account).await {
+                Ok(_) => {}
+                Err(e) => tracing::warn!("CalDAV-Sync '{}' fehlgeschlagen: {}", account.name, e.0),
             }
         }
-    }
-}
-
-async fn run_caldav_sync(state: &AppState) {
-    match crate::api::calendars::do_caldav_sync(state).await {
-        Ok(_) => {}
-        Err(e) => tracing::warn!("CalDAV-Sync: fehlgeschlagen: {}", e.0),
     }
 }
 
