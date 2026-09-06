@@ -5,7 +5,7 @@ import Page from "../../routes/+page.svelte";
 import * as tauri from "$lib/services/tauri";
 
 const mailboxState = vi.hoisted(() => ({
-  value: { messages: [] as any[], selectedUids: [] as number[], lastClickedUid: null as number | null, loading: false, error: null as string | null },
+  value: { messages: [] as any[], selectedUids: [] as number[], lastClickedUid: null as number | null, loading: false, error: null as string | null } as Record<string, any>,
   subscribers: [] as Array<(v: any) => void>,
 }));
 
