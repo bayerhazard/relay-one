@@ -369,6 +369,10 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
     await waitFor(() => {
       expect(document.querySelector(".ctx-menu")).toBeTruthy();
     });
+    // every menu entry carries a leading icon
+    for (const item of document.querySelectorAll(".ctx-menu .ctx-menu-item")) {
+      expect(item.querySelector(".ctx-icon svg")).not.toBeNull();
+    }
     // Apply the selection while the menu is open (runContextAction reads it
     // at click time); avoids racing the async folder-load clearSelection.
     mailboxState.value = { ...mailboxState.value, selectedUids: sel, lastClickedUid: sel[0], folderId: "INBOX", messagesFolder: "INBOX" };

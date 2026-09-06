@@ -70,3 +70,22 @@ describe("AccountGroup cross-account drop targets", () => {
     expect(onMoveMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("AccountGroup folder icons", () => {
+  it("root (INBOX) row carries an inbox icon", () => {
+    const { container } = renderGroup();
+    const icon = container.querySelector(".root-row .tree-icon svg");
+    expect(icon).not.toBeNull();
+  });
+
+  it("folder rows carry a semantic icon before the label", () => {
+    const { container } = renderGroup();
+    const row = Array.from(container.querySelectorAll(".tree-row:not(.root-row)"))
+      .find((r) => r.textContent?.includes("Archive"))!;
+    const icon = row.querySelector(".tree-icon svg");
+    expect(icon).not.toBeNull();
+    // icon precedes the label inside the row
+    const label = row.querySelector(".tree-label")!;
+    expect(icon!.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

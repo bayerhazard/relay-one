@@ -2955,20 +2955,20 @@ async function handleSaveCardDav() {
   .caldav-empty {
     color: var(--color-text-secondary);
     font-size: 0.875rem;
-    margin: 0 0 var(--am-raum-12);
+    margin: 0 0 var(--am-raum-4);
   }
   .caldav-list {
     display: flex;
     flex-direction: column;
-    gap: var(--am-raum-8);
-    margin-bottom: var(--am-raum-16);
+    gap: var(--am-raum-2);
+    margin-bottom: var(--am-raum-8);
   }
   .caldav-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--am-raum-12);
-    padding: var(--am-raum-12) var(--am-raum-16);
+    gap: var(--am-raum-4);
+    padding: var(--am-raum-4) var(--am-raum-8);
     border: 1px solid var(--color-border);
     border-radius: 10px;
     background: var(--color-list);
@@ -2997,7 +2997,7 @@ async function handleSaveCardDav() {
   .caldav-row-actions {
     display: flex;
     align-items: center;
-    gap: var(--am-raum-8);
+    gap: var(--am-raum-2);
     flex-shrink: 0;
   }
   .btn-sm {

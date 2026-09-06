@@ -31,6 +31,7 @@ import {
     type FollowupAction, type FollowupTimeSlot,
   } from "$lib/services/tauri";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
+  import { iconSVG, folderIconFor } from "$lib/icons";
   import { getDoneFingerprints, followupFingerprint, markFollowupDone } from "$lib/utils/followupMemory";
   import type { MailChainEntry } from "$lib/types/mail";
   import { cacheBody, getCachedBody } from "$lib/offline/bodyCache";
@@ -2785,8 +2786,8 @@ let sentFolderName = $state<string | null>(null);
           {#if attCtxMenu}
             <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeAttCtxMenu} oncontextmenu={(e) => e.preventDefault()}></div>
             <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${attCtxMenu!.x}px; top: ${attCtxMenu!.y}px;`} role="menu">
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu!.att)}>{$t("mail.open")}</button>
-              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu!.att)}>{$t("mail.download")}</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleOpenAttachment(attCtxMenu!.att)}><span class="ctx-icon">{@html iconSVG("open")}</span>{$t("mail.open")}</button>
+              <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => handleSaveAsAttachment(attCtxMenu!.att)}><span class="ctx-icon">{@html iconSVG("download")}</span>{$t("mail.download")}</button>
             </div>
           {/if}
 
@@ -3159,23 +3160,23 @@ let sentFolderName = $state<string | null>(null);
   {#if folderCtxMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu!.x}px; top: ${folderCtxMenu!.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}>{$t("mail.newSubFolder")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}><span class="ctx-icon">{@html iconSVG("newSubFolder")}</span>{$t("mail.newSubFolder")}</button>
       {#if folderCtxMenu!.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}>{$t("mail.renameEllipsis")}</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}><span class="ctx-icon">{@html iconSVG("rename")}</span>{$t("mail.renameEllipsis")}</button>
       {/if}
       {#if customFolderNames[folderCtxMenu!.folderName]}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}>{$t("mail.resetName")}</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("resetName")}</span>{$t("mail.resetName")}</button>
       {/if}
       {#if folderCtxMenu!.folderName !== "INBOX"}
         <div class="ctx-menu-separator" role="separator"></div>
-        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}>{$t("mail.delete")}</button>
+        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
       {/if}
       {#if folderCtxMenu!.folderName !== "INBOX"}
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu!.folderName)}>{$t("mail.hide")}</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxHideFolder(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("hide")}</span>{$t("mail.hide")}</button>
       {/if}
       {#if hiddenFolderNames.length > 0}
         <div class="ctx-menu-separator" role="separator"></div>
-        <button type="button" class="ctx-menu-item" role="menuitem" onclick={folderCtxUnhideAll}>{$t("mail.showAllHidden")}</button>
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={folderCtxUnhideAll}><span class="ctx-icon">{@html iconSVG("show")}</span>{$t("mail.showAllHidden")}</button>
       {/if}
     </div>
   {/if}
@@ -3193,7 +3194,7 @@ let sentFolderName = $state<string | null>(null);
             class="ctx-menu-item"
             role="menuitem"
             title={target.full ?? target.name}
-            style={target.depth ? `padding-left: calc(var(--am-raum-12) + ${target.depth} * var(--am-raum-16));` : ""}
+            style={target.depth ? `padding-left: calc(var(--am-raum-4) + ${target.depth} * var(--am-raum-4));` : ""}
             onclick={() => {
               const uids = [...$mailbox.selectedUids];
               const name = target.name;
@@ -3201,7 +3202,7 @@ let sentFolderName = $state<string | null>(null);
               closeMenus();
               void performMoveSelected(uids, name, accountId);
             }}
-          >{target.label ?? target.name}</button>
+          ><span class="ctx-icon">{@html folderIconFor(target.full ?? target.name)}</span>{target.label ?? target.name}</button>
         {/each}
       {/each}
     </div>
@@ -3210,8 +3211,8 @@ let sentFolderName = $state<string | null>(null);
   {#if linkMenu}
     <div class="ctx-menu-scrim" role="presentation" onclick={closeLinkMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" style={`left: ${linkMenu.x}px; top: ${linkMenu.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInTab}>{$t("mail.linkOpen")}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInBrowser}>{$t("mail.linkOpenBrowser")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInTab}><span class="ctx-icon">{@html iconSVG("externalLink")}</span>{$t("mail.linkOpen")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={openLinkInBrowser}><span class="ctx-icon">{@html iconSVG("browser")}</span>{$t("mail.linkOpenBrowser")}</button>
     </div>
   {/if}
 
@@ -4408,7 +4409,9 @@ let sentFolderName = $state<string | null>(null);
     gap: 2px;
   }
   .ctx-menu-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     width: 100%;
     text-align: left;
     padding: var(--am-raum-2) var(--am-raum-4);
@@ -4423,6 +4426,21 @@ let sentFolderName = $state<string | null>(null);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .ctx-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex: none;
+    color: var(--color-text-secondary);
+  }
+  .ctx-menu-item:hover .ctx-icon {
+    color: var(--color-accent);
+  }
+  .ctx-menu-item.danger .ctx-icon {
+    color: var(--color-danger);
   }
   .ctx-menu-header {
     padding: 6px 12px 2px;

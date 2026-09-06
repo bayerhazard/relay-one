@@ -56,6 +56,7 @@
   /* AImighty-Raster (Designguide): Grundeinheit 4 px, Dichte-Hebel */
   --am-skalierung: 1; /* kompakt 0,9 · weit 1,1 */
   --am-einheit: 0.25rem;
+  --am-raum-2: calc(var(--am-einheit) * 2 * var(--am-skalierung));
   --am-raum-4: calc(var(--am-einheit) * 4 * var(--am-skalierung));
   --am-raum-8: calc(var(--am-einheit) * 8 * var(--am-skalierung));
   --am-raum-12: calc(var(--am-einheit) * 12 * var(--am-skalierung));

@@ -6,6 +6,7 @@
   import EmptyState from "./EmptyState.svelte";
   import { t } from "$lib/i18n";
   import { formatDate, extractName } from "$lib/utils/format";
+  import { iconSVG } from "$lib/icons";
 
   interface Props {
     messages: Message[];
@@ -429,22 +430,22 @@
   {#if contextMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouch} role="presentation" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouch} style={isTouch ? "" : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`} role="menu">
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}>{$t("mail.reply")}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}>{$t("mail.forward")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}><span class="ctx-icon">{@html iconSVG("reply")}</span>{$t("mail.reply")}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}><span class="ctx-icon">{@html iconSVG("forward")}</span>{$t("mail.forward")}</button>
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleRead?.(uid, uids))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleFlag?.(uid, uids))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleUrgent?.(uid, uids))}>{contextMsg?.is_urgent ? "Dringlich löschen" : "Dringlich"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleRead?.(uid, uids))}><span class="ctx-icon">{@html iconSVG(contextMsg?.is_read ? "markUnread" : "markRead")}</span>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleFlag?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("flag")}</span>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleUrgent?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("urgent")}</span>{contextMsg?.is_urgent ? "Dringlich löschen" : "Dringlich"}</button>
       {#if onmove}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={(e) => {
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           const uid = contextMenu?.uid;
           closeContextMenu();
           if (uid != null) onmove(uid, rect.left, rect.bottom);
-        }}>{$t("mail.move")}</button>
+        }}><span class="ctx-icon">{@html iconSVG("move")}</span>{$t("mail.move")}</button>
       {/if}
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}>{$t("mail.delete")}</button>
+      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
     </div>
   {/if}
 </div>
@@ -643,7 +644,9 @@
     flex-direction: column;
   }
   .ctx-menu-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     width: 100%;
     text-align: left;
     padding: var(--am-raum-2) var(--am-raum-4);
@@ -656,6 +659,21 @@
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
+  }
+  .ctx-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex: none;
+    color: var(--color-text-secondary);
+  }
+  .ctx-menu-item:hover .ctx-icon {
+    color: var(--color-accent);
+  }
+  .ctx-menu-item.danger .ctx-icon {
+    color: var(--color-danger);
   }
   .ctx-menu-item:hover {
     background: var(--color-active-wash);
