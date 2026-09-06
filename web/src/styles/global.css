@@ -66,6 +66,9 @@
   --am-raum-48: calc(var(--am-einheit) * 48 * var(--am-skalierung));
   --am-raum-64: calc(var(--am-einheit) * 64 * var(--am-skalierung));
 
+  /* Header-Hoehe aller Modul-Spalten — Trennlinien sitzen immer auf gleicher Y */
+  --am-header-h: calc(var(--am-einheit) * 15 * var(--am-skalierung)); /* ~56px */
+
   color-scheme: light;
 }
 

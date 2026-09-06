@@ -274,7 +274,7 @@
     flex-direction: column;
   }
   .ct-sidebar-header {
-    height: 72px;
+    height: var(--am-header-h);
     padding: 0 16px;
     display: flex;
     align-items: center;

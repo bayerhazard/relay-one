@@ -23,7 +23,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 12px;
+    padding: 8px;
     background: none;
     border: none;
     border-radius: 12px;
@@ -41,7 +41,7 @@
   }
   .ml-logo {
     display: block;
-    width: 128px;
+    width: 102.4px;
     height: auto;
   }
 </style>

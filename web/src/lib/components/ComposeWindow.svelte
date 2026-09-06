@@ -1000,26 +1000,31 @@
     color: var(--color-text-tertiary);
     pointer-events: none;
   }
-  .editor h3 {
+  /* Content inside the contenteditable is generated at runtime (execCommand,
+     paste) and carries no Svelte scope class — plain `.editor ul` selectors
+     get dropped by the compiler (css_unused_selector). :global() keeps the
+     scoping on the static .editor wrapper while matching dynamic children. */
+  .editor :global(h3) {
     font-size: 1.1rem;
     font-weight: 700;
     margin: 0.5em 0 0.25em;
   }
-  .editor ul {
+  .editor :global(ul),
+  .editor :global(ol) {
     margin: 0.25em 0;
     padding-left: 1em;
   }
-  .editor ul li {
+  .editor :global(li) {
     margin-left: 0.2em;
   }
-  .editor code {
+  .editor :global(code) {
     background: var(--color-border);
     border-radius: 3px;
     padding: 1px 4px;
     font-size: 0.85em;
     font-family: var(--font-mono, monospace);
   }
-  .editor a {
+  .editor :global(a) {
     color: var(--color-accent);
     text-decoration: underline;
   }

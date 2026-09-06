@@ -3269,7 +3269,7 @@ let sentFolderName = $state<string | null>(null);
     padding: 0;
   }
   .sidebar-header {
-    height: 72px;
+    height: var(--am-header-h);
     padding: 0 16px;
     display: flex;
     align-items: center;
@@ -3489,17 +3489,17 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     flex-direction: column;
     background: var(--color-list);
-    border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
   }
   .list-header {
-    height: 72px;
+    height: var(--am-header-h);
     padding: 0 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     background: transparent;
     flex-shrink: 0;
+    border-bottom: 1px solid var(--color-border);
   }
   .list-title-area {
     display: flex;
@@ -3628,7 +3628,7 @@ let sentFolderName = $state<string | null>(null);
     min-height: 0;
   }
   .preview-pane-header {
-    height: 72px;
+    height: var(--am-header-h);
     padding: 0 24px;
     display: flex;
     align-items: center;
