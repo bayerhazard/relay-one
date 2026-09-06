@@ -24,6 +24,10 @@ vi.mock("$lib/services/tauri", async (importOriginal) => {
     saveSettings: vi.fn(),
     getSettings: vi.fn().mockResolvedValue(null),
     markAsRead: vi.fn().mockResolvedValue(undefined),
+    markBatchAsRead: vi.fn().mockResolvedValue(undefined),
+    markBatchAsUnseen: vi.fn().mockResolvedValue(undefined),
+    flagMessageCmd: vi.fn().mockResolvedValue(undefined),
+    urgentMessageCmd: vi.fn().mockResolvedValue(undefined),
     fetchMessageBody: vi.fn(),
     fetchRawMessage: vi.fn().mockResolvedValue(""),
     fetchAttachments: vi.fn().mockResolvedValue([]),
@@ -343,5 +347,79 @@ describe("Mail-Link Kontextmenü (iframe link-contextmenu)", () => {
       expect(screen.queryByText("Link öffnen")).toBeNull();
     });
     vi.unstubAllGlobals();
+  });
+});
+
+describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const mA = { uid: 101, subject: "Erste Mail", from: "a@x.de", date: "2025-01-15T10:00:00Z", is_read: false, is_flagged: false };
+  const mB = { uid: 102, subject: "Zweite Mail", from: "b@x.de", date: "2025-01-15T10:00:00Z", is_read: false, is_flagged: false };
+  const mC = { uid: 103, subject: "Dritte Mail", from: "c@x.de", date: "2025-01-15T10:00:00Z", is_read: false, is_flagged: false };
+
+  async function rightClickRow(subject: string, sel: number[]) {
+    await waitFor(() => {
+      const rows = Array.from(document.querySelectorAll(".message-item"));
+      expect(rows.some((r) => r.textContent?.includes(subject))).toBe(true);
+    });
+    const row = Array.from(document.querySelectorAll(".message-item")).find((r) => r.textContent?.includes(subject)) as Element;
+    await fireEvent.contextMenu(row);
+    await waitFor(() => {
+      expect(document.querySelector(".ctx-menu")).toBeTruthy();
+    });
+    // Apply the selection while the menu is open (runContextAction reads it
+    // at click time); avoids racing the async folder-load clearSelection.
+    mailboxState.value = { ...mailboxState.value, selectedUids: sel, lastClickedUid: sel[0], folderId: "INBOX", messagesFolder: "INBOX" };
+    mailboxState.subscribers.forEach((cb) => cb(mailboxState.value));
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  it("Löschen im Menü wirkt auf ALLE ausgewählten Mails", async () => {
+    await renderPageWithAccount(true, null, [mA, mB, mC]);
+    await rightClickRow("Erste Mail", [101, 102]);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Löschen" }));
+    const dialog = screen.getByRole("alertdialog");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "In Papierkorb" }));
+    await waitFor(() => {
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(2);
+    });
+    const calledUids = vi.mocked(tauri.deleteMessageCmd).mock.calls.map((c) => c[1]).sort();
+    expect(calledUids).toEqual([101, 102]);
+  });
+
+  it("Rechtsklick AUSSERHALB der Selektion wirkt nur auf die eine Mail", async () => {
+    await renderPageWithAccount(true, null, [mA, mB, mC]);
+    await rightClickRow("Dritte Mail", [101]);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Löschen" }));
+    const dialog = screen.getByRole("alertdialog");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "In Papierkorb" }));
+    await waitFor(() => {
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    });
+    expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 103, expect.anything());
+    expect(mailbox.selectSingle).toHaveBeenCalledWith(103);
+  });
+
+  it("Als gelesen markieren nutzt die Batch-API für die ganze Selektion", async () => {
+    await renderPageWithAccount(true, null, [mA, mB, mC]);
+    await rightClickRow("Erste Mail", [101, 102]);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Als gelesen markieren" }));
+    await waitFor(() => {
+      expect(tauri.markBatchAsRead).toHaveBeenCalledWith(1, [101, 102], expect.anything());
+    });
+    expect(tauri.markAsRead).not.toHaveBeenCalled();
+  });
+
+  it("Markieren wirkt auf alle ausgewählten Mails", async () => {
+    await renderPageWithAccount(true, null, [mA, mB, mC]);
+    await rightClickRow("Erste Mail", [101, 102]);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Markieren" }));
+    await waitFor(() => {
+      expect(tauri.flagMessageCmd).toHaveBeenCalledTimes(2);
+    });
+    const flagUids = vi.mocked(tauri.flagMessageCmd).mock.calls.map((c) => c[1]).sort();
+    expect(flagUids).toEqual([101, 102]);
   });
 });

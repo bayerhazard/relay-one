@@ -2417,9 +2417,10 @@ let sentFolderName = $state<string | null>(null);
 
   let pendingDeleteUids: number[] = $state([]);
 
-  function handleDeleteMessage(uid: number) {
+  function handleDeleteMessage(uid: number, uids?: number[]) {
     if (showDeleteConfirm || isDeleting) return;
-    pendingDeleteUids = [uid];
+    if (uids && !$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
+    pendingDeleteUids = uids ?? [uid];
     showDeleteConfirm = true;
   }
 
@@ -2526,28 +2527,31 @@ let sentFolderName = $state<string | null>(null);
     return d.toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
-  async function handleToggleRead(uid: number) {
+  async function handleToggleRead(uid: number, uids?: number[]) {
     const msg = $mailbox.messages.find((m) => m.uid === uid);
     if (!msg) return;
-    if (msg.is_read) {
-      try {
-        await markAsUnseen(selectedAccountId, uid, selectedFolder);
-        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
-      } catch (e) {
-        console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
-      }
-    } else {
-      try {
+    if (uids && !$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
+    const targets = uids ?? [uid];
+    const targetRead = !msg.is_read;
+    try {
+      if (targets.length > 1) {
+        if (targetRead) await markBatchAsRead(selectedAccountId, targets, selectedFolder);
+        else await markBatchAsUnseen(selectedAccountId, targets, selectedFolder);
+        for (const u of targets) mailbox.updateMessage(u, $mailbox.folderId, { is_read: targetRead });
+      } else if (targetRead) {
         await markAsRead(selectedAccountId, uid, selectedFolder);
         mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
-      } catch (e) {
-        console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
+      } else {
+        await markAsUnseen(selectedAccountId, uid, selectedFolder);
+        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: false });
       }
+    } catch (e) {
+      console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
     }
     updateBadgeCount(selectedAccountId).catch(() => {});
   }
 
-  async function handleToggleFlag(uid: number) {
+  async function handleToggleFlag(uid: number, uids?: number[]) {
     // Folder-scoped lookup: UIDs are only unique per folder, and the store's
     // message list can briefly belong to the PREVIOUS folder while a new
     // folder loads (messagesFolder vs folderId). Only act when the list still
@@ -2557,29 +2561,34 @@ let sentFolderName = $state<string | null>(null);
       console.warn("handleToggleFlag uebersprungen: Ordnerwechsel im Gange (uid", uid, ")");
       return;
     }
+    if (uids && !$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
+    const targets = uids ?? [uid];
     const msg = $mailbox.messages.find((m) => m.uid === uid);
     if (!msg) return;
+    const next = !msg.is_flagged;
     try {
-      await flagMessageCmd(selectedAccountId, uid, folder, !msg.is_flagged);
-      mailbox.updateMessage(uid, $mailbox.folderId, { is_flagged: !msg.is_flagged });
+      await Promise.all(targets.map((u) => flagMessageCmd(selectedAccountId, u, folder, next)));
+      for (const u of targets) mailbox.updateMessage(u, $mailbox.folderId, { is_flagged: next });
       invalidateFolderCache(selectedAccountId, folder);
     } catch (e) {
       console.warn("handleToggleFlag fehlgeschlagen fuer uid", uid, e);
     }
   }
 
-  async function handleToggleUrgent(uid: number) {
+  async function handleToggleUrgent(uid: number, uids?: number[]) {
     const folder = selectedFolder ?? "INBOX";
     if ($mailbox.messagesFolder !== null && $mailbox.messagesFolder !== folder) {
       console.warn("handleToggleUrgent uebersprungen: Ordnerwechsel im Gange (uid", uid, ")");
       return;
     }
+    if (uids && !$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
+    const targets = uids ?? [uid];
     const msg = $mailbox.messages.find((m) => m.uid === uid);
     if (!msg) return;
     const next = !msg.is_urgent;
     try {
-      await urgentMessageCmd(selectedAccountId, uid, folder, next);
-      mailbox.updateMessage(uid, $mailbox.folderId, { is_urgent: next });
+      await Promise.all(targets.map((u) => urgentMessageCmd(selectedAccountId, u, folder, next)));
+      for (const u of targets) mailbox.updateMessage(u, $mailbox.folderId, { is_urgent: next });
       invalidateFolderCache(selectedAccountId, folder);
     } catch (e) {
       console.warn("handleToggleUrgent fehlgeschlagen fuer uid", uid, e);
@@ -4393,16 +4402,16 @@ let sentFolderName = $state<string | null>(null);
     border: 1px solid var(--color-border);
     border-radius: 8px;
     box-shadow: none;
-    padding: var(--am-raum-8);
+    padding: 6px;
     display: flex;
     flex-direction: column;
-    gap: var(--am-raum-4);
+    gap: 2px;
   }
   .ctx-menu-item {
     display: block;
     width: 100%;
     text-align: left;
-    padding: var(--am-raum-8) var(--am-raum-12);
+    padding: var(--am-raum-2) var(--am-raum-4);
     border: none;
     background: none;
     border-radius: 6px;

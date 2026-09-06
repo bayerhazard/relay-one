@@ -15,10 +15,10 @@
     onselectRange: (fromIdx: number, toIdx: number) => void;
     onreply?: (uid: number) => void;
     onforward?: (uid: number) => void;
-    ondelete?: (uid: number) => void;
-    ontoggleRead?: (uid: number) => void;
-    ontoggleFlag?: (uid: number) => void;
-    ontoggleUrgent?: (uid: number) => void;
+    ondelete?: (uid: number, uids?: number[]) => void;
+    ontoggleRead?: (uid: number, uids?: number[]) => void;
+    ontoggleFlag?: (uid: number, uids?: number[]) => void;
+    ontoggleUrgent?: (uid: number, uids?: number[]) => void;
     onmove?: (uid: number, x: number, y: number) => void;
     ondragstart?: (e: DragEvent, uid: number) => void;
     loading: boolean;
@@ -288,10 +288,15 @@
     contextMenu = null;
   }
 
-  function runContextAction(action?: (uid: number) => void) {
+  function runContextAction(action?: (uid: number, uids: number[]) => void) {
     const uid = contextMenu?.uid;
     contextMenu = null;
-    if (uid != null) action?.(uid);
+    if (uid == null) return;
+    // Standard mail-client semantics: a context action on a row inside a
+    // multi-selection acts on ALL selected rows; on an unselected row it
+    // acts on that row alone (the parent normalizes the selection).
+    const uids = selectedUids.includes(uid) ? [...selectedUids] : [uid];
+    action?.(uid, uids);
   }
 
   $effect(() => {
@@ -427,9 +432,9 @@
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}>{$t("mail.reply")}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}>{$t("mail.forward")}</button>
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleRead?.(uid))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleFlag?.(uid))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
-      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => ontoggleUrgent?.(uid))}>{contextMsg?.is_urgent ? "Dringlich löschen" : "Dringlich"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleRead?.(uid, uids))}>{contextMsg?.is_read ? "Als ungelesen markieren" : "Als gelesen markieren"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleFlag?.(uid, uids))}>{contextMsg?.is_flagged ? "Markierung löschen" : "Markieren"}</button>
+      <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid, uids) => ontoggleUrgent?.(uid, uids))}>{contextMsg?.is_urgent ? "Dringlich löschen" : "Dringlich"}</button>
       {#if onmove}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={(e) => {
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -439,7 +444,7 @@
         }}>{$t("mail.move")}</button>
       {/if}
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid) => ondelete?.(uid))}>{$t("mail.delete")}</button>
+      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}>{$t("mail.delete")}</button>
     </div>
   {/if}
 </div>
@@ -641,7 +646,7 @@
     display: block;
     width: 100%;
     text-align: left;
-    padding: var(--am-raum-8) var(--am-raum-12);
+    padding: var(--am-raum-2) var(--am-raum-4);
     border: none;
     background: none;
     border-radius: 6px;

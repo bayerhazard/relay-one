@@ -98,7 +98,7 @@ describe("MessageList", () => {
       await fireEvent.click(screen.getByRole("menuitem", { name: "Löschen" }));
 
       expect(ondelete).toHaveBeenCalledOnce();
-      expect(ondelete).toHaveBeenCalledWith(99);
+      expect(ondelete).toHaveBeenCalledWith(99, [99]);
     });
 
     it("does not crash when ondelete is not provided", async () => {
@@ -145,7 +145,7 @@ describe("MessageList", () => {
       await fireEvent.click(screen.getByRole("menuitem", { name: "Als ungelesen markieren" }));
 
       expect(ontoggleRead).toHaveBeenCalledOnce();
-      expect(ontoggleRead).toHaveBeenCalledWith(7);
+      expect(ontoggleRead).toHaveBeenCalledWith(7, [7]);
     });
 
     it("triggers ontoggleFlag callback when the flag toggle is clicked", async () => {
@@ -156,7 +156,7 @@ describe("MessageList", () => {
       await fireEvent.click(screen.getByRole("menuitem", { name: "Markieren" }));
 
       expect(ontoggleFlag).toHaveBeenCalledOnce();
-      expect(ontoggleFlag).toHaveBeenCalledWith(11);
+      expect(ontoggleFlag).toHaveBeenCalledWith(11, [11]);
     });
   });
 
