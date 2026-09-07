@@ -1064,6 +1064,12 @@ export interface VoiceSettings {
   sttUrl: string;
   sttKey: string;
   sttModel: string;
+  // Phase D: TTS (proxy to a configured OpenAI-compatible endpoint).
+  ttsEnabled: boolean;
+  ttsUrl: string;
+  ttsKey: string;
+  ttsModel: string;
+  ttsAuto: boolean;
 }
 
 export async function getVoiceSettings(): Promise<VoiceSettings | null> {
@@ -1079,15 +1085,56 @@ export async function saveVoiceSettings(
   stt_url: string,
   stt_key: string,
   stt_model: string,
+  tts_enabled: boolean,
+  tts_url: string,
+  tts_key: string,
+  tts_model: string,
+  tts_auto: boolean,
 ): Promise<void> {
-  return post("/voice/config", { enabled, sttUrl: stt_url, sttKey: stt_key, sttModel: stt_model },
-    "Die Voice-Einstellungen konnten nicht gespeichert werden.");
+  return post("/voice/config", {
+    enabled, sttUrl: stt_url, sttKey: stt_key, sttModel: stt_model,
+    ttsEnabled: tts_enabled, ttsUrl: tts_url, ttsKey: tts_key, ttsModel: tts_model,
+    ttsAuto: tts_auto,
+  }, "Die Voice-Einstellungen konnten nicht gespeichert werden.");
 }
 
 export async function voiceTranscribe(audioBase64: string): Promise<string> {
   const res = await post<{ text?: string }>("/voice/transcribe", { audioBase64 },
     "Die Transkription konnte nicht durchgeführt werden.");
   return (res?.text ?? "").trim();
+}
+
+/**
+ * Phase D: speak text via the TTS proxy. Fetches the audio bytes from
+ * /voice/speak and plays them, returning the Audio element (so the caller can
+ * observe `ended`). Throws a user-friendly error when TTS is not configured
+ * (409) or the request fails.
+ */
+export async function voiceSpeak(text: string, lang?: string): Promise<HTMLAudioElement> {
+  const res = await fetch(`${API_BASE}/voice/speak`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, lang }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.error) detail = j.error;
+    } catch { /* non-JSON error body */ }
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.addEventListener("ended", () => URL.revokeObjectURL(url));
+  try {
+    await audio.play();
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+  return audio;
 }
 
 export interface OwnPhotoResult {

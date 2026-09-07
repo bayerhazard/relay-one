@@ -127,6 +127,12 @@ import {
   let voiceSttUrl = $state("");
   let voiceSttKey = $state("");
   let voiceSttModel = $state("Systran/faster-whisper-small");
+  // Phase D: TTS (proxy to a configured OpenAI-compatible endpoint).
+  let voiceTtsEnabled = $state(false);
+  let voiceTtsUrl = $state("");
+  let voiceTtsKey = $state("");
+  let voiceTtsModel = $state("tts-1");
+  let voiceTtsAuto = $state(false);
   let voiceSaved = $state(false);
   let voiceError = $state<string | null>(null);
 
@@ -256,6 +262,11 @@ import {
         voiceSttUrl = vs.sttUrl;
         voiceSttKey = vs.sttKey;
         voiceSttModel = vs.sttModel;
+        voiceTtsEnabled = vs.ttsEnabled;
+        voiceTtsUrl = vs.ttsUrl;
+        voiceTtsKey = vs.ttsKey;
+        voiceTtsModel = vs.ttsModel || "tts-1";
+        voiceTtsAuto = vs.ttsAuto;
       }
     } catch (e) { console.warn("Voice settings load failed", e); }
 
@@ -445,8 +456,33 @@ async function handleSaveCardDav() {
         return;
       }
     }
+    // Phase D: validate TTS (independent of STT being enabled).
+    if (voiceTtsEnabled) {
+      if (!voiceTtsUrl.trim()) {
+        voiceError = translate("settings.ttsUrlRequired");
+        return;
+      }
+      try {
+        const u = new URL(voiceTtsUrl.trim());
+        if (u.protocol !== "https:" && u.protocol !== "http:") {
+          voiceError = translate("settings.voiceUrlScheme");
+          return;
+        }
+      } catch {
+        voiceError = translate("settings.voiceUrlInvalid");
+        return;
+      }
+      if (!voiceTtsModel.trim()) {
+        voiceError = translate("settings.ttsModelRequired");
+        return;
+      }
+    }
     try {
-      await saveVoiceSettings(voiceEnabled, voiceSttUrl.trim(), voiceSttKey.trim(), voiceSttModel.trim());
+      await saveVoiceSettings(
+        voiceEnabled, voiceSttUrl.trim(), voiceSttKey.trim(), voiceSttModel.trim(),
+        voiceTtsEnabled, voiceTtsUrl.trim(), voiceTtsKey.trim(), voiceTtsModel.trim(),
+        voiceTtsAuto,
+      );
       voiceSaved = true;
       setTimeout(() => (voiceSaved = false), 2000);
     } catch (e: unknown) {
@@ -1558,20 +1594,71 @@ async function handleSaveCardDav() {
               </div>
             </div>
 
-            {#if voiceError}
-              <div class="alert-box error">
-                <div class="alert-icon">⚠️</div>
-                <div class="alert-text">{voiceError}</div>
-              </div>
-            {/if}
-
-            <div class="form-actions-row">
-                <button type="button" class="btn-submit" onclick={handleSaveVoice} disabled={!voiceEnabled}>
-                  {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
-                </button>
-              </div>
           </div>
         </section>
+
+        <!-- Card: TTS (Phase D) -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>{$t("settings.ttsEndpoint")}</h3>
+            <p class="card-desc">{$t("settings.ttsEndpointDesc")}</p>
+          </div>
+
+          <div class="card-body">
+            <div class="switch-row">
+              <label class="switch-container">
+                <input type="checkbox" bind:checked={voiceTtsEnabled} />
+                <span class="switch-slider"></span>
+                <span class="switch-label-group">
+                  <span class="switch-title">{$t("settings.ttsEnable")}</span>
+                  <span class="switch-desc">{$t("settings.ttsEnableDesc")}</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="form-grid-1">
+              <div class="form-group">
+                <label for="voice-tts-url">{$t("settings.apiUrl")}</label>
+                <input id="voice-tts-url" type="url" bind:value={voiceTtsUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceTtsEnabled} />
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="voice-tts-key">{$t("settings.apiKey")}</label>
+                <input id="voice-tts-key" type="password" bind:value={voiceTtsKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceTtsEnabled} />
+              </div>
+              <div class="form-group">
+                <label for="voice-tts-model">{$t("settings.modelId")}</label>
+                <input id="voice-tts-model" type="text" bind:value={voiceTtsModel} placeholder="tts-1" class="form-control" disabled={!voiceTtsEnabled} />
+              </div>
+            </div>
+
+            <div class="switch-row">
+              <label class="switch-container">
+                <input type="checkbox" bind:checked={voiceTtsAuto} />
+                <span class="switch-slider"></span>
+                <span class="switch-label-group">
+                  <span class="switch-title">{$t("settings.ttsAuto")}</span>
+                  <span class="switch-desc">{$t("settings.ttsAutoDesc")}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        {#if voiceError}
+          <div class="alert-box error">
+            <div class="alert-icon">⚠️</div>
+            <div class="alert-text">{voiceError}</div>
+          </div>
+        {/if}
+
+        <div class="form-actions-row">
+          <button type="button" class="btn-submit" onclick={handleSaveVoice}>
+            {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
+          </button>
+        </div>
       {/if}
 
       {#if activeTab === 'archive'}

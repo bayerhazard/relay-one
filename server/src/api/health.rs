@@ -17,16 +17,32 @@ use super::ApiResult;
 /// Returns 503 when the DB is unavailable so the entrance can route around a
 /// broken instance instead of serving requests that will all fail.
 pub async fn health(State(state): State<AppState>) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let db_ok = crate::db::with_db(&state, |conn| {
-        conn.query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
+    let (db_ok, tts_configured) = crate::db::with_db(&state, |conn| {
+        let db_ok = conn
+            .query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
             .map(|_| ())
             .map_err(|e| e.to_string())
+            .is_ok();
+        // Phase D: report TTS readiness (S5: "not_configured" when off/empty).
+        let tts_configured = conn
+            .query_row(
+                "SELECT tts_enabled, tts_url FROM voice_settings WHERE id = 1",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )
+            .map(|(enabled, url)| enabled != 0 && !url.trim().is_empty())
+            .unwrap_or(false);
+        Ok((db_ok, tts_configured))
     })
-    .is_ok();
+    .unwrap_or((false, false));
     if db_ok {
         (
             axum::http::StatusCode::OK,
-            Json(serde_json::json!({ "status": "ok", "service": "relay-one" })),
+            Json(serde_json::json!({
+                "status": "ok",
+                "service": "relay-one",
+                "tts": if tts_configured { "configured" } else { "not_configured" },
+            })),
         )
     } else {
         (
@@ -83,6 +99,25 @@ mod tests {
         let (status, body) = health(State(state)).await;
         assert_eq!(status, axum::http::StatusCode::OK);
         assert_eq!(body.0["status"], "ok");
+        // Default voice_settings row has TTS off → "not_configured" (S5).
+        assert_eq!(body.0["tts"], "not_configured");
+    }
+
+    #[tokio::test]
+    async fn health_reports_tts_configured() {
+        let mut state = state_with_db();
+        {
+            let g = state.cache_db.lock();
+            let conn = g.as_ref().unwrap();
+            conn.execute(
+                "UPDATE voice_settings SET tts_enabled=1, tts_url='http://tts' WHERE id=1",
+                [],
+            )
+            .unwrap();
+        }
+        let (status, body) = health(State(state)).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(body.0["tts"], "configured");
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@
     undoPlan as undoPlanApi,
     getVoiceSettings,
     voiceTranscribe,
+    voiceSpeak,
     type AgentPlan,
     type AgentStep,
     type AgentEvent,
@@ -65,11 +66,72 @@
   let mediaRecorder: MediaRecorder | null = null;
   let audioChunks: Blob[] = [];
 
+  // ─── Phase D: TTS (speak assistant replies) ──────────────────────
+  let ttsEnabled = $state(false);
+  let ttsAuto = $state(false);
+  let speakingMsg = $state<number | null>(null);
+  let ttsError = $state<string | null>(null);
+  let spokenCount = $state(0);
+  let currentAudio: HTMLAudioElement | null = null;
+
+  function stopSpeaking() {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+    speakingMsg = null;
+  }
+
+  async function speakMessage(text: string, index: number) {
+    ttsError = null;
+    if (speakingMsg === index) {
+      stopSpeaking();
+      return;
+    }
+    stopSpeaking();
+    try {
+      const audio = await voiceSpeak(text, get(lang));
+      currentAudio = audio;
+      speakingMsg = index;
+      audio.addEventListener("ended", () => {
+        if (currentAudio === audio) {
+          currentAudio = null;
+          speakingMsg = null;
+        }
+      });
+    } catch (e) {
+      speakingMsg = null;
+      ttsError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // Auto-TTS: speak each new assistant reply once (only when enabled + on).
+  $effect(() => {
+    if (!ttsAuto || !ttsEnabled) return;
+    const assistantMsgs = messages
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => m.role === "assistant" && !m.error && m.text.trim());
+    if (assistantMsgs.length > spokenCount) {
+      const last = assistantMsgs[assistantMsgs.length - 1];
+      spokenCount = assistantMsgs.length;
+      void speakMessage(last.m.text, last.i);
+    }
+  });
+
+  // Stop any in-flight TTS when the drawer closes.
+  $effect(() => {
+    if (!open) stopSpeaking();
+  });
+
   $effect(() => {
     if (!open) return;
     requestAnimationFrame(() => inputEl?.focus());
+    spokenCount = 0;
+    stopSpeaking();
     getVoiceSettings().then((s) => {
       voiceEnabled = s?.enabled ?? false;
+      ttsEnabled = s?.ttsEnabled ?? false;
+      ttsAuto = s?.ttsAuto ?? false;
     });
     const onDocClick = (e: MouseEvent) => {
       const t = e.target;
@@ -353,12 +415,22 @@
         {#if messages.length === 0}
           <p class="assistant-hint">{$t("assistant.hint")}</p>
         {/if}
-        {#each messages as m (m.text + m.plans.length + m.steps.length)}
+        {#each messages as m, i (m.text + m.plans.length + m.steps.length)}
           {#if m.error}
             <div class="chat-msg assistant error">{m.error}</div>
           {:else}
             <div class="chat-msg {m.role}">
               <div class="chat-text">{m.text}</div>
+              {#if m.role === "assistant" && ttsEnabled && m.text.trim()}
+                <button
+                  type="button"
+                  class="chat-speak"
+                  class:speaking={speakingMsg === i}
+                  onclick={() => speakMessage(m.text, i)}
+                  title={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
+                  aria-label={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
+                >{speakingMsg === i ? "⏹" : "🔊"}</button>
+              {/if}
             </div>
             {#each m.plans as plan (plan.id)}
               <div class="chat-plan">
@@ -401,6 +473,9 @@
               />
             </div>
           {/each}
+        {/if}
+        {#if ttsError}
+          <div class="chat-msg assistant error" role="alert">{ttsError}</div>
         {/if}
       </div>
       <footer class="assistant-footer">
@@ -642,6 +717,30 @@
     background: transparent;
     border: none;
     border-left: 2px solid var(--color-border);
+  }
+  .chat-speak {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 6px;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .chat-speak:hover {
+    background: var(--color-active-wash);
+    color: var(--color-text);
+  }
+  .chat-speak.speaking {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
   }
   .chat-typing {
     color: var(--color-text-secondary);

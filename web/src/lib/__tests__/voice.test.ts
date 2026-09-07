@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { getVoiceSettings, saveVoiceSettings, voiceTranscribe } from "$lib/services/tauri";
+import { getVoiceSettings, saveVoiceSettings, voiceTranscribe, voiceSpeak } from "$lib/services/tauri";
 import type { VoiceSettings } from "$lib/services/tauri";
 
 const fetchMock = vi.hoisted(() => vi.fn());
@@ -25,6 +25,11 @@ describe("Voice Settings", () => {
         sttUrl: "https://stt.example.com/v1",
         sttKey: "sk-test-key",
         sttModel: "whisper-1",
+        ttsEnabled: true,
+        ttsUrl: "https://tts.example.com/v1",
+        ttsKey: "sk-tts-key",
+        ttsModel: "tts-1",
+        ttsAuto: false,
       };
       fetchMock.mockResolvedValue(jsonResponse(expected));
 
@@ -73,7 +78,12 @@ describe("Voice Settings", () => {
         true,
         "https://stt.example.com/v1",
         "sk-test-key",
-        "whisper-1"
+        "whisper-1",
+        true,
+        "https://tts.example.com/v1",
+        "sk-tts-key",
+        "tts-1",
+        true
       );
 
       expect(fetchMock).toHaveBeenCalledWith(
@@ -86,6 +96,11 @@ describe("Voice Settings", () => {
             sttUrl: "https://stt.example.com/v1",
             sttKey: "sk-test-key",
             sttModel: "whisper-1",
+            ttsEnabled: true,
+            ttsUrl: "https://tts.example.com/v1",
+            ttsKey: "sk-tts-key",
+            ttsModel: "tts-1",
+            ttsAuto: true,
           }),
         })
       );
@@ -95,19 +110,23 @@ describe("Voice Settings", () => {
       fetchMock.mockRejectedValue(new Error("DB connection failed"));
 
       await expect(
-        saveVoiceSettings(true, "https://stt.example.com/v1", "sk-test-key", "whisper-1")
+        saveVoiceSettings(true, "https://stt.example.com/v1", "sk-test-key", "whisper-1",
+          false, "", "", "tts-1", false)
       ).rejects.toThrow("Die Voice-Einstellungen konnten nicht gespeichert werden.");
     });
 
     it("saves disabled state correctly", async () => {
       fetchMock.mockResolvedValue(jsonResponse(undefined));
 
-      await saveVoiceSettings(false, "", "", "");
+      await saveVoiceSettings(false, "", "", "", false, "", "", "tts-1", false);
 
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/v1/voice/config",
         expect.objectContaining({
-          body: JSON.stringify({ enabled: false, sttUrl: "", sttKey: "", sttModel: "" }),
+          body: JSON.stringify({
+            enabled: false, sttUrl: "", sttKey: "", sttModel: "",
+            ttsEnabled: false, ttsUrl: "", ttsKey: "", ttsModel: "tts-1", ttsAuto: false,
+          }),
         })
       );
     });
@@ -153,6 +172,50 @@ describe("Voice Settings", () => {
       expect(result).toBe("");
     });
   });
+
+  describe("voiceSpeak (Phase D TTS proxy)", () => {
+    beforeEach(() => {
+      class MockAudio {
+        onended: (() => void) | null = null;
+        addEventListener = vi.fn();
+        pause = vi.fn();
+        play = vi.fn().mockResolvedValue(undefined);
+        constructor(public src: string) {}
+      }
+      (globalThis as any).Audio = MockAudio;
+      (globalThis as any).URL.createObjectURL = vi.fn(() => "blob:mock");
+      (globalThis as any).URL.revokeObjectURL = vi.fn();
+    });
+
+    it("plays audio and returns the Audio element on success", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(["audio-bytes"], { type: "audio/mpeg" }),
+      });
+
+      const audio = await voiceSpeak("Hallo", "de");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/voice/speak",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ text: "Hallo", lang: "de" }),
+        })
+      );
+      expect((audio as any).play).toHaveBeenCalled();
+    });
+
+    it("throws the server error message when TTS is not configured (409)", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "TTS ist nicht konfiguriert" }),
+      });
+
+      await expect(voiceSpeak("Hallo")).rejects.toThrow("TTS ist nicht konfiguriert");
+    });
+  });
 });
 
 describe("VoiceSettings interface", () => {
@@ -162,12 +225,22 @@ describe("VoiceSettings interface", () => {
       sttUrl: "https://example.com/v1",
       sttKey: "sk-test",
       sttModel: "whisper-1",
+      ttsEnabled: true,
+      ttsUrl: "https://tts.example.com/v1",
+      ttsKey: "sk-tts",
+      ttsModel: "tts-1",
+      ttsAuto: true,
     };
 
     expect(settings).toHaveProperty("enabled");
     expect(settings).toHaveProperty("sttUrl");
     expect(settings).toHaveProperty("sttKey");
     expect(settings).toHaveProperty("sttModel");
+    expect(settings).toHaveProperty("ttsEnabled");
+    expect(settings).toHaveProperty("ttsUrl");
+    expect(settings).toHaveProperty("ttsKey");
+    expect(settings).toHaveProperty("ttsModel");
+    expect(settings).toHaveProperty("ttsAuto");
   });
 
   it("matches backend camelCase response format", () => {
@@ -176,11 +249,18 @@ describe("VoiceSettings interface", () => {
       sttUrl: "https://stt.example.com/v1",
       sttKey: "sk-test-key",
       sttModel: "whisper-1",
+      ttsEnabled: true,
+      ttsUrl: "https://tts.example.com/v1",
+      ttsKey: "sk-tts-key",
+      ttsModel: "tts-1",
+      ttsAuto: false,
     };
 
     const settings: VoiceSettings = backendResponse;
     expect(settings.sttUrl).toBe("https://stt.example.com/v1");
     expect(settings.sttKey).toBe("sk-test-key");
     expect(settings.sttModel).toBe("whisper-1");
+    expect(settings.ttsUrl).toBe("https://tts.example.com/v1");
+    expect(settings.ttsModel).toBe("tts-1");
   });
 });

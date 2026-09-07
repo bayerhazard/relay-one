@@ -153,6 +153,7 @@ pub fn router() -> Router<AppState> {
         // Profile photo + Voice
         .route("/voice/config", get(profile::get_voice_config).post(profile::save_voice_config))
         .route("/voice/transcribe", post(profile::transcribe_voice))
+        .route("/voice/speak", post(profile::speak_voice))
         // CardDAV
         .route("/carddav/settings", get(settings::get_carddav_settings).post(settings::set_carddav_settings))
         .route("/carddav/sync", post(settings::sync_carddav))

@@ -403,6 +403,12 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // DELETE + re-INSERT approach changed ids on every sync and left stale rows).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN part_index INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN sha256 TEXT", []);
+    // Migration (Phase D): TTS columns for voice_settings (Concept §9.5). TTS is
+    // a pure proxy to a configured OpenAI-compatible endpoint; empty = disabled.
+    let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_enabled INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_url TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_key TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_model TEXT NOT NULL DEFAULT ''", []);
     // Backfill part_index for pre-existing rows: ordinal position per message,
     // ordered by id (id ascending == the historical insertion/BODYSTRUCTURE order).
     let _ = conn.execute(
