@@ -36,7 +36,7 @@ spec:
               mountPath: {{ .Values.storage.mountPath }}
       containers:
         - name: relay
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Chart.Version }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: RELAY_BIND
