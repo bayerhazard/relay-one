@@ -352,19 +352,6 @@
       <div class="assistant-body">
         {#if messages.length === 0}
           <p class="assistant-hint">{$t("assistant.hint")}</p>
-          <div class="assistant-examples" role="list" aria-label={$t("assistant.examplesTitle")}>
-            <span class="assistant-examples-title">{$t("assistant.examplesTitle")}</span>
-            {#each [$t("assistant.example1"), $t("assistant.example2"), $t("assistant.example3"), $t("assistant.example4")] as ex (ex)}
-              <button
-                type="button"
-                class="assistant-example"
-                role="listitem"
-                onclick={() => { input = ex; requestAnimationFrame(() => inputEl?.focus()); }}
-              >
-                {ex}
-              </button>
-            {/each}
-          </div>
         {/if}
         {#each messages as m (m.text + m.plans.length + m.steps.length)}
           {#if m.error}
@@ -525,39 +512,6 @@
   .assistant-hint {
     color: var(--color-text-secondary);
     font-size: 0.85rem;
-  }
-  .assistant-examples {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 12px;
-  }
-  .assistant-examples-title {
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-text-secondary);
-  }
-  .assistant-example {
-    text-align: left;
-    padding: 8px 10px;
-    font-size: 0.82rem;
-    line-height: 1.35;
-    color: var(--color-text);
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: border-color 0.12s ease, background 0.12s ease;
-  }
-  .assistant-example:hover {
-    border-color: var(--color-accent);
-    background: var(--color-active-wash);
-  }
-  .assistant-example:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 1px;
   }
   .assistant-thinking {
     display: block;
