@@ -30,6 +30,10 @@ pub struct Session {
 
 const MAX_ROUNDS: usize = 20; // 10 user+assistant rounds
 const MAX_CHARS: usize = 6000;
+/// Per-message text cap (Phase C session compression): a single very long
+/// message (e.g. a pasted mail body) is clamped so it cannot dominate the
+/// whole context on its own.
+const MAX_MSG_CHARS: usize = 2000;
 
 /// Create a new session (no-op if it already exists).
 pub fn create_session(conn: &Connection, id: &str, locale: &str) -> Result<(), String> {
@@ -72,6 +76,12 @@ pub fn append_message(conn: &Connection, id: &str, locale: &str, msg: SessionMes
     create_session(conn, id, locale)?;
     let existing = get_session(conn, id)?.map(|s| s.messages).unwrap_or_default();
     let mut msgs = existing;
+    // Per-message compression: clamp a single oversized message (Phase C).
+    let mut msg = msg;
+    if msg.text.chars().count() > MAX_MSG_CHARS {
+        let kept: String = msg.text.chars().take(MAX_MSG_CHARS).collect();
+        msg.text = format!("{kept}…[gekürzt]");
+    }
     msgs.push(msg);
     // Truncate to the last 10 rounds.
     if msgs.len() > MAX_ROUNDS {
@@ -166,5 +176,28 @@ mod tests {
         let s = get_session(&c, "s3").unwrap().unwrap();
         let total: usize = s.messages.iter().map(|m| m.text.len()).sum();
         assert!(total <= MAX_CHARS + 2000, "should stay near budget, got {total}");
+    }
+
+    #[test]
+    fn append_clamps_single_oversized_message() {
+        let c = mem();
+        create_session(&c, "s4", "de").unwrap();
+        append_message(
+            &c,
+            "s4",
+            "de",
+            SessionMessage {
+                role: "user".into(),
+                text: "y".repeat(MAX_MSG_CHARS + 500),
+                plan_ids: vec![],
+                ts: String::new(),
+            },
+        )
+        .unwrap();
+        let s = get_session(&c, "s4").unwrap().unwrap();
+        assert_eq!(s.messages.len(), 1);
+        // Clamped to the cap plus the truncation marker.
+        assert!(s.messages[0].text.chars().count() <= MAX_MSG_CHARS + 16, "got {}", s.messages[0].text.chars().count());
+        assert!(s.messages[0].text.ends_with("…[gekürzt]"));
     }
 }

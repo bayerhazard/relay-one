@@ -1095,52 +1095,27 @@ pub async fn ai_rsvp_draft(
     Ok(Json(result))
 }
 
-/// Ein einzelner Follow-up-Vorschlag als ausfuehrbare Einzelaktion.
-#[derive(Serialize, Deserialize)]
-pub struct FollowupAction {
+/// Phase C — a typed follow-up suggestion (Concept §12.3, §9.4). Each maps to
+/// exactly one registry tool; `plan` is the prepared (unexecuted) card the user
+/// will confirm. Nothing is executed until the user confirms the plan.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FollowupSuggestion {
     pub id: String,
-    /// "task" | "event" | "email"
-    pub kind: String,
-    pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task: Option<FollowupTask>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub event: Option<FollowupEvent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<FollowupEmail>,
+    /// Short chip label (max ~6 words).
+    pub titel: String,
+    /// Registry tool name (e.g. "tasks_create").
+    pub tool: String,
+    /// Tool arguments (validated against the tool schema).
+    pub args: serde_json::Value,
+    /// The prepared card the user confirms.
+    pub plan: crate::ai::tools::PreparedCard,
 }
 
+/// Phase C — the followups v2 response shape. The cache stores this object;
+/// the legacy bare-array format is treated as a cache miss (re-generated).
 #[derive(Serialize, Deserialize)]
-pub struct FollowupTask {
-    pub summary: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub due: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FollowupEvent {
-    pub summary: String,
-    pub start: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end: Option<String>,
-    #[serde(default)]
-    pub attendees: Vec<String>,
-    /// "free" | "busy"
-    pub availability: String,
-    #[serde(default)]
-    pub conflicts: Vec<String>,
-    #[serde(default)]
-    pub alternatives: Vec<TimeSlot>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FollowupEmail {
-    pub to: String,
-    pub subject: String,
-    pub body: String,
-    /// "confirmation" | "counter"
-    #[serde(default)]
-    pub purpose: String,
+pub struct FollowupsResponse {
+    pub actions: Vec<FollowupSuggestion>,
 }
 
 #[derive(Deserialize)]
@@ -1158,21 +1133,26 @@ pub struct FollowupsRequest {
     pub folder: Option<String>,
 }
 
-/// `POST /api/v1/ai/followups` — suggest follow-up actions for a message.
-///
-/// Returns structured single actions the user can execute individually:
-/// a meeting request becomes an event action (with availability + alternatives)
-/// plus an email action (confirmation if free, counter-offer if busy); other
-/// follow-ups become task actions. Cached per message when account+uid given.
+/// `POST /api/v1/ai/followups` — Phase C: typed follow-up suggestions
+/// (Concept §12.3). Returns `{actions: [FollowupSuggestion]}`; each suggestion
+/// maps to one registry tool and carries the prepared (unexecuted) card the
+/// user confirms. Cached per message; the legacy bare-array format is treated
+/// as a cache miss and re-generated (alt-format tolerance, Concept §12.3).
 pub async fn ai_followups(
     State(state): State<AppState>,
     Json(req): Json<FollowupsRequest>,
-) -> ApiResult<Vec<FollowupAction>> {
+) -> ApiResult<FollowupsResponse> {
+    let message_id = req.uid.unwrap_or(0) as i64;
+    // The on-demand handler has no per-user locale yet; default "de" (matches
+    // the pre-generation worker). Phase C+ threads the user locale through.
+    let locale = "de";
+
     if let (Some(account_id), Some(uid)) = (req.account_id, req.uid) {
-        let cached: Option<Vec<FollowupAction>> = with_db(&state, |conn| {
+        let cached: Option<FollowupsResponse> = with_db(&state, |conn| {
             match crate::cache::messages::get_ai_followups(conn, account_id as i64, uid as i64, req.folder.as_deref())
                 .map_err(|e| e.to_string())?
             {
+                // Old-format (bare array) fails to parse as the object → None → re-gen.
                 Some(json) => Ok(serde_json::from_str(&json).ok()),
                 None => Ok(None),
             }
@@ -1180,16 +1160,17 @@ pub async fn ai_followups(
         .ok()
         .flatten()
         .flatten();
-        if let Some(actions) = cached {
-            return Ok(Json(actions));
+        if let Some(resp) = cached {
+            return Ok(Json(resp));
         }
     }
 
-    let actions = generate_followups(&state, &req.subject, &req.from, &req.body).await?;
+    let actions =
+        generate_followups_v2(&state, &req.subject, &req.from, &req.body, message_id, locale).await?;
 
     if let (Some(account_id), Some(uid)) = (req.account_id, req.uid) {
         if !actions.is_empty() {
-            if let Ok(json) = serde_json::to_string(&actions) {
+            if let Ok(json) = serde_json::to_string(&FollowupsResponse { actions: actions.clone() }) {
                 let folder = req.folder.clone();
                 let _ = with_db(&state, move |conn| {
                     crate::cache::messages::set_ai_followups(conn, account_id as i64, uid as i64, folder.as_deref(), &json)
@@ -1198,218 +1179,93 @@ pub async fn ai_followups(
             }
         }
     }
-    Ok(Json(actions))
+    Ok(Json(FollowupsResponse { actions }))
 }
 
-/// Build the followup action list for a message (LLM call + calendar
-/// verification). Shared by the API handler and the background pre-generation
-/// worker so new mail gets its actions ready before the browser opens it.
-pub async fn generate_followups(
+/// Phase C — generate typed follow-up suggestions for a message (LLM call +
+/// registry-validated parse). Shared by the API handler and the background
+/// pre-generation worker so new mail gets its suggestions ready before the
+/// browser opens it.
+pub async fn generate_followups_v2(
     state: &AppState,
     subject: &str,
     from: &str,
     body: &str,
-) -> Result<Vec<FollowupAction>, ApiError> {
-    let now = chrono::Utc::now();
-    let now_str = now.to_rfc3339();
-
-    // Load calendar context: busy slots for next 14 days.
-    let cal_start = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let cal_end = (now + chrono::Duration::days(14)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let calendar_context = with_db(&state, |conn| {
-        let events = crate::cache::cal::list_events(conn, None, Some(&cal_start), Some(&cal_end))
-            .map_err(|e| e.to_string())?;
-        if events.is_empty() {
-            Ok("(keine Termine in den naechsten 14 Tagen)".to_string())
-        } else {
-            Ok(events.iter()
-                .map(|e| {
-                    let s = e.start_at.clone();
-                    let title = e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into());
-                    format!("- {s}: {title}")
-                })
-                .collect::<Vec<_>>()
-                .join("\n"))
-        }
-    }).unwrap_or_else(|_| "(Kalender nicht verfuegbar)".to_string());
-
-    // B3: locale-aware prompt. The background scheduler has no per-user locale
-    // context yet, so it defaults to "de"; Phase C passes the user's locale.
-    let (system, user) = prompts::build_followups_prompt(
-        subject, from, body, &now_str, &calendar_context, "de",
-    );
-    let client = get_ai_client(&state)?;
-    let raw = client.complete_user(&system, &user, Some(0.4), Some(2000)).await?;
-    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
-    let mut actions: Vec<FollowupAction> = Vec::new();
-    let mut counter = 0u32;
-
-    // [A] KALENDER
-    if let Some(cal) = obj.get("calendar").and_then(|c| c.as_object()) {
-        let title = cal.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let start = cal.get("start").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let end = cal.get("end").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let _action = cal.get("action").and_then(|v| v.as_str()).unwrap_or("confirm").to_string();
-        let conflict = cal.get("conflict").and_then(|v| v.as_str()).map(String::from);
-        let attendees: Vec<String> = cal
-            .get("attendees")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|a| a.as_str().map(String::from)).collect())
-            .unwrap_or_default();
-
-        if !title.is_empty() && !start.is_empty() {
-            // Resolve relative dates: try RFC3339 first, fallback to naive parse.
-            let (resolved_start, resolved_end) = resolve_dates(&start, &end, &now);
-
-            // Verify availability server-side.
-            let conflicts = with_db(&state, |conn| {
-                crate::cache::cal::find_conflicts(conn, None, &resolved_start, &resolved_end, None)
-                    .map(|c| c.iter().map(|e| e.summary.clone().unwrap_or_else(|| "(ohne Titel)".into())).collect::<Vec<_>>())
-                    .map_err(|e| e.to_string())
-            })
-            .unwrap_or_default();
-            let is_busy = !conflicts.is_empty();
-
-            // Alternatives if busy.
-            let mut alternatives: Vec<TimeSlot> = Vec::new();
-            if is_busy {
-                let duration = 60u32;
-                let (sys, usr) = prompts::build_conflict_alternatives_prompt(
-                    &title, &resolved_start, &resolved_end, &conflicts.join("; "), duration,
-                );
-                if let Ok(raw2) = client.complete_user(&sys, &usr, Some(0.4), Some(600)).await {
-                    for slot in extract_json_array(&raw2) {
-                        let (Some(s), Some(e)) = (
-                            slot.get("start").and_then(|v| v.as_str()),
-                            slot.get("end").and_then(|v| v.as_str()),
-                        ) else { continue; };
-                        let still = with_db(&state, |conn| {
-                            crate::cache::cal::find_conflicts(conn, None, s, e, None)
-                                .map(|c| !c.is_empty()).map_err(|err| err.to_string())
-                        }).unwrap_or(false);
-                        if still { continue; }
-                        alternatives.push(TimeSlot {
-                            start: s.to_string(), end: e.to_string(),
-                            reason: slot.get("reason").and_then(|v| v.as_str()).map(String::from),
-                        });
-                        if alternatives.len() >= 3 { break; }
-                    }
-                }
-            }
-
-            counter += 1;
-            let kind = if is_busy { "calendar_counter" } else { "calendar_confirm" };
-            let label = if is_busy {
-                format!("Konflikt: {title} — Alternative vorschlagen")
-            } else {
-                format!("Termin bestätigen: {title}")
-            };
-            actions.push(FollowupAction {
-                id: format!("fu-{counter}"),
-                kind: kind.into(),
-                label,
-                task: None,
-                event: Some(FollowupEvent {
-                    summary: title,
-                    start: resolved_start,
-                    end: Some(resolved_end),
-                    attendees,
-                    availability: if is_busy { "busy".into() } else { "free".into() },
-                    conflicts,
-                    alternatives,
-                }),
-                email: None,
-            });
-
-            // [B] MAILANTWORT (reply draft for calendar or standalone)
-            if let Some(reply) = obj.get("reply").and_then(|r| r.as_object()) {
-                let r_subject = reply.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let r_body = reply.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-                if !r_body.is_empty() {
-                    counter += 1;
-                    let purpose = if is_busy { "counter" } else { "confirmation" };
-                    actions.push(FollowupAction {
-                        id: format!("fu-{counter}"),
-                        kind: "reply_draft".into(),
-                        label: if is_busy { "Antwort mit Alternative erstellen".into() } else { "Zusage-Entwurf erstellen".into() },
-                        task: None,
-                        event: None,
-                        email: Some(FollowupEmail { to: from.to_string(), subject: r_subject, body: r_body, purpose: purpose.into() }),
-                    });
-                }
-            }
-
-            let _ = conflict; // used for future context
-        }
-    } else if let Some(reply) = obj.get("reply").and_then(|r| r.as_object()) {
-        // [B] Standalone reply (no calendar action)
-        let r_subject = reply.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let r_body = reply.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        if !r_body.is_empty() {
-            counter += 1;
-            actions.push(FollowupAction {
-                id: format!("fu-{counter}"),
-                kind: "reply_draft".into(),
-                label: "Antwort-Entwurf erstellen".into(),
-                task: None,
-                event: None,
-                email: Some(FollowupEmail { to: from.to_string(), subject: r_subject, body: r_body, purpose: "reply".into() }),
-            });
-        }
-    }
-
-    // [C] AUFGABEN
-    if let Some(tasks) = obj.get("tasks").and_then(|t| t.as_array()) {
-        for task in tasks.iter().take(3) {
-            let summary = task.get("task").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if summary.is_empty() { continue; }
-            let due = task.get("due").and_then(|v| v.as_str()).map(String::from);
-            counter += 1;
-            actions.push(FollowupAction {
-                id: format!("fu-{counter}"),
-                kind: "task".into(),
-                label: summary.clone(),
-                task: Some(FollowupTask { summary, due }),
-                event: None,
-                email: None,
-            });
-        }
-    }
-
-    Ok(actions)
+    message_id: i64,
+    locale: &str,
+) -> Result<Vec<FollowupSuggestion>, ApiError> {
+    let now_str = chrono::Utc::now().to_rfc3339();
+    let (system, user) = prompts::build_followups_v2_prompt(subject, from, body, message_id, &now_str, locale);
+    let client = get_ai_client(state)?;
+    let raw = client.complete_user_json(&system, &user, Some(0.3), Some(1200)).await?;
+    Ok(parse_followups_v2(state, &raw, message_id, subject, locale).await)
 }
 
-/// Resolve potentially relative dates to RFC3339 UTC.
-fn resolve_dates(start: &str, end: &str, now: &chrono::DateTime<chrono::Utc>) -> (String, String) {
-    // Try RFC3339 first
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start) {
-        let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
-            .map(|e| e.to_rfc3339())
-            .unwrap_or_else(|_| (dt.with_timezone(&chrono::Utc) + chrono::Duration::hours(1)).to_rfc3339());
-        return (dt.to_rfc3339(), resolved_end);
+/// Phase C — parse the LLM's raw output into validated suggestions (Concept
+/// §12.3, §6.5). Pure of the LLM: takes the raw JSON string, validates each
+/// suggestion against the tool registry (unknown tools are discarded — the
+/// anti-injection fixpoint), and builds the prepared card by running the tool.
+/// Only `Card` outcomes become suggestions; nothing is ever executed here.
+pub async fn parse_followups_v2(
+    state: &AppState,
+    raw: &str,
+    source_message_id: i64,
+    subject: &str,
+    locale: &str,
+) -> Vec<FollowupSuggestion> {
+    let obj = extract_json_object(raw).unwrap_or(serde_json::Value::Null);
+    let suggestions = obj
+        .get("suggestions")
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    // Seed the source message so mail_propose_reply passes the ID-provenance check.
+    let known_ids = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    {
+        let mut g = known_ids.lock().await;
+        g.insert(source_message_id.to_string(), subject.to_string());
     }
-    // Try common formats
-    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(start, fmt) {
-            let utc = dt.and_utc();
-            let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
-                .map(|e| e.to_rfc3339())
-                .unwrap_or_else(|_| (utc + chrono::Duration::hours(1)).to_rfc3339());
-            return (utc.to_rfc3339(), resolved_end);
+    let ctx = crate::ai::tools::ToolCtx {
+        state: state.clone(),
+        locale: locale.to_string(),
+        known_ids,
+    };
+
+    let mut out = Vec::new();
+    for (i, sug) in suggestions.iter().take(3).enumerate() {
+        let tool = sug.get("tool").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // Registry validation: unknown tools are discarded (anti-injection).
+        if crate::ai::tools::find_tool(&tool).is_none() {
+            continue;
         }
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(start, fmt) {
-            if let Some(dt) = date.and_hms_opt(9, 0, 0) {
-                let utc = dt.and_utc();
-                let resolved_end = chrono::DateTime::parse_from_rfc3339(end)
-                    .map(|e| e.to_rfc3339())
-                    .unwrap_or_else(|_| (utc + chrono::Duration::hours(1)).to_rfc3339());
-                return (utc.to_rfc3339(), resolved_end);
+        let mut args = sug.get("args").cloned().unwrap_or(serde_json::Value::Null);
+        // mail_propose_reply must target the source message (override any LLM id).
+        if tool == "mail_propose_reply" {
+            if let Some(o) = args.as_object_mut() {
+                o.insert("id".into(), serde_json::Value::String(source_message_id.to_string()));
             }
         }
+        match crate::ai::tools::execute(&tool, args.clone(), ctx.clone()).await {
+            Ok(crate::ai::tools::ToolOutcome::Card(card)) => {
+                let titel = sug
+                    .get("titel")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| card.title.clone());
+                out.push(FollowupSuggestion {
+                    id: format!("fu-{}", i + 1),
+                    titel,
+                    tool: tool.clone(),
+                    args,
+                    plan: card,
+                });
+            }
+            _ => continue, // Data / Nachfrage / Nav / Err → not a suggestion
+        }
     }
-    // Fallback: now + 1 day
-    let fallback = *now + chrono::Duration::days(1);
-    (fallback.to_rfc3339(), (fallback + chrono::Duration::hours(1)).to_rfc3339())
+    out
 }
 
 #[derive(Deserialize)]
@@ -2175,6 +2031,77 @@ pub async fn agent_stream(State(state): State<AppState>, headers: HeaderMap, Jso
         .into_response()
 }
 
+/// Phase C — the body of `POST /api/v1/ai/plans`: a typed follow-up suggestion
+/// (tool + args) the user picked from the mail footer.
+#[derive(Deserialize)]
+pub struct PlanCreateRequest {
+    pub tool: String,
+    pub args: serde_json::Value,
+    #[serde(default)]
+    pub source_message_id: Option<i64>,
+    #[serde(default)]
+    pub locale: Option<String>,
+}
+
+/// `POST /api/v1/ai/plans` — build a pending plan from a follow-up suggestion
+/// (Phase C, Concept §12.3, §9.4). The server re-runs the tool to build the
+/// prepared card (re-validating against the registry), then persists a pending
+/// plan with origin `mail_followup`. Nothing is executed — the user confirms
+/// the plan separately (Concept §5.3).
+pub async fn plan_create(
+    State(state): State<AppState>,
+    Json(req): Json<PlanCreateRequest>,
+) -> ApiResult<plaene::ActionPlan> {
+    // Registry validation: unknown tools are rejected (anti-injection).
+    if crate::ai::tools::find_tool(&req.tool).is_none() {
+        return Err(ApiError(format!("Unbekanntes Tool '{}'.", req.tool)));
+    }
+    let locale = req.locale.clone().unwrap_or_else(|| "de".to_string());
+    let source_message_id = req.source_message_id;
+
+    // Seed the source message so mail_propose_reply passes the ID-provenance check.
+    let label = source_message_id
+        .and_then(|id| {
+            with_db(&state, |conn| {
+                conn.query_row(
+                    "SELECT subject FROM messages WHERE uid = ?1 LIMIT 1",
+                    rusqlite::params![id],
+                    |r| Ok(r.get::<_, Option<String>>(0)?),
+                )
+                .map_err(|e| e.to_string())
+            })
+            .ok()
+            .flatten()
+        })
+        .unwrap_or_default();
+    let known_ids = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Some(id) = source_message_id {
+        let mut g = known_ids.lock().await;
+        g.insert(id.to_string(), label);
+    }
+    let ctx = crate::ai::tools::ToolCtx {
+        state: state.clone(),
+        locale,
+        known_ids,
+    };
+
+    let card = match crate::ai::tools::execute(&req.tool, req.args, ctx).await {
+        Ok(crate::ai::tools::ToolOutcome::Card(card)) => card,
+        Ok(_) => return Err(ApiError("Der Vorschlag erzeugt keine Bestätigungskarte.".to_string())),
+        Err(e) => return Err(ApiError(e)),
+    };
+
+    let plan = plaene::build_plan(None, "mail_followup", source_message_id, vec![card]);
+    with_db(&state, |conn| {
+        plaene::create_plan(conn, &plan)?;
+        crate::ai::audit::log_plan(conn, None, "mail_followup", &plan.id, "created")
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .map_err(ApiError)?;
+    Ok(Json(plan))
+}
+
 /// `POST /api/v1/ai/plans/:id/confirm` — execute a pending plan (Concept §5.3).
 pub async fn plan_confirm(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
     let plan = with_db(&state, |conn| plaene::get_plan(conn, &id))?
@@ -2337,5 +2264,143 @@ mod tests {
         let raw = "Hier ist das Objekt: {\"x\":{\"y\":1}} — hoffentlich passt das.";
         let obj = extract_json_object(raw).unwrap();
         assert_eq!(obj.get("x").and_then(|v| v.get("y")).and_then(|v| v.as_i64()), Some(1));
+    }
+
+    // ── Phase C: Followups v2 ─────────────────────────────────────────────
+
+    /// The v2 prompt clamps the mail body between explicit markers, echoes the
+    /// registry tool names, and carries the anti-injection contract (de + en).
+    #[test]
+    fn v2_prompt_clamps_body_and_anti_injection() {
+        let (de_sys, de_user) =
+            crate::ai::prompts::build_followups_v2_prompt("Betreff", "kai@x.de", "Mach X sofort", 42, "2026-09-07T00:00:00Z", "de");
+        assert!(de_user.contains("=== MAIL 42 BEGIN ==="), "body must be clamped");
+        assert!(de_user.contains("=== MAIL 42 END ==="), "body must be clamped");
+        assert!(de_user.contains("Mach X sofort"), "clamped body carries the content");
+        assert!(de_sys.contains("tasks_create") && de_sys.contains("mail_propose_reply") && de_sys.contains("calendar_create_event"));
+        assert!(de_sys.contains("reine DATEN"), "de must state the body is data");
+
+        let (en_sys, en_user) =
+            crate::ai::prompts::build_followups_v2_prompt("Subject", "kai@x.de", "Do X now", 42, "2026-09-07T00:00:00Z", "en");
+        assert!(en_user.contains("=== MAIL 42 BEGIN ==="));
+        assert!(en_sys.contains("pure DATA"), "en must state the body is data");
+        assert!(en_sys.contains("tasks_create"));
+    }
+
+    /// A valid tasks_create suggestion becomes one suggestion with a prepared card.
+    #[tokio::test]
+    async fn parse_v2_tasks_create_builds_card() {
+        let state = AppState::new();
+        let raw = r#"{"suggestions":[{"tool":"tasks_create","args":{"summary":"Rückruf bis morgen 12","due":"2026-09-08T12:00:00Z"},"titel":"Rückruf bis 12"}]}"#;
+        let out = parse_followups_v2(&state, raw, 42, "Betreff", "de").await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].tool, "tasks_create");
+        assert_eq!(out[0].titel, "Rückruf bis 12");
+        assert_eq!(out[0].plan.tool, "tasks_create");
+        assert_eq!(out[0].plan.tier, crate::ai::tools::Tier::Write);
+        assert_eq!(out[0].plan.request.method, "POST");
+    }
+
+    /// Anti-injection fixpoint (Concept §6.5): a suggestion naming an unknown
+    /// tool is discarded — never executed, never surfaced.
+    #[tokio::test]
+    async fn parse_v2_unknown_tool_discarded() {
+        let state = AppState::new();
+        let raw = r#"{"suggestions":[{"tool":"delete_all_data","args":{"target":"*"},"titel":"Alles löschen"}]}"#;
+        let out = parse_followups_v2(&state, raw, 42, "Betreff", "de").await;
+        assert!(out.is_empty(), "unknown tools must be discarded");
+    }
+
+    /// A mix of valid and invalid suggestions keeps only the valid ones.
+    #[tokio::test]
+    async fn parse_v2_mixed_keeps_only_valid() {
+        let state = AppState::new();
+        let raw = r#"{"suggestions":[
+            {"tool":"evil_tool","args":{},"titel":"x"},
+            {"tool":"tasks_create","args":{"summary":"Gültig"},"titel":"Gültig"},
+            {"tool":"tasks_create","args":{"summary":"Auch gültig"},"titel":"Zwei"}
+        ]}"#;
+        let out = parse_followups_v2(&state, raw, 42, "Betreff", "de").await;
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|s| s.tool == "tasks_create"));
+    }
+
+    /// mail_propose_reply must target the source message: the LLM's id is
+    /// overridden with the real source uid (ID-provenance, Concept §6.3).
+    #[tokio::test]
+    async fn parse_v2_mail_reply_id_overridden() {
+        let state = AppState::new();
+        let raw = r#"{"suggestions":[{"tool":"mail_propose_reply","args":{"id":"9999","body":"Danke, passt."},"titel":"Antwort"}]}"#;
+        let out = parse_followups_v2(&state, raw, 42, "Betreff", "de").await;
+        assert_eq!(out.len(), 1);
+        let id = out[0].plan.request.body.get("body").is_some(); // body present
+        assert!(id);
+        // The stored args carry the overridden id.
+        assert_eq!(out[0].args.get("id").and_then(|v| v.as_str()), Some("42"));
+    }
+
+    /// Alt-format tolerance (Concept §12.3): a legacy bare-array cache value
+    /// does not parse as the v2 object → treated as a cache miss.
+    #[test]
+    fn followups_cache_alt_format_is_miss() {
+        let legacy = r#"[{"id":"fu-1","kind":"task","label":"x","task":{"summary":"x"}}]"#;
+        assert!(serde_json::from_str::<FollowupsResponse>(legacy).is_err(), "old array format must not parse as the v2 object");
+        let v2 = r#"{"actions":[]}"#;
+        assert!(serde_json::from_str::<FollowupsResponse>(v2).is_ok(), "v2 object must parse");
+    }
+
+    /// AppState with the agent plan table (for plan_create persistence tests).
+    fn plan_state() -> AppState {
+        let state = AppState::new();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE ai_action_plans (
+                 id TEXT PRIMARY KEY, session_id TEXT, origin TEXT NOT NULL,
+                 source_message_id INTEGER, status TEXT NOT NULL, steps_json TEXT NOT NULL,
+                 created_at TEXT NOT NULL, expires_at TEXT NOT NULL, executed_at TEXT, result_json TEXT);
+             CREATE TABLE ai_audit (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 session_id TEXT, origin TEXT, event TEXT NOT NULL,
+                 detail TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));",
+        )
+        .unwrap();
+        *state.cache_db.lock() = Some(conn);
+        state
+    }
+
+    /// plan_create builds a pending plan with origin `mail_followup` and the
+    /// prepared card as its single step (nothing is executed).
+    #[tokio::test]
+    async fn plan_create_builds_mail_followup_plan() {
+        let state = plan_state();
+        let req = PlanCreateRequest {
+            tool: "tasks_create".into(),
+            args: serde_json::json!({ "summary": "Rückruf", "due": "2026-09-08T12:00:00Z" }),
+            source_message_id: Some(42),
+            locale: Some("de".into()),
+        };
+        let Json(plan) = plan_create(State(state.clone()), Json(req)).await.unwrap();
+        assert_eq!(plan.origin, "mail_followup");
+        assert_eq!(plan.status, plaene::PlanStatus::Pending);
+        assert_eq!(plan.source_message_id, Some(42));
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].tool, "tasks_create");
+        // Persisted and retrievable.
+        let got = with_db(&state, |conn| plaene::get_plan(conn, &plan.id)).unwrap().unwrap();
+        assert_eq!(got.origin, "mail_followup");
+    }
+
+    /// plan_create rejects unknown tools (anti-injection at the endpoint).
+    #[tokio::test]
+    async fn plan_create_unknown_tool_rejected() {
+        let state = plan_state();
+        let req = PlanCreateRequest {
+            tool: "drop_database".into(),
+            args: serde_json::json!({}),
+            source_message_id: None,
+            locale: None,
+        };
+        let res = plan_create(State(state.clone()), Json(req)).await;
+        assert!(res.is_err(), "unknown tool must be rejected");
     }
 }

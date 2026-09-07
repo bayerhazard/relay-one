@@ -3,6 +3,8 @@ import { get } from "svelte/store";
 import { effects, applyEffect, type Effect, type EffectContext } from "$lib/stores/effects";
 import { calendarView } from "$lib/stores/calendarView";
 import { selection } from "$lib/stores/selection";
+import { assistantCommand } from "$lib/stores/assistantCommand";
+import type { AgentPlan } from "$lib/services/tauri";
 
 describe("effects queue (Concept §5.5)", () => {
   beforeEach(() => effects.clear());
@@ -165,5 +167,41 @@ describe("effect router (applyEffect, Concept §5.5 / §12.5)", () => {
     const { ctx, calls } = mockCtx();
     applyEffect({ kind: "highlight", art: "contact", id: "c-42" }, ctx);
     expect(calls).toContain("setContact:c-42");
+  });
+});
+
+describe("assistantCommand store (Phase C, Concept §9.4)", () => {
+  const plan: AgentPlan = {
+    id: "plan-9",
+    session_id: null,
+    origin: "mail_followup",
+    status: "pending",
+    steps: [],
+    created_at: "2026-09-07T00:00:00Z",
+    expires_at: "2026-09-07T01:00:00Z",
+    executed_at: null,
+    result_json: null,
+  };
+
+  it("starts with no pending command", () => {
+    assistantCommand.clear();
+    expect(get(assistantCommand)).toBeNull();
+  });
+
+  it("showPlan stores the plan with a monotonic nonce", () => {
+    assistantCommand.clear();
+    assistantCommand.showPlan(plan);
+    const c = get(assistantCommand);
+    expect(c?.plan).toEqual(plan);
+    expect(c?.nonce).toBeGreaterThan(0);
+    // A second command bumps the nonce so the consuming effect re-triggers.
+    assistantCommand.showPlan(plan);
+    expect(get(assistantCommand)?.nonce).toBeGreaterThan(c!.nonce);
+  });
+
+  it("clear drops the pending command", () => {
+    assistantCommand.showPlan(plan);
+    assistantCommand.clear();
+    expect(get(assistantCommand)).toBeNull();
   });
 });

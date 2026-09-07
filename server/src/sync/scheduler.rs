@@ -2341,9 +2341,11 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             if !body.trim().is_empty() {
                 let from = m.from_addr.unwrap_or_default();
                 let subject = m.subject.unwrap_or_default();
-                match crate::api::ai::generate_followups(state, &subject, &from, &body).await {
+                match crate::api::ai::generate_followups_v2(state, &subject, &from, &body, uid as i64, "de").await {
                     Ok(actions) if !actions.is_empty() => {
-                        if let Ok(json) = serde_json::to_string(&actions) {
+                        // Cache the v2 object shape (the handler parses it back;
+                        // a legacy bare-array would be treated as a miss).
+                        if let Ok(json) = serde_json::to_string(&crate::api::ai::FollowupsResponse { actions }) {
                             let db_guard = state.cache_db.lock();
                             if let Some(conn) = db_guard.as_ref() {
                                 let _ = crate::cache::messages::set_ai_followups_by_folder_id(

@@ -4,6 +4,8 @@
   // was opened from (used for module-aware navigation).
   import AssistantDrawer from "./AssistantDrawer.svelte";
   import { t } from "$lib/i18n";
+  import { assistantCommand } from "$lib/stores/assistantCommand";
+  import type { AgentPlan } from "$lib/services/tauri";
 
   interface Props {
     module: "mail" | "calendar" | "contacts" | "tasks" | "settings";
@@ -12,6 +14,16 @@
 
   let { module, context = "" }: Props = $props();
   let open = $state(false);
+  // Phase C: a mail footer chip hands a pre-built plan to the drawer — open it
+  // and inject the card (Concept §9.4).
+  let externalPlan = $state<AgentPlan | null>(null);
+  $effect(() => {
+    const cmd = $assistantCommand;
+    if (cmd) {
+      externalPlan = cmd.plan;
+      open = true;
+    }
+  });
 </script>
 
 <button
@@ -33,6 +45,7 @@
   open={open}
   {module}
   {context}
+  externalPlan={externalPlan}
   onclose={() => (open = false)}
 />
 

@@ -27,12 +27,11 @@ import {
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
-    getFollowups, generateCounterEmail, createTodo, createEvent, getCalendars,
-    type FollowupAction, type FollowupTimeSlot,
+    getFollowups, createPlanFromSuggestion, type FollowupSuggestion,
   } from "$lib/services/tauri";
+  import { assistantCommand } from "$lib/stores/assistantCommand";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import { iconSVG, folderIconFor } from "$lib/icons";
-  import { getDoneFingerprints, followupFingerprint, markFollowupDone } from "$lib/utils/followupMemory";
   import type { MailChainEntry } from "$lib/types/mail";
   import { cacheBody, getCachedBody } from "$lib/offline/bodyCache";
   import { queueDraft, getQueuedDrafts, removeQueuedDraft } from "$lib/offline/draftQueue";
@@ -116,17 +115,16 @@ import {
 
   // Globaler AI-Assistent (Phase 4.5) — FAB + drawer live in <AssistantFab>.
 
-  // AI-Followups (Phase 3.4) — automatisch im Hintergrund erkannt (einmal pro
-  // Mail, gecacht) und als Einzelaktionen in einem fixen Footer angezeigt.
-  let followups = $state<FollowupAction[]>([]);
+  // AI-Followups v2 (Phase C) — automatisch im Hintergrund erkannt (einmal pro
+  // Mail, gecacht) und als typisierte Vorschläge im Footer angezeigt. Klick auf
+  // einen Chip erzeugt einen Plan (origin=mail_followup) und öffnet den Drawer.
+  let followups = $state<FollowupSuggestion[]>([]);
   let followupsLoading = $state(false);
   let followupsError = $state<string | null>(null);
   let followupsForUid = $state<number | null>(null);
   let followupsInFlight: number | null = null; // nicht reaktiv, nur Duplikat-Guard
-  const followupsCache = new Map<number, FollowupAction[]>();
-  // Vom Nutzer gewaehlter Alternativ-Slot (belegt) — wird von der
-  // "Alternative per Mail vorschlagen"-Aktion fuer den Gegenvorschlag genutzt.
-  let pickedAlternative = $state<FollowupTimeSlot | null>(null);
+  const followupsCache = new Map<number, FollowupSuggestion[]>();
+  let followupPlanBusy = $state(false);
 
   // Automatische Erkennung: wenn eine Mail geoeffnet wird (und kein Compose),
   // prueft die KI im Hintergrund auf Termin-Anfragen + weitere Aktionen.
@@ -134,10 +132,8 @@ import {
     const uid = selectedMessage?.uid;
     if (uid == null || showCompose) return;
     followupsForUid = uid;
-    pickedAlternative = null;
     if (followupsCache.has(uid)) {
-      const done = getDoneFingerprints(uid);
-      followups = followupsCache.get(uid)!.filter((a) => !done.has(followupFingerprint(a)));
+      followups = followupsCache.get(uid)!;
       followupsLoading = false;
       followupsError = null;
       return;
@@ -162,11 +158,10 @@ import {
       uid,
       folder: selectedFolder,
     })
-      .then((actions) => {
+      .then((res) => {
         if (followupsForUid !== uid) return;
-        followupsCache.set(uid, actions);
-        const done = getDoneFingerprints(uid);
-        followups = actions.filter((a) => !done.has(followupFingerprint(a)));
+        followupsCache.set(uid, res.actions);
+        followups = res.actions;
       })
       .catch((e) => {
         if (followupsForUid !== uid) return;
@@ -2433,99 +2428,22 @@ let sentFolderName = $state<string | null>(null);
     showDeleteConfirm = true;
   }
 
-  // Eine Follow-up-Aktion ausfuehren (Aufgabe anlegen, Termin eintragen oder
-  // Mail-Entwurf oeffnen). Die Aktion wird danach aus dem Footer entfernt.
-  let confirmAction: FollowupAction | null = $state(null);
-
-  async function handleFollowupAction(a: FollowupAction) {
-    // Show confirmation dialog before executing
-    confirmAction = a;
-  }
-
-  async function confirmFollowupAction() {
-    const a = confirmAction;
-    confirmAction = null;
-    if (!a) return;
+  // Phase C (Concept §9.4): a follow-up chip builds a pending plan
+  // (origin=mail_followup) and hands it to the assistant drawer, where the T1
+  // card is confirmed. Nothing executes here — the user confirms in the drawer.
+  async function handleFollowupChip(s: FollowupSuggestion) {
+    if (followupPlanBusy) return;
+    followupPlanBusy = true;
     try {
-      if (a.kind === "task" && a.task) {
-        await createTodo({ summary: a.task.summary, due: a.task.due ?? undefined });
-        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
-        followups = followups.filter((x) => x.id !== a.id);
-        return;
-      }
-      if ((a.kind === "event" || a.kind === "calendar_confirm" || a.kind === "calendar_counter") && a.event) {
-        await createFollowupEvent(a.event.summary, a.event.start, a.event.end ?? undefined, a.event.attendees);
-        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
-        followups = followups.filter((x) => x.id !== a.id);
-        return;
-      }
-      if ((a.kind === "email" || a.kind === "reply_draft") && a.email) {
-        let subject = a.email.subject;
-        let body = a.email.body;
-        if (a.email.purpose === "counter" && pickedAlternative) {
-          const ev = followups.find((x) => (x.kind === "event" || x.kind === "calendar_confirm" || x.kind === "calendar_counter") && x.event);
-          if (ev?.event) {
-            const res = await generateCounterEmail({
-              from: a.email.to,
-              meeting_title: ev.event.summary,
-              requested_start: ev.event.start,
-              alternative_start: pickedAlternative.start,
-              alternative_end: pickedAlternative.end,
-            });
-            subject = res.subject;
-            body = res.body;
-          }
-        }
-        assistantAction.set({ type: "open_compose", to: a.email.to, subject, body });
-        if (followupsForUid != null) markFollowupDone(followupsForUid, a);
-        followups = followups.filter((x) => x.id !== a.id);
-        return;
-      }
+      const plan = await createPlanFromSuggestion(s, {
+        sourceMessageId: followupsForUid ?? undefined,
+      });
+      assistantCommand.showPlan(plan);
     } catch (e) {
       followupsError = localizeError(String(e));
+    } finally {
+      followupPlanBusy = false;
     }
-  }
-
-  function cancelFollowupAction() {
-    confirmAction = null;
-  }
-
-  // Alternativ-Slot (bei Konflikt) waehlen — wird gemerkt und von der
-  // "Alternative per Mail vorschlagen"-Aktion fuer den Gegenvorschlag genutzt.
-  function handleFollowupAlternative(a: FollowupAction, slot: FollowupTimeSlot) {
-    if (a.kind !== "event" || !a.event) return;
-    pickedAlternative = slot;
-  }
-
-  // Gewaehlten Alternativ-Slot als Termin eintragen.
-  async function handleBookPickedAlternative(a: FollowupAction) {
-    if (a.kind !== "event" || !a.event || !pickedAlternative) return;
-    try {
-      await createFollowupEvent(a.event.summary, pickedAlternative.start, pickedAlternative.end, a.event.attendees);
-    } catch (e) {
-      followupsError = localizeError(String(e));
-    }
-  }
-
-  async function createFollowupEvent(summary: string, start: string, end: string | undefined, attendees: string[]) {
-    const cals = await getCalendars();
-    const cal = cals.find((c) => !c.read_only) ?? cals[0];
-    if (!cal) throw new Error("Kein Kalender gefunden.");
-    await createEvent({
-      calendar_id: cal.id,
-      summary,
-      start,
-      end,
-      attendees: attendees.length ? attendees.map((email) => ({ email })) : undefined,
-    });
-    followups = followups.filter((x) => x.kind !== "event");
-    goto("/calendar");
-  }
-
-  function formatAltSlot(iso: string) {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
   async function handleToggleRead(uid: number, uids?: number[]) {
@@ -3017,40 +2935,17 @@ let sentFolderName = $state<string | null>(null);
               {#each followups as a (a.id)}
                 <div class="followups-footer-row">
                   <div class="followups-footer-label">
-                    <span>{a.label}</span>
-                    {#if (a.kind === "event" || a.kind === "calendar_counter") && a.event?.availability === "busy" && a.event.conflicts.length > 0}
-                      <span class="followups-footer-conflict">Belegt: {a.event.conflicts.join(", ")}</span>
-                    {/if}
+                    <span>{a.titel}</span>
                   </div>
-                  {#if a.kind === "task"}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Aufgabe anlegen</button>
-                  {:else if (a.kind === "calendar_confirm" || (a.kind === "event" && a.event?.availability === "free"))}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Termin bestätigen</button>
-                  {:else if (a.kind === "calendar_counter" || (a.kind === "event" && a.event?.availability === "busy"))}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Alternative vorschlagen</button>
-                  {:else if a.kind === "reply_draft" || a.kind === "email"}
-                    <button type="button" class="followups-footer-btn" onclick={() => handleFollowupAction(a)}>Antwort erstellen</button>
-                  {/if}
+                  <button
+                    type="button"
+                    class="followups-footer-btn"
+                    disabled={followupPlanBusy}
+                    onclick={() => handleFollowupChip(a)}
+                  >
+                    Vorschlag annehmen
+                  </button>
                 </div>
-                {#if (a.kind === "event" || a.kind === "calendar_counter") && a.event?.availability === "busy" && a.event.alternatives.length > 0}
-                  <div class="followups-footer-alts">
-                    {#each a.event.alternatives as slot (slot.start)}
-                      <button
-                        type="button"
-                        class="followups-footer-alt"
-                        class:followups-footer-alt--picked={pickedAlternative?.start === slot.start}
-                        onclick={() => handleFollowupAlternative(a, slot)}
-                      >
-                        {formatAltSlot(slot.start)}
-                      </button>
-                    {/each}
-                    {#if pickedAlternative}
-                      <button type="button" class="followups-footer-btn" onclick={() => handleBookPickedAlternative(a)}>
-                        Termin eintragen
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
               {/each}
             {/if}
           </div>
@@ -3058,18 +2953,6 @@ let sentFolderName = $state<string | null>(null);
       {/if}
     </section>
 
-    {#if confirmAction}
-      <ConfirmationDialog
-        open={true}
-        title={$t("followups.confirmTitle")}
-        message={confirmAction.label}
-        confirmLabel={$t("followups.confirmBtn")}
-        cancelLabel={$t("common.cancel")}
-        danger={false}
-        onconfirm={confirmFollowupAction}
-        oncancel={cancelFollowupAction}
-      />
-    {/if}
   </div>
 {/if}
 

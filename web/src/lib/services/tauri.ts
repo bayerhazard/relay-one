@@ -1379,13 +1379,28 @@ export interface FollowupAction {
   email?: FollowupEmail;
 }
 
+// ─── Followups v2 (Phase C, Concept §9.4 / §12.3) ──────────
+// A typed suggestion: exactly one registry tool + the prepared (unexecuted)
+// card the user will confirm in the Drawer. Nothing runs until confirmed.
+export interface FollowupSuggestion {
+  id: string;
+  titel: string;
+  tool: string;
+  args: unknown;
+  plan: AgentPlanStep;
+}
+
+export interface FollowupsResponse {
+  actions: FollowupSuggestion[];
+}
+
 export async function getFollowups(
   subject: string,
   from: string,
   body: string,
   opts?: { accountId?: number; uid?: number; folder?: string },
-): Promise<FollowupAction[]> {
-  return post<FollowupAction[]>(
+): Promise<FollowupsResponse> {
+  return post<FollowupsResponse>(
     "/ai/followups",
     {
       subject,
@@ -1396,6 +1411,25 @@ export async function getFollowups(
       folder: opts?.folder ?? null,
     },
     "Aufgaben konnten nicht generiert werden.",
+  );
+}
+
+/// Build a pending plan (origin=mail_followup) from a follow-up suggestion and
+/// return it for confirmation in the Drawer (Concept §9.4). Nothing is executed
+/// here — the user confirms the returned plan in the Drawer.
+export async function createPlanFromSuggestion(
+  s: FollowupSuggestion,
+  opts?: { sourceMessageId?: number; locale?: string },
+): Promise<AgentPlan> {
+  return post<AgentPlan>(
+    "/ai/plans",
+    {
+      tool: s.tool,
+      args: s.args,
+      source_message_id: opts?.sourceMessageId ?? null,
+      locale: opts?.locale ?? null,
+    },
+    "Vorschlag konnte nicht erstellt werden.",
   );
 }
 

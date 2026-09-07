@@ -114,6 +114,7 @@ pub fn router() -> Router<AppState> {
         .route("/ai/agenda-digest", post(ai::ai_agenda_digest))
         .route("/ai/assistant", post(ai::ai_assistant))
         .route("/ai/agent", post(ai::agent_stream))
+        .route("/ai/plans", post(ai::plan_create))
         .route("/ai/plans/:id/confirm", post(ai::plan_confirm))
         .route("/ai/plans/:id/cancel", post(ai::plan_cancel))
         .route("/ai/plans/:id/undo", post(ai::plan_undo))

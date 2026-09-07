@@ -28,9 +28,11 @@
     module: "mail" | "calendar" | "contacts" | "tasks" | "settings";
     context?: string;
     onclose: () => void;
+    /** Phase C: a plan handed in from a mail footer chip (origin=mail_followup). */
+    externalPlan?: AgentPlan | null;
   }
 
-  let { open, module, context: _context = "", onclose }: Props = $props();
+  let { open, module, context: _context = "", onclose, externalPlan = null }: Props = $props();
 
   interface ChatMsg {
     role: "user" | "assistant";
@@ -51,6 +53,9 @@
   let abortController = $state<AbortController | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let popEl = $state<HTMLElement | null>(null);
+  // Phase C: track the last injected external plan id so a re-render of the
+  // same plan does not inject it twice.
+  let lastExternalPlanId = $state<string | null>(null);
 
   // ─── Voice input (dictation into the assistant) ───────────────────
   let voiceEnabled = $state(false);
@@ -84,6 +89,25 @@
       document.removeEventListener("click", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
+  });
+
+  // Phase C (Concept §9.4): a mail footer chip built a plan (origin=mail_followup)
+  // and handed it in. Inject it as an assistant message so the T1 card renders
+  // for confirmation. Nothing executes until the user confirms the card.
+  $effect(() => {
+    const plan = externalPlan;
+    if (!plan) return;
+    if (plan.id === lastExternalPlanId) return;
+    lastExternalPlanId = plan.id;
+    messages = [
+      ...messages,
+      {
+        role: "assistant",
+        text: $t("assistant.followupCard"),
+        plans: [plan],
+        steps: [],
+      },
+    ];
   });
 
   async function toggleVoiceInput() {
