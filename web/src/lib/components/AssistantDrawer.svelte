@@ -1,21 +1,27 @@
 <script lang="ts">
-  // Phase 4.5 — Globaler AI-Assistent (Centerpiece).
-  // Slide-in drawer mit Chat-UI und Action-Vorschau.
+  // AI-Assistent v2 (Concept §10.1): agentic drawer. Streams the agent loop via
+  // SSE, renders confirmation cards (PlanCard), a live status line and a "what I
+  // did" trace. Write actions never execute directly — they become plans the
+  // user confirms (B4 fixed). Voice input is unchanged from v1.
   import { goto } from "$app/navigation";
   import { get } from "svelte/store";
   import { t, translate, lang } from "$lib/i18n";
-  import { assistantAction } from "$lib/stores/assistantAction";
+  import { effects } from "$lib/stores/effects";
+  import { bumpDataVersion } from "$lib/stores/invalidation";
   import { blobToWavBase64 } from "$lib/utils/wav";
   import {
-    askAssistant,
-    createEvent,
-    createTodo,
-    getCalendars,
+    runAgent,
+    confirmPlan as confirmPlanApi,
+    cancelPlan as cancelPlanApi,
+    undoPlan as undoPlanApi,
     getVoiceSettings,
     voiceTranscribe,
-    type AssistantAction,
-    type AssistantResult,
+    type AgentPlan,
+    type AgentStep,
+    type AgentEvent,
+    type PlanStatus,
   } from "$lib/services/tauri";
+  import PlanCard from "$lib/components/PlanCard.svelte";
 
   interface Props {
     open: boolean;
@@ -24,27 +30,25 @@
     onclose: () => void;
   }
 
-  let { open, module, context = "", onclose }: Props = $props();
-
-  // Module context string handed to the LLM so it knows which module the
-  // user started the assistant from.
-  const modLabel = translate(`assistant.module.${module}`);
-  const fullContext = context
-    ? `${translate("assistant.activeModule", { module: modLabel })}. ${context}`
-    : translate("assistant.activeModule", { module: modLabel });
+  let { open, module, context: _context = "", onclose }: Props = $props();
 
   interface ChatMsg {
     role: "user" | "assistant";
     text: string;
-    actions: AssistantAction[];
+    plans: AgentPlan[];
+    steps: AgentStep[];
     error?: string;
-    /** Kurze Ergebnis-Zeile nach einer ausgefuehrten Aktion. */
-    outcome?: boolean;
+    nachfrage?: string;
   }
 
   let messages = $state<ChatMsg[]>([]);
   let input = $state("");
   let loading = $state(false);
+  let statusLabel = $state<string | null>(null);
+  let streamPlans = $state<AgentPlan[]>([]);
+  let sessionId = $state<string | null>(null);
+  let planBusy = $state<string | null>(null);
+  let abortController = $state<AbortController | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let popEl = $state<HTMLElement | null>(null);
 
@@ -178,108 +182,139 @@
     const text = input.trim();
     if (!text || loading) return;
     input = "";
-    // Verlauf der bisherigen Runden (ohne die aktuelle) mitgeben, damit der
-    // Assistent Zusammenhaenge ueber mehrere Nachrichten hinweg behaelt.
-    const history = messages
-      .filter((m) => !m.error && m.text.trim() !== "")
-      .slice(-10)
-      .map((m) => ({ role: m.role, text: m.text }));
-    messages = [...messages, { role: "user", text, actions: [] }];
+    messages = [...messages, { role: "user", text, plans: [], steps: [] }];
     loading = true;
+    statusLabel = null;
+    streamPlans = [];
+    const controller = new AbortController();
+    abortController = controller;
     try {
-      const res: AssistantResult = await askAssistant(text, fullContext, history);
-      // Zeige die Antwort (ohne Action-Buttons).
-      messages = [...messages, { role: "assistant", text: res.reply || translate("assistant.noReply"), actions: [] }];
-      // Aktionen ausfuehren und das Ergebnis als kurze Zeile anzeigen.
-      for (const action of res.actions) {
-        const outcome = await runAction(action);
-        messages = [...messages, { role: "assistant", text: outcome, actions: [], outcome: true }];
+      const result = await runAgent(
+        text,
+        { sessionId: sessionId ?? undefined, module, lang: get(lang) },
+        (ev: AgentEvent) => {
+          if (ev.type === "status") statusLabel = ev.label;
+          else if (ev.type === "plan") streamPlans = [...streamPlans, ev.plan];
+          else if (ev.type === "effect") applyEffect(ev.effect);
+          else if (ev.type === "done") sessionId = ev.result.session_id;
+        },
+        controller.signal,
+      );
+      sessionId = result.session_id;
+      const answer = result.answer || result.nachfrage || translate("assistant.noReply");
+      messages = [
+        ...messages,
+        {
+          role: "assistant",
+          text: answer,
+          plans: result.plans,
+          steps: result.steps,
+          nachfrage: result.nachfrage ?? undefined,
+        },
+      ];
+    } catch (e: unknown) {
+      if (!controller.signal.aborted) {
+        const raw = e instanceof Error ? e.message : String(e);
+        // 409 llm_not_configured → friendly setup hint instead of the raw code.
+        const msg = raw.includes("llm_not_configured") ? translate("assistant.setupHint") : raw;
+        messages = [
+          ...messages,
+          { role: "assistant", text: "", plans: [], steps: [], error: msg },
+        ];
       }
-    } catch (e) {
-      messages = [...messages, { role: "assistant", text: "", actions: [], error: String(e) }];
     } finally {
       loading = false;
+      statusLabel = null;
+      streamPlans = [];
+      abortController = null;
     }
   }
 
-  // Sinnvolles Default-Datum, falls die KI keinen Start liefert: naechster
-  // Werktag um 09:00 (lokal) — nicht "jetzt".
-  function defaultEventStart(): string {
-    const d = new Date();
-    d.setHours(9, 0, 0, 0);
-    const advance = () => {
-      d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
-    };
-    if (d.getTime() <= Date.now()) advance();
-    while (d.getDay() === 0 || d.getDay() === 6) advance();
-    return d.toISOString();
+  function stop() {
+    abortController?.abort();
   }
 
-  function formatLocal(iso: string): string {
-    try {
-      const locale = get(lang) === "de" ? "de-DE" : "en-GB";
-      return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
-    } catch {
-      return iso;
+  // Apply a declarative effect to the queue (Concept §5.5). The effect router in
+  // +layout.svelte consumes it. Unknown shapes are ignored.
+  function applyEffect(eff: Record<string, unknown>) {
+    const kind = eff.effect as string | undefined;
+    if (!kind) return;
+    if (kind === "navigate") {
+      const m = eff.module as "mail" | "calendar" | "contacts" | "tasks" | "settings" | undefined;
+      if (m) effects.push({ kind: "navigate", module: m });
+    } else if (kind === "calendar.set_view") {
+      effects.push({
+        kind: "calendar.set_view",
+        view: (eff.view as "day" | "week" | "month") ?? "day",
+        date: (eff.date as string | undefined) ?? undefined,
+      });
+    } else if (kind === "mail.open") {
+      effects.push({ kind: "mail.open", uid: Number(eff.uid) || 0, folder: (eff.folder as string) ?? undefined, account_id: (eff.account_id as number) ?? undefined });
+    } else if (kind === "contacts.open") {
+      effects.push({ kind: "contacts.open", uid: String(eff.uid ?? "") });
+    } else if (kind === "tasks.open") {
+      effects.push({ kind: "tasks.open", uid: String(eff.uid ?? "") });
+    } else if (kind === "calendar.open_event") {
+      effects.push({ kind: "calendar.open_event", id: String(eff.id ?? "") });
+    } else if (kind === "compose.open") {
+      effects.push({ kind: "compose.open", to: String(eff.to ?? ""), subject: String(eff.subject ?? ""), body: String(eff.body ?? "") });
+    } else if (kind === "highlight") {
+      effects.push({ kind: "highlight", art: (eff.art as "mail" | "contact" | "task" | "event") ?? "task", id: String(eff.id ?? "") });
     }
   }
 
-  async function runAction(action: AssistantAction): Promise<string> {
-    const p = action.payload ?? {};
-    try {
-      switch (action.type) {
-        case "event_create": {
-          const cals = await getCalendars();
-          // Ersten schreibbaren Kalender nehmen (cals[0] kann read-only/hidden sein).
-          const cal = cals.find((c) => !c.read_only) ?? cals[0];
-          if (!cal) return translate("assistant.noCalendar");
-          const summary = (p.summary as string) ?? (p.title as string) ?? translate("assistant.eventDefault");
-          const start = (p.start as string) ?? defaultEventStart();
-          await createEvent({
-            calendar_id: cal.id,
-            summary,
-            start,
-            end: (p.end as string) ?? undefined,
-            description: (p.description as string) ?? undefined,
-            attendees: Array.isArray(p.attendees)
-              ? (p.attendees as string[]).map((email) => ({ email }))
-              : undefined,
-          });
-          if (module !== "calendar") await goto("/calendar");
-          onclose();
-          return translate("assistant.eventCreated", { summary, when: formatLocal(start), cal: cal.name ?? "?" });
+  // ─── Plan lifecycle (server-side execution, Concept §5.3) ──────────
+  function setPlanStatus(planId: string, status: PlanStatus, resultJson?: string | null) {
+    for (const m of messages) {
+      for (const p of m.plans) {
+        if (p.id === planId) {
+          p.status = status;
+          if (resultJson) p.result_json = resultJson;
         }
-        case "task_create": {
-          const summary = (p.summary as string) ?? (p.title as string) ?? translate("assistant.taskDefault");
-          await createTodo({ summary, due: (p.due as string) ?? undefined });
-          if (module !== "tasks") await goto("/tasks");
-          onclose();
-          return translate("assistant.taskCreated", { summary });
-        }
-        case "find_mail": {
-          assistantAction.set({ type: "search", query: (p.query as string) ?? "" });
-          if (module !== "mail") await goto("/");
-          onclose();
-          return translate("assistant.searchStarted");
-        }
-        case "compose_mail": {
-          assistantAction.set({
-            type: "open_compose",
-            to: (p.to as string) ?? "",
-            subject: (p.subject as string) ?? "",
-            body: (p.body as string) ?? "",
-          });
-          if (module !== "mail") await goto("/");
-          onclose();
-          return translate("assistant.draftOpened");
-        }
-        default:
-          return translate("assistant.actionPrepared", { type: action.type });
       }
-    } catch (e) {
-      return translate("assistant.error", { msg: String(e) });
     }
+  }
+
+  async function onConfirmPlan(plan: AgentPlan, confirmExternal: boolean) {
+    planBusy = plan.id;
+    try {
+      const res = await confirmPlanApi(plan.id, confirmExternal);
+      setPlanStatus(plan.id, res.status as PlanStatus, JSON.stringify(res.results));
+      bumpDataVersion();
+    } catch {
+      setPlanStatus(plan.id, "failed");
+    } finally {
+      planBusy = null;
+    }
+  }
+
+  async function onDiscardPlan(plan: AgentPlan) {
+    planBusy = plan.id;
+    try {
+      await cancelPlanApi(plan.id);
+      setPlanStatus(plan.id, "cancelled");
+    } catch {
+      /* keep pending on error */
+    } finally {
+      planBusy = null;
+    }
+  }
+
+  async function onUndoPlan(plan: AgentPlan) {
+    planBusy = plan.id;
+    try {
+      await undoPlanApi(plan.id);
+      setPlanStatus(plan.id, "cancelled");
+      bumpDataVersion();
+    } catch {
+      /* keep executed on error */
+    } finally {
+      planBusy = null;
+    }
+  }
+
+  function onOpenPath(path: string) {
+    if (path) goto(path);
   }
 
 </script>
@@ -293,20 +328,68 @@
       <div class="assistant-body">
         {#if messages.length === 0}
           <p class="assistant-hint">{$t("assistant.hint")}</p>
+          <div class="assistant-examples" role="list" aria-label={$t("assistant.examplesTitle")}>
+            <span class="assistant-examples-title">{$t("assistant.examplesTitle")}</span>
+            {#each [$t("assistant.example1"), $t("assistant.example2"), $t("assistant.example3"), $t("assistant.example4")] as ex (ex)}
+              <button
+                type="button"
+                class="assistant-example"
+                role="listitem"
+                onclick={() => { input = ex; requestAnimationFrame(() => inputEl?.focus()); }}
+              >
+                {ex}
+              </button>
+            {/each}
+          </div>
         {/if}
-        {#each messages as m (m.text + m.actions.length)}
+        {#each messages as m (m.text + m.plans.length + m.steps.length)}
           {#if m.error}
             <div class="chat-msg assistant error">{m.error}</div>
-          {:else if m.outcome}
-            <div class="chat-msg assistant outcome">{m.text}</div>
           {:else}
             <div class="chat-msg {m.role}">
               <div class="chat-text">{m.text}</div>
             </div>
+            {#each m.plans as plan (plan.id)}
+              <div class="chat-plan">
+                <PlanCard
+                  {plan}
+                  busy={planBusy === plan.id}
+                  onConfirm={onConfirmPlan}
+                  onDiscard={onDiscardPlan}
+                  onUndo={onUndoPlan}
+                  onOpen={onOpenPath}
+                />
+              </div>
+            {/each}
+            {#if m.steps.length > 0}
+              <details class="chat-steps">
+                <summary>{$t("assistant.whatIDid")}</summary>
+                <ul>
+                  {#each m.steps as s (s.tool + s.label)}
+                    <li>{s.label}</li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
           {/if}
         {/each}
         {#if loading}
-          <div class="chat-msg assistant"><span class="chat-typing">…</span></div>
+          <div class="chat-msg assistant status" role="status">
+            <span class="chat-typing">…</span>
+            <span class="assistant-thinking">{statusLabel ?? $t("assistant.thinking")}</span>
+          </div>
+          {#each streamPlans as plan (plan.id)}
+            <div class="chat-plan">
+              <PlanCard
+                {plan}
+                busy={planBusy === plan.id}
+                onConfirm={onConfirmPlan}
+                onDiscard={onDiscardPlan}
+                onUndo={onUndoPlan}
+                onOpen={onOpenPath}
+              />
+            </div>
+          {/each}
         {/if}
       </div>
       <footer class="assistant-footer">
@@ -334,9 +417,18 @@
             </svg>
           </button>
         </div>
-        <button type="button" class="assistant-send" disabled={loading || transcribing || !input.trim()} onclick={send}>
-          {transcribing ? "…" : $t("assistant.send")}
-        </button>
+        {#if loading}
+          <button type="button" class="assistant-send assistant-stop" onclick={stop} aria-label={$t("assistant.stop")}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            {$t("assistant.stop")}
+          </button>
+        {:else}
+          <button type="button" class="assistant-send" disabled={transcribing || !input.trim()} onclick={send}>
+            {transcribing ? "…" : $t("assistant.send")}
+          </button>
+        {/if}
       </footer>
       {#if voiceError}
         <div class="assistant-voice-error">{voiceError}</div>
@@ -409,6 +501,45 @@
   .assistant-hint {
     color: var(--color-text-secondary);
     font-size: 0.85rem;
+  }
+  .assistant-examples {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .assistant-examples-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+  }
+  .assistant-example {
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    color: var(--color-text);
+    background: var(--color-list);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .assistant-example:hover {
+    border-color: var(--color-accent);
+    background: var(--color-active-wash);
+  }
+  .assistant-example:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .assistant-thinking {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
   }
   .assistant-footer {
     display: flex;
@@ -536,5 +667,42 @@
   }
   .chat-typing {
     color: var(--color-text-secondary);
+  }
+  .chat-plan {
+    margin: 0 0 10px;
+    animation: planIn 200ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  @keyframes planIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chat-plan { animation: none; }
+  }
+  .chat-steps {
+    margin: 0 0 10px;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+  }
+  .chat-steps summary {
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+  }
+  .chat-steps ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .assistant-stop {
+    background: var(--color-danger);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .assistant-stop:hover {
+    filter: brightness(1.08);
   }
 </style>

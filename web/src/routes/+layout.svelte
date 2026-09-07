@@ -1,8 +1,13 @@
 <script lang="ts">
   import "../styles/global.css";
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import { cacheInit } from "$lib/services/tauri";
   import { isOnline } from "$lib/offline/online";
+  import { effects, applyEffect } from "$lib/stores/effects";
+  import { calendarView } from "$lib/stores/calendarView";
+  import { selection } from "$lib/stores/selection";
+  import { assistantAction } from "$lib/stores/assistantAction";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -20,6 +25,28 @@
     } finally {
       loading = false;
     }
+  });
+
+  // Effect router (Concept §5.5): consumes the assistant effect queue
+  // sequentially. Effects are declarative and whitelist-checked server-side —
+  // navigation only ever targets known module routes. `compose.open` reuses the
+  // v1 single-shot store so the existing compose flow keeps working.
+  $effect(() => {
+    const q = $effects;
+    if (q.length === 0) return;
+    const e = effects.shift();
+    if (!e) return;
+    applyEffect(e, {
+      goto,
+      setView: (view, date) => calendarView.setView(view, date),
+      setMail: (sel, highlight) => selection.setMail(sel, highlight),
+      setContact: (id, highlight) => selection.setContact(id, highlight),
+      setTask: (id, highlight) => selection.setTask(id, highlight),
+      setEvent: (id, highlight) => selection.setEvent(id, highlight),
+      openCompose: (a) =>
+        assistantAction.set({ type: "open_compose", to: a.to, subject: a.subject, body: a.body }),
+      selectedMail: $selection.mail,
+    });
   });
 </script>
 

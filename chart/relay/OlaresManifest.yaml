@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.139
+  version: 26.9.140
   categories:
     - Utilities
 entrances:
@@ -24,9 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.139
+  versionName: 26.9.140
   upgradeDescription: |
-    v26.9.139: Assistant button is now a flat gold shield (subtle, solid on hover), matching the new app icon. Built for Olares 1.12.6.
+    v26.9.140: AI Assistant v2 — ask in plain language about your calendar, contacts, tasks and mail; the agent proposes actions as reviewable plans that you confirm before anything is written. Built for Olares 1.12.6.
   fullDescription: |
     - **AI Email Generation** – quickly draft precise emails and replies in your individual tone. It learns automatically to adapt generated email texts for different recipient groups (work, private) and even for individual recipients.
     - **Voice-to-Mail** – voice input that automatically becomes a finished email. It recognizes recipients and subject lines to generate complete templates.

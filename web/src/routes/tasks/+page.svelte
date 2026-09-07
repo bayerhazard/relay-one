@@ -11,6 +11,7 @@
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
+  import { dataVersion } from "$lib/stores/invalidation";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
@@ -93,6 +94,15 @@
   }
 
   onMount(() => { loadTodos(); });
+
+  // Reload after an assistant plan execution (Concept §10.5). Skips the first
+  // run so the onMount load is not duplicated.
+  let assistantReloaded = false;
+  $effect(() => {
+    const v = $dataVersion;
+    if (!assistantReloaded) { assistantReloaded = true; return; }
+    void loadTodos();
+  });
 
   function openCreate() {
     form = { summary: "", description: "", due: "", priority: 5 };

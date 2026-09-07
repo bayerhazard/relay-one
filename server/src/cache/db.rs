@@ -338,6 +338,43 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         ",
     )?;
 
+    // Agentic assistant (v2) tables — ActionPlans, sessions, audit (Concept §5.3/§5.4/§6.10).
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS ai_action_plans (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            origin TEXT NOT NULL,
+            source_message_id INTEGER,
+            status TEXT NOT NULL,
+            steps_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            executed_at TEXT,
+            result_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_plans_status ON ai_action_plans(status);
+        CREATE INDEX IF NOT EXISTS idx_ai_plans_session ON ai_action_plans(session_id);
+        CREATE TABLE IF NOT EXISTS ai_sessions (
+            id TEXT PRIMARY KEY,
+            created_at TEXT,
+            last_active TEXT,
+            locale TEXT,
+            messages_json TEXT NOT NULL DEFAULT '[]'
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_sessions_active ON ai_sessions(last_active);
+        CREATE TABLE IF NOT EXISTS ai_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            origin TEXT,
+            event TEXT NOT NULL,
+            detail TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_audit_session ON ai_audit(session_id);
+        ",
+    )?;
+
     // Migration: add smtp columns to existing accounts tables
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN cc_addr TEXT", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);

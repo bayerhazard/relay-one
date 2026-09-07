@@ -113,6 +113,11 @@ pub fn router() -> Router<AppState> {
         .route("/ai/meeting-prep", post(ai::ai_meeting_prep))
         .route("/ai/agenda-digest", post(ai::ai_agenda_digest))
         .route("/ai/assistant", post(ai::ai_assistant))
+        .route("/ai/agent", post(ai::agent_stream))
+        .route("/ai/plans/:id/confirm", post(ai::plan_confirm))
+        .route("/ai/plans/:id/cancel", post(ai::plan_cancel))
+        .route("/ai/plans/:id/undo", post(ai::plan_undo))
+        .route("/ai/sessions/:id", get(ai::session_get).delete(ai::session_delete))
         // Web Push
         .route("/push/vapid", get(push::vapid_key))
         .route("/push/subscribe", post(push::subscribe))

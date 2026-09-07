@@ -174,6 +174,13 @@ describe("i18n t() key reference scan", () => {
       "calendar.rsvp.accepted",
       "calendar.rsvp.declined",
       "calendar.rsvp.tentative",
+      // Referenziert über das dynamische $t(statusKey) in PlanCard.svelte
+      // (Status-Badge, kein statisches t()-Literal).
+      "assistant.plan.pending",
+      "assistant.plan.executed",
+      "assistant.plan.cancelled",
+      "assistant.plan.expired",
+      "assistant.plan.failed",
     ]);
     const realUnused = unused.filter((k) => !allowedUnused.has(k));
     expect(realUnused).toEqual([]);

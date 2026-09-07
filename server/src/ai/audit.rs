@@ -43,6 +43,60 @@ pub fn confirm_action(conn: &Connection, audit_id: i64) -> Result<(), rusqlite::
     Ok(())
 }
 
+// ─── Agent v2 audit (Concept §6.10) ─────────────────────────────
+// A second, append-only table `ai_audit` records every agent action with its
+// session and origin. `event` is a stable English identifier; `detail` is a
+// free-form JSON/summary. The v1 `ai_audit_log` above is left untouched.
+
+/// Record a single agent event. `origin` is `"chat"` or `"mail_followup"`.
+pub fn log_event(
+    conn: &Connection,
+    session_id: Option<&str>,
+    origin: &str,
+    event: &str,
+    detail: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO ai_audit (session_id, origin, event, detail) VALUES (?1, ?2, ?3, ?4)",
+        params![session_id, origin, event, detail],
+    )?;
+    Ok(())
+}
+
+/// Record a tool invocation (Concept §6.10: "jeder Tool-Aufruf").
+pub fn log_tool_call(
+    conn: &Connection,
+    session_id: Option<&str>,
+    origin: &str,
+    tool: &str,
+    args: &str,
+) -> Result<(), rusqlite::Error> {
+    log_event(
+        conn,
+        session_id,
+        origin,
+        "tool_call",
+        Some(&format!("{{\"tool\":\"{}\",\"args\":{}}}", tool, args)),
+    )
+}
+
+/// Record a plan lifecycle transition (created/confirmed/executed/cancelled/failed/undone).
+pub fn log_plan(
+    conn: &Connection,
+    session_id: Option<&str>,
+    origin: &str,
+    plan_id: &str,
+    transition: &str,
+) -> Result<(), rusqlite::Error> {
+    log_event(
+        conn,
+        session_id,
+        origin,
+        &format!("plan_{}", transition),
+        Some(plan_id),
+    )
+}
+
 pub fn get_audit_log(
     conn: &Connection,
     limit: Option<i64>,
@@ -68,4 +122,60 @@ pub fn get_audit_log(
         result.push(row?);
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mem() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute(
+            "CREATE TABLE ai_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT, origin TEXT, event TEXT NOT NULL,
+                detail TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+            [],
+        )
+        .unwrap();
+        c
+    }
+
+    #[test]
+    fn log_event_inserts_row() {
+        let c = mem();
+        log_event(&c, Some("s1"), "chat", "agent_turn", Some("hello")).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM ai_audit", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+        let (event, origin, session): (String, String, Option<String>) = c
+            .query_row(
+                "SELECT event, origin, session_id FROM ai_audit",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(event, "agent_turn");
+        assert_eq!(origin, "chat");
+        assert_eq!(session, Some("s1".into()));
+    }
+
+    #[test]
+    fn log_tool_call_and_plan_transitions() {
+        let c = mem();
+        log_tool_call(&c, None, "chat", "contacts_search", "{\"q\":\"kai\"}").unwrap();
+        log_plan(&c, Some("s2"), "chat", "pl-abc", "created").unwrap();
+        log_plan(&c, Some("s2"), "chat", "pl-abc", "executed").unwrap();
+        let events: Vec<String> = {
+            let mut stmt = c
+                .prepare("SELECT event FROM ai_audit ORDER BY id")
+                .unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(events, vec!["tool_call", "plan_created", "plan_executed"]);
+    }
 }

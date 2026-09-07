@@ -11,6 +11,8 @@
     type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
   import { t, translate, lang } from "$lib/i18n";
+  import { calendarView } from "$lib/stores/calendarView";
+  import { dataVersion } from "$lib/stores/invalidation";
   import { germanHolidays } from "$lib/holidays";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
@@ -56,6 +58,15 @@
 
   // Center view mode.
   let viewMode = $state<"month" | "week" | "day">("month");
+
+  // Assistant-driven view sync (Concept §10.2): when the effect router sets the
+  // calendarView store, follow it. One-way (store → local); manual navigation
+  // after mount is preserved until the next assistant effect arrives.
+  $effect(() => {
+    const v = $calendarView;
+    viewDate = v.viewDate;
+    viewMode = v.viewMode;
+  });
   // Event shown in the right detail pane.
   let selectedEvent = $state<EventInfo | null>(null);
   // Delete-confirmation dialog (Backspace/Delete or the "Löschen" button).
@@ -838,6 +849,20 @@
     await loadEvents();
     await loadUpcoming();
     loadInvitations();
+  });
+
+  // Reload after an assistant plan execution (Concept §10.5). Skips the first
+  // run so the onMount load is not duplicated.
+  let assistantReloaded = false;
+  $effect(() => {
+    const v = $dataVersion;
+    if (!assistantReloaded) { assistantReloaded = true; return; }
+    void (async () => {
+      await loadCalendars();
+      await loadEvents();
+      await loadUpcoming();
+      loadInvitations();
+    })();
   });
 </script>
 

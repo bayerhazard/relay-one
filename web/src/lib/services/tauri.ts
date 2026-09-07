@@ -1501,3 +1501,205 @@ export async function askAssistant(
 ): Promise<AssistantResult> {
   return post<AssistantResult>("/ai/assistant", { message, context, history }, "Assistent nicht erreichbar.");
 }
+
+// ─── Assistant v2 (agentic, Concept §9/§10) ────────────────
+
+export type PlanTier = "read" | "write" | "external";
+export type PlanStatus = "pending" | "executed" | "cancelled" | "expired" | "failed";
+
+export interface AgentPlanStep {
+  tool: string;
+  tier: PlanTier;
+  title: string;
+  rows: [string, string][];
+  request: { method: string; path: string; body: unknown };
+  danach: string;
+}
+
+export interface AgentPlan {
+  id: string;
+  session_id: string | null;
+  origin: string;
+  status: PlanStatus;
+  steps: AgentPlanStep[];
+  created_at: string;
+  expires_at: string;
+  executed_at: string | null;
+  result_json: string | null;
+}
+
+export interface AgentStep {
+  tool: string;
+  label: string;
+}
+
+export interface AgentResult {
+  answer: string;
+  plans: AgentPlan[];
+  navigation: string | null;
+  effects: Record<string, unknown>[];
+  steps: AgentStep[];
+  session_id: string;
+  nachfrage?: string | null;
+}
+
+export type AgentEvent =
+  | { type: "status"; step: string; label: string }
+  | { type: "plan"; plan: AgentPlan }
+  | { type: "effect"; effect: Record<string, unknown> }
+  | { type: "done"; result: AgentResult };
+
+export interface AgentRunOptions {
+  sessionId?: string;
+  module?: string;
+  lang?: string;
+}
+
+/**
+ * Run the agentic assistant (Concept §5.2, §9.1). Consumes the SSE stream and
+ * invokes `onEvent` for each `status`/`plan`/`effect`/`done` event. Aborts when
+ * `signal` is aborted (the server drops the loop on disconnect). Resolves with
+ * the final `AgentResult`.
+ */
+export async function runAgent(
+  message: string,
+  opts: AgentRunOptions,
+  onEvent: (ev: AgentEvent) => void,
+  signal?: AbortSignal,
+): Promise<AgentResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/ai/agent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        message,
+        session_id: opts.sessionId,
+        module: opts.module,
+        lang: opts.lang,
+      }),
+      signal,
+    });
+  } catch (e: unknown) {
+    if (signal?.aborted) throw e;
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`Assistent nicht erreichbar.\n\n(${detail})`);
+  }
+
+  if (!res.ok || !res.body) {
+    let detail = `HTTP ${res.status}`;
+    let hinweis: string | null = null;
+    try {
+      const j = await res.json();
+      if (j?.error) detail = j.error;
+      if (j?.hinweis) hinweis = j.hinweis;
+    } catch { /* non-JSON error body */ }
+    const msg = hinweis ? `${detail} — ${hinweis}` : detail;
+    throw new Error(msg);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: AgentResult | null = null;
+
+  const dispatch = (name: string, data: string) => {
+    if (!data) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      return;
+    }
+    const p = payload as Record<string, unknown>;
+    switch (name) {
+      case "status":
+        onEvent({ type: "status", step: String(p.step ?? ""), label: String(p.label ?? "") });
+        break;
+      case "plan":
+        onEvent({ type: "plan", plan: p as unknown as AgentPlan });
+        break;
+      case "effect":
+        onEvent({ type: "effect", effect: p });
+        break;
+      case "done":
+        result = p as unknown as AgentResult;
+        onEvent({ type: "done", result: result });
+        break;
+      case "error":
+        throw new Error(String(p.error ?? "Unbekannter Fehler im Assistenten-Loop."));
+    }
+  };
+
+  const processFrame = (frame: string) => {
+    let name = "message";
+    const dataLines: string[] = [];
+    for (const line of frame.split("\n")) {
+      if (line.startsWith(":")) continue; // keep-alive comment
+      if (line.startsWith("event:")) name = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+    }
+    if (dataLines.length > 0) dispatch(name, dataLines.join("\n"));
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      processFrame(frame);
+    }
+  }
+
+  if (buffer.trim().length > 0) processFrame(buffer);
+
+  if (!result) {
+    throw new Error("Der Assistent-Stream wurde ohne Ergebnis beendet.");
+  }
+  return result;
+}
+
+export async function confirmPlan(id: string, confirmExternal = false): Promise<{ status: string; results: unknown[] }> {
+  return post<{ status: string; results: unknown[] }>(
+    `/ai/plans/${encodeURIComponent(id)}/confirm`,
+    confirmExternal ? { confirm_external: true } : undefined,
+    "Der Plan konnte nicht ausgeführt werden.",
+  );
+}
+
+export async function cancelPlan(id: string): Promise<{ status: string }> {
+  return post<{ status: string }>(`/ai/plans/${encodeURIComponent(id)}/cancel`, undefined,
+    "Der Plan konnte nicht verworfen werden.");
+}
+
+export async function undoPlan(id: string): Promise<{ status: string }> {
+  return post<{ status: string }>(`/ai/plans/${encodeURIComponent(id)}/undo`, undefined,
+    "Der Plan konnte nicht rückgängig gemacht werden.");
+}
+
+export interface SessionMessage {
+  role: string;
+  text: string;
+  plan_ids: string[];
+  ts: string;
+}
+
+export interface AgentSession {
+  id: string;
+  locale: string;
+  messages: SessionMessage[];
+}
+
+export async function getSession(id: string): Promise<AgentSession> {
+  return get<AgentSession>(`/ai/sessions/${encodeURIComponent(id)}`, "Das Gespräch konnte nicht geladen werden.");
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  return del<void>(`/ai/sessions/${encodeURIComponent(id)}`, "Das Gespräch konnte nicht gelöscht werden.");
+}

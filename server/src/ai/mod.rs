@@ -3,3 +3,7 @@ pub mod client;
 pub mod language;
 pub mod prompts;
 pub mod audit;
+pub mod tools;
+pub mod plaene;
+pub mod sessions;
+pub mod agent;

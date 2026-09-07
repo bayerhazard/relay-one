@@ -13,6 +13,27 @@ use super::circuit_breaker::CircuitBreaker;
 /// and excessive API costs from large email bodies.
 const MAX_USER_PROMPT_BYTES: usize = 16_384;
 
+/// B1 fix: an empty (or whitespace-only) API key must NOT produce an invalid
+/// `Authorization: Bearer ` header. LiteLLM/Routers without auth are the common
+/// case on the box; sending `Bearer ` (empty) is rejected by strict gateways.
+/// Returns `Some(key)` only for a non-empty, trimmed key.
+pub fn auth_header(api_key: &str) -> Option<String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key.to_string())
+    }
+}
+
+/// Apply the bearer auth header to a request builder only when a key is present.
+fn with_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+    match auth_header(api_key) {
+        Some(k) => req.bearer_auth(k),
+        None => req,
+    }
+}
+
 /// How long a user-initiated request may wait for the LLM semaphore before
 /// giving up with a "busy" error. Bounded wait: a queue of slow (not failing)
 /// LLM calls must not block user requests indefinitely.
@@ -97,10 +118,7 @@ impl AIClient {
 
     pub async fn health_check(&self) -> Result<bool, String> {
         let url = format!("{}/models", self.config.url.trim_end_matches('/'));
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&self.config.api_key)
+        let resp = with_auth(self.http.get(&url), &self.config.api_key)
             .send()
             .await
             .map_err(|e| format!("Health check fehlgeschlagen: {}", e))?;
@@ -121,11 +139,11 @@ impl AIClient {
         let _permit = self.acquire_permit().await?;
 
         let messages = vec![
-            ChatMessage { role: "system".into(), content: system_prompt.to_string() },
-            ChatMessage {
-                role: "user".into(),
-                content: truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
-            },
+            ChatMessage::text("system", system_prompt.to_string()),
+            ChatMessage::text(
+                "user",
+                truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
+            ),
         ];
         match self.complete_internal(messages, temperature, max_tokens).await {
             Ok(result) => {
@@ -180,11 +198,11 @@ impl AIClient {
                 // Keep permit (_p) in scope so it's dropped only after complete_internal is finished!
                 // This prevents overloading the local LLM with concurrent parallel requests.
             let messages = vec![
-                ChatMessage { role: "system".into(), content: system_prompt.to_string() },
-                ChatMessage {
-                    role: "user".into(),
-                    content: truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
-                },
+                ChatMessage::text("system", system_prompt.to_string()),
+                ChatMessage::text(
+                    "user",
+                    truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
+                ),
             ];
             let result = self.complete_internal(messages, temperature, max_tokens).await;
             if result.is_ok() {
@@ -202,13 +220,73 @@ impl AIClient {
         }
     }
 
-    /// Internal: execute the LLM call (semaphore must already be acquired by caller)
-    async fn complete_internal(
+    /// Multi-message request with native tool calling (agent loop, Phase B).
+    /// `tools` are the OpenAI `tools` specs; `tool_choice` is e.g. "auto".
+    /// Returns the assistant message content AND any tool_calls. `reasoning_content`
+    /// (Qwen3.8 thinking) is stripped — it is the way, not the result (Beacon §8.6).
+    pub async fn complete_with_tools(
         &self,
         messages: Vec<ChatMessage>,
+        tools: Vec<ToolSpec>,
+        tool_choice: Option<&str>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Result<ChatCompletionResult, String> {
+        self.circuit_breaker.allow_request()?;
+        let _permit = self.acquire_permit().await?;
+        let result = self
+            .complete_raw_internal(messages, Some(tools), tool_choice, None, temperature, max_tokens)
+            .await;
+        match &result {
+            Ok(_) => self.circuit_breaker.record_success(),
+            Err(_) => self.circuit_breaker.record_failure(),
+        }
+        result
+    }
+
+    /// User-initiated request that must return a JSON object (response_format).
+    /// Used for structured tasks (followups v2, card payloads) — Insilo §7.1:
+    /// `response_format:json_object` alone is not enough for Qwen, callers also
+    /// echo the schema in the system prompt.
+    pub async fn complete_user_json(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
         temperature: Option<f32>,
         max_tokens: Option<u32>,
     ) -> Result<String, String> {
+        self.circuit_breaker.allow_request()?;
+        let _permit = self.acquire_permit().await?;
+        let messages = vec![
+            ChatMessage { role: "system".into(), content: system_prompt.to_string(), tool_calls: None, tool_call_id: None },
+            ChatMessage {
+                role: "user".into(),
+                content: truncate_prompt(user_prompt, MAX_USER_PROMPT_BYTES).into_owned(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        let result = self
+            .complete_raw_internal(messages, None, None, Some("json_object"), temperature, max_tokens)
+            .await;
+        match &result {
+            Ok(_) => self.circuit_breaker.record_success(),
+            Err(_) => self.circuit_breaker.record_failure(),
+        }
+        result.map(|r| r.content)
+    }
+
+    /// Internal: execute the LLM call (semaphore must already be acquired by caller).
+    /// Returns the full assistant message (content + tool_calls).
+    async fn complete_raw_internal(
+        &self,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<ToolSpec>>,
+        tool_choice: Option<&str>,
+        response_format: Option<&str>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Result<ChatCompletionResult, String> {
         let url = format!(
             "{}/chat/completions",
             self.config.url.trim_end_matches('/')
@@ -220,13 +298,13 @@ impl AIClient {
             stream: false,
             temperature: temperature.unwrap_or(self.config.temperature),
             max_tokens: max_tokens.unwrap_or(self.config.max_tokens),
+            tools,
+            tool_choice: tool_choice.map(str::to_string),
+            response_format: response_format.map(str::to_string),
         };
 
         for attempt in 0..=self.max_retries {
-            match self
-                .http
-                .post(&url)
-                .bearer_auth(&self.config.api_key)
+            match with_auth(self.http.post(&url), &self.config.api_key)
                 .json(&body)
                 .send()
                 .await
@@ -256,7 +334,10 @@ impl AIClient {
                         .choices
                         .into_iter()
                         .next()
-                        .map(|c| c.message.content)
+                        .map(|c| ChatCompletionResult {
+                            content: c.message.content,
+                            tool_calls: c.message.tool_calls.unwrap_or_default(),
+                        })
                         .ok_or_else(|| "Leere AI-Antwort (keine choices)".to_string());
                 }
                 Err(e) => {
@@ -272,6 +353,18 @@ impl AIClient {
             }
         }
         Err("Maximale Wiederholungen ueberschritten".into())
+    }
+
+    /// Thin wrapper over `complete_raw_internal` returning only the content.
+    async fn complete_internal(
+        &self,
+        messages: Vec<ChatMessage>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Result<String, String> {
+        self.complete_raw_internal(messages, None, None, None, temperature, max_tokens)
+            .await
+            .map(|r| r.content)
     }
 
     pub fn stream_completion(
@@ -294,12 +387,15 @@ impl AIClient {
             let body = ChatRequest {
                 model: config.model,
                 messages: vec![
-                    ChatMessage { role: "system".into(), content: system_prompt },
-                    ChatMessage { role: "user".into(), content: user_prompt },
+                    ChatMessage::text("system", system_prompt),
+                    ChatMessage::text("user", user_prompt),
                 ],
                 stream: true,
                 temperature: temperature.unwrap_or(config.temperature),
                 max_tokens: config.max_tokens,
+                tools: None,
+                tool_choice: None,
+                response_format: None,
             };
 
             'retry: for attempt in 0..=max_retries {
@@ -385,12 +481,80 @@ struct ChatRequest {
     stream: bool,
     temperature: f32,
     max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<ToolSpec>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<String>,
+}
+
+/// Deserialize a string field that upstream may send as `null` (e.g. an
+/// assistant message that only carries tool_calls has `content: null`).
+fn de_null_to_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let opt: Option<String> = Option::deserialize(d)?;
+    Ok(opt.unwrap_or_default())
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
+    #[serde(default, deserialize_with = "de_null_to_empty")]
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+impl ChatMessage {
+    /// A plain text message (no tool calls) — the common case.
+    pub fn text(role: &str, content: impl Into<String>) -> Self {
+        Self {
+            role: role.to_string(),
+            content: content.into(),
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+}
+
+/// A single tool invocation requested by the assistant (OpenAI format).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: ToolCallFunction,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ToolCallFunction {
+    pub name: String,
+    /// JSON-encoded arguments (a string, not an object) per the OpenAI contract.
+    pub arguments: String,
+}
+
+/// OpenAI `tools[]` entry offered to the model.
+#[derive(Serialize, Clone)]
+pub struct ToolSpec {
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: ToolSpecFunction,
+}
+
+#[derive(Serialize, Clone)]
+pub struct ToolSpecFunction {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+/// The assistant's reply to a chat completion (content and/or tool calls).
+#[derive(Debug, Clone, Default)]
+pub struct ChatCompletionResult {
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
 }
 
 #[derive(Deserialize)]
@@ -489,5 +653,19 @@ mod tests {
         let client = AIClient::new(AIConfig::default())
             .with_semaphore_acquire_timeout(Duration::from_millis(100));
         assert!(client.acquire_permit().await.is_ok());
+    }
+
+    // B1: an empty/whitespace API key must not yield a bearer header.
+    #[test]
+    fn auth_header_empty_key_is_none() {
+        assert!(auth_header("").is_none());
+        assert!(auth_header("   ").is_none());
+        assert!(auth_header("\t\n").is_none());
+    }
+
+    #[test]
+    fn auth_header_nonempty_key_is_some_trimmed() {
+        assert_eq!(auth_header("sk-abc"), Some("sk-abc".to_string()));
+        assert_eq!(auth_header("  sk-abc  "), Some("sk-abc".to_string()));
     }
 }

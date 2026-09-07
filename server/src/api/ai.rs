@@ -4,13 +4,21 @@
 //! Ported from the Tauri-era `ai_*` commands in `ipc.rs`. Business logic is
 //! identical; only the transport changed from Tauri IPC to axum handlers.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::http::HeaderMap;
+use axum::response::{sse::Event, sse::KeepAlive, IntoResponse, Response, Sse};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use std::convert::Infallible;
+use std::time::Duration;
+
+use crate::ai::agent::{self, AgentEvent, AgentRequest};
 use crate::ai::audit;
 use crate::ai::language::detect_language;
+use crate::ai::plaene;
 use crate::ai::prompts::{self, EmailMode};
+use crate::ai::sessions;
 use crate::cache;
 use crate::db::{get_db, with_db};
 use crate::security::{fraud, pii, priority};
@@ -893,15 +901,54 @@ fn extract_json_array(raw: &str) -> Vec<serde_json::Value> {
     serde_json::from_str(&raw[s..=e]).unwrap_or_default()
 }
 
-/// Pull the first JSON object out of a (possibly markdown-wrapped) LLM reply.
-fn extract_json_object(raw: &str) -> serde_json::Value {
-    let (Some(s), Some(e)) = (raw.find('{'), raw.rfind('}')) else {
-        return serde_json::Value::Null;
+/// Strip a single ``` / ```json code fence if the reply is wrapped in one
+/// (Insilo §7.1 — Qwen wraps structured output in fences).
+fn unwrap_json_fence(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    if let Some(open) = trimmed.find("```") {
+        let rest = &trimmed[open + 3..];
+        // Drop an optional language tag on the fence's first line.
+        let rest = rest.split_once('\n').map(|(_, r)| r).unwrap_or(rest);
+        if let Some(close) = rest.rfind("```") {
+            return rest[..close].trim();
+        }
+    }
+    raw
+}
+
+/// Short, log-safe excerpt of a raw model reply (for loud parse errors).
+fn raw_excerpt(raw: &str) -> String {
+    let t = raw.trim();
+    if t.len() <= 120 {
+        t.to_string()
+    } else {
+        format!("{}…", &t[..120])
+    }
+}
+
+/// Pull the outermost JSON object out of a (possibly markdown-wrapped) LLM
+/// reply. Fence-unwrap → outermost `{…}` → **fail loudly** (B2): returns an
+/// error carrying a raw excerpt instead of silently yielding `Null`.
+fn extract_json_object(raw: &str) -> Result<serde_json::Value, String> {
+    let candidate = unwrap_json_fence(raw);
+    let (Some(s), Some(e)) = (candidate.find('{'), candidate.rfind('}')) else {
+        return Err(format!(
+            "Kein JSON-Objekt in der Modellantwort (Auszug: {})",
+            raw_excerpt(raw)
+        ));
     };
     if e < s {
-        return serde_json::Value::Null;
+        return Err(format!(
+            "Kein JSON-Objekt in der Modellantwort (Auszug: {})",
+            raw_excerpt(raw)
+        ));
     }
-    serde_json::from_str(&raw[s..=e]).unwrap_or(serde_json::Value::Null)
+    serde_json::from_str(&candidate[s..=e]).map_err(|e| {
+        format!(
+            "Ungültiges JSON in der Modellantwort: {e} (Auszug: {})",
+            raw_excerpt(raw)
+        )
+    })
 }
 
 fn get_ai_client(state: &AppState) -> Result<std::sync::Arc<crate::ai::client::AIClient>, ApiError> {
@@ -1015,7 +1062,7 @@ pub async fn ai_extract_time(
     let (system, user) = prompts::build_time_extraction_prompt(&req.text, &ref_date);
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.1), Some(300)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     Ok(Json(ExtractedTime {
         summary: obj.get("summary").and_then(|v| v.as_str()).map(String::from),
         start: obj.get("start").and_then(|v| v.as_str()).map(String::from),
@@ -1186,12 +1233,14 @@ pub async fn generate_followups(
         }
     }).unwrap_or_else(|_| "(Kalender nicht verfuegbar)".to_string());
 
+    // B3: locale-aware prompt. The background scheduler has no per-user locale
+    // context yet, so it defaults to "de"; Phase C passes the user's locale.
     let (system, user) = prompts::build_followups_prompt(
-        subject, from, body, &now_str, &calendar_context,
+        subject, from, body, &now_str, &calendar_context, "de",
     );
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.4), Some(2000)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let mut actions: Vec<FollowupAction> = Vec::new();
     let mut counter = 0u32;
 
@@ -1387,7 +1436,7 @@ pub async fn ai_followups_counter_email(
     );
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.4), Some(400)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let subject = obj.get("subject").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let body = obj.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if body.is_empty() {
@@ -1514,7 +1563,7 @@ pub async fn ai_nl_create(
     let (system, user) = prompts::build_nl_create_prompt(&req.text, &now, context);
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.3), Some(600)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let kind = obj.get("type").and_then(|v| v.as_str()).unwrap_or("event").to_string();
     let title = obj.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let attendees = obj.get("attendees")
@@ -1574,7 +1623,7 @@ pub async fn ai_schedule(
     );
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.3), Some(1600)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let suggestions = obj.get("suggestions").and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|s| {
             let start = s.get("start")?.as_str()?.to_string();
@@ -1623,7 +1672,7 @@ pub async fn ai_meeting_prep(
     );
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let attendees = obj.get("attendees").and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
         .unwrap_or_default();
@@ -1669,7 +1718,7 @@ pub async fn ai_agenda_digest(
     let (system, user) = prompts::build_agenda_digest_prompt(&date_str, horizon, &events_str, &tasks_str, &mails_str);
     let client = get_ai_client(&state)?;
     let raw = client.complete_user(&system, &user, Some(0.4), Some(1600)).await?;
-    let obj = extract_json_object(&raw);
+    let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
     let digest = obj.get("digest").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let priorities = obj.get("priorities").and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|a| a.as_str().map(str::to_string)).collect())
@@ -1711,7 +1760,11 @@ pub struct AssistantResult {
     pub actions: Vec<AssistantAction>,
 }
 
-const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, compose_mail, schedule, meeting_prep, agenda_digest";
+// B5: only actions the frontend actually implements. `schedule`,
+// `meeting_prep` and `agenda_digest` had no drawer handler (dead) and are
+// removed from the assistant's action list. They remain available as direct
+// REST endpoints (/ai/schedule, /ai/meeting-prep, /ai/agenda-digest).
+const AVAILABLE_ACTIONS: &str = "event_create, task_create, find_mail, compose_mail";
 
 /// Gather a compact, module-spanning context (upcoming events, contacts,
 /// recent mails) so the assistant can answer cross-module questions without
@@ -1946,14 +1999,14 @@ pub async fn ai_assistant(
     // feed the result back, up to 3 rounds, then expect the final answer.
     use crate::ai::client::ChatMessage;
     let mut messages = vec![
-        ChatMessage { role: "system".into(), content: system },
-        ChatMessage { role: "user".into(), content: user },
+        ChatMessage::text("system", system),
+        ChatMessage::text("user", user),
     ];
     let mut last_raw = String::new();
     for _ in 0..3 {
         let raw = client.complete_messages(messages.clone(), Some(0.5), Some(1500)).await?;
         last_raw = raw.clone();
-        let obj = extract_json_object(&raw);
+        let obj = extract_json_object(&raw).unwrap_or(serde_json::Value::Null);
         let is_search = obj
             .get("tool_call")
             .and_then(|t| t.get("name"))
@@ -1967,14 +2020,14 @@ pub async fn ai_assistant(
                 .unwrap_or("")
                 .to_string();
             let results = search_contacts_in_db(&state, &query);
-            messages.push(ChatMessage { role: "assistant".into(), content: raw });
-            messages.push(ChatMessage {
-                role: "user".into(),
-                content: format!(
+            messages.push(ChatMessage::text("assistant", raw));
+            messages.push(ChatMessage::text(
+                "user",
+                format!(
                     "Ergebnis von search_contacts(\"{query}\"):\n{results}\n\n\
                      Antworte jetzt mit dem normalen JSON-Objekt {{\"reply\": ..., \"actions\": [...]}}."
                 ),
-            });
+            ));
             continue;
         }
         let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -1998,10 +2051,228 @@ pub async fn ai_assistant(
     }
     // Loop exhausted without a clean final answer — return the last output so
     // the user still gets something instead of an empty reply.
-    let obj = extract_json_object(&last_raw);
+    let obj = extract_json_object(&last_raw).unwrap_or(serde_json::Value::Null);
     let reply = obj.get("reply").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let reply = if reply.is_empty() { last_raw } else { reply };
     Ok(Json(AssistantResult { reply, actions: vec![] }))
+}
+
+// ── Agentic assistant v2 (Concept §5, §9) ─────────────────────────────────
+
+/// Extract the last non-empty path segment (the id) from a prepared path.
+fn last_path_segment(path: &str) -> String {
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Convert an `ApiResult<T>` into a JSON value (per plan-step result).
+fn api_result_to_value<T: Serialize>(res: Result<Json<T>, ApiError>) -> Result<serde_json::Value, String> {
+    match res {
+        Ok(Json(v)) => Ok(serde_json::to_value(v).unwrap_or_default()),
+        Err(e) => Err(e.0),
+    }
+}
+
+/// Execute one confirmed plan step by re-invoking the matching REST handler
+/// (the tested source of truth). Concept §5.3.
+async fn execute_prepared(state: &AppState, step: &crate::ai::tools::PreparedCard) -> Result<serde_json::Value, String> {
+    let body = step.request.body.clone();
+    match step.tool.as_str() {
+        "tasks_create" => {
+            let req: crate::api::todos::CreateTodoRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::todos::create_todo(State(state.clone()), Json(req)).await)
+        }
+        "tasks_toggle" => {
+            let uid = last_path_segment(&step.request.path);
+            let req: crate::api::todos::ToggleTodoRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::todos::toggle_todo(State(state.clone()), Path(uid), Json(req)).await)
+        }
+        "tasks_delete" => {
+            let uid = last_path_segment(&step.request.path);
+            api_result_to_value(crate::api::todos::delete_todo(State(state.clone()), Path(uid)).await)
+        }
+        "calendar_create_event" => {
+            let req: crate::api::calendars::CreateEventRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::calendars::create_event(State(state.clone()), Json(req)).await)
+        }
+        "calendar_update_event" => {
+            let id: i64 = last_path_segment(&step.request.path).parse().map_err(|_| "Ungültige Termin-ID".to_string())?;
+            let req: crate::api::calendars::UpdateEventRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::calendars::update_event(State(state.clone()), Path(id), Json(req)).await)
+        }
+        "calendar_delete_event" => {
+            let id: i64 = last_path_segment(&step.request.path).parse().map_err(|_| "Ungültige Termin-ID".to_string())?;
+            api_result_to_value(crate::api::calendars::delete_event(State(state.clone()), Path(id)).await)
+        }
+        "contacts_create" => {
+            let req: crate::api::contacts::CreateContactRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::contacts::create_contact(State(state.clone()), Json(req)).await)
+        }
+        "mail_propose_reply" => {
+            let req: crate::api::send::SaveDraftRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::send::save_draft(State(state.clone()), Json(req)).await)
+        }
+        "mail_flag" => {
+            let req: crate::api::messages::FlagRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::messages::flag_message(State(state.clone()), Json(req)).await)
+        }
+        "mail_move" => {
+            let req: crate::api::messages::MoveMessageRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            api_result_to_value(crate::api::messages::move_message(State(state.clone()), Json(req)).await)
+        }
+        "calendar_invite" | "calendar_rsvp" => Err(format!(
+            "'{}' wird noch nicht automatisch ausgeführt (IMIP, Phase C+).",
+            step.tool
+        )),
+        other => Err(format!("Unbekanntes Tool '{other}' — Schritt nicht ausführbar.")),
+    }
+}
+
+/// `POST /api/v1/ai/agent` — the agentic assistant (Concept §5.2, §9.1).
+/// Streams `status`/`plan`/`effect`/`done` as SSE when the client accepts
+/// `text/event-stream`; otherwise returns the final result as JSON.
+pub async fn agent_stream(State(state): State<AppState>, headers: HeaderMap, Json(req): Json<AgentRequest>) -> Response {
+    let wants_sse = headers
+        .get("accept")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("text/event-stream"))
+        .unwrap_or(false);
+
+    if !wants_sse {
+        match agent::run_agent(&state, &req, None).await {
+            Ok(result) => return Json(result).into_response(),
+            Err(e) => return ApiError(e).into_response(),
+        }
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AgentEvent>();
+    let state2 = state.clone();
+    let req2 = req.clone();
+    tokio::spawn(async move {
+        let _ = agent::run_agent(&state2, &req2, Some(tx)).await;
+    });
+
+    let stream = async_stream::stream! {
+        while let Some(ev) = rx.recv().await {
+            let done = matches!(ev, AgentEvent::Done { .. });
+            let (name, data) = match ev {
+                AgentEvent::Status { step, label } => ("status", serde_json::json!({"step": step, "label": label})),
+                AgentEvent::Plan { plan } => ("plan", serde_json::to_value(&plan).unwrap_or_default()),
+                AgentEvent::Effect { effect } => ("effect", effect),
+                AgentEvent::Done { result } => ("done", serde_json::to_value(&result).unwrap_or_default()),
+            };
+            yield Ok::<_, Infallible>(Event::default().event(name).data(data.to_string()));
+            if done {
+                break;
+            }
+        }
+    };
+    Sse::new(stream)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response()
+}
+
+/// `POST /api/v1/ai/plans/:id/confirm` — execute a pending plan (Concept §5.3).
+pub async fn plan_confirm(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
+    let plan = with_db(&state, |conn| plaene::get_plan(conn, &id))?
+        .ok_or_else(|| ApiError("Plan nicht gefunden".to_string()))?;
+    if plan.status != plaene::PlanStatus::Pending {
+        return Err(ApiError(format!("Plan ist nicht mehr ausstehend ({}).", plan.status.as_str())));
+    }
+    let mut results = Vec::new();
+    let mut failed = false;
+    for step in &plan.steps {
+        match execute_prepared(&state, step).await {
+            Ok(v) => results.push(v),
+            Err(e) => {
+                failed = true;
+                results.push(serde_json::json!({ "error": e }));
+            }
+        }
+    }
+    let status = if failed { plaene::PlanStatus::Failed } else { plaene::PlanStatus::Executed };
+    with_db(&state, |conn| {
+        plaene::set_status(conn, &id, status)?;
+        audit::log_plan(conn, plan.session_id.as_deref(), &plan.origin, &id, status.as_str())
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "plan_id": id, "status": status.as_str(), "results": results })))
+}
+
+/// `POST /api/v1/ai/plans/:id/cancel` — cancel a pending plan (no undo needed).
+pub async fn plan_cancel(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
+    let plan = with_db(&state, |conn| plaene::get_plan(conn, &id))?
+        .ok_or_else(|| ApiError("Plan nicht gefunden".to_string()))?;
+    let cancelled = with_db(&state, |conn| plaene::cancel_plan(conn, &id)).map_err(ApiError)?;
+    if cancelled {
+        let _ = with_db(&state, |conn| {
+            audit::log_plan(conn, plan.session_id.as_deref(), &plan.origin, &id, "cancelled")
+                .map_err(|e| e.to_string())
+        });
+    }
+    Ok(Json(serde_json::json!({ "plan_id": id, "cancelled": cancelled })))
+}
+
+/// `POST /api/v1/ai/plans/:id/undo` — revert an executed plan (best effort).
+pub async fn plan_undo(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
+    let plan = with_db(&state, |conn| plaene::get_plan(conn, &id))?
+        .ok_or_else(|| ApiError("Plan nicht gefunden".to_string()))?;
+    if plan.status != plaene::PlanStatus::Executed {
+        return Err(ApiError(format!("Nur ausgeführte Pläne sind rückgängig machbar ({}).", plan.status.as_str())));
+    }
+    // Best-effort inverse operations (Concept §5.3). Only creation steps are
+    // undone by deleting the created entity; the rest are reported.
+    let mut undone = Vec::new();
+    for step in &plan.steps {
+        match step.tool.as_str() {
+            "tasks_create" => {
+                let uid = last_path_segment(&step.request.path);
+                if !uid.is_empty() {
+                    let _ = crate::api::todos::delete_todo(State(state.clone()), Path(uid)).await;
+                    undone.push(serde_json::json!({ "tool": step.tool, "undone": true }));
+                }
+            }
+            "calendar_create_event" => {
+                let id_s = last_path_segment(&step.request.path);
+                if let Ok(id) = id_s.parse::<i64>() {
+                    let _ = crate::api::calendars::delete_event(State(state.clone()), Path(id)).await;
+                    undone.push(serde_json::json!({ "tool": step.tool, "undone": true }));
+                }
+            }
+            "contacts_create" => {
+                undone.push(serde_json::json!({ "tool": step.tool, "undone": false, "note": "Kontakt manuell löschen" }));
+            }
+            other => undone.push(serde_json::json!({ "tool": other, "undone": false, "note": "manuell rückgängig machen" })),
+        }
+    }
+    let _ = with_db(&state, |conn| {
+        audit::log_plan(conn, plan.session_id.as_deref(), &plan.origin, &id, "undone").map_err(|e| e.to_string())
+    });
+    Ok(Json(serde_json::json!({ "plan_id": id, "undone": undone })))
+}
+
+/// `GET /api/v1/ai/sessions/:id` — fetch a session (history for the drawer).
+pub async fn session_get(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
+    let sess = with_db(&state, |conn| sessions::get_session(conn, &id))?
+        .ok_or_else(|| ApiError("Session nicht gefunden".to_string()))?;
+    Ok(Json(serde_json::to_value(&sess).unwrap_or_default()))
+}
+
+/// `DELETE /api/v1/ai/sessions/:id` — remove a session and its history.
+pub async fn session_delete(State(state): State<AppState>, Path(id): Path<String>) -> ApiResult<serde_json::Value> {
+    let deleted = with_db(&state, |conn| {
+        let n = conn
+            .execute("DELETE FROM ai_sessions WHERE id = ?1", rusqlite::params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    })
+    .map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
 
 #[cfg(test)]
@@ -2033,13 +2304,38 @@ mod tests {
     #[test]
     fn test_extract_json_object_markdown_wrapped() {
         let raw = "```json\n{\"summary\":\"Meeting\",\"start\":\"2026-09-01T10:00:00Z\",\"all_day\":false}\n```";
-        let obj = extract_json_object(raw);
+        let obj = extract_json_object(raw).unwrap();
         assert_eq!(obj.get("summary").and_then(|v| v.as_str()), Some("Meeting"));
         assert_eq!(obj.get("all_day").and_then(|v| v.as_bool()), Some(false));
     }
 
+    // B2: no object → loud error with an excerpt, never a silent Null.
     #[test]
-    fn test_extract_json_object_invalid() {
-        assert!(extract_json_object("kein objekt").is_null());
+    fn test_extract_json_object_invalid_fails_loudly() {
+        let err = extract_json_object("kein objekt").unwrap_err();
+        assert!(err.contains("kein objekt"), "expected excerpt, got: {err}");
+    }
+
+    // B2: braces present but invalid JSON → loud parse error.
+    #[test]
+    fn test_extract_json_object_malformed_fails_loudly() {
+        let err = extract_json_object("{\"a\": 1,}").unwrap_err();
+        assert!(err.contains("Ungültiges JSON"), "got: {err}");
+    }
+
+    // B2: fence without a language tag is unwrapped too.
+    #[test]
+    fn test_extract_json_object_plain_fence() {
+        let raw = "Ergebnis:\n```\n{\"ok\":true}\n```\nFertig.";
+        let obj = extract_json_object(raw).unwrap();
+        assert_eq!(obj.get("ok").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    // B2: outermost braces win when the reply has prose around the object.
+    #[test]
+    fn test_extract_json_object_prose_around() {
+        let raw = "Hier ist das Objekt: {\"x\":{\"y\":1}} — hoffentlich passt das.";
+        let obj = extract_json_object(raw).unwrap();
+        assert_eq!(obj.get("x").and_then(|v| v.get("y")).and_then(|v| v.as_i64()), Some(1));
     }
 }
