@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.143
+  version: 26.9.144
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.143
+  versionName: 26.9.144
   upgradeDescription: |
+    v26.9.144: Internal database hardening — the local mail database now uses a versioned migration framework, so schema upgrades apply cleanly and reliably on every update without re-running legacy steps. No visible changes. Built for Olares 1.12.6.
     v26.9.143: Voice-out for assistant answers (text-to-speech) plus compose fixes — Reply-All now splits recipients into proper To/CC (your own address is never a recipient), the original mail chain shows in full instead of being cut at 1000 characters, and the backend hardens recipient parsing so comma-joined addresses can no longer leak into a single header. Built for Olares 1.12.6.
     v26.9.142: Proactive mail follow-ups — the assistant reads each new mail and offers typed suggestions (task, calendar event, reply draft) as chips under the message. Accepting a chip opens the assistant with a ready-to-confirm card; nothing is written until you confirm. Mail body is clamped and treated as data only, so injected instructions never execute. Built for Olares 1.12.6.
   fullDescription: |
