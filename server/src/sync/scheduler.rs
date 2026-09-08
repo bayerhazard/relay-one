@@ -77,6 +77,23 @@ const IDLE_TIMEOUT_SECS: u64 = 20;
 const FLAG_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60); // 5 min
 const ATTACHMENT_GC_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60); // daily
 
+/// ── Initial-sync (backfill) tuning ─────────────────────────────────────
+/// A folder is "backfilling" while a fetch returns a FULL batch (more old
+/// mail remains on the server). Backfill uses larger batches, skips the
+/// per-message body downloads + the full-UID prune, and caps AI to recent
+/// mail — so a 100k+ message mailbox fills in minutes, not days. Steady-state
+/// (caught up, partial batch) keeps the full treatment.
+const BACKFILL_BATCH_SIZE: u32 = 200;
+/// Max backfill batches per account per cycle (fairness: bounds the cycle so
+/// other accounts/tasks are not starved by one huge mailbox).
+const BACKFILL_MAX_BATCHES_PER_CYCLE: usize = 30;
+/// Rate cap between backfill batches (ban-safe; replaces the old 20s sleep).
+const BACKFILL_BATCH_INTERVAL: Duration = Duration::from_secs(1);
+/// During backfill only AI-summarize mail newer than this. A local model has
+/// finite GPU throughput: summarizing a full history would peg it for weeks,
+/// so recent mail gets summaries first and older mail stays summary-less.
+const AI_BACKFILL_MAX_AGE_DAYS: i64 = 30;
+
 /// Provider trash folders (by name, per provider locale) that are mapped onto
 /// the single local "Trash" folder. Prevents duplicate Papierkorb/Trash/
 /// Gelöscht/Deleted-Messages folders showing up in the UI.
@@ -897,7 +914,14 @@ fn calculate_backoff(
 ) -> Duration {
     if new_count > 0 {
         *consecutive_empty = 0;
-        base_interval
+        // A full backfill batch (>= BACKFILL_BATCH_SIZE new messages) means a
+        // large history is still draining — poll almost immediately instead of
+        // waiting the full base interval, so the initial sync is fast.
+        if (new_count as u32) >= BACKFILL_BATCH_SIZE {
+            Duration::from_secs(1)
+        } else {
+            base_interval
+        }
     } else {
         *consecutive_empty = consecutive_empty.saturating_add(1);
         std::cmp::min(
@@ -978,6 +1002,16 @@ async fn do_sync_cycle(
     // IDLE blocks up to IDLE_TIMEOUT_SECS per account — running it in one
     // sequential loop made every later account wait minutes behind the
     // earlier ones. Spawn one waiter per account instead.
+    // While any account is backfilling a large history we poll aggressively:
+    // the IDLE wait is the dominant per-cycle delay, so shorten it for EVERY
+    // account (the phase awaits all handles, so a per-account shortening would
+    // not help). Backfill is a transient state, so the extra poll load is fine.
+    let idle_secs: u64 = if !state.backfill_active.read().is_empty() {
+        2
+    } else {
+        IDLE_TIMEOUT_SECS
+    };
+
     let mut idle_handles = Vec::new();
     for (account_id, client) in imap_client_ids.clone() {
         let queue = queue.clone();
@@ -992,7 +1026,7 @@ async fn do_sync_cycle(
             // IDLE fast-path: wait up to IDLE_TIMEOUT for an INBOX change. On a
             // mailbox change we enqueue FetchNew immediately (low latency); on
             // timeout the regular poll below still runs (fallback).
-            let changed = client.idle_wait("INBOX", Duration::from_secs(IDLE_TIMEOUT_SECS)).await;
+            let changed = client.idle_wait("INBOX", Duration::from_secs(idle_secs)).await;
             if changed {
                 tracing::debug!("IMAP IDLE: INBOX-Änderung für account {}", account_id);
             }
@@ -1116,6 +1150,13 @@ async fn process_sync_task(
             let folders = client.list_folders_sync().await.map_err(|e| e.to_string())?;
 
             let mut total_new: usize = 0;
+            // Backfill fairness budget: bounds how many large batches one account
+            // may do per cycle so a single huge mailbox cannot starve other
+            // accounts/tasks in the (sequential) sync queue.
+            let mut backfill_batches: usize = 0;
+            // Whether this FetchNew drained any FULL (backfill) batch — used to
+            // flag the account as still-backfilling so the next cycle polls fast.
+            let mut did_backfill = false;
             for (folder_name, _raw_name, _, tag) in &folders {
                 if tag == "noselect" {
                     continue;
@@ -1124,18 +1165,10 @@ async fn process_sync_task(
                 let is_spam = ["Spam", "Junk", "Spamverdacht", "Junk E-Mail"]
                     .iter().any(|s| folder_name.eq_ignore_ascii_case(s));
 
-                // Decoded name — select_folder() re-encodes to UTF-7
-                // internally (raw_name would be double-encoded → "unknown
-                // folder").
-
                 // Provider trash folders (Gelöscht/Papierkorb/Deleted
                 // Messages…) are stored inside the single local "Trash".
                 let storage_folder = storage_folder_name(folder_name, tag);
-
-                // NOTE: SPAM folders used to be skipped entirely in archive
-                // mode ("stays exclusively on the provider"). The user wants
-                // Spam handled like every other folder — cached and shown.
-                // (AI summaries below are still skipped for spam.)
+                let is_inbox = folder_name.eq_ignore_ascii_case("INBOX");
 
                 // LOCAL folders (e.g. "Gesendet" after the local-only
                 // conversion, or migration/import targets) are not mirrored
@@ -1190,313 +1223,361 @@ async fn process_sync_task(
                     continue;
                 }
 
-                let messages = match client.fetch_recent_in_folder_sync(folder_name, max_uid as u32, 50).await {
-                    Ok(msgs) => msgs,
-                    Err(e) => {
-                        tracing::warn!(
-                            "FetchNew: fetch_recent '{}' (account {}): {}",
-                            folder_name, task.account_id, e
-                        );
-                        // TagMismatch resets the session — next folder will
-                        // trigger auto-reconnect in with_session_blocking().
-                        continue;
-                    }
+                // Folder id (scoping for AI + body updates) is constant per
+                // folder — resolve once, outside the batch loop.
+                let folder_id: Option<i64> = if is_spam {
+                    None
+                } else {
+                    let db_guard = state.cache_db.lock();
+                    db_guard.as_ref().and_then(|conn| conn.query_row(
+                        "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
+                        rusqlite::params![task.account_id as i64, folder_name],
+                        |r| r.get(0),
+                    ).ok())
                 };
 
-                {
-                    let mut db_guard = state.cache_db.lock();
-                    let conn = db_guard
-                        .as_mut()
-                        .ok_or("Datenbank nicht initialisiert")?;
-
-                    let tx = conn.transaction().map_err(|e| e.to_string())?;
-                    for msg in &messages {
-                        crate::cache::messages::save_message(&tx, task.account_id as i64, msg, &storage_folder)
-                            .map_err(|e| e.to_string())?;
-                        // Auto-enrichment: derive contacts from the envelope.
-                        let _ = crate::cache::contacts::enrich_from_envelope(
-                            &tx,
-                            &msg.envelope.from,
-                            &msg.envelope.to,
-                            &msg.envelope.cc,
-                        );
-                    }
-                    // Advance the per-folder sync cursor to the highest UID of
-                    // THIS batch, so the next cycle continues with the next
-                    // slice (`UID {last+1}:*`) instead of re-fetching the same
-                    // messages or skipping older ones. Without this the sync
-                    // never progresses past the first batch.
-                    if let Some(max_uid) = messages.iter().map(|m| m.uid).max() {
-                        crate::cache::sync_state::set(
-                            &tx,
-                            task.account_id as i64,
-                            &storage_folder,
-                            max_uid as i64,
-                            0,
-                        )
-                        .map_err(|e| e.to_string())?;
-                    }
-                    tx.commit().map_err(|e| e.to_string())?;
-                }
-
-                // iMIP inbound: process calendar invitations (text/calendar
-                // attachments) in the newly-fetched messages. Best-effort — a
-                // failure here must not abort the mail sync.
-                for msg in &messages {
-                    let has_ics = msg
-                        .attachments
-                        .iter()
-                        .any(|a| a.content_type.to_lowercase().contains("text/calendar"));
-                    if !has_ics {
-                        continue;
-                    }
-                    match client
-                        .fetch_raw_message_in_folder(msg.uid, Some(folder_name.clone()))
-                        .await
-                    {
-                        Ok(raw) => {
-                            for att in crate::imap::client::parse_message_attachments(raw.as_bytes()) {
-                                if !att.content_type.to_lowercase().contains("text/calendar") {
-                                    continue;
-                                }
-                                use base64::Engine;
-                                let Ok(b64) = base64::engine::general_purpose::STANDARD.decode(&att.content) else {
-                                    continue;
-                                };
-                                let Ok(ics_text) = String::from_utf8(b64) else {
-                                    continue;
-                                };
-                                match crate::imip::inbound::process_inbound_ics(state, &ics_text).await {
-                                    Ok(info) => tracing::info!("iMIP: {info}"),
-                                    Err(e) => tracing::warn!("iMIP: Verarbeitung fehlgeschlagen: {e}"),
-                                }
-                            }
-                        }
-                        Err(e) => tracing::warn!("iMIP: Raw-Fetch (uid {}) fehlgeschlagen: {e}", msg.uid),
-                    }
-                }
-
-                // Cleanup: Remove locally cached messages that no longer exist on the IMAP server.
-                // This handles the case where messages were deleted in another app (e.g., GMX Webmail).
-                // fetch_all_uids_in_folder SELECTs the folder atomically under the session lock —
-                // a plain fetch_all_uids() would read whatever folder a parallel API operation
-                // (fetch_body/move/delete) left selected, pruning the WRONG folder (observed live:
-                // every new INBOX mail was deleted right after being saved).
-                let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
-                    Ok(uids) => uids,
-                    Err(e) => {
-                        tracing::warn!(
-                            "FetchNew: fetch_all_uids '{}' (account {}): {}",
-                            folder_name, task.account_id, e
-                        );
-                        continue;
-                    }
-                };
-
-                {
-                    let mut db_guard = state.cache_db.lock();
-                    let conn = db_guard
-                        .as_mut()
-                        .ok_or("Datenbank nicht initialisiert")?;
-
-                    // Local-only folders are NOT mirrors of an IMAP folder —
-                    // never prune them against server UIDs (archive mode).
-                    // Provider trash folders map onto the local Trash — also
-                    // never pruned: deleted mails must stay in the local
-                    // Trash even if the provider copy is gone.
-                    let storage_folder = storage_folder_name(folder_name, tag);
-                    if storage_folder == "Trash" {
-                        continue;
-                    }
-                    let is_local_folder = crate::cache::messages::is_local_only_folder(
-                        conn,
-                        task.account_id as i64,
-                        folder_name,
-                    )
-                    .unwrap_or(false);
-                    if is_local_folder {
-                        continue;
+                // Continuation loop: keep fetching FULL batches while the folder
+                // is still backfilling (more old mail remains on the server). A
+                // PARTIAL batch means the folder is caught up → switch to the
+                // full steady-state treatment for the remaining new mail. The
+                // cursor is committed per batch, so a crash resumes cleanly.
+                let mut max_uid_cur = max_uid;
+                let ai_cutoff = chrono::Utc::now() - chrono::Duration::days(AI_BACKFILL_MAX_AGE_DAYS);
+                loop {
+                    if backfill_batches >= BACKFILL_MAX_BATCHES_PER_CYCLE {
+                        break;
                     }
 
-                    match crate::cache::messages::delete_messages_not_in(
-                        conn,
-                        task.account_id as i64,
-                        folder_name,
-                        &server_uids,
-                    ) {
-                        Ok(deleted) => {
-                            if deleted > 0 {
-                                tracing::info!(
-                                    "Account {}: {} gelöschte Nachrichten in '{}' bereinigt",
-                                    task.account_id,
-                                    deleted,
-                                    folder_name
-                                );
-                                // Notify frontend to refresh the message list
-                                let _ = state.events.emit("messages-deleted", (task.account_id, folder_name, deleted));
-                            }
-                        }
+                    let messages = match client.fetch_recent_in_folder_sync(folder_name, max_uid_cur as u32, BACKFILL_BATCH_SIZE).await {
+                        Ok(msgs) => msgs,
                         Err(e) => {
                             tracing::warn!(
-                                "FetchNew: delete_messages_not_in '{}' (account {}): {}",
+                                "FetchNew: fetch_recent '{}' (account {}): {}",
                                 folder_name, task.account_id, e
                             );
+                            // TagMismatch resets the session — next folder will
+                            // trigger auto-reconnect in with_session_blocking().
+                            break;
+                        }
+                    };
+                    if messages.is_empty() {
+                        break;
+                    }
+
+                    let is_full_batch = (messages.len() as u32) >= BACKFILL_BATCH_SIZE;
+
+                    // Save + advance the per-folder sync cursor to the highest
+                    // UID of THIS batch (committed per batch so the next
+                    // iteration/crash continues with `UID {last+1}:*`).
+                    {
+                        let mut db_guard = state.cache_db.lock();
+                        let conn = db_guard
+                            .as_mut()
+                            .ok_or("Datenbank nicht initialisiert")?;
+
+                        let tx = conn.transaction().map_err(|e| e.to_string())?;
+                        for msg in &messages {
+                            crate::cache::messages::save_message(&tx, task.account_id as i64, msg, &storage_folder)
+                                .map_err(|e| e.to_string())?;
+                            // Auto-enrichment: derive contacts from the envelope.
+                            let _ = crate::cache::contacts::enrich_from_envelope(
+                                &tx,
+                                &msg.envelope.from,
+                                &msg.envelope.to,
+                                &msg.envelope.cc,
+                            );
+                        }
+                        if let Some(batch_max) = messages.iter().map(|m| m.uid).max() {
+                            max_uid_cur = batch_max as i64;
+                            crate::cache::sync_state::set(
+                                &tx,
+                                task.account_id as i64,
+                                &storage_folder,
+                                batch_max as i64,
+                                0,
+                            )
+                            .map_err(|e| e.to_string())?;
+                        }
+                        tx.commit().map_err(|e| e.to_string())?;
+                    }
+
+                    // iMIP inbound: process calendar invitations (text/calendar
+                    // attachments) in the newly-fetched messages. Best-effort — a
+                    // failure here must not abort the mail sync.
+                    for msg in &messages {
+                        let has_ics = msg
+                            .attachments
+                            .iter()
+                            .any(|a| a.content_type.to_lowercase().contains("text/calendar"));
+                        if !has_ics {
+                            continue;
+                        }
+                        match client
+                            .fetch_raw_message_in_folder(msg.uid, Some(folder_name.clone()))
+                            .await
+                        {
+                            Ok(raw) => {
+                                for att in crate::imap::client::parse_message_attachments(raw.as_bytes()) {
+                                    if !att.content_type.to_lowercase().contains("text/calendar") {
+                                        continue;
+                                    }
+                                    use base64::Engine;
+                                    let Ok(b64) = base64::engine::general_purpose::STANDARD.decode(&att.content) else {
+                                        continue;
+                                    };
+                                    let Ok(ics_text) = String::from_utf8(b64) else {
+                                        continue;
+                                    };
+                                    match crate::imip::inbound::process_inbound_ics(state, &ics_text).await {
+                                        Ok(info) => tracing::info!("iMIP: {info}"),
+                                        Err(e) => tracing::warn!("iMIP: Verarbeitung fehlgeschlagen: {e}"),
+                                    }
+                                }
+                            }
+                            Err(e) => tracing::warn!("iMIP: Raw-Fetch (uid {}) fehlgeschlagen: {e}", msg.uid),
                         }
                     }
-                }
 
-                // Hybrid Body-Fetch: only fetch body for INBOX to keep sync fast.
-                // Other folders rely on on-demand body fetch when the user clicks a message.
-                // The raw RFC822 bytes are archived to disk (EML) — the local-first
-                // source of truth for backup/export (Concept §3.1).
-                let is_inbox = folder_name.eq_ignore_ascii_case("INBOX");
-                if is_inbox {
-                    for msg in &messages {
-                        // Folder-scoped body fetch: without the explicit folder
-                        // the session could be on a different mailbox (parallel
-                        // API ops), making the UID lookup fail or read the
-                        // wrong message.
-                        match client.fetch_body_with_raw_from_folder_sync(msg.uid, Some(folder_name.to_string())).await {
-                            Ok((body_text, body_html, raw)) => {
-                                let raw_path = crate::cache::archive::write_eml(
-                                    &state.data_root,
+                    if is_full_batch {
+                        // ── BACKFILL mode ────────────────────────────────────
+                        // No per-message body downloads, no full-UID prune, no
+                        // web push. AI is capped to recent mail so a local model
+                        // is not pegged for weeks on a full history.
+                        backfill_batches += 1;
+                        did_backfill = true;
+                        total_new += messages.len();
+                        if !messages.is_empty() {
+                            let _ = state.events.emit("new-messages", (task.account_id, folder_name, messages.len()));
+                        }
+                        if !is_spam {
+                            for msg in &messages {
+                                let is_recent = chrono::DateTime::parse_from_rfc3339(&msg.envelope.date)
+                                    .ok()
+                                    .map(|d| d.with_timezone(&chrono::Utc) >= ai_cutoff)
+                                    .unwrap_or(false);
+                                if !is_recent {
+                                    continue;
+                                }
+                                let needs_summary = {
+                                    let db_guard = state.cache_db.lock();
+                                    let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                                    match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64, folder_id) {
+                                        Ok(Some(m)) => m.ai_summary.is_none() || (is_inbox && m.ai_followups.is_none()),
+                                        _ => true,
+                                    }
+                                };
+                                if needs_summary {
+                                    let _ = ai_tx
+                                        .send(SyncTask {
+                                            account_id: task.account_id,
+                                            task_type: SyncTaskType::GenerateAiSummary(msg.uid, folder_id.unwrap_or(-1)),
+                                            created_at: tokio::time::Instant::now(),
+                                            retries: 0,
+                                            max_retries: 2,
+                                            priority: 5,
+                                        })
+                                        .await;
+                                }
+                            }
+                        }
+                        tracing::info!(
+                            "Account {}: {} Backfill-Nachrichten in '{}' (Batch {}/{})",
+                            task.account_id,
+                            messages.len(),
+                            folder_name,
+                            backfill_batches,
+                            BACKFILL_MAX_BATCHES_PER_CYCLE
+                        );
+                        // Rate cap between backfill batches (ban-safe).
+                        tokio::time::sleep(BACKFILL_BATCH_INTERVAL).await;
+                        continue;
+                    }
+
+                    // ── STEADY-STATE mode (caught up) ────────────────────────
+                    // Cleanup: remove locally cached messages that no longer
+                    // exist on the IMAP server (deleted from another client).
+                    let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
+                        Ok(uids) => uids,
+                        Err(e) => {
+                            tracing::warn!(
+                                "FetchNew: fetch_all_uids '{}' (account {}): {}",
+                                folder_name, task.account_id, e
+                            );
+                            break;
+                        }
+                    };
+
+                    {
+                        let mut db_guard = state.cache_db.lock();
+                        let conn = db_guard
+                            .as_mut()
+                            .ok_or("Datenbank nicht initialisiert")?;
+
+                        // Local-only folders are NOT mirrors of an IMAP folder —
+                        // never prune them against server UIDs (archive mode).
+                        // Provider trash folders map onto the local Trash — also
+                        // never pruned: deleted mails must stay in the local
+                        // Trash even if the provider copy is gone.
+                        if storage_folder != "Trash" {
+                            let is_local_folder = crate::cache::messages::is_local_only_folder(
+                                conn,
+                                task.account_id as i64,
+                                folder_name,
+                            )
+                            .unwrap_or(false);
+                            if !is_local_folder {
+                                match crate::cache::messages::delete_messages_not_in(
+                                    conn,
                                     task.account_id as i64,
-                                    msg.uid,
-                                    Some(msg.envelope.date.as_str()),
-                                    Some(msg.envelope.message_id.as_str()),
-                                    &raw,
-                                )
-                                .ok();
-                                let raw_sha256 = Some(crate::cache::archive::sha256_hex(&raw));
-                                let db_guard = state.cache_db.lock();
-                                if let Some(conn) = db_guard.as_ref() {
-                                    // Scope by folder_id: uid is only unique per
-                                    // folder — an unscoped update could write the
-                                    // body/raw into a row sharing the uid in a
-                                    // different folder (local-only folders reuse uids).
-                                    let folder_id: Option<i64> = conn.query_row(
-                                        "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
-                                        rusqlite::params![task.account_id as i64, folder_name],
-                                        |r| r.get(0),
-                                    ).ok();
-                                    let _ = crate::cache::messages::update_body_with_raw(
-                                        conn, task.account_id as i64, msg.uid as i64, folder_id,
-                                        &body_text, body_html.as_deref(),
-                                        raw_path.as_deref().and_then(|p| p.to_str()),
-                                        raw_sha256.as_deref(),
+                                    folder_name,
+                                    &server_uids,
+                                ) {
+                                    Ok(deleted) => {
+                                        if deleted > 0 {
+                                            tracing::info!(
+                                                "Account {}: {} gelöschte Nachrichten in '{}' bereinigt",
+                                                task.account_id,
+                                                deleted,
+                                                folder_name
+                                            );
+                                            // Notify frontend to refresh the message list
+                                            let _ = state.events.emit("messages-deleted", (task.account_id, folder_name, deleted));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "FetchNew: delete_messages_not_in '{}' (account {}): {}",
+                                            folder_name, task.account_id, e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Hybrid Body-Fetch: only fetch body for INBOX to keep sync
+                    // fast. Other folders rely on on-demand body fetch when the
+                    // user clicks a message. The raw RFC822 bytes are archived
+                    // to disk (EML) — the local-first source of truth for
+                    // backup/export (Concept §3.1). (Backfill defers this to
+                    // on-demand so a huge mailbox does not download every body.)
+                    if is_inbox {
+                        for msg in &messages {
+                            // Folder-scoped body fetch: without the explicit
+                            // folder the session could be on a different mailbox
+                            // (parallel API ops), making the UID lookup fail or
+                            // read the wrong message.
+                            match client.fetch_body_with_raw_from_folder_sync(msg.uid, Some(folder_name.to_string())).await {
+                                Ok((body_text, body_html, raw)) => {
+                                    let raw_path = crate::cache::archive::write_eml(
+                                        &state.data_root,
+                                        task.account_id as i64,
+                                        msg.uid,
+                                        Some(msg.envelope.date.as_str()),
+                                        Some(msg.envelope.message_id.as_str()),
+                                        &raw,
+                                    )
+                                    .ok();
+                                    let raw_sha256 = Some(crate::cache::archive::sha256_hex(&raw));
+                                    let db_guard = state.cache_db.lock();
+                                    if let Some(conn) = db_guard.as_ref() {
+                                        let _ = crate::cache::messages::update_body_with_raw(
+                                            conn, task.account_id as i64, msg.uid as i64, folder_id,
+                                            &body_text, body_html.as_deref(),
+                                            raw_path.as_deref().and_then(|p| p.to_str()),
+                                            raw_sha256.as_deref(),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Body-Fetch fehlgeschlagen für UID {} in '{}': {}",
+                                        msg.uid, folder_name, e
                                     );
                                 }
                             }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Body-Fetch fehlgeschlagen für UID {} in '{}': {}",
-                                    msg.uid, folder_name, e
-                                );
-                            }
                         }
                     }
-                }
 
-                // Notify frontend so the message list refreshes
-                if !messages.is_empty() {
-                    let _ = state.events.emit("new-messages", (task.account_id, folder_name, messages.len()));
-                }
+                    // Notify frontend so the message list refreshes
+                    if !messages.is_empty() {
+                        let _ = state.events.emit("new-messages", (task.account_id, folder_name, messages.len()));
+                    }
 
-                // Web Push: notify installed PWAs even when the app is closed.
-                // Only for INBOX — other folders are fetched on demand anyway.
-                if !messages.is_empty() && is_inbox {
-                    let account_id = task.account_id as i64;
-                    let count = messages.len();
-                    let sender = messages.first().map(|m| m.envelope.from.clone());
-                    let body = match sender {
-                        Some(s) if !s.is_empty() => format!("{} neue E-Mail(s) von {}", count, s),
-                        _ => format!("{} neue E-Mail(s)", count),
-                    };
-                    let state_push = state.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) =
-                            crate::push::notify_account(&state_push, account_id, "Neue E-Mail", &body).await
-                        {
-                            tracing::warn!("WebPush fehlgeschlagen (account {}): {}", account_id, e);
-                        }
-                    });
-                }
-
-                // Enqueue AI summary only for messages that don't already have one
-                if !is_spam {
-                    // UIDs are only unique per folder — the folder id must scope
-                    // the summary so a uid shared with another folder never
-                    // summarizes (and overwrites) the wrong message.
-                    let folder_id: Option<i64> = {
-                        let db_guard = state.cache_db.lock();
-                        match db_guard.as_ref().and_then(|conn| conn.query_row(
-                            "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
-                            rusqlite::params![task.account_id as i64, folder_name],
-                            |r| r.get(0),
-                        ).ok()) {
-                            Some(fid) => Some(fid),
-                            None => {
-                                tracing::warn!(
-                                    "AI-Summary: folder_id für '{}' (account {}) nicht gefunden",
-                                    folder_name, task.account_id
-                                );
-                                None
-                            }
-                        }
-                    };
-                    for msg in &messages {
-                        // Enqueue if the message still needs a summary, or (INBOX
-                        // only) cached followup actions — both are produced in the
-                        // same worker pass, so a single gate covers both.
-                        let needs_summary = {
-                            let db_guard = state.cache_db.lock();
-                            let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
-                            match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64, folder_id) {
-                                Ok(Some(m)) => m.ai_summary.is_none() || (is_inbox && m.ai_followups.is_none()),
-                                _ => true,
-                            }
+                    // Web Push: notify installed PWAs even when the app is closed.
+                    // Only for INBOX — other folders are fetched on demand anyway.
+                    if !messages.is_empty() && is_inbox {
+                        let account_id = task.account_id as i64;
+                        let count = messages.len();
+                        let sender = messages.first().map(|m| m.envelope.from.clone());
+                        let body = match sender {
+                            Some(s) if !s.is_empty() => format!("{} neue E-Mail(s) von {}", count, s),
+                            _ => format!("{} neue E-Mail(s)", count),
                         };
+                        let state_push = state.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                crate::push::notify_account(&state_push, account_id, "Neue E-Mail", &body).await
+                            {
+                                tracing::warn!("WebPush fehlgeschlagen (account {}): {}", account_id, e);
+                            }
+                        });
+                    }
 
-                        if needs_summary {
-                            // Send to the DEDICATED AI worker channel — never
-                            // the sync queue, so LLM work cannot stall IMAP sync.
-                            let _ = ai_tx
-                                .send(SyncTask {
-                                    account_id: task.account_id,
-                                    task_type: SyncTaskType::GenerateAiSummary(msg.uid, folder_id.unwrap_or(-1)),
-                                    created_at: tokio::time::Instant::now(),
-                                    retries: 0,
-                                    max_retries: 2,
-                                    priority: 5,
-                                })
-                                .await;
+                    // Enqueue AI summary for all new mail (steady-state, no age
+                    // cap — the volume here is small).
+                    if !is_spam {
+                        for msg in &messages {
+                            // Enqueue if the message still needs a summary, or
+                            // (INBOX only) cached followup actions — both are
+                            // produced in the same worker pass.
+                            let needs_summary = {
+                                let db_guard = state.cache_db.lock();
+                                let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+                                match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64, folder_id) {
+                                    Ok(Some(m)) => m.ai_summary.is_none() || (is_inbox && m.ai_followups.is_none()),
+                                    _ => true,
+                                }
+                            };
+                            if needs_summary {
+                                // Send to the DEDICATED AI worker channel — never
+                                // the sync queue, so LLM work cannot stall IMAP sync.
+                                let _ = ai_tx
+                                    .send(SyncTask {
+                                        account_id: task.account_id,
+                                        task_type: SyncTaskType::GenerateAiSummary(msg.uid, folder_id.unwrap_or(-1)),
+                                        created_at: tokio::time::Instant::now(),
+                                        retries: 0,
+                                        max_retries: 2,
+                                        priority: 5,
+                                    })
+                                    .await;
+                            }
                         }
                     }
-                }
 
-                total_new += messages.len();
-                if !messages.is_empty() {
-                    tracing::info!(
-                        "Account {}: {} neue Nachrichten in '{}' synchronisiert",
-                        task.account_id,
-                        messages.len(),
-                        folder_name
-                    );
-                }
-
-                // Persist per-folder sync state (last UID + modseq) for delta sync.
-                {
-                    let db_guard = state.cache_db.lock();
-                    if let Some(conn) = db_guard.as_ref() {
-                        let new_max = messages.iter().map(|m| m.uid as i64).max().unwrap_or(max_uid);
-                        let _ = crate::cache::sync_state::set(
-                            conn,
-                            task.account_id as i64,
-                            folder_name,
-                            new_max.max(max_uid),
-                            0,
+                    total_new += messages.len();
+                    if !messages.is_empty() {
+                        tracing::info!(
+                            "Account {}: {} neue Nachrichten in '{}' synchronisiert",
+                            task.account_id,
+                            messages.len(),
+                            folder_name
                         );
                     }
+                    break;
+                }
+            }
+
+            // Publish the backfill flag for the NEXT cycle's IDLE/sleep phase:
+            // keep the account flagged while it is still draining full batches,
+            // clear it once it is caught up (no full batch this pass).
+            {
+                let mut set = state.backfill_active.write();
+                if did_backfill {
+                    set.insert(task.account_id);
+                } else {
+                    set.remove(&task.account_id);
                 }
             }
 

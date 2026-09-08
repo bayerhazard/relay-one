@@ -62,6 +62,12 @@ pub struct AppState {
     /// Meta-only folder list cache (account_id → folder → last list), so
     /// repeated folder switches render instantly without re-reading the DB.
     pub folder_cache: Arc<parking_lot::RwLock<crate::cache::FolderListCache>>,
+    /// Accounts currently backfilling a large mailbox (initial sync of a huge
+    /// history). While non-empty the scheduler polls aggressively: the IDLE
+    /// phase uses a short timeout and the post-cycle sleep is ~1s, so a full
+    /// history drains in hours instead of days. Cleared once an account is
+    /// caught up (a partial batch is fetched).
+    pub backfill_active: Arc<parking_lot::RwLock<std::collections::HashSet<u32>>>,
 }
 
 impl AppState {
@@ -90,6 +96,7 @@ impl AppState {
             folder_cache: Arc::new(parking_lot::RwLock::new(
                 crate::cache::FolderListCache::new(),
             )),
+            backfill_active: Arc::new(parking_lot::RwLock::new(std::collections::HashSet::new())),
         }
     }
 
