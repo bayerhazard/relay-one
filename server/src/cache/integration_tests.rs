@@ -5,7 +5,7 @@ use crate::cache::accounts::{
     create_account, delete_account, get_account, list_accounts,
 };
 use crate::cache::db;
-use crate::cache::messages::{delete_message, delete_messages_not_in, fetch_inbox, fetch_message_body, save_message};
+use crate::cache::messages::{delete_message, delete_messages_not_in, fetch_inbox, fetch_message_body, mark_as_read, save_message, unread_inbox_counts};
 use crate::imap::types::{CachedMessage, MailEnvelope};
 use base64::Engine as _;
 
@@ -1216,4 +1216,31 @@ fn test_repair_fixes_flag_and_orphaned_disk_path() {
         |r| r.get(0),
     ).unwrap();
     assert!(disk_path.is_none());
+}
+
+#[test]
+fn test_unread_inbox_counts_per_account() {
+    let conn = setup_db();
+    let acct_a = create_test_account(&conn, "unread_a");
+    let acct_b = create_test_account(&conn, "unread_b");
+
+    // Account A: 3 unread + 1 read in INBOX, plus 1 unread in Archive (excluded).
+    for uid in 1..=4 {
+        save_message(&conn, acct_a, &make_cached_message(uid, &format!("A{uid}"), "x@e.com", "b"), "INBOX").unwrap();
+    }
+    mark_as_read(&conn, acct_a, 4).unwrap();
+    save_message(&conn, acct_a, &make_cached_message(9, "A-arch", "x@e.com", "b"), "Archive").unwrap();
+
+    // Account B: 2 unread + 1 read in INBOX.
+    for uid in 1..=3 {
+        save_message(&conn, acct_b, &make_cached_message(uid, &format!("B{uid}"), "y@e.com", "b"), "INBOX").unwrap();
+    }
+    mark_as_read(&conn, acct_b, 3).unwrap();
+
+    let mut counts: std::collections::HashMap<i64, i64> =
+        unread_inbox_counts(&conn).unwrap().into_iter().collect();
+
+    assert_eq!(counts.remove(&acct_a), Some(3), "A: 3 unread INBOX (read one + Archive excluded)");
+    assert_eq!(counts.remove(&acct_b), Some(2), "B: 2 unread INBOX");
+    assert!(counts.is_empty(), "no other accounts should report counts");
 }

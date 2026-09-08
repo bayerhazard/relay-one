@@ -1,5 +1,6 @@
 <script lang="ts">
   import { iconSVG, folderIconFor } from "$lib/icons";
+  import { t } from "$lib/i18n";
 
   interface AccountInfo {
     id: number;
@@ -20,6 +21,7 @@
     folderTree: FolderNode;
     selectedFolder: string | null;
     collapsedFolders: Set<string>;
+    unreadCount?: number;
     dragSource?: string | null;
     dragTarget?: string | null;
     onSelectFolder?: (accountId: number, folder: string) => void;
@@ -35,6 +37,7 @@
     folderTree,
     selectedFolder,
     collapsedFolders,
+    unreadCount = 0,
     dragSource = $bindable(null),
     dragTarget = $bindable(null),
     onSelectFolder = () => {},
@@ -44,6 +47,22 @@
     onFolderMouseDown = () => {},
     onContextMenu,
   }: Props = $props();
+
+  // Subtle pop whenever the unread count INCREASES (new mail arrived at this
+  // account) — draws the eye without a permanent animation. Honors reduced
+  // motion via the CSS media query on the transform.
+  let prevCount = $state(0);
+  let bump = $state(false);
+  $effect(() => {
+    const c = unreadCount;
+    if (c > prevCount) {
+      bump = true;
+      prevCount = c;
+      const id = setTimeout(() => (bump = false), 320);
+      return () => clearTimeout(id);
+    }
+    prevCount = c;
+  });
 
   function handleInboxClick() {
     onSelectFolder(account.id, "INBOX");
@@ -170,6 +189,14 @@
   >
     <span class="tree-icon">{@html iconSVG("inbox")}</span>
     <span class="tree-label">{account.name}</span>
+    {#if unreadCount > 0}
+      <span
+        class="unread-badge"
+        class:unread-bump={bump}
+        title={$t("mail.unreadCount", { count: unreadCount })}
+        aria-label={$t("mail.unreadCount", { count: unreadCount })}
+      >{unreadCount > 99 ? "99+" : unreadCount}</span>
+    {/if}
   </div>
 
   <!-- Children tree -->
@@ -318,6 +345,36 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1.3;
+  }
+
+  /* Unread-INBOX badge (root row). Signals "new mail at this account" — the
+     gold/blue fill distinguishes it from the neutral header count. */
+  .unread-badge {
+    flex: none;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-unread-badge-text);
+    background: var(--color-unread);
+    padding: 3px 7px;
+    border-radius: 100px;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  .unread-bump {
+    animation: badge-pop 0.32s ease;
+  }
+
+  @keyframes badge-pop {
+    0% { transform: scale(0.7); }
+    60% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .unread-bump { animation: none; }
   }
 
   .chevron {

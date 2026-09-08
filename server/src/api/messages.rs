@@ -194,7 +194,24 @@ pub async fn list_imap_folders(
     Ok(Json(json))
 }
 
-/// Fetch the live IMAP folder list for an account. Runs in a helper so the
+/// GET /api/v1/unread-counts → `{ "<account_id>": <unread inbox count> }`
+/// Powers the per-account sidebar badges. Accounts without unread mail are
+/// omitted from the map (the client treats a missing entry as 0). Reads only
+/// the local cache — never touches IMAP.
+pub async fn unread_counts(
+    State(state): State<AppState>,
+) -> ApiResult<std::collections::HashMap<u32, u32>> {
+    let counts = with_db(&state, |conn| {
+        cache::messages::unread_inbox_counts(conn).map_err(|e| e.to_string())
+    })?;
+    let mut map = std::collections::HashMap::new();
+    for (account_id, count) in counts {
+        if count > 0 {
+            map.insert(account_id.max(0) as u32, count.max(0) as u32);
+        }
+    }
+    Ok(Json(map))
+}
 /// client (with its TLS session) is fully owned here; never errors — on any
 /// failure an empty list is returned and the cached folders still show.
 async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_json::Value> {

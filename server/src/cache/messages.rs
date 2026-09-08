@@ -401,6 +401,21 @@ pub fn is_spam_folder(folder: &str) -> bool {
     spam_names.iter().any(|name| folder.eq_ignore_ascii_case(name))
 }
 
+/// Unread INBOX message count per account. Powers the sidebar badges: every
+/// account group shows how many unread mails arrived in its inbox — including
+/// accounts whose messages are NOT loaded in the UI (the count comes straight
+/// from the local cache, no IMAP round-trip).
+pub fn unread_inbox_counts(conn: &Connection) -> Result<Vec<(i64, i64)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT m.account_id, COUNT(*) FROM messages m
+         JOIN folders f ON f.id = m.folder_id
+         WHERE f.name = 'INBOX' AND m.is_read = 0
+         GROUP BY m.account_id",
+    )?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+    rows.collect()
+}
+
 pub fn mark_as_read(conn: &Connection, account_id: i64, uid: i64) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE messages SET is_read = 1, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2",

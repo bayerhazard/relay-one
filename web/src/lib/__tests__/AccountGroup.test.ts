@@ -89,3 +89,25 @@ describe("AccountGroup folder icons", () => {
     expect(icon!.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe("AccountGroup unread INBOX badge (26.9.147)", () => {
+  it("shows the count when there are unread messages", () => {
+    const { container } = renderGroup({ unreadCount: 5 });
+    const badge = container.querySelector(".unread-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent?.trim()).toBe("5");
+    expect(badge!.getAttribute("aria-label")).toBe("5 ungelesene Mails");
+  });
+
+  it("hides the badge when there are no unread messages", () => {
+    const { container } = renderGroup({ unreadCount: 0 });
+    expect(container.querySelector(".unread-badge")).toBeNull();
+  });
+
+  it("caps large counts at 99+ but keeps the full number in the label", () => {
+    const { container } = renderGroup({ unreadCount: 150 });
+    const badge = container.querySelector(".unread-badge");
+    expect(badge!.textContent?.trim()).toBe("99+");
+    expect(badge!.getAttribute("aria-label")).toBe("150 ungelesene Mails");
+  });
+});

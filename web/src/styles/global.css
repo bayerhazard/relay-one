@@ -33,6 +33,7 @@
   --color-warning: #9f5100;
   --color-success: #007e46;
   --color-unread: var(--b-400);
+  --color-unread-badge-text: #ffffff;
   --color-urgent: #cc0000;
   --color-active-wash: var(--b-900);
   --color-unread-wash: rgba(63, 96, 130, 0.10);
@@ -89,6 +90,7 @@
   --color-warning: #ed914c;
   --color-success: #55c483;
   --color-unread: var(--gold);
+  --color-unread-badge-text: var(--b-100);
   --color-urgent: #cc0000;
   --color-active-wash: rgba(202, 169, 96, 0.10);
   --color-unread-wash: rgba(202, 169, 96, 0.07);

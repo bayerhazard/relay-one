@@ -24,7 +24,7 @@ import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
     listAccounts, listImapFolders, createLocalFolder, deleteFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
-    getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
+    getMoveToTrash, getUnreadCounts, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
@@ -197,6 +197,9 @@ import {
       }
       if (event === "new-messages") {
         const [accountId, folderName] = payload as [number, string, number];
+        // Sidebar badges track EVERY account — refresh on any new-mail event
+        // (debounced: a backfill fires one event per fetched batch).
+        scheduleUnreadRefresh();
         if (accountId === selectedAccountId) {
           if (folderName === selectedFolder) {
             // Debounce: if a batch of new-messages arrives within 2s, only
@@ -210,8 +213,6 @@ import {
               loadFolder(true);
             }, 2000);
           }
-          // Always update badge count when new mail arrives
-          updateBadgeCount(accountId).catch(() => {});
         }
         return;
       }
@@ -281,6 +282,26 @@ import {
   let localFolderNames = $state<Set<string>>(new Set());
   let folderRawNames = $state<Record<string, string>>({});
   let folderDelimiters = $state<Record<string, string>>({});
+  // ── Unread INBOX counts per account (sidebar badges) ────────────────
+  // One cheap endpoint returns every account's unread inbox count, so a
+  // single refresh covers all badges. Refreshed on load, on new-mail events
+  // (debounced — backfill fires them per batch), and after read/unread ops.
+  let unreadByAccount = $state<Record<number, number>>({});
+  let unreadTimer: ReturnType<typeof setTimeout> | null = null;
+  async function refreshUnreadCounts() {
+    try {
+      unreadByAccount = await getUnreadCounts();
+    } catch {
+      // Non-critical: the next sync/event retries. Keep the last-known counts.
+    }
+  }
+  function scheduleUnreadRefresh() {
+    if (unreadTimer !== null) clearTimeout(unreadTimer);
+    unreadTimer = setTimeout(() => {
+      unreadTimer = null;
+      refreshUnreadCounts();
+    }, 1500);
+  }
   // Per-account folder data so EVERY account group in the sidebar can render
   // its own folder tree independently (previously only the selected account
   // had folders, which made other accounts appear collapsed/unopenable).
@@ -1634,7 +1655,7 @@ let sentFolderName = $state<string | null>(null);
       if (prevLastClicked != null && !msgs.some(m => m.uid === prevLastClicked)) {
         mailbox.clearSelection();
       }
-      updateBadgeCount(reqAccount).catch(() => {});
+      refreshUnreadCounts();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       // Silent refresh: with stale-but-visible data a failed background fetch
@@ -1715,6 +1736,7 @@ let sentFolderName = $state<string | null>(null);
     // Fire-and-forget: not needed for first paint
     getMoveToTrash().then(v => { moveToTrash = v; }).catch(() => {});
     getOwnPhoto().then(v => { ownPhoto = v; }).catch(() => {});
+    refreshUnreadCounts();
 
     // Offline support: listen for connectivity changes, sync queued drafts on reconnect
     initOnlineListener();
@@ -1739,7 +1761,7 @@ let sentFolderName = $state<string | null>(null);
     try {
       const msgs = await fetchMessages(selectedAccountId, 10000, 0, selectedFolder, true);
       mailbox.setMessages(msgs, selectedFolder);
-      updateBadgeCount(selectedAccountId).catch(() => {});
+      refreshUnreadCounts();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       if (!isTransientConnError(errMsg)) {
@@ -1843,7 +1865,7 @@ let sentFolderName = $state<string | null>(null);
       }).catch(() => {});
       loadingBodyUid = null;
       selectingUid = null;
-      updateBadgeCount(selectedAccountId).catch(() => {});
+      refreshUnreadCounts();
     } catch (e: unknown) {
       // Offline fallback: try IndexedDB cache
       const cached = await getCachedBody(selectedAccountId, selectedFolder, uid);
@@ -2045,7 +2067,7 @@ let sentFolderName = $state<string | null>(null);
     } catch (e) {
       console.warn("toggleReadStatus fehlgeschlagen", e);
     }
-    updateBadgeCount(selectedAccountId).catch(() => {});
+    refreshUnreadCounts();
   }
 
   // Mark all selected messages as read (toolbar action).
@@ -2060,7 +2082,7 @@ let sentFolderName = $state<string | null>(null);
     } catch (e) {
       console.warn("markSelectedRead fehlgeschlagen", e);
     }
-    updateBadgeCount(selectedAccountId).catch(() => {});
+    refreshUnreadCounts();
   }
 
   // Move all selected messages to a folder chosen from a plain HTML menu.
@@ -2483,7 +2505,7 @@ let sentFolderName = $state<string | null>(null);
     } catch (e) {
       console.warn("handleToggleRead fehlgeschlagen fuer uid", uid, e);
     }
-    updateBadgeCount(selectedAccountId).catch(() => {});
+    refreshUnreadCounts();
   }
 
   async function handleToggleFlag(uid: number, uids?: number[]) {
@@ -2828,6 +2850,7 @@ let sentFolderName = $state<string | null>(null);
               folderTree={folderTreesByAccount[group.account.id] ?? { name: "INBOX", label: "", children: [] }}
               selectedFolder={group.account.id === selectedAccountId ? selectedFolder : null}
               collapsedFolders={getCollapsedForAccount(group.account.id)}
+              unreadCount={unreadByAccount[group.account.id] ?? 0}
               bind:dragSource
               bind:dragTarget
               onSelectFolder={handleAccountFolderSelect}
@@ -2887,7 +2910,6 @@ let sentFolderName = $state<string | null>(null);
               </button>
             {/if}
             <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>
-            {#if $mailbox.messages.length > 0}<span class="count-badge">{$mailbox.messages.length}</span>{/if}
           </div>
           <div class="list-header-pill">
             <button type="button" class="pill-icon-btn" onclick={handleNewMail} title={$t("mail.newMail")}>
@@ -3420,14 +3442,6 @@ let sentFolderName = $state<string | null>(null);
     font-size: 1.125rem;
     font-weight: 700;
     color: var(--color-text);
-  }
-  .count-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    background: var(--color-sidebar);
-    padding: 2px 8px;
-    border-radius: 100px;
   }
   .pill-icon-btn {
     background: none;

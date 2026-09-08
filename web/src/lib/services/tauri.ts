@@ -210,10 +210,11 @@ export async function restoreBackupSnapshot(backupName: string): Promise<{
 }
 
 // ─── Badge ──────────────────────────────────────────────────
-// Web version has no dock badge — unread count is returned directly.
+// Unread INBOX counts per account (sidebar badges). The map only contains
+// accounts with at least one unread message — a missing entry means 0.
 
-export async function updateBadgeCount(accountId: number): Promise<number> {
-  return 0;
+export async function getUnreadCounts(): Promise<Record<number, number>> {
+  return get("/unread-counts", "Die Ungelesen-Zähler konnten nicht geladen werden.");
 }
 
 // ─── IMAP ──────────────────────────────────────────────────
