@@ -108,8 +108,8 @@ pub async fn save_draft(
                         account_id,
                         existing as i64,
                         req.subject,
-                        req.to.join(", "),
-                        req.cc.as_ref().map(|v| v.join(", ")).unwrap_or_default(),
+                        split_addr_list(&req.to).join(", "),
+                        req.cc.as_ref().map(|v| split_addr_list(v).join(", ")).unwrap_or_default(),
                         now,
                         req.body_text,
                         req.body_html,
@@ -136,8 +136,8 @@ pub async fn save_draft(
                 drafts_folder_id,
                 uid,
                 req.subject,
-                req.to.join(", "),
-                req.cc.as_ref().map(|v| v.join(", ")).unwrap_or_default(),
+                split_addr_list(&req.to).join(", "),
+                req.cc.as_ref().map(|v| split_addr_list(v).join(", ")).unwrap_or_default(),
                 now,
                 req.body_text,
                 req.body_html,
@@ -222,6 +222,23 @@ pub async fn discard_draft(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+/// Split each recipient entry on commas into individual, trimmed, non-empty
+/// addresses. The frontend normally sends one address per entry, but a
+/// comma-joined string (e.g. a raw "a@x.com, b@y.com" chip) must not leak
+/// into a single `To:` header. (26.9.143 backend hardening)
+fn split_addr_list(items: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        for part in item.split(',') {
+            let trimmed = part.trim();
+            if !trimmed.is_empty() {
+                out.push(trimmed.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// `POST /api/v1/send`
 pub async fn send_message(
     State(state): State<AppState>,
@@ -234,12 +251,13 @@ pub async fn send_message(
         .cloned()
         .ok_or(ApiError("SMTP-Client nicht gefunden".into()))?;
 
-    let to_parsed: Vec<(&str, &str)> = req.to.iter().map(|s| (s.as_str(), "")).collect();
+    let to_values = split_addr_list(&req.to);
+    let to_parsed: Vec<(&str, &str)> = to_values.iter().map(|s| (s.as_str(), "")).collect();
     let cc_default: Vec<String> = vec![];
-    let cc_values = req.cc.as_ref().unwrap_or(&cc_default);
+    let cc_values = split_addr_list(req.cc.as_ref().unwrap_or(&cc_default));
     let cc_parsed: Vec<(&str, &str)> = cc_values.iter().map(|s| (s.as_str(), "")).collect();
     let bcc_default: Vec<String> = vec![];
-    let bcc_values = req.bcc.as_ref().unwrap_or(&bcc_default);
+    let bcc_values = split_addr_list(req.bcc.as_ref().unwrap_or(&bcc_default));
     let bcc_parsed: Vec<(&str, &str)> = bcc_values.iter().map(|s| (s.as_str(), "")).collect();
     let attachments_vec = req.attachments.unwrap_or_default();
 
@@ -464,4 +482,30 @@ pub async fn send_message(
     }
 
     Ok(Json(SendMessageResponse { message_id, sent_copy_saved }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_addr_list;
+
+    #[test]
+    fn split_addr_list_splits_comma_joined() {
+        let out = split_addr_list(&["a@x.com, b@y.com".to_string()]);
+        assert_eq!(out, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
+    }
+
+    #[test]
+    fn split_addr_list_trims_and_drops_empty() {
+        let out = split_addr_list(&[
+            "  a@x.com ,  ,b@y.com ".to_string(),
+            "".to_string(),
+        ]);
+        assert_eq!(out, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
+    }
+
+    #[test]
+    fn split_addr_list_passes_single_addresses_through() {
+        let out = split_addr_list(&["a@x.com".to_string(), "b@y.com".to_string()]);
+        assert_eq!(out, vec!["a@x.com".to_string(), "b@y.com".to_string()]);
+    }
 }

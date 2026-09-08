@@ -242,6 +242,7 @@ import {
   let composeMode = $state<"new" | "reply" | "forward">("new");
   let replySubject = $state("");
   let replyTo = $state("");
+  let replyCc = $state("");
   let recipientName = $state("");
   let mailChain = $state<MailChainEntry[]>([]);
   let selectedAccountId = $state<number>(1);
@@ -1788,6 +1789,7 @@ let sentFolderName = $state<string | null>(null);
         composeMode = "new";
         sendError = null;
         replyTo = "";
+        replyCc = "";
         recipientName = "";
         replySubject = "";
         mailChain = [];
@@ -1847,6 +1849,7 @@ let sentFolderName = $state<string | null>(null);
     composeMode = "new";
     sendError = null;
     replyTo = "";
+    replyCc = "";
     recipientName = "";
     replySubject = "";
     mailChain = [];
@@ -1891,10 +1894,12 @@ let sentFolderName = $state<string | null>(null);
     composeMode = "reply";
     sendError = null;
     replySubject = msg.subject ?? "";
-    // Reply-All: Absender + alle Original-Empfänger, ABER ohne die eigene
-    // Adresse (man antwortet nicht an sich selbst). (H2, Code-Review 2026-08-28)
+    // Reply-All (Standard-Semantik): `to` = Absender + Original-To, `cc` =
+    // Original-CC — jeweils ohne die eigene Adresse. (H2, Code-Review 2026-08-28;
+    // 26.9.143 To/CC-Trennung)
     const replyAllRecips = replyAllRecipients(msg.from ?? "", msg.to ?? "", msg.cc ?? "", selectedAccount?.sender_email);
-    replyTo = replyAll ? replyAllRecips.join(", ") : extractEmail(msg.from ?? "");
+    replyTo = replyAll ? replyAllRecips.to.join(", ") : extractEmail(msg.from ?? "");
+    replyCc = replyAll ? replyAllRecips.cc.join(", ") : "";
     recipientName = extractName(msg.from ?? "");
     showCompose = true;
 
@@ -1933,6 +1938,7 @@ let sentFolderName = $state<string | null>(null);
     sendError = null;
     replySubject = msg.subject ?? "";
     replyTo = "";
+    replyCc = "";
     recipientName = "";
     mailChain = [];
     draftUid = null;
@@ -2600,6 +2606,7 @@ let sentFolderName = $state<string | null>(null);
       sendError={sendError}
       replySubject={replySubject}
       replyTo={replyTo}
+      replyCc={replyCc}
       accountId={selectedAccountId}
       recipientEmail={replyTo}
       recipientName={recipientName}
@@ -2748,6 +2755,7 @@ let sentFolderName = $state<string | null>(null);
               sendError = null;
               replySubject = selectedMessage.subject ?? "";
               replyTo = extractEmail(selectedMessage.from ?? "");
+              replyCc = "";
               showCompose = true;
             }} />
           {/if}

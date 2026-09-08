@@ -26,6 +26,7 @@
     sendError?: string | null;
     replySubject?: string;
     replyTo?: string;
+    replyCc?: string;
     accountId?: number;
     recipientEmail?: string;
     senderName?: string;
@@ -47,7 +48,7 @@
   }
 
   let {
-    mode, mailChain = [], sendError = null, replySubject = "", replyTo = "",
+    mode, mailChain = [], sendError = null, replySubject = "", replyTo = "", replyCc = "",
     accountId, recipientEmail, senderName = "", recipientName = "", onclose, onsend,
     ondraftSaved, draftTo = "", draftCc = "", draftSubject = "", draftBody = "", draftUid = null,
     initialAttachments = [], prefill = null,
@@ -286,9 +287,10 @@
 
   let lastMode = $state<ComposeMode | null>(null);
   let lastReplyTo = $state<string | null>(null);
+  let lastReplyCc = $state<string | null>(null);
   let lastPropDraftUid = $state<number | null>(null);
   $effect(() => {
-    if (mode !== lastMode || replyTo !== lastReplyTo || draftUid !== lastPropDraftUid) {
+    if (mode !== lastMode || replyTo !== lastReplyTo || replyCc !== lastReplyCc || draftUid !== lastPropDraftUid) {
       // Pre-fill only when a *different* draft is being opened. `doSaveDraft`
       // keeps `lastPropDraftUid` in sync after a save, so adopting the returned
       // uid does not wipe the freshly typed content.
@@ -302,14 +304,15 @@
         localDraftUid = draftUid;
         lastPropDraftUid = draftUid;
       } else {
-        to = replyTo ? [replyTo] : [];
-        cc = [];
+        to = replyTo ? replyTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+        cc = replyCc ? replyCc.split(",").map(s => s.trim()).filter(Boolean) : [];
         bcc = [];
         subject = mode === "reply" ? `Re: ${replySubject}` : mode === "forward" ? `Fwd: ${replySubject}` : "";
       }
       toneLoaded = false;
       lastMode = mode;
       lastReplyTo = replyTo;
+      lastReplyCc = replyCc;
     }
   });
 
@@ -618,9 +621,9 @@
           {#each mailChain as msg}
             <div class="chain-msg">
               {#if msg.html}
-                <div class="chain-body-html">{@html sanitizeHtml(msg.html).slice(0, 1000)}{msg.html.length > 1000 ? "..." : ""}</div>
+                <div class="chain-body-html">{@html sanitizeHtml(msg.html)}</div>
               {:else}
-                <pre class="chain-body">{msg.text.slice(0, 1000)}{msg.text.length > 1000 ? "..." : ""}</pre>
+                <pre class="chain-body">{msg.text}</pre>
               {/if}
             </div>
           {/each}

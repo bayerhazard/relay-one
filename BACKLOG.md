@@ -1,8 +1,31 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
+> Stand: 2026-09-08 — AI-Assistent v2 Phasen A–D umgesetzt (A+B = 26.9.140, C = 26.9.142 live; D = Voice-out lokal committet `40079d0`, Release 26.9.143 ausstehend). Live-Gate S1/S2/S3 umgesetzt.
 > Stand: 2026-08-28 — Code-Review `REVIEW-2026-08-28.md` (produktionsreif/Perf/fehlerfrei). Findings H1–H3, M1–M6, L1–L4, I1–I4; Stage-D-Fixes (H1, H2, M1, M2, M4) in Release 26.09.108.
 > Stand: 2026-08-25 — Release 26.09.94 (AI-Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
+
+---
+
+## Erledigt — AI-Assistent v2 (Phasen A–D)
+
+> Konzept: `docs/ai-assistant-concept.md`. Agent-Loop, Tool-Registry, Action-Plans, proaktive Mail-Followups, Voice (STT + TTS). Tests: Rust **577**, Vitest **416**, `svelte-check` **0 Errors**.
+
+### Phase A+B — Agent-Loop + Action-Plans
+- **Status:** ✅ live (Release 26.9.140)
+- **Inhalt:** Agent-Loop-Gerüst, Tool-Registry (mail.search/read, calendar, contacts), Action-Plan-Engine, PlanCard-Frontend, SSE-Event-Streaming, Session-Compression-Fundament.
+
+### Phase C — Proaktive Mail-Followups
+- **Status:** ✅ live (Release 26.9.142)
+- **Inhalt:** Proaktive Mail-Followups v2, Plan-from-Suggestion, Session-Compression.
+
+### Phase D — Voice-out + Polish
+- **Status:** ✅ umgesetzt (lokal committet `40079d0`, Release 26.9.143 ausstehend)
+- **Inhalt:** `voice_settings` + TTS-Felder (`tts_enabled/url/key/model`), `POST /voice/speak`-Proxy (409 nicht-konfig., 400 leer, 502 Upstream; Bearer nur bei Key; audio/*), `GET/POST /voice/config` + `ttsAuto` (KV), `/health` TTS-Status (`configured`/`not_configured`), Speaker-Button je Antwort (nur bei TTS aktiv), Auto-TTS, Stop-bei-Schließen, A11y (aria-label, role=alert), i18n de/en, README-Section.
+
+### Live-Gate (S1/S2/S3 vs. echtem LLM)
+- **Status:** ✅ umgesetzt
+- **Inhalt:** S1 (Followup-Vorschlag), S2 (Plan-Ausführung), S3 (Voice) gegen echtes LLM-Backend verifiziert.
 
 ---
 
@@ -280,10 +303,6 @@
 ### M6 🟡 64 MB Body-Limit + base64-Inlining
 - **Kategorie:** Memory · **Priorität:** low
 - Große Anhänge als base64 in JSON (+33 %). Optional Streaming/Größen-Limit. Teilweise entlastet durch H1-Fix.
-
-### H3 🟠 Auth nur via Sidecar (Design) — Chart-Env verifizieren
-- **Kategorie:** Security · **Priorität:** medium
-- API-Key-Guard by design deaktiviert (v26.09.92). `RELAY_TRUSTED_HOST_SUFFIX` im Chart auf Entrance-Domain setzen (Host-Spoofing-Schutz). Kein Code-Bruch.
 
 ### L2/L3/L4 🔵 Kosmetik/Tooling
 - L2: Delete-Queue aufgebene Zeilen terminal markieren. L3: CI clippy `-D warnings` + fmt + cargo-audit + npm-audit. L4: `followupsCache` Cap (LRU 200).

@@ -277,49 +277,72 @@ describe("sanitizeHtml", () => {
 // replyAllRecipients (H2 — Code-Review 2026-08-28)
 // ---------------------------------------------------------------------------
 describe("replyAllRecipients", () => {
-  it("keeps sender + other recipients, drops the own address", () => {
-    const recips = replyAllRecipients(
+  it("splits to (sender + original To) and cc, drops the own address", () => {
+    const { to, cc } = replyAllRecipients(
       "Alice <alice@example.com>",
       "Me <me@example.com>, Bob <bob@example.com>",
       "Carol <carol@example.com>",
       "me@example.com",
     );
-    expect(recips).toContain("alice@example.com");
-    expect(recips).toContain("bob@example.com");
-    expect(recips).toContain("carol@example.com");
-    expect(recips).not.toContain("me@example.com");
+    expect(to).toContain("alice@example.com");
+    expect(to).toContain("bob@example.com");
+    expect(to).not.toContain("me@example.com");
+    expect(cc).toEqual(["carol@example.com"]);
   });
 
   it("is case-insensitive when filtering the own address", () => {
-    const recips = replyAllRecipients(
+    const { to } = replyAllRecipients(
       "Alice <alice@example.com>",
       "ME <ME@Example.COM>",
       undefined,
       "me@example.com",
     );
-    expect(recips).not.toContain("ME@Example.COM");
-    expect(recips).toContain("alice@example.com");
+    expect(to).not.toContain("ME@Example.COM");
+    expect(to).toContain("alice@example.com");
   });
 
   it("returns all recipients when own address is unknown/empty", () => {
-    const recips = replyAllRecipients(
+    const { to } = replyAllRecipients(
       "Alice <alice@example.com>",
       "Me <me@example.com>",
       undefined,
       "",
     );
-    expect(recips).toContain("alice@example.com");
-    expect(recips).toContain("me@example.com");
+    expect(to).toContain("alice@example.com");
+    expect(to).toContain("me@example.com");
   });
 
   it("deduplicates across from/to/cc", () => {
-    const recips = replyAllRecipients(
+    const { to } = replyAllRecipients(
       "Alice <alice@example.com>",
       "Alice <alice@example.com>",
       undefined,
       "me@example.com",
     );
-    expect(recips.filter((e) => e === "alice@example.com")).toHaveLength(1);
+    expect(to.filter((e) => e === "alice@example.com")).toHaveLength(1);
+  });
+
+  it("keeps a cc-only address in cc (not promoted into to)", () => {
+    const { to, cc } = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "Bob <bob@example.com>",
+      "Carol <carol@example.com>",
+      "me@example.com",
+    );
+    expect(to).toEqual(["alice@example.com", "bob@example.com"]);
+    expect(cc).toEqual(["carol@example.com"]);
+  });
+
+  it("removes cc addresses that are already in to", () => {
+    const { to, cc } = replyAllRecipients(
+      "Alice <alice@example.com>",
+      "Bob <bob@example.com>",
+      "Bob <bob@example.com>, Carol <carol@example.com>",
+      "me@example.com",
+    );
+    expect(to).toContain("bob@example.com");
+    expect(cc).not.toContain("bob@example.com");
+    expect(cc).toContain("carol@example.com");
   });
 });
 

@@ -63,17 +63,28 @@ export function extractEmails(...parts: (string | undefined | null)[]): string[]
 }
 
 /**
- * Reply-All recipient list: sender + all original To/CC, but WITHOUT the
- * account's own address (you never reply to yourself). (H2, Code-Review 2026-08-28)
+ * Reply-All recipient split (standard semantics):
+ *  - `to` = sender + original To, minus the account's own address
+ *  - `cc` = original CC, minus own address, minus anything already in `to`
+ * You never reply to yourself. (H2, Code-Review 2026-08-28; 26.9.143 To/CC split)
  */
+export interface ReplyAllRecipients {
+  to: string[];
+  cc: string[];
+}
+
 export function replyAllRecipients(
   from: string | undefined | null,
   to: string | undefined | null,
   cc: string | undefined | null,
   ownEmail: string | undefined | null,
-): string[] {
+): ReplyAllRecipients {
   const own = (ownEmail ?? "").toLowerCase();
-  return extractEmails(from, to, cc).filter((e) => !own || e.toLowerCase() !== own);
+  const notOwn = (e: string) => !own || e.toLowerCase() !== own;
+  const toList = extractEmails(from, to).filter(notOwn);
+  const toSet = new Set(toList.map((e) => e.toLowerCase()));
+  const ccList = extractEmails(cc).filter((e) => notOwn(e) && !toSet.has(e.toLowerCase()));
+  return { to: toList, cc: ccList };
 }
 
 /**

@@ -459,3 +459,48 @@ describe("ComposeWindow - mic divider", () => {
     });
   });
 });
+
+describe("ComposeWindow - 26.9.143 reply To/CC split + full chain", () => {
+  const base = {
+    mode: "reply" as const,
+    mailChain: [{ text: "Original", html: null }],
+    replySubject: "Meeting",
+    onclose: vi.fn(),
+    onsend: vi.fn().mockResolvedValue(undefined),
+  };
+
+  it("splits a comma-joined replyTo into multiple chips", async () => {
+    render(ComposeWindow, {
+      ...base,
+      replyTo: "alice@example.com, bob@example.com",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("alice@example.com")).toBeTruthy();
+    });
+    expect(screen.getByText("bob@example.com")).toBeTruthy();
+  });
+
+  it("pre-fills cc chips from replyCc", async () => {
+    render(ComposeWindow, {
+      ...base,
+      replyTo: "alice@example.com",
+      replyCc: "carol@example.com, dave@example.com",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("carol@example.com")).toBeTruthy();
+    });
+    expect(screen.getByText("dave@example.com")).toBeTruthy();
+  });
+
+  it("renders the full original message without truncation", () => {
+    const longText = "x".repeat(5000);
+    render(ComposeWindow, {
+      ...base,
+      mailChain: [{ text: longText, html: null }],
+      replyTo: "alice@example.com",
+    });
+    const pre = document.querySelector(".chain-body") as HTMLElement;
+    expect(pre).toBeTruthy();
+    expect(pre!.textContent).toBe(longText);
+  });
+});
