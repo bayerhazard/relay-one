@@ -1,6 +1,17 @@
 use rusqlite::{params, Connection};
 
+/// Current schema version. Bump this and add a numbered forward-migration
+/// step in `init_db` when the schema changes. v1 is the baseline: the schema
+/// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
+pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let user_version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    // 1. Table bootstrap — always run (idempotent `IF NOT EXISTS`; needed for
+    //    fresh DBs, harmless on existing ones).
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS accounts (
@@ -375,36 +386,73 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         ",
     )?;
 
-    // Migration: add smtp columns to existing accounts tables
+    // 2. Baseline (v1) — tolerant catch-up for legacy DBs (user_version < 1).
+    //    Deduplicated `ADD COLUMN`s (each applied once) + one-time schema
+    //    indexes/backfill + the UID-constraint rebuild. Best-effort so a
+    //    partially-migrated DB converges to v1. Fresh DBs already have every
+    //    column from the CREATE above, so this is a no-op for them.
+    if user_version < 1 {
+        baseline_v1(conn)?;
+        conn.pragma_update(None, "user_version", 1)?;
+    }
+
+    // 3. Forward migrations — strict, versioned. Bring the schema from the
+    //    current user_version up to CURRENT_SCHEMA_VERSION. Each step runs
+    //    once and must not fail silently (propagate the error). Add new steps
+    //    here as the schema evolves (bump CURRENT_SCHEMA_VERSION to match):
+    //        if user_version < 2 {
+    //            conn.execute("ALTER TABLE ... ADD COLUMN ...")?;
+    //            conn.pragma_update(None, "user_version", 2)?;
+    //        }
+    // No forward migrations are defined yet (CURRENT_SCHEMA_VERSION == 1).
+
+    // 4. Recurring startup work — idempotent + self-healing, runs every boot
+    //    (NOT gated by user_version): new accounts/folders can appear after
+    //    v1, and the FTS index must re-verify after any table rebuild.
+    // Legacy sync paths could store the plain-text body into body_html instead
+    // of NULL; where the two columns are identical the stored "html" is just
+    // the text — drop it so the message renders from body_text.
+    let _ = conn.execute(
+        "UPDATE messages SET body_html = NULL
+         WHERE body_html IS NOT NULL AND body_html != ''
+           AND body_html = body_text AND body_text IS NOT NULL AND body_text != ''",
+        [],
+    );
+    // The "Gesendet"/"Sent" folder is a LOCAL folder (full sent history kept
+    // locally, not mirrored against the provider). Re-applied every boot so
+    // newly-synced sent folders are also converted.
+    let _ = conn.execute(
+        "UPDATE folders SET local_only = 1, imap_id = NULL
+         WHERE name IN ('Gesendet', 'Sent', 'Gesendete Elemente')",
+        [],
+    );
+    // Consolidate provider trash folders into the single local "Trash" folder
+    // (re-applied every boot so new accounts are also handled).
+    migrate_provider_trash_folders(conn)?;
+    init_fts(conn);
+
+    Ok(())
+}
+
+/// Baseline schema (v1): the layout as of 26.9.142, applied once to legacy
+/// DBs (`user_version < 1`). Every `ADD COLUMN` appears exactly once (the
+/// duplicates from earlier ad-hoc migrations are removed); all statements are
+/// best-effort so a partially-migrated DB converges cleanly to v1.
+fn baseline_v1(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN cc_addr TEXT", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_password TEXT NOT NULL DEFAULT ''", []);
-    // Migration: attachment indicator (derived from BODYSTRUCTURE).
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0", []);
-    // Migration: flagged indicator for message star/flag support.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_flagged INTEGER NOT NULL DEFAULT 0", []);
-    // Migration: local urgent annotation (context menu "Dringlich"), DB-only —
-    // never synced to IMAP.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN is_urgent INTEGER NOT NULL DEFAULT 0", []);
-    // Migration: EML archive path (relative to data root) + content hash.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
-    // Migration: cached AI followup actions (JSON array of FollowupAction).
-    // Pre-generated for new INBOX mail; written on first open for the rest.
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN ai_followups TEXT", []);
-    // Migration: multi CalDAV support — every calendar belongs to one account
-    // (legacy rows → 'default').
     let _ = conn.execute("ALTER TABLE calendars ADD COLUMN caldav_account_id TEXT NOT NULL DEFAULT 'default'", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_calendars_caldav_account ON calendars(caldav_account_id)", []);
-    // Migration: attachment dedup storage path (relative to data root).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN disk_path TEXT", []);
-    // Migration (Phase 2): stable per-message part index + content sha256.
-    // `part_index` gives attachments a stable identity across re-syncs (the old
-    // DELETE + re-INSERT approach changed ids on every sync and left stale rows).
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN part_index INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE message_attachments ADD COLUMN sha256 TEXT", []);
-    // Migration (Phase D): TTS columns for voice_settings (Concept §9.5). TTS is
-    // a pure proxy to a configured OpenAI-compatible endpoint; empty = disabled.
     let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_enabled INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_url TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE voice_settings ADD COLUMN tts_key TEXT NOT NULL DEFAULT ''", []);
@@ -422,68 +470,17 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_ma_message_part ON message_attachments(message_id, part_index)",
         [],
     );
-    // Migration: local-only folders (no IMAP counterpart).
     let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
-    // Migration: per-account sync mode (mirror/archive) + trash retention.
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'mirror'", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30", []);
-    // Migration: insecure IMAP TLS (self-signed certs, e.g. Synology NAS).
-    // Was previously only used at connect time and never persisted.
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN imap_insecure INTEGER NOT NULL DEFAULT 0", []);
-
-    // Migration: add photo columns to settings table
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN photo_data BLOB", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN photo_type TEXT", []);
-
-    // Migration: EML archive path on messages (raw RFC822 file on disk).
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_raw ON messages(raw_path)", []);
 
-    // Migration: sync mode per account ('mirror' | 'archive').
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'mirror'", []);
-    // Migration: trash retention days per account (F7, default 30).
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN trash_retention_days INTEGER NOT NULL DEFAULT 30", []);
-    // Migration: local-only folders carry NULL imap_id and are not synced from IMAP.
-    let _ = conn.execute("ALTER TABLE folders ADD COLUMN local_only INTEGER NOT NULL DEFAULT 0", []);
-
-    migrate_messages_uid_constraint(conn);
-
-    // Repair: a previous rebuild (before raw_path/raw_sha256 were included in
-    // the table definition) left the messages table without those columns.
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_path TEXT", []);
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN raw_sha256 TEXT", []);
-
-    // Migration: the "Gesendet"/"Sent" folder is treated as a LOCAL folder —
-    // the user keeps the full sent history locally and does not want it
-    // mirrored against the (limited) provider mailbox. Converting it to
-    // local_only stops the IMAP prune/removal from deleting local copies.
-    let _ = conn.execute(
-        "UPDATE folders SET local_only = 1, imap_id = NULL
-         WHERE name IN ('Gesendet', 'Sent', 'Gesendete Elemente')",
-        [],
-    );
-
-    // Migration: provider trash folders (Gelöscht / Papierkorb / Deleted
-    // Messages / …) are consolidated into the single local "Trash" folder.
-    // Without this the UI shows multiple Papierkorb/Trash duplicates (one
-    // per provider locale/client), and mails deleted via the trash flow end
-    // up in a different folder than the one displayed as "Papierkorb".
-    migrate_provider_trash_folders(conn);
-
-    // Migration: legacy sync paths could store the plain-text body into
-    // body_html instead of NULL. The UI treats any non-empty body_html as
-    // HTML, so rendering that raw text through the HTML branch collapses the
-    // line breaks and the mail shows as one flow paragraph. Where the two
-    // columns are identical the stored "html" is just the text — drop it so
-    // the message renders from body_text (readable line structure).
-    let _ = conn.execute(
-        "UPDATE messages SET body_html = NULL
-         WHERE body_html IS NOT NULL AND body_html != ''
-           AND body_html = body_text AND body_text IS NOT NULL AND body_text != ''",
-        [],
-    );
-
-    init_fts(conn);
+    // One-time table rebuild: UNIQUE(account_id, uid) -> UNIQUE(account_id,
+    // folder_id, uid). Idempotent (no-op once the constraint is correct).
+    migrate_messages_uid_constraint(conn)?;
 
     Ok(())
 }
@@ -804,5 +801,98 @@ fn init_fts(conn: &Connection) {
     }
     if let Err(e) = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');") {
         tracing::warn!("FTS-Rebuild fehlgeschlagen, Volltextsuche evtl. unvollständig: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_version(conn: &Connection) -> i64 {
+        conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+    }
+
+    fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+        let mut rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+        rows.any(|r| r.unwrap() == column)
+    }
+
+    fn table_column_count(conn: &Connection, table: &str) -> i64 {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, i32>(0)).unwrap();
+        rows.count() as i64
+    }
+
+    #[test]
+    fn fresh_db_reaches_v1() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        assert_eq!(user_version(&conn), 1);
+    }
+
+    #[test]
+    fn init_db_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let tables = [
+            "messages", "voice_settings", "accounts", "folders", "settings", "message_attachments",
+        ];
+        let before: i64 = tables.iter().map(|t| table_column_count(&conn, t)).sum();
+        // Second call must be a no-op (schema unchanged, version stays 1).
+        init_db(&conn).unwrap();
+        assert_eq!(user_version(&conn), 1);
+        let after: i64 = tables.iter().map(|t| table_column_count(&conn, t)).sum();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn legacy_db_upgrades_to_v1_with_tts_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Pre-create voice_settings in its pre-Phase-D shape (no tts_* columns),
+        // simulating a 26.9.142-era DB at user_version 0.
+        conn.execute_batch(
+            "CREATE TABLE voice_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 0,
+                stt_url TEXT NOT NULL DEFAULT '',
+                stt_key TEXT NOT NULL DEFAULT '',
+                stt_model TEXT NOT NULL DEFAULT 'Systran/faster-whisper-small'
+            );",
+        )
+        .unwrap();
+        init_db(&conn).unwrap();
+        assert_eq!(user_version(&conn), 1);
+        for col in ["tts_enabled", "tts_url", "tts_key", "tts_model"] {
+            assert!(column_exists(&conn, "voice_settings", col), "missing {col}");
+        }
+    }
+
+    #[test]
+    fn no_duplicate_add_column_statements() {
+        let src = std::fs::read_to_string(format!(
+            "{}/src/cache/db.rs",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        // Every `ADD COLUMN <name>` must appear at most once (the dedup
+        // guarantee of the v1 baseline).
+        let mut seen = std::collections::HashSet::new();
+        for line in src.lines() {
+            if line.trim_start().starts_with("//") {
+                continue; // skip comments (e.g. the forward-migration example)
+            }
+            if let Some(pos) = line.find("ALTER TABLE") {
+                let rest = &line[pos + "ALTER TABLE".len()..];
+                if let Some(col_pos) = rest.find(" ADD COLUMN ") {
+                    let after = &rest[col_pos + " ADD COLUMN ".len()..];
+                    let col = after.trim().split_whitespace().next().unwrap_or("");
+                    if !col.is_empty() {
+                        assert!(seen.insert(col.to_string()), "duplicate ADD COLUMN {col}");
+                    }
+                }
+            }
+        }
+        assert!(!seen.is_empty(), "expected at least one ADD COLUMN");
     }
 }
