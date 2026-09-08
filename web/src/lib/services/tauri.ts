@@ -1461,6 +1461,33 @@ export async function getFollowups(
   );
 }
 
+/** Parse cached followup actions from the list payload's raw JSON string.
+ *
+ * Returns the actions array, or `null` when the value is absent, empty, or
+ * malformed — so the caller falls back to on-demand generation. Accepts the v2
+ * object shape `{"actions":[...]}` (as stored by the server pre-gen) as well as
+ * a bare array, for robustness.
+ */
+export function parseCachedFollowups(
+  raw: string | null | undefined,
+): FollowupSuggestion[] | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const actions: unknown[] | null = Array.isArray(parsed)
+      ? parsed
+      : parsed &&
+          typeof parsed === "object" &&
+          Array.isArray((parsed as { actions?: unknown[] }).actions)
+        ? (parsed as { actions: unknown[] }).actions
+        : null;
+    if (actions && actions.length > 0) return actions as FollowupSuggestion[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /// Build a pending plan (origin=mail_followup) from a follow-up suggestion and
 /// return it for confirmation in the Drawer (Concept §9.4). Nothing is executed
 /// here — the user confirms the returned plan in the Drawer.

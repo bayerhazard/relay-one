@@ -314,10 +314,11 @@ pub async fn trigger_folder_summaries(
         let mut stmt = conn
             .prepare(
                 "SELECT uid FROM messages
-                 WHERE account_id = ?1 AND folder_id = ?2
-                   AND ai_summary IS NULL AND body_text IS NOT NULL
-                 ORDER BY date DESC
-                 LIMIT 200",
+                  WHERE account_id = ?1 AND folder_id = ?2
+                    AND body_text IS NOT NULL
+                    AND (ai_summary IS NULL OR ai_followups IS NULL)
+                  ORDER BY date DESC
+                  LIMIT 200",
             )
             .map_err(|e| e.to_string())?;
 

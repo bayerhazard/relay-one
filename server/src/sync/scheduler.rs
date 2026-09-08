@@ -136,6 +136,17 @@ pub async fn start_periodic_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Re
         });
     }
 
+    // One-shot startup catch-up: fills AI summaries + INBOX followup actions
+    // for recent mail that arrived while the app was offline or pre-dates the
+    // followup feature. Runs once, low priority, never blocks the sync cycle.
+    {
+        let catchup_state = state.clone();
+        let catchup_tx = ai_tx.clone();
+        tokio::spawn(async move {
+            run_inbox_ai_catch_up(&catchup_state, &catchup_tx).await;
+        });
+    }
+
     loop {
         tokio::select! {
             _ = shutdown_rx.recv() => {
@@ -1434,11 +1445,14 @@ async fn process_sync_task(
                         }
                     };
                     for msg in &messages {
+                        // Enqueue if the message still needs a summary, or (INBOX
+                        // only) cached followup actions — both are produced in the
+                        // same worker pass, so a single gate covers both.
                         let needs_summary = {
                             let db_guard = state.cache_db.lock();
                             let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
                             match crate::cache::messages::fetch_message_body(conn, task.account_id as i64, msg.uid as i64, folder_id) {
-                                Ok(Some(m)) => m.ai_summary.is_none(),
+                                Ok(Some(m)) => m.ai_summary.is_none() || (is_inbox && m.ai_followups.is_none()),
                                 _ => true,
                             }
                         };
@@ -2202,7 +2216,7 @@ fn resolve_folder_name(conn: &rusqlite::Connection, account_id: i64, folder_id: 
 /// so without it a uid shared with another folder could summarize (and store
 /// the summary for) the wrong message.
 async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_id: Option<i64>) -> Result<usize, String> {
-    let (subject, body_text, client_opt) = {
+    let (subject, body_text, client_opt, existing_summary) = {
         let db_guard = state.cache_db.lock();
         let conn = db_guard
             .as_ref()
@@ -2216,9 +2230,9 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
         )
         .map_err(|e| e.to_string())?;
 
-        let (subject, body) = match msg {
-            Some(m) => (m.subject.unwrap_or_default(), m.body_text),
-            None => (String::new(), None),
+        let (subject, body, existing_summary) = match msg {
+            Some(m) => (m.subject.unwrap_or_default(), m.body_text, m.ai_summary),
+            None => (String::new(), None, None),
         };
 
         let ai_client = {
@@ -2226,7 +2240,7 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             guard.clone()
         };
 
-        (subject, body, ai_client)
+        (subject, body, ai_client, existing_summary)
     };
 
     // Phishing detection: pure heuristic (regex), so it runs for every
@@ -2244,6 +2258,10 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
             );
         }
     }
+
+    // Skip LLM summary regeneration when one already exists (the message may
+    // have been enqueued only for INBOX followup pregen below).
+    let body_text = if existing_summary.is_some() { None } else { body_text };
 
     if let (Some(body), Some(client)) = (body_text, client_opt) {
         let summary = match client
@@ -2361,6 +2379,88 @@ async fn process_ai_summary(state: &AppState, account_id: u32, uid: u32, folder_
         }
     }
     Ok(0)
+}
+
+/// One-shot startup catch-up for AI summaries + INBOX followup actions.
+///
+/// Covers recent INBOX mail that arrived while the app was offline or pre-dates
+/// the followup feature: any message missing a summary OR followup actions is
+/// enqueued for the dedicated AI worker. Runs once at boot (after a short
+/// settle delay), never blocks the sync cycle, and is a no-op once everything
+/// is generated (the gate makes it idempotent).
+async fn run_inbox_ai_catch_up(state: &AppState, ai_tx: &mpsc::Sender<SyncTask>) {
+    // Let the app fully come up (DB init, account load) before scanning.
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
+    // All DB work happens under one lock; the lock is released before the
+    // (async) channel sends so we never hold the DB across an await.
+    let jobs: Vec<(u32, i64, i64)> = {
+        let db_guard = state.cache_db.lock();
+        let conn = match db_guard.as_ref() {
+            Some(c) => c,
+            None => return,
+        };
+        let accounts = match crate::cache::accounts::list_accounts(conn) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!("AI-Catch-up: Account-Liste fehlgeschlagen: {}", e);
+                return;
+            }
+        };
+        let mut jobs = Vec::new();
+        for acct in accounts {
+            let account_id = acct.id;
+            let folder_id: i64 = match conn.query_row(
+                "SELECT id FROM folders WHERE account_id = ?1 AND name = 'INBOX'",
+                rusqlite::params![account_id],
+                |r| r.get(0),
+            ) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
+            let uids: Vec<i64> = match conn
+                .prepare(
+                    "SELECT uid FROM messages
+                     WHERE account_id = ?1 AND folder_id = ?2
+                       AND body_text IS NOT NULL
+                       AND (ai_summary IS NULL OR ai_followups IS NULL)
+                     ORDER BY date DESC
+                     LIMIT 200",
+                )
+                .and_then(|mut s| {
+                    s.query_map(rusqlite::params![account_id, folder_id], |r| r.get::<_, i64>(0))
+                        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<i64>>())
+                }) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            for uid in uids {
+                jobs.push((account_id as u32, folder_id, uid));
+            }
+        }
+        jobs
+    };
+
+    let mut enqueued = 0usize;
+    for (account_id, folder_id, uid) in jobs {
+        let _ = ai_tx
+            .send(SyncTask {
+                account_id,
+                task_type: SyncTaskType::GenerateAiSummary(uid as u32, folder_id),
+                created_at: tokio::time::Instant::now(),
+                retries: 0,
+                max_retries: 2,
+                priority: 5,
+            })
+            .await;
+        enqueued += 1;
+    }
+    if enqueued > 0 {
+        tracing::info!(
+            "AI-Catch-up (Startup): {} INBOX-Nachricht(en) für Summary/Followups eingeplant",
+            enqueued
+        );
+    }
 }
 
 /// Dedicated AI-summary worker. Processes LLM summarization jobs sequentially

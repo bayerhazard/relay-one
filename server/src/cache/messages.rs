@@ -20,6 +20,10 @@ pub struct MessageRecord {
     pub ai_summary: Option<String>,
     pub ai_priority: Option<f32>,
     pub ai_fraud_score: Option<f32>,
+    /// Cached AI followup actions (raw JSON array). Populated in the list
+    /// fetch so the action footer can render instantly without a roundtrip;
+    /// `None` elsewhere (on-demand fallback via `get_ai_followups`).
+    pub ai_followups: Option<String>,
     pub is_read: bool,
     pub is_flagged: bool,
     pub is_urgent: bool,
@@ -214,13 +218,13 @@ fn fetch_inbox_impl(
     };
     let sql = format!(
         "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
-                {body_cols}, flags, ai_summary, ai_priority, ai_fraud_score,
+                {body_cols}, flags, ai_summary, ai_priority, ai_fraud_score, ai_followups,
                 is_read, is_flagged, is_urgent, synced, has_attachments
-         FROM messages
-         WHERE account_id = ?1 AND folder_id = ?2
-           AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
-         ORDER BY date DESC
-         LIMIT ?3 OFFSET ?4"
+          FROM messages
+          WHERE account_id = ?1 AND folder_id = ?2
+            AND (flags NOT LIKE '%\\\\Deleted%' OR flags IS NULL)
+          ORDER BY date DESC
+          LIMIT ?3 OFFSET ?4"
     );
     let mut stmt = conn.prepare(&sql)?;
 
@@ -241,11 +245,12 @@ fn fetch_inbox_impl(
             ai_summary: row.get(12)?,
             ai_priority: row.get(13)?,
             ai_fraud_score: row.get(14)?,
-            is_read: row.get::<_, i32>(15)? != 0,
-            is_flagged: row.get::<_, i32>(16)? != 0,
-            is_urgent: row.get::<_, i32>(17)? != 0,
-            synced: row.get::<_, i32>(18)? != 0,
-            has_attachments: row.get::<_, i32>(19)? != 0,
+            ai_followups: row.get(15)?,
+            is_read: row.get::<_, i32>(16)? != 0,
+            is_flagged: row.get::<_, i32>(17)? != 0,
+            is_urgent: row.get::<_, i32>(18)? != 0,
+            synced: row.get::<_, i32>(19)? != 0,
+            has_attachments: row.get::<_, i32>(20)? != 0,
         })
     })?;
 
@@ -265,7 +270,7 @@ pub fn fetch_message_body(
     let result = match folder_id {
         Some(fid) => conn.query_row(
             "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
-                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score, ai_followups,
                     is_read, is_flagged, is_urgent, synced, has_attachments
               FROM messages
              WHERE account_id = ?1 AND uid = ?2 AND folder_id = ?3
@@ -275,7 +280,7 @@ pub fn fetch_message_body(
         ),
         None => conn.query_row(
             "SELECT id, account_id, uid, message_id, subject, from_addr, to_addr, cc_addr, date,
-                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score,
+                    body_text, body_html, flags, ai_summary, ai_priority, ai_fraud_score, ai_followups,
                     is_read, is_flagged, is_urgent, synced, has_attachments
               FROM messages
              WHERE account_id = ?1 AND uid = ?2
@@ -309,11 +314,12 @@ fn row_to_message_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRec
         ai_summary: row.get(12)?,
         ai_priority: row.get(13)?,
         ai_fraud_score: row.get(14)?,
-        is_read: row.get::<_, i32>(15)? != 0,
-        is_flagged: row.get::<_, i32>(16)? != 0,
-        is_urgent: row.get::<_, i32>(17)? != 0,
-        synced: row.get::<_, i32>(18)? != 0,
-        has_attachments: row.get::<_, i32>(19)? != 0,
+        ai_followups: row.get(15)?,
+        is_read: row.get::<_, i32>(16)? != 0,
+        is_flagged: row.get::<_, i32>(17)? != 0,
+        is_urgent: row.get::<_, i32>(18)? != 0,
+        synced: row.get::<_, i32>(19)? != 0,
+        has_attachments: row.get::<_, i32>(20)? != 0,
     })
 }
 
@@ -380,6 +386,7 @@ fn message_record_from_row(row: &rusqlite::Row<'_>) -> Result<MessageRecord, rus
         ai_summary: row.get(12)?,
         ai_priority: row.get(13)?,
         ai_fraud_score: row.get(14)?,
+        ai_followups: None,
         is_read: row.get::<_, i32>(15)? != 0,
         is_flagged: row.get::<_, i32>(16)? != 0,
         is_urgent: row.get::<_, i32>(17)? != 0,
@@ -1308,6 +1315,7 @@ pub fn search_messages(
             ai_summary: row.get(12)?,
             ai_priority: row.get(13)?,
             ai_fraud_score: row.get(14)?,
+            ai_followups: None,
             is_read: row.get::<_, i32>(15)? != 0,
             is_flagged: row.get::<_, i32>(16)? != 0,
             is_urgent: row.get::<_, i32>(17)? != 0,

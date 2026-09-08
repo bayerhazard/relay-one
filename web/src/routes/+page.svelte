@@ -27,7 +27,7 @@ import {
     getMoveToTrash, updateBadgeCount, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     getOwnPhoto, openEventStream, type AttachmentInfo,
-    getFollowups, createPlanFromSuggestion, type FollowupSuggestion,
+    getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
@@ -134,6 +134,16 @@ import {
     followupsForUid = uid;
     if (followupsCache.has(uid)) {
       followups = followupsCache.get(uid)!;
+      followupsLoading = false;
+      followupsError = null;
+      return;
+    }
+    // Instant path: the list payload may already carry pre-generated followup
+    // actions (INBOX pre-gen). Parse them — no spinner, no roundtrip.
+    const cachedActions = parseCachedFollowups(selectedMessage?.ai_followups);
+    if (cachedActions) {
+      followupsCache.set(uid, cachedActions);
+      followups = cachedActions;
       followupsLoading = false;
       followupsError = null;
       return;

@@ -15,6 +15,8 @@ export interface Message {
   ai_summary?: string;
   ai_priority?: number;
   ai_fraud_score?: number;
+  /** Cached AI followup actions (raw JSON array string) from the list payload. */
+  ai_followups?: string | null;
   is_read: boolean;
   is_flagged: boolean;
   is_urgent?: boolean;

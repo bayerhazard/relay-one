@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   getFollowups,
   createPlanFromSuggestion,
+  parseCachedFollowups,
   type FollowupSuggestion,
   type AgentPlanStep,
 } from "$lib/services/tauri";
@@ -92,5 +93,45 @@ describe("followups v2 service (Phase C)", () => {
     });
     expect(res.origin).toBe("mail_followup");
     expect(res.status).toBe("pending");
+  });
+});
+
+describe("parseCachedFollowups (instant footer, 26.9.145)", () => {
+  const action: FollowupSuggestion = {
+    id: "fu-1",
+    titel: "Rückruf",
+    tool: "tasks_create",
+    args: { summary: "Rückruf" },
+    plan: card,
+  };
+
+  it("parses the v2 object shape {actions:[...]} stored by the server pre-gen", () => {
+    const raw = JSON.stringify({ actions: [action] });
+    const res = parseCachedFollowups(raw);
+    expect(res).toHaveLength(1);
+    expect(res?.[0].id).toBe("fu-1");
+  });
+
+  it("tolerates a bare array", () => {
+    const res = parseCachedFollowups(JSON.stringify([action]));
+    expect(res).toHaveLength(1);
+    expect(res?.[0].tool).toBe("tasks_create");
+  });
+
+  it("returns null for an empty actions list (falls back to on-demand)", () => {
+    expect(parseCachedFollowups(JSON.stringify({ actions: [] }))).toBeNull();
+    expect(parseCachedFollowups("[]")).toBeNull();
+  });
+
+  it("returns null for absent input", () => {
+    expect(parseCachedFollowups(null)).toBeNull();
+    expect(parseCachedFollowups(undefined)).toBeNull();
+    expect(parseCachedFollowups("")).toBeNull();
+  });
+
+  it("returns null for malformed JSON (falls back to on-demand)", () => {
+    expect(parseCachedFollowups("{not json")).toBeNull();
+    expect(parseCachedFollowups("42")).toBeNull();
+    expect(parseCachedFollowups(JSON.stringify({ actions: "nope" }))).toBeNull();
   });
 });

@@ -67,7 +67,12 @@ fn body_preview(m: &MessageRecord) -> Option<String> {
 /// Lightweight list serialization — omits `body_text`/`body_html` so large
 /// folders (up to 10k rows) transfer as metadata-only JSON. The full body is
 /// fetched on demand via `GET /messages/{uid}/body`.
-fn message_to_json_meta(m: &MessageRecord) -> serde_json::Value {
+///
+/// `include_followups` gates the cached AI followup actions (raw JSON string):
+/// prepared cards can be several KB per mail, so only the newest rows carry
+/// them inline; older rows return `null` and the UI falls back to the on-demand
+/// `GET /ai/followups` roundtrip.
+fn message_to_json_meta(m: &MessageRecord, include_followups: bool) -> serde_json::Value {
     serde_json::json!({
         "id": m.id,
         "uid": m.uid,
@@ -82,6 +87,7 @@ fn message_to_json_meta(m: &MessageRecord) -> serde_json::Value {
         "ai_summary": m.ai_summary,
         "ai_priority": m.ai_priority,
         "ai_fraud_score": m.ai_fraud_score,
+        "ai_followups": if include_followups { m.ai_followups.as_ref() } else { None },
         "is_read": m.is_read,
         "is_flagged": m.is_flagged,
         "is_urgent": m.is_urgent,
@@ -307,9 +313,12 @@ pub async fn fetch_messages(
 
     let json: Vec<serde_json::Value> = messages
         .iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(idx, m)| {
             if list_only {
-                message_to_json_meta(m)
+                // Size guard: rows are newest-first, so only the first ~200
+                // carry cached followups inline (see message_to_json_meta).
+                message_to_json_meta(m, idx < 200)
             } else {
                 message_to_json(m)
             }
@@ -1982,5 +1991,53 @@ mod messages_query_tests {
         assert_eq!(decode_body_text("H=C3=A4llo", true), "Hällo");
         assert_eq!(decode_body_text("H=C3=A4llo", false), "H=C3=A4llo");
         assert_eq!(decode_body_text("plain text", true), "plain text");
+    }
+
+    fn sample_record_with_followups() -> MessageRecord {
+        MessageRecord {
+            id: 1,
+            account_id: 1,
+            uid: 42,
+            message_id: Some("mid".into()),
+            subject: Some("Betreff".into()),
+            from_addr: Some("a@b.c".into()),
+            to_addr: None,
+            cc_addr: None,
+            date: Some("2026-09-08".into()),
+            body_text: Some("hallo".into()),
+            body_html: None,
+            flags: None,
+            ai_summary: None,
+            ai_priority: None,
+            ai_fraud_score: None,
+            ai_followups: Some(r#"{"actions":[{"label":"Plan"}]}"#.into()),
+            is_read: false,
+            is_flagged: false,
+            is_urgent: false,
+            synced: true,
+            has_attachments: false,
+        }
+    }
+
+    #[test]
+    fn message_to_json_meta_includes_followups_when_flagged() {
+        let m = sample_record_with_followups();
+        let v = message_to_json_meta(&m, true);
+        assert_eq!(
+            v["ai_followups"].as_str(),
+            Some(r#"{"actions":[{"label":"Plan"}]}"#)
+        );
+    }
+
+    #[test]
+    fn message_to_json_meta_omits_followups_when_guarded_out() {
+        // Size guard: older rows (idx >= 200) return null so the UI falls back
+        // to the on-demand GET /ai/followups roundtrip.
+        let m = sample_record_with_followups();
+        let v = message_to_json_meta(&m, false);
+        assert!(v["ai_followups"].is_null());
+        // A None value stays null regardless of the flag.
+        let m_none = MessageRecord { ai_followups: None, ..m };
+        assert!(message_to_json_meta(&m_none, true)["ai_followups"].is_null());
     }
 }
