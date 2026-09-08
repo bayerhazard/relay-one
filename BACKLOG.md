@@ -1,7 +1,7 @@
 # Relay Backlog
 
 > Backlog wird lokal in `BACKLOG.md` geführt. Keine GitHub Issues.
-> Stand: 2026-09-08 — AI-Assistent v2 Phasen A–D umgesetzt (A+B = 26.9.140, C = 26.9.142 live; D = Voice-out lokal committet `40079d0`, Release 26.9.143 ausstehend). Live-Gate S1/S2/S3 umgesetzt.
+> Stand: 2026-09-08 — **26.9.143 committet** (`967749b` Code + `d3c901c` Bump): Voice-out (Phase D) + Reply-All To/CC-Split + voller Mailverlauf + Backend-Addr-Härtung; **Deploy ausstehend** (Market-Source `aimighty-market` nicht in dieser Umgebung). Kette: 26.9.144 (DB-Migration), 26.9.145 (KI-Analyse-Timing) — siehe `docs/handoff-26.9.143-145.md`. AI-Assistent v2 A–D umgesetzt (A+B=26.9.140, C=26.9.142 live). Live-Gate S1/S2/S3 umgesetzt.
 > Stand: 2026-08-28 — Code-Review `REVIEW-2026-08-28.md` (produktionsreif/Perf/fehlerfrei). Findings H1–H3, M1–M6, L1–L4, I1–I4; Stage-D-Fixes (H1, H2, M1, M2, M4) in Release 26.09.108.
 > Stand: 2026-08-25 — Release 26.09.94 (AI-Code-Review-Fixes) live. Neue offene Issues (Reply-All) siehe unten.
 
@@ -269,22 +269,28 @@
 ## Offen — neu gemeldet 2026-08-18
 
 ### Reply-All: eigene Adresse + ursprüngliche Empfänger-Adresse im Antwortverteiler
-- **Status:** 🔵 offen
+- **Status:** ✅ umgesetzt (26.9.143, committet `967749b`, Deploy ausstehend) — `replyAllRecipients` liefert `{to, cc}` (Standard-Semantik), ComposeWindow splittet To/CC-Chips
 - **Kategorie:** Backend / Reply-All-Verteiler
 - **Priorität:** high
 - **Beschreibung:** Bei „An alle antworten" landen die eigene Adresse sowie die ursprüngliche Empfänger-Adresse (Absender der ursprünglichen Mail) mit im Antwortverteiler (To/CC). Falsch: Die eigene Adresse darf die Antwortmail nicht erhalten; die Empfänger-Zusammenstellung muss die eigene Adresse herausfiltern und To/CC sauber trennen.
 
 ### Reply-All: mehrere Adressen als ein Block → Senden schlägt fehl (parse_to)
-- **Status:** 🔵 offen
+- **Status:** ✅ umgesetzt (26.9.143, committet `967749b`, Deploy ausstehend) — Frontend-Chip-Split + Backend `split_addr_list` (send + draft save)
 - **Kategorie:** Backend / SMTP (parse_to)
 - **Priorität:** high
 - **Beschreibung:** Bei „An alle antworten" mit mehreren Empfängern werden die Adressen zu **einem Block** zusammengefasst, den Relay nicht verarbeiten kann. Senden bricht ab: `[parse_to] SMTP: Ungültige Empfänger-E-Mail-Adresse`. Die Adressen müssen einzeln getrennt geparst/übermittelt werden.
 
 ### Mail Compose: „Ursprüngliche Nachricht" zu früh abgeschnitten
-- **Status:** 🔵 offen
+- **Status:** ✅ umgesetzt (26.9.143, committet `967749b`, Deploy ausstehend) — 1000-Zeichen-Kappung entfernt, voller Verlauf in `.chain-scroll-area`
 - **Kategorie:** UX / Frontend
 - **Priorität:** medium
 - **Beschreibung:** In der Antwort-/Weiterleitungs-Ansicht wird die zitierte Mail bei **1000 Zeichen** hart gekappt (`ComposeWindow.svelte:558` `sanitizeHtml(msg.html).slice(0,1000)` und `:560` `msg.text.slice(0,1000)`, jeweils mit „…"). Gewünscht: den **vollen Mailverlauf** anzeigen. Der Container ist scrollbar (`.chain-scroll-area`), daher besteht kein Overflow-/Anzeigeproblem — das 1000-Zeichen-Limit kann entfallen (ggf. nur `sanitizeHtml` beibehalten).
+
+### KI-Analyse-Timing: Pre-Gen zuverlässig + Sofort-Footer
+- **Status:** 🔵 geplant (26.9.145)
+- **Kategorie:** Perf/UX / KI-Analyse
+- **Priorität:** medium
+- **Beschreibung:** Server-Pre-Gen für INBOX existiert bereits (Summary+Priority+Fraud+Followups bei Ankunft), aber die Aktions-Fußzeile round-tript beim Klick trotzdem `/ai/followups` (Liste trägt `ai_followups` nicht) und der Catch-up läuft nur beim Ordner-Öffnen. Fix: `ai_followups` in `message_to_json_meta` (≤200-Zeilen-Guard), Footer sofort aus Cache, Enqueue-Gate + Catch-up auf `ai_summary IS NULL OR ai_followups IS NULL` (INBOX-only), Startup/IDLE-Catch-up. Nur Timing — Summary bleibt v1. Details: `docs/handoff-26.9.143-145.md`.
 
 ---
 
