@@ -689,9 +689,9 @@ async function handleSaveCardDav() {
     acctSuccess = null;
     try {
       if (isEditing && editingAccountId != null) {
-        // Edit mode: update the EXISTING account (imap_insecure etc.) instead
-        // of creating a duplicate.
-        await updateAccountSettings(editingAccountId, undefined, undefined, imapInsecure);
+        // Edit mode: update the EXISTING account (name, imap_insecure etc.)
+        // instead of creating a duplicate.
+        await updateAccountSettings(editingAccountId, acctName, undefined, undefined, imapInsecure);
         acctSuccess = translate("settings.accountUpdated", {
           name: acctName,
           cert: imapInsecure ? translate("settings.certInsecure") : translate("settings.certVerified"),
@@ -768,7 +768,7 @@ async function handleSaveCardDav() {
 
   async function handleSyncModeChange(accountId: number, mode: string) {
     try {
-      await updateAccountSettings(accountId, mode);
+      await updateAccountSettings(accountId, undefined, mode);
       await loadAccountList();
     } catch (e) {
       console.error("updateAccountSettings failed", e);

@@ -35,6 +35,19 @@ pub fn update_account_settings(
     Ok(())
 }
 
+/// Update the display name of an existing account.
+pub fn update_account_name(
+    conn: &Connection,
+    account_id: i64,
+    name: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE accounts SET name = ?1 WHERE id = ?2",
+        params![name, account_id],
+    )?;
+    Ok(())
+}
+
 /// Update the insecure-IMAP flag for an existing account (self-signed certs).
 pub fn update_imap_insecure(
     conn: &Connection,

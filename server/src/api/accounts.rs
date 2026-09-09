@@ -195,6 +195,8 @@ pub async fn list_accounts(State(state): State<AppState>) -> ApiResult<Vec<Accou
 pub struct UpdateAccountRequest {
     pub account_id: i64,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub sync_mode: Option<String>,
     #[serde(default)]
     pub trash_retention_days: Option<i64>,
@@ -217,6 +219,18 @@ pub async fn update_account(
     let mode = req.sync_mode.unwrap_or(account.sync_mode);
     let retention = req.trash_retention_days.unwrap_or(account.trash_retention_days);
     let insecure = req.imap_insecure.unwrap_or(account.imap_insecure);
+    if let Some(name) = req.name.as_deref() {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(ApiError("Kontoname darf nicht leer sein".into()));
+        }
+        if trimmed != account.name {
+            with_db(&state, |conn| {
+                cache::accounts::update_account_name(conn, id as i64, trimmed).map_err(|e| e.to_string())
+            })?;
+            tracing::info!("Konto {}: Name geändert '{}' → '{}'", id, account.name, trimmed);
+        }
+    }
     with_db(&state, |conn| {
         cache::accounts::update_account_settings(conn, id as i64, &mode, retention).map_err(|e| e.to_string())
     })?;

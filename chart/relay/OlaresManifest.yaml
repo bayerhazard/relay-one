@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.147
+  version: 26.9.148
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.147
+  versionName: 26.9.148
   upgradeDescription: |
+    v26.9.148: The account name can now be renamed directly in Settings — previously a rename shown in the form was never persisted. Each account's display name in the sidebar updates immediately. Also fixes the macOS web-app icon: the manifest now serves a dedicated maskable icon (instead of a single "any maskable" image that macOS could crop badly) and the service-worker cache was bumped so already-installed web apps pick up the fresh icon. Built for Olares 1.12.6.
     v26.9.147: Each account in the sidebar now shows a small unread badge next to its inbox, so you can see at a glance when new mail arrives at any of your accounts — not just the one you have open. The badge appears only when there is something to read and updates live during sync. Built for Olares 1.12.6.
     v26.9.146: First-time sync of a large mailbox is now dramatically faster — instead of taking days, the full history drains in hours. Relay fetches mail in large batches and polls aggressively until the mailbox is caught up, then settles back into the normal low-activity rhythm. No visible changes to other features. Built for Olares 1.12.6.
     v26.9.145: Mail follow-ups now appear instantly — suggested actions (task, calendar event, reply) are generated in the background as each inbox mail arrives and shown the moment you open the message, with a startup catch-up that fills in anything generated while the app was offline. No visible changes to other features. Built for Olares 1.12.6.

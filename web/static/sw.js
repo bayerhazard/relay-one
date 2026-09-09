@@ -1,7 +1,7 @@
 // Relay — service worker: Web Push + offline app shell.
 // Served from the site root as /sw.js (SvelteKit static adapter copies static/*).
 
-const SHELL_CACHE = "relay-shell-v1";
+const SHELL_CACHE = "relay-shell-v2";
 const MAX_CACHE_ENTRIES = 50;
 
 self.addEventListener("install", () => {

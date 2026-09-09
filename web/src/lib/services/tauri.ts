@@ -132,11 +132,13 @@ export async function deleteAccount(accountId: number): Promise<void> {
 
 export async function updateAccountSettings(
   accountId: number,
+  name?: string,
   syncMode?: string,
   trashRetentionDays?: number,
   imapInsecure?: boolean,
 ): Promise<{ ok: boolean; sync_mode: string }> {
   const body: Record<string, unknown> = { account_id: accountId };
+  if (name !== undefined) body.name = name;
   if (syncMode !== undefined) body.sync_mode = syncMode;
   if (trashRetentionDays !== undefined) body.trash_retention_days = trashRetentionDays;
   if (imapInsecure !== undefined) body.imap_insecure = imapInsecure;
