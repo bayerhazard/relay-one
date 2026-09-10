@@ -30,6 +30,8 @@ import {
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { isFollowupDone } from "$lib/utils/followupMemory";
+  import { dataVersion } from "$lib/stores/invalidation";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import { iconSVG, folderIconFor } from "$lib/icons";
   import type { MailChainEntry } from "$lib/types/mail";
@@ -126,6 +128,27 @@ import {
   const followupsCache = new Map<number, FollowupSuggestion[]>();
   let followupPlanBusy = $state(false);
 
+  // Bereits ausgeführte Vorschläge (gleiche Mail, gleiche Aktion) ausblenden —
+  // die Erinnerung ist pro Message-UID + content-Fingerprint gespeichert.
+  function filterDoneFollowups(uid: number, actions: FollowupSuggestion[]): FollowupSuggestion[] {
+    return actions.filter((a) => !isFollowupDone(uid, a));
+  }
+
+  // Nach einer Plan-Ausführung (dataVersion-Bump durch den Drawer) die
+  // Vorschläge der aktuell geöffneten Mail sofort neu filtern, damit der soeben
+  // ausgeführte Chip verschwindet.
+  $effect(() => {
+    const unsub = dataVersion.subscribe(() => {
+      const uid = followupsForUid;
+      if (uid == null) return;
+      const cached = followupsCache.get(uid);
+      if (cached) {
+        followups = filterDoneFollowups(uid, cached);
+      }
+    });
+    return unsub;
+  });
+
   // Automatische Erkennung: wenn eine Mail geoeffnet wird (und kein Compose),
   // prueft die KI im Hintergrund auf Termin-Anfragen + weitere Aktionen.
   $effect(() => {
@@ -133,7 +156,7 @@ import {
     if (uid == null || showCompose) return;
     followupsForUid = uid;
     if (followupsCache.has(uid)) {
-      followups = followupsCache.get(uid)!;
+      followups = filterDoneFollowups(uid, followupsCache.get(uid)!);
       followupsLoading = false;
       followupsError = null;
       return;
@@ -143,7 +166,7 @@ import {
     const cachedActions = parseCachedFollowups(selectedMessage?.ai_followups);
     if (cachedActions) {
       followupsCache.set(uid, cachedActions);
-      followups = cachedActions;
+      followups = filterDoneFollowups(uid, cachedActions);
       followupsLoading = false;
       followupsError = null;
       return;
@@ -171,7 +194,7 @@ import {
       .then((res) => {
         if (followupsForUid !== uid) return;
         followupsCache.set(uid, res.actions);
-        followups = res.actions;
+        followups = filterDoneFollowups(uid, res.actions);
       })
       .catch((e) => {
         if (followupsForUid !== uid) return;

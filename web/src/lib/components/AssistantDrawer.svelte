@@ -9,6 +9,7 @@
   import { effects } from "$lib/stores/effects";
   import { bumpDataVersion } from "$lib/stores/invalidation";
   import { blobToWavBase64 } from "$lib/utils/wav";
+  import { markFollowupDone } from "$lib/utils/followupMemory";
   import {
     runAgent,
     confirmPlan as confirmPlanApi,
@@ -367,6 +368,19 @@
       const res = await confirmPlanApi(plan.id, confirmExternal);
       setPlanStatus(plan.id, res.status as PlanStatus, JSON.stringify(res.results));
       bumpDataVersion();
+      // Remember executed followup steps so the same suggestion is not offered
+      // again for the same source mail (persistent per-user memory).
+      if (res.status === "executed" && plan.source_message_id != null) {
+        for (const step of plan.steps) {
+          markFollowupDone(plan.source_message_id, {
+            id: step.tool,
+            titel: step.title,
+            tool: step.tool,
+            args: step.request.body,
+            plan: step,
+          });
+        }
+      }
     } catch {
       setPlanStatus(plan.id, "failed");
     } finally {

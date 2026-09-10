@@ -1637,6 +1637,8 @@ export interface AgentPlan {
   expires_at: string;
   executed_at: string | null;
   result_json: string | null;
+  /** Source message UID for mail-followup plans (used to remember executed suggestions). */
+  source_message_id?: number | null;
 }
 
 export interface AgentStep {

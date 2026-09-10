@@ -1,4 +1,4 @@
-import type { FollowupAction } from "$lib/services/tauri";
+import type { FollowupAction, FollowupSuggestion } from "$lib/services/tauri";
 
 // Persistent memory of which AI follow-up actions the user already executed,
 // keyed by message UID. The backend `id` (fu-N) is position-based and not
@@ -14,7 +14,11 @@ function norm(s: string | null | undefined): string {
 }
 
 /** Stable, content-based identifier for a follow-up action. */
-export function followupFingerprint(a: FollowupAction): string {
+export function followupFingerprint(a: FollowupAction | FollowupSuggestion): string {
+  if ("tool" in a) {
+    // v2 (Phase C): a typed suggestion — one registry tool + prepared card.
+    return `v2|${norm(a.tool)}|${norm(a.titel) || norm(a.plan?.title)}`;
+  }
   switch (a.kind) {
     case "task":
       return `task|${norm(a.task?.summary)}`;
@@ -54,11 +58,11 @@ export function getDoneFingerprints(uid: number): Set<string> {
   return new Set(loadDone()[String(uid)] ?? []);
 }
 
-export function isFollowupDone(uid: number, a: FollowupAction): boolean {
+export function isFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): boolean {
   return getDoneFingerprints(uid).has(followupFingerprint(a));
 }
 
-export function markFollowupDone(uid: number, a: FollowupAction): void {
+export function markFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): void {
   const fp = followupFingerprint(a);
   const map = loadDone();
   const key = String(uid);
