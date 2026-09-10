@@ -314,6 +314,23 @@ describe("ComposeWindow - draft functionality", () => {
     const editor = getEditor();
     expect(editor.textContent).toBe("Entwurf Inhalt");
   });
+
+  it("preserves line breaks when setting editor text (regression: KI-Entwurf Fließtext)", async () => {
+    render(ComposeWindow, {
+      ...draftProps,
+      draftTo: "alice@example.com",
+      draftSubject: "Entwurf Betreff",
+      draftBody: "Anrede\n\nAbsatz eins\nAbsatz zwei\n\nGruß\nMarc",
+      draftUid: 42,
+    });
+    await waitFor(() => {
+      const editor = getEditor();
+      const html = editor.innerHTML;
+      expect(html).toContain("<p>Anrede</p>");
+      expect(html).toContain("<p>Absatz eins<br>Absatz zwei</p>");
+      expect(html).toContain("<p>Gruß<br>Marc</p>");
+    });
+  });
 });
 
 describe("ComposeWindow - initial attachments", () => {

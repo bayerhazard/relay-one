@@ -450,7 +450,7 @@
 
   function setEditorText(text: string) {
     if (editorEl) {
-      editorEl.textContent = text;
+      editorEl.innerHTML = textToHtml(text);
       userInput = text;
     }
   }
@@ -966,6 +966,7 @@
     font-size: 0.9rem;
     line-height: 1.5;
     color: var(--color-text);
+    white-space: pre-wrap;
   }
   .editor-header {
     font-size: 0.875rem;
