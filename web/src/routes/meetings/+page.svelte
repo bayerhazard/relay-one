@@ -381,7 +381,7 @@
     gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
   }
   .mt-nav-btn {
     background: none;
@@ -396,18 +396,22 @@
 
   .mt-tools { padding: 0 12px 8px; display: flex; gap: 8px; }
   .mt-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-s);
-    padding: 7px 12px;
-    font: inherit;
-    font-size: 0.85rem;
-    cursor: pointer;
-    background: var(--color-card);
+    background: var(--color-card, var(--color-list));
     color: var(--color-text);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    cursor: pointer;
   }
-  .mt-btn:disabled { opacity: 0.5; cursor: default; }
-  .mt-btn-ghost { background: none; }
-  .mt-btn-ghost:hover:not(:disabled) { background: var(--color-active-wash); }
+  .mt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .mt-btn-ghost { border-color: transparent; background: transparent; color: var(--color-text-secondary); }
+  .mt-btn-ghost:hover { background: var(--color-active-wash); }
 
   .mt-scan-msg {
     padding: 0 12px 6px;
@@ -477,14 +481,14 @@
   .mt-state-error .mt-btn { margin-top: 10px; }
 
   .mt-sidebar-footer {
+    margin-top: auto;
+    padding: 12px;
     border-top: 1px solid var(--color-border);
-    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    flex-shrink: 0;
+    gap: 10px;
   }
-  .mt-module-row { display: flex; }
+  .mt-module-row { display: flex; justify-content: center; }
 
   .mt-main {
     flex: 1;
