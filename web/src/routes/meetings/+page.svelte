@@ -9,7 +9,10 @@
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import { goto } from "$app/navigation";
+  import { base } from "$app/paths";
   import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { assistantAction } from "$lib/stores/assistantAction";
   import { isFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
@@ -89,6 +92,26 @@
     } finally {
       scanning = false;
     }
+  }
+
+  // Der Export trägt eine YAML-Frontmatter (Metadaten) vor dem eigentlichen
+  // Text — die gehört nicht in den Mail-Body.
+  function stripFrontmatter(md: string): string {
+    return md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  }
+
+  // "Minutes per Mail senden" öffnet das in-app-Compose im Mail-Modul mit
+  // vorbefülltem Betreff und der Zusammenfassung als Text (gleicher Hand-off
+  // wie der Assistent: Aktion setzen, dann ins Mail-Modul navigieren).
+  async function emailMinutes() {
+    if (!detail) return;
+    assistantAction.set({
+      type: "open_compose",
+      to: "",
+      subject: translate("meetings.minutesSubject", { title: detail.title, date: fmtDate(detail.meeting_date) }),
+      body: stripFrontmatter(detail.body_md),
+    });
+    await goto(base + "/");
   }
 
   function fmtDate(iso: string): string {
@@ -280,14 +303,19 @@
     {:else}
       <article class="mt-detail">
         <header class="mt-detail-header">
-          <h1>{detail.title}</h1>
-          <div class="mt-detail-meta">
-            <span>{fmtDateTime(detail.meeting_date)}</span>
-            <span>·</span>
-            <span>{$t("meetings.duration", { n: detail.duration_min })}</span>
-            {#if detail.template}<span>·</span><span>{$t("meetings.template")}: {detail.template}</span>{/if}
-            {#if detail.language}<span>·</span><span>{$t("meetings.language")}: {detail.language}</span>{/if}
+          <div class="mt-detail-headline">
+            <h1>{detail.title}</h1>
+            <div class="mt-detail-meta">
+              <span>{fmtDateTime(detail.meeting_date)}</span>
+              <span>·</span>
+              <span>{$t("meetings.duration", { n: detail.duration_min })}</span>
+              {#if detail.template}<span>·</span><span>{$t("meetings.template")}: {detail.template}</span>{/if}
+              {#if detail.language}<span>·</span><span>{$t("meetings.language")}: {detail.language}</span>{/if}
+            </div>
           </div>
+          <button type="button" class="mt-btn mt-btn-ghost" onclick={emailMinutes}>
+            {$t("meetings.emailMinutes")}
+          </button>
         </header>
 
         {#if detail.participants.length > 0}
@@ -501,6 +529,14 @@
     margin: 0 auto;
     padding: 32px 40px 64px;
   }
+  .mt-detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .mt-detail-headline { min-width: 0; }
   .mt-detail-header h1 {
     font-size: 1.4rem;
     font-weight: 600;
@@ -512,7 +548,6 @@
     gap: 8px;
     font-size: 0.8rem;
     color: var(--color-text-secondary);
-    margin-bottom: 24px;
   }
   .mt-section { margin-bottom: 24px; }
   .mt-section h2 {
