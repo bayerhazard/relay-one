@@ -300,7 +300,9 @@ impl AIClient {
             max_tokens: max_tokens.unwrap_or(self.config.max_tokens),
             tools,
             tool_choice: tool_choice.map(str::to_string),
-            response_format: response_format.map(str::to_string),
+            response_format: response_format.map(|t| ResponseFormat {
+                kind: t.to_string(),
+            }),
         };
 
         for attempt in 0..=self.max_retries {
@@ -474,6 +476,15 @@ impl AIClient {
     }
 }
 
+/// OpenAI-standard response format envelope. Some proxies (LiteLLM) reject
+/// the bare string form `"json_object"` and only accept the object form
+/// `{"type": "json_object"}` — always send the object.
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    kind: String,
+}
+
 #[derive(Serialize)]
 struct ChatRequest {
     model: String,
@@ -486,7 +497,7 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    response_format: Option<String>,
+    response_format: Option<ResponseFormat>,
 }
 
 /// Deserialize a string field that upstream may send as `null` (e.g. an
@@ -667,5 +678,41 @@ mod tests {
     fn auth_header_nonempty_key_is_some_trimmed() {
         assert_eq!(auth_header("sk-abc"), Some("sk-abc".to_string()));
         assert_eq!(auth_header("  sk-abc  "), Some("sk-abc".to_string()));
+    }
+
+    // LiteLLM rejects the bare string form; the request body must carry the
+    // OpenAI-standard object form {"type": "json_object"}.
+    #[test]
+    fn response_format_serializes_as_object() {
+        let body = ChatRequest {
+            model: "m".to_string(),
+            messages: vec![ChatMessage::text("user", "hi")],
+            stream: false,
+            temperature: 0.7,
+            max_tokens: 100,
+            tools: None,
+            tool_choice: None,
+            response_format: Some(ResponseFormat {
+                kind: "json_object".to_string(),
+            }),
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert_eq!(json["response_format"]["type"], "json_object");
+    }
+
+    #[test]
+    fn response_format_omitted_when_none() {
+        let body = ChatRequest {
+            model: "m".to_string(),
+            messages: vec![ChatMessage::text("user", "hi")],
+            stream: false,
+            temperature: 0.7,
+            max_tokens: 100,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json.get("response_format").is_none());
     }
 }

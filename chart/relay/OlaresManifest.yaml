@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.151
+  version: 26.9.152
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.151
+  versionName: 26.9.152
   upgradeDescription: |
+    v26.9.152: Fix — AI requests now send the JSON response format in the OpenAI-standard object form, so JSON-mode calls (follow-up suggestions, summaries, assistant) work with LiteLLM gateways that reject the bare string form. Built for Olares 1.12.6.
     v26.9.151: Meeting follow-ups — the Meetings module now reads the agreed next steps from each summary and suggests concrete actions (tasks, calendar events) as chips below the meeting. Accepting a chip opens the assistant with a ready-to-confirm card; nothing is created until you confirm, and executed suggestions are not offered again for that meeting. Built for Olares 1.12.6.
     v26.9.150: New Meetings area — Relay now reads the finished meeting summaries that Insilo exports into the shared app folder and shows them as a fifth module: list, full-text search, participants, tags and the complete Markdown summary, with live updates as soon as Insilo writes a new export. The assistant can search meetings and navigate to the module. Built for Olares 1.12.6.
     v26.9.149: AI-composed text in the compose window keeps its formatting again — greetings, paragraphs and the sign-off are cleanly separated by line breaks instead of collapsing into a single block. Suggested follow-ups (task, calendar event, reply) now remember which ones you already executed: once a suggestion is confirmed and carried out, it is no longer offered again for that mail — on this device, even across restarts. Both are visible in everyday use. Built for Olares 1.12.6.
