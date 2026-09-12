@@ -1550,12 +1550,14 @@ export function parseCachedFollowups(
   }
 }
 
-/// Build a pending plan (origin=mail_followup) from a follow-up suggestion and
-/// return it for confirmation in the Drawer (Concept §9.4). Nothing is executed
-/// here — the user confirms the returned plan in the Drawer.
+/// Build a pending plan from a follow-up suggestion and return it for
+/// confirmation in the Drawer (Concept §9.4). Nothing is executed here — the
+/// user confirms the returned plan in the Drawer. `sourceMessageId` is a mail
+/// uid for `mail_followup` plans and a meeting id for `meeting_followup`
+/// plans (used for the executed-suggestion memory key).
 export async function createPlanFromSuggestion(
   s: FollowupSuggestion,
-  opts?: { sourceMessageId?: number; locale?: string },
+  opts?: { sourceMessageId?: number; locale?: string; origin?: string },
 ): Promise<AgentPlan> {
   return post<AgentPlan>(
     "/ai/plans",
@@ -1564,8 +1566,21 @@ export async function createPlanFromSuggestion(
       args: s.args,
       source_message_id: opts?.sourceMessageId ?? null,
       locale: opts?.locale ?? null,
+      origin: opts?.origin ?? null,
     },
     "Vorschlag konnte nicht erstellt werden.",
+  );
+}
+
+/** Follow-up suggestions for a stored Insilo meeting summary (tasks,
+ * calendar events). No server-side cache — the client caches per meeting id. */
+export async function getMeetingFollowups(
+  meetingId: number,
+): Promise<FollowupsResponse> {
+  return post<FollowupsResponse>(
+    "/ai/meetings/followups",
+    { meeting_id: meetingId },
+    "Vorschläge für das Meeting konnten nicht generiert werden.",
   );
 }
 
@@ -1696,7 +1711,8 @@ export interface AgentPlan {
   expires_at: string;
   executed_at: string | null;
   result_json: string | null;
-  /** Source message UID for mail-followup plans (used to remember executed suggestions). */
+  /** Source object id: mail uid for `mail_followup` plans, meeting id for
+   * `meeting_followup` plans (used to remember executed suggestions). */
   source_message_id?: number | null;
 }
 

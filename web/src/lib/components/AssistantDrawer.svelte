@@ -9,7 +9,7 @@
   import { effects } from "$lib/stores/effects";
   import { bumpDataVersion } from "$lib/stores/invalidation";
   import { blobToWavBase64 } from "$lib/utils/wav";
-  import { markFollowupDone } from "$lib/utils/followupMemory";
+  import { markFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
   import {
     runAgent,
     confirmPlan as confirmPlanApi,
@@ -369,10 +369,15 @@
       setPlanStatus(plan.id, res.status as PlanStatus, JSON.stringify(res.results));
       bumpDataVersion();
       // Remember executed followup steps so the same suggestion is not offered
-      // again for the same source mail (persistent per-user memory).
+      // again for the same source (mail uid or meeting id, namespaced by the
+      // plan origin — persistent per-user memory).
       if (res.status === "executed" && plan.source_message_id != null) {
+        const key =
+          plan.origin === "meeting_followup"
+            ? meetingFollowupKey(plan.source_message_id)
+            : String(plan.source_message_id);
         for (const step of plan.steps) {
-          markFollowupDone(plan.source_message_id, {
+          markFollowupDoneKey(key, {
             id: step.tool,
             titel: step.title,
             tool: step.tool,

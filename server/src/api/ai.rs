@@ -1269,6 +1269,65 @@ pub async fn parse_followups_v2(
     out
 }
 
+/// Meetings (Insilo drop) — typed follow-up suggestions for a meeting summary.
+/// Same response shape as `ai_followups`; the source is a stored meeting
+/// (loaded by id) instead of a mail. No server-side cache: meetings are
+/// opened rarely, the client caches per meeting id.
+#[derive(Deserialize)]
+pub struct MeetingFollowupsRequest {
+    pub meeting_id: i64,
+}
+
+/// `POST /api/v1/ai/meetings/followups` — follow-up suggestions (tasks,
+/// calendar events) derived from a stored Insilo meeting summary.
+pub async fn meeting_followups(
+    State(state): State<AppState>,
+    Json(req): Json<MeetingFollowupsRequest>,
+) -> ApiResult<FollowupsResponse> {
+    let (title, participants, body) = with_db(&state, |conn| {
+        conn.query_row(
+            "SELECT title, participants, body_md FROM meetings WHERE id = ?1 AND deleted = 0",
+            rusqlite::params![req.meeting_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    serde_json::from_str::<Vec<String>>(&r.get::<_, String>(1)?).unwrap_or_default(),
+                    r.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .map_err(|e| {
+            if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                "Meeting nicht gefunden".to_string()
+            } else {
+                e.to_string()
+            }
+        })
+    })?;
+    let locale = "de";
+    let actions =
+        generate_meeting_followups(&state, &title, &participants, &body, locale).await?;
+    Ok(Json(FollowupsResponse { actions }))
+}
+
+/// Generate meeting follow-up suggestions (LLM call + registry-validated
+/// parse via `parse_followups_v2`). No source message exists, so the
+/// provenance seed uses id 0 (only relevant for `mail_propose_reply`, which
+/// the meeting prompt does not offer).
+pub async fn generate_meeting_followups(
+    state: &AppState,
+    title: &str,
+    participants: &[String],
+    body: &str,
+    locale: &str,
+) -> Result<Vec<FollowupSuggestion>, ApiError> {
+    let now_str = chrono::Utc::now().to_rfc3339();
+    let (system, user) = prompts::build_meeting_followups_prompt(title, participants, body, &now_str, locale);
+    let client = get_ai_client(state)?;
+    let raw = client.complete_user_json(&system, &user, Some(0.3), Some(1200)).await?;
+    Ok(parse_followups_v2(state, &raw, 0, title, locale).await)
+}
+
 #[derive(Deserialize)]
 pub struct CounterEmailRequest {
     pub from: String,
@@ -2038,11 +2097,19 @@ pub async fn agent_stream(State(state): State<AppState>, headers: HeaderMap, Jso
 pub struct PlanCreateRequest {
     pub tool: String,
     pub args: serde_json::Value,
+    /// Source object id: a mail uid for `mail_followup`, a meeting id for
+    /// `meeting_followup` (used for the executed-suggestion memory key).
     #[serde(default)]
     pub source_message_id: Option<i64>,
     #[serde(default)]
     pub locale: Option<String>,
+    /// Plan origin: "mail_followup" (default) or "meeting_followup".
+    #[serde(default)]
+    pub origin: Option<String>,
 }
+
+/// Allowed plan origins (anti-injection: unknown values are rejected).
+const PLAN_ORIGINS: [&str; 2] = ["mail_followup", "meeting_followup"];
 
 /// `POST /api/v1/ai/plans` — build a pending plan from a follow-up suggestion
 /// (Phase C, Concept §12.3, §9.4). The server re-runs the tool to build the
@@ -2057,24 +2124,39 @@ pub async fn plan_create(
     if crate::ai::tools::find_tool(&req.tool).is_none() {
         return Err(ApiError(format!("Unbekanntes Tool '{}'.", req.tool)));
     }
+    // Origin validation: only known origins (anti-injection).
+    let origin = req
+        .origin
+        .as_deref()
+        .unwrap_or("mail_followup")
+        .to_string();
+    if !PLAN_ORIGINS.contains(&origin.as_str()) {
+        return Err(ApiError(format!("Unbekannter Plan-Origin '{}'.", origin)));
+    }
     let locale = req.locale.clone().unwrap_or_else(|| "de".to_string());
     let source_message_id = req.source_message_id;
 
-    // Seed the source message so mail_propose_reply passes the ID-provenance check.
-    let label = source_message_id
-        .and_then(|id| {
-            with_db(&state, |conn| {
-                conn.query_row(
-                    "SELECT subject FROM messages WHERE uid = ?1 LIMIT 1",
-                    rusqlite::params![id],
-                    |r| Ok(r.get::<_, Option<String>>(0)?),
-                )
-                .map_err(|e| e.to_string())
+    // Seed the source message so mail_propose_reply passes the ID-provenance
+    // check. Only mail plans have a mail uid to look up — meeting plans carry
+    // a meeting id, which must not be resolved against the messages table.
+    let label = if origin == "mail_followup" {
+        source_message_id
+            .and_then(|id| {
+                with_db(&state, |conn| {
+                    conn.query_row(
+                        "SELECT subject FROM messages WHERE uid = ?1 LIMIT 1",
+                        rusqlite::params![id],
+                        |r| Ok(r.get::<_, Option<String>>(0)?),
+                    )
+                    .map_err(|e| e.to_string())
+                })
+                .ok()
+                .flatten()
             })
-            .ok()
-            .flatten()
-        })
-        .unwrap_or_default();
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let known_ids = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
     if let Some(id) = source_message_id {
         let mut g = known_ids.lock().await;
@@ -2092,10 +2174,10 @@ pub async fn plan_create(
         Err(e) => return Err(ApiError(e)),
     };
 
-    let plan = plaene::build_plan(None, "mail_followup", source_message_id, vec![card]);
+    let plan = plaene::build_plan(None, &origin, source_message_id, vec![card]);
     with_db(&state, |conn| {
         plaene::create_plan(conn, &plan)?;
-        crate::ai::audit::log_plan(conn, None, "mail_followup", &plan.id, "created")
+        crate::ai::audit::log_plan(conn, None, &origin, &plan.id, "created")
             .map_err(|e| e.to_string())?;
         Ok(())
     })
@@ -2379,6 +2461,7 @@ mod tests {
             args: serde_json::json!({ "summary": "Rückruf", "due": "2026-09-08T12:00:00Z" }),
             source_message_id: Some(42),
             locale: Some("de".into()),
+            origin: None,
         };
         let Json(plan) = plan_create(State(state.clone()), Json(req)).await.unwrap();
         assert_eq!(plan.origin, "mail_followup");
@@ -2400,8 +2483,37 @@ mod tests {
             args: serde_json::json!({}),
             source_message_id: None,
             locale: None,
+            origin: None,
         };
         let res = plan_create(State(state.clone()), Json(req)).await;
         assert!(res.is_err(), "unknown tool must be rejected");
+    }
+
+    /// plan_create accepts the `meeting_followup` origin (meeting follow-ups)
+    /// and persists it; unknown origins are rejected (anti-injection).
+    #[tokio::test]
+    async fn plan_create_meeting_followup_origin() {
+        let state = plan_state();
+        let req = PlanCreateRequest {
+            tool: "tasks_create".into(),
+            args: serde_json::json!({ "summary": "Vorlage senden" }),
+            source_message_id: Some(7),
+            locale: Some("de".into()),
+            origin: Some("meeting_followup".into()),
+        };
+        let Json(plan) = plan_create(State(state.clone()), Json(req)).await.unwrap();
+        assert_eq!(plan.origin, "meeting_followup");
+        assert_eq!(plan.source_message_id, Some(7));
+        let got = with_db(&state, |conn| plaene::get_plan(conn, &plan.id)).unwrap().unwrap();
+        assert_eq!(got.origin, "meeting_followup");
+
+        let bad = PlanCreateRequest {
+            tool: "tasks_create".into(),
+            args: serde_json::json!({ "summary": "x" }),
+            source_message_id: None,
+            locale: None,
+            origin: Some("evil".into()),
+        };
+        assert!(plan_create(State(state.clone()), Json(bad)).await.is_err());
     }
 }

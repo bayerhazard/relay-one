@@ -3,6 +3,9 @@ import {
   followupFingerprint,
   isFollowupDone,
   markFollowupDone,
+  isFollowupDoneKey,
+  markFollowupDoneKey,
+  meetingFollowupKey,
   clearFollowupMemory,
 } from "$lib/utils/followupMemory";
 import type { FollowupAction, FollowupSuggestion, AgentPlanStep } from "$lib/services/tauri";
@@ -74,5 +77,18 @@ describe("followupMemory (Erinnerung an ausgeführte Vorschläge)", () => {
     markFollowupDone(42, action);
     expect(isFollowupDone(42, action)).toBe(true);
     expect(isFollowupDone(42, other)).toBe(false);
+  });
+
+  it("scopes meeting follow-ups under a namespaced key (no collision with mail UIDs)", () => {
+    const s = suggestion("tasks_create", "Vorlage senden");
+    const key = meetingFollowupKey(42);
+    expect(key).toBe("meeting-42");
+    // A mail uid 42 and a meeting id 42 must not share done-state.
+    markFollowupDone(42, s);
+    expect(isFollowupDone(42, s)).toBe(true);
+    expect(isFollowupDoneKey(key, s)).toBe(false);
+    markFollowupDoneKey(key, s);
+    expect(isFollowupDoneKey(key, s)).toBe(true);
+    expect(isFollowupDone(42, s)).toBe(true);
   });
 });

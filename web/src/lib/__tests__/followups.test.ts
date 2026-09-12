@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   getFollowups,
+  getMeetingFollowups,
   createPlanFromSuggestion,
   parseCachedFollowups,
   type FollowupSuggestion,
@@ -25,6 +26,18 @@ const card: AgentPlanStep = {
   rows: [["Was", "Rückruf"]],
   request: { method: "POST", path: "/tasks", body: { summary: "Rückruf" } },
   danach: "/tasks",
+};
+
+const planFixture = {
+  id: "plan-1",
+  session_id: null,
+  origin: "mail_followup",
+  status: "pending",
+  steps: [card],
+  created_at: "2026-09-07T00:00:00Z",
+  expires_at: "2026-09-07T01:00:00Z",
+  executed_at: null,
+  result_json: null,
 };
 
 describe("followups v2 service (Phase C)", () => {
@@ -90,9 +103,39 @@ describe("followups v2 service (Phase C)", () => {
       args: { summary: "Rückruf" },
       source_message_id: 42,
       locale: null,
+      origin: null,
     });
     expect(res.origin).toBe("mail_followup");
     expect(res.status).toBe("pending");
+  });
+
+  it("createPlanFromSuggestion forwards the meeting_followup origin", async () => {
+    const suggestion: FollowupSuggestion = {
+      id: "fu-1",
+      titel: "Vorlage senden",
+      tool: "tasks_create",
+      args: { summary: "Vorlage senden" },
+      plan: card,
+    };
+    mockFetchOnce(200, { ...planFixture, origin: "meeting_followup" });
+    const res = await createPlanFromSuggestion(suggestion, {
+      sourceMessageId: 7,
+      origin: "meeting_followup",
+    });
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);
+    expect(body.source_message_id).toBe(7);
+    expect(body.origin).toBe("meeting_followup");
+    expect(res.origin).toBe("meeting_followup");
+  });
+
+  it("getMeetingFollowups POSTs /ai/meetings/followups with the meeting id", async () => {
+    mockFetchOnce(200, { actions: [] });
+    const res = await getMeetingFollowups(7);
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/ai/meetings/followups");
+    expect(opts?.method).toBe("POST");
+    expect(JSON.parse(opts?.body as string)).toEqual({ meeting_id: 7 });
+    expect(res.actions).toEqual([]);
   });
 });
 

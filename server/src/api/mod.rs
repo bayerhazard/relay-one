@@ -111,6 +111,7 @@ pub fn router() -> Router<AppState> {
         .route("/ai/rsvp-draft", post(ai::ai_rsvp_draft))
         .route("/ai/followups", post(ai::ai_followups))
         .route("/ai/followups/counter-email", post(ai::ai_followups_counter_email))
+        .route("/ai/meetings/followups", post(ai::meeting_followups))
         .route("/ai/nl-create", post(ai::ai_nl_create))
         .route("/ai/schedule", post(ai::ai_schedule))
         .route("/ai/meeting-prep", post(ai::ai_meeting_prep))

@@ -2,12 +2,15 @@
   import { onMount } from "svelte";
   import {
     listMeetings, getMeeting, triggerMeetingScan, openEventStream,
-    type MeetingInfo, type MeetingDetail,
+    getMeetingFollowups, createPlanFromSuggestion,
+    type MeetingInfo, type MeetingDetail, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { isFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
   import { renderMarkdown } from "$lib/utils/markdown";
@@ -104,6 +107,76 @@
   }
 
   let detailHtml = $derived(detail ? renderMarkdown(detail.body_md) : "");
+
+  // AI-Followups (Tasks/Termine) aus der Meeting-Zusammenfassung — on-demand
+  // beim Öffnen generiert, pro Meeting-ID gecacht; bereits ausgeführte
+  // Vorschläge bleiben ausgeblendet (persistente Memory, Key "meeting-<id>").
+  let followups = $state<FollowupSuggestion[]>([]);
+  let followupsLoading = $state(false);
+  let followupsError = $state<string | null>(null);
+  let followupsForId = $state<number | null>(null);
+  let followupsInFlight: number | null = null; // nicht reaktiv, nur Duplikat-Guard
+  const followupsCache = new Map<number, FollowupSuggestion[]>();
+  let followupPlanBusy = $state(false);
+
+  function filterDoneFollowups(id: number, actions: FollowupSuggestion[]): FollowupSuggestion[] {
+    const key = meetingFollowupKey(id);
+    return actions.filter((a) => !isFollowupDoneKey(key, a));
+  }
+
+  $effect(() => {
+    const id = detail?.id ?? null;
+    if (id == null) {
+      followups = [];
+      followupsForId = null;
+      return;
+    }
+    if (followupsForId === id) return;
+    followupsForId = id;
+    const cached = followupsCache.get(id);
+    if (cached) {
+      followups = filterDoneFollowups(id, cached);
+      followupsLoading = false;
+      followupsError = null;
+      return;
+    }
+    if (followupsInFlight === id) return;
+    followupsInFlight = id;
+    followupsLoading = true;
+    followupsError = null;
+    followups = [];
+    getMeetingFollowups(id)
+      .then((res) => {
+        if (followupsForId !== id) return;
+        followupsCache.set(id, res.actions);
+        followups = filterDoneFollowups(id, res.actions);
+      })
+      .catch((e: unknown) => {
+        if (followupsForId !== id) return;
+        followupsError = e instanceof Error ? e.message : String(e);
+        followups = [];
+      })
+      .finally(() => {
+        if (followupsInFlight === id) followupsInFlight = null;
+        if (followupsForId === id) followupsLoading = false;
+      });
+  });
+
+  async function handleFollowupChip(s: FollowupSuggestion) {
+    if (followupPlanBusy || !detail) return;
+    followupPlanBusy = true;
+    try {
+      const plan = await createPlanFromSuggestion(s, {
+        sourceMessageId: detail.id,
+        origin: "meeting_followup",
+      });
+      assistantCommand.showPlan(plan);
+    } catch (e: unknown) {
+      followupsError = e instanceof Error ? e.message : String(e);
+    } finally {
+      followupPlanBusy = false;
+    }
+  }
 
   onMount(() => {
     void loadMeetings();
@@ -241,6 +314,33 @@
             {@html detailHtml}
           {:else}
             <p class="mt-body-empty">—</p>
+          {/if}
+        </section>
+
+        <section class="mt-section mt-followups">
+          <h2>{$t("meetings.followupsTitle")}</h2>
+          {#if followupsLoading}
+            <div class="mt-followups-row"><span class="mt-followups-muted">{$t("meetings.followupsLoading")}</span></div>
+          {:else if followupsError}
+            <div class="mt-followups-row"><span class="mt-followups-muted">{followupsError}</span></div>
+          {:else if followups.length === 0}
+            <div class="mt-followups-row"><span class="mt-followups-muted">{$t("meetings.followupsEmpty")}</span></div>
+          {:else}
+            {#each followups as a (a.id)}
+              <div class="mt-followups-row">
+                <div class="mt-followups-label">
+                  <span>{a.titel}</span>
+                </div>
+                <button
+                  type="button"
+                  class="mt-btn mt-followups-btn"
+                  disabled={followupPlanBusy}
+                  onclick={() => handleFollowupChip(a)}
+                >
+                  {$t("meetings.followupsAccept")}
+                </button>
+              </div>
+            {/each}
           {/if}
         </section>
 
@@ -419,6 +519,18 @@
     color: var(--color-text-secondary);
     margin: 0 0 8px;
   }
+  .mt-followups-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .mt-followups-row:last-child { border-bottom: none; }
+  .mt-followups-label { font-size: 0.9rem; }
+  .mt-followups-muted { color: var(--color-text-secondary); font-size: 0.85rem; }
+  .mt-followups-btn { flex-shrink: 0; }
   .mt-participants {
     list-style: none;
     margin: 0;

@@ -53,24 +53,43 @@ function saveDone(map: DoneMap): void {
   }
 }
 
-/** Set of fingerprints already executed for a given message UID. */
-export function getDoneFingerprints(uid: number): Set<string> {
-  return new Set(loadDone()[String(uid)] ?? []);
+/** Set of fingerprints already executed for a given memory key.
+ * Keys are namespaced: mail UIDs use `"<uid>"`, meeting sources use
+ * `"meeting-<id>"` — so a mail uid and a meeting id can never collide. */
+export function getDoneFingerprintsKey(key: string): Set<string> {
+  return new Set(loadDone()[key] ?? []);
 }
 
-export function isFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): boolean {
-  return getDoneFingerprints(uid).has(followupFingerprint(a));
+export function isFollowupDoneKey(key: string, a: FollowupAction | FollowupSuggestion): boolean {
+  return getDoneFingerprintsKey(key).has(followupFingerprint(a));
 }
 
-export function markFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): void {
+export function markFollowupDoneKey(key: string, a: FollowupAction | FollowupSuggestion): void {
   const fp = followupFingerprint(a);
   const map = loadDone();
-  const key = String(uid);
   const list = map[key] ?? [];
   if (list.includes(fp)) return;
   list.push(fp);
   map[key] = list;
   saveDone(map);
+}
+
+/** Memory key for a meeting follow-up source (namespaced, see above). */
+export function meetingFollowupKey(meetingId: number): string {
+  return `meeting-${meetingId}`;
+}
+
+/** Set of fingerprints already executed for a given message UID. */
+export function getDoneFingerprints(uid: number): Set<string> {
+  return getDoneFingerprintsKey(String(uid));
+}
+
+export function isFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): boolean {
+  return isFollowupDoneKey(String(uid), a);
+}
+
+export function markFollowupDone(uid: number, a: FollowupAction | FollowupSuggestion): void {
+  markFollowupDoneKey(String(uid), a);
 }
 
 /** Clear all remembered actions. Returns the number of entries removed. */

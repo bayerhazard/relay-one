@@ -557,6 +557,10 @@ export const translations: Record<Lang, Dict> = {
     "meetings.selectHint": "Meeting auswählen",
     "meetings.template": "Vorlage",
     "meetings.language": "Sprache",
+    "meetings.followupsTitle": "Vorschläge",
+    "meetings.followupsLoading": "Vorschläge werden generiert…",
+    "meetings.followupsEmpty": "Keine Vorschläge.",
+    "meetings.followupsAccept": "Vorschlag annehmen",
 
     // Calendar
     "calendar.title": "Kalender",
@@ -1178,6 +1182,10 @@ export const translations: Record<Lang, Dict> = {
     "meetings.selectHint": "Select a meeting",
     "meetings.template": "Template",
     "meetings.language": "Language",
+    "meetings.followupsTitle": "Suggestions",
+    "meetings.followupsLoading": "Generating suggestions…",
+    "meetings.followupsEmpty": "No suggestions.",
+    "meetings.followupsAccept": "Accept suggestion",
 
     // Calendar
     "calendar.title": "Calendar",
