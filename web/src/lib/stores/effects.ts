@@ -9,7 +9,7 @@ import { writable } from "svelte/store";
 // never set arbitrary paths or URLs.
 
 export type Effect =
-  | { kind: "navigate"; module: "mail" | "calendar" | "contacts" | "tasks" | "settings" }
+  | { kind: "navigate"; module: "mail" | "calendar" | "contacts" | "tasks" | "meetings" | "settings" }
   | { kind: "calendar.set_view"; view: "day" | "week" | "month"; date?: string }
   | { kind: "mail.open"; uid: number; folder?: string; account_id?: number }
   | { kind: "contacts.open"; uid: string }

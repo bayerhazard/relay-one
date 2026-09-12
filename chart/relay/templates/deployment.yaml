@@ -45,6 +45,15 @@ spec:
               value: "{{ .Values.storage.mountPath }}"
             - name: RELAY_WEB_DIR
               value: "/opt/relay/web"
+            # Insilo-Meeting-Summaries: read-only Cross-App-Drop (appCommon).
+            # Fehlt das Verzeichnis (Insilo nicht installiert), bleibt der
+            # Scanner stumm — 0 Meetings ist kein Fehler.
+            - name: RELAY_INSILO_DIR
+              value: "/data/insilo"
+            - name: RELAY_INSILO_ENABLED
+              value: {{ .Values.insilo.enabled | quote }}
+            - name: RELAY_INSILO_SCAN_SECS
+              value: {{ .Values.insilo.scanIntervalSec | quote }}
             {{- if .Values.trustedHostSuffix }}
             - name: RELAY_TRUSTED_HOST_SUFFIX
               value: {{ .Values.trustedHostSuffix | quote }}
@@ -55,6 +64,9 @@ spec:
           volumeMounts:
             - name: relay-data
               mountPath: {{ .Values.storage.mountPath }}
+            - name: insilo-drop
+              mountPath: /data/insilo
+              readOnly: true
           startupProbe:
             httpGet:
               path: /api/v1/health
@@ -90,4 +102,10 @@ spec:
           hostPath:
             # Userverzeichnis: <userspace>/Data/relay — Mail-DB (index.db) + KI-Daten
             path: {{ .Values.userspace.appData }}/relay
+            type: DirectoryOrCreate
+        - name: insilo-drop
+          hostPath:
+            # Geteilter appCommon-Ordner: Insilo schreibt Meeting-Summaries
+            # nach <appCommon>/insilo-meetings, Relay liest read-only.
+            path: {{ .Values.userspace.appCommon }}/insilo-meetings
             type: DirectoryOrCreate

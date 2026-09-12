@@ -1390,6 +1390,65 @@ export async function syncTodos(): Promise<{ synced: number }> {
   return post<{ synced: number }>("/todos/sync", {}, "Aufgaben konnten nicht synchronisiert werden.");
 }
 
+// ─── Meetings (Insilo cross-app drop) ───────────────────────
+
+export interface MeetingInfo {
+  id: number;
+  insilo_id: string;
+  title: string;
+  participants: string[];
+  tags: string[];
+  meeting_date: string;
+  duration_min: number;
+  language: string;
+  template: string;
+  source_url: string;
+  snippet?: string | null;
+}
+
+export interface MeetingDetail extends MeetingInfo {
+  body_md: string;
+}
+
+export interface MeetingScanReport {
+  scanned: number;
+  inserted: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+}
+
+export interface MeetingQuery {
+  query?: string;
+  tag?: string;
+  participant?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function listMeetings(q: MeetingQuery = {}): Promise<MeetingInfo[]> {
+  const params = new URLSearchParams();
+  if (q.query) params.set("query", q.query);
+  if (q.tag) params.set("tag", q.tag);
+  if (q.participant) params.set("participant", q.participant);
+  if (q.from) params.set("from", q.from);
+  if (q.to) params.set("to", q.to);
+  if (q.limit) params.set("limit", String(q.limit));
+  if (q.offset) params.set("offset", String(q.offset));
+  const qs = params.toString();
+  return get<MeetingInfo[]>(`/meetings${qs ? `?${qs}` : ""}`, "Meetings konnten nicht geladen werden.");
+}
+
+export async function getMeeting(id: number): Promise<MeetingDetail> {
+  return get<MeetingDetail>(`/meetings/${id}`, "Das Meeting konnte nicht geladen werden.");
+}
+
+export async function triggerMeetingScan(): Promise<MeetingScanReport> {
+  return post<MeetingScanReport>("/meetings/scan", {}, "Der Meeting-Scan konnte nicht gestartet werden.");
+}
+
 // ─── AI Followups ───────────────────────────────────────────
 
 export interface FollowupTask {

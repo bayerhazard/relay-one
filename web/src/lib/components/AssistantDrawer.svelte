@@ -27,7 +27,7 @@
 
   interface Props {
     open: boolean;
-    module: "mail" | "calendar" | "contacts" | "tasks" | "settings";
+    module: "mail" | "calendar" | "contacts" | "tasks" | "meetings" | "settings";
     context?: string;
     onclose: () => void;
     /** Phase C: a plan handed in from a mail footer chip (origin=mail_followup). */
@@ -327,7 +327,7 @@
     const kind = eff.effect as string | undefined;
     if (!kind) return;
     if (kind === "navigate") {
-      const m = eff.module as "mail" | "calendar" | "contacts" | "tasks" | "settings" | undefined;
+      const m = eff.module as "mail" | "calendar" | "contacts" | "tasks" | "meetings" | "settings" | undefined;
       if (m) effects.push({ kind: "navigate", module: m });
     } else if (kind === "calendar.set_view") {
       effects.push({

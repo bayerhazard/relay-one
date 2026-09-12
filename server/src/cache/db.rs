@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -383,6 +383,31 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_ai_audit_session ON ai_audit(session_id);
+
+        -- Meetings (Insilo cross-app drop): one row per meeting summary file
+        -- that Insilo exports into the shared appCommon directory. The
+        -- scanner (sync/insilo.rs) upserts by insilo_id and soft-deletes
+        -- rows whose file disappeared. body_md holds the Markdown without
+        -- frontmatter; participants/tags are JSON arrays of names.
+        CREATE TABLE IF NOT EXISTS meetings (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            insilo_id     TEXT NOT NULL UNIQUE,
+            path          TEXT NOT NULL,
+            sha256        TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            participants  TEXT NOT NULL DEFAULT '[]',
+            tags          TEXT NOT NULL DEFAULT '[]',
+            meeting_date  TEXT NOT NULL,
+            duration_min  INTEGER NOT NULL DEFAULT 0,
+            language      TEXT NOT NULL DEFAULT 'de',
+            template      TEXT NOT NULL DEFAULT '',
+            source_url    TEXT NOT NULL DEFAULT '',
+            body_md       TEXT NOT NULL,
+            deleted       INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date DESC);
         ",
     )?;
 
@@ -404,7 +429,12 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     //            conn.execute("ALTER TABLE ... ADD COLUMN ...")?;
     //            conn.pragma_update(None, "user_version", 2)?;
     //        }
-    // No forward migrations are defined yet (CURRENT_SCHEMA_VERSION == 1).
+    // v2: meetings table (Insilo cross-app drop). The table itself is created
+    // idempotently in the bootstrap above, so this step only marks the
+    // version for DBs that predate it.
+    if user_version < 2 {
+        conn.pragma_update(None, "user_version", 2)?;
+    }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot
     //    (NOT gated by user_version): new accounts/folders can appear after
@@ -802,6 +832,45 @@ fn init_fts(conn: &Connection) {
     if let Err(e) = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');") {
         tracing::warn!("FTS-Rebuild fehlgeschlagen, Volltextsuche evtl. unvollständig: {}", e);
     }
+
+    init_meetings_fts(conn);
+}
+
+/// FTS5 index over meetings (title + body), mirroring `messages_fts`.
+/// External-content, trigger-synced, best-effort. Idempotent.
+fn init_meetings_fts(conn: &Connection) {
+    let created = conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
+            title, body_md,
+            content='meetings', content_rowid='id', tokenize='unicode61'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS meetings_fts_ai AFTER INSERT ON meetings BEGIN
+            INSERT INTO meetings_fts(rowid, title, body_md)
+            VALUES (new.id, new.title, new.body_md);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS meetings_fts_ad AFTER DELETE ON meetings BEGIN
+            INSERT INTO meetings_fts(meetings_fts, rowid, title, body_md)
+            VALUES ('delete', old.id, old.title, old.body_md);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS meetings_fts_au AFTER UPDATE ON meetings BEGIN
+            INSERT INTO meetings_fts(meetings_fts, rowid, title, body_md)
+            VALUES ('delete', old.id, old.title, old.body_md);
+            INSERT INTO meetings_fts(rowid, title, body_md)
+            VALUES (new.id, new.title, new.body_md);
+        END;",
+    );
+
+    if let Err(e) = created {
+        tracing::warn!("FTS5 (meetings) nicht verfügbar, Meeting-Suche deaktiviert: {}", e);
+        return;
+    }
+
+    if let Err(e) = conn.execute_batch("INSERT INTO meetings_fts(meetings_fts) VALUES('rebuild');") {
+        tracing::warn!("Meetings-FTS-Rebuild fehlgeschlagen: {}", e);
+    }
 }
 
 #[cfg(test)]
@@ -828,7 +897,7 @@ mod tests {
     fn fresh_db_reaches_v1() {
         let conn = Connection::open_in_memory().unwrap();
         init_db(&conn).unwrap();
-        assert_eq!(user_version(&conn), 1);
+        assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -839,9 +908,9 @@ mod tests {
             "messages", "voice_settings", "accounts", "folders", "settings", "message_attachments",
         ];
         let before: i64 = tables.iter().map(|t| table_column_count(&conn, t)).sum();
-        // Second call must be a no-op (schema unchanged, version stays 1).
+        // Second call must be a no-op (schema unchanged, version stays put).
         init_db(&conn).unwrap();
-        assert_eq!(user_version(&conn), 1);
+        assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
         let after: i64 = tables.iter().map(|t| table_column_count(&conn, t)).sum();
         assert_eq!(before, after);
     }
@@ -862,7 +931,7 @@ mod tests {
         )
         .unwrap();
         init_db(&conn).unwrap();
-        assert_eq!(user_version(&conn), 1);
+        assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
         for col in ["tts_enabled", "tts_url", "tts_key", "tts_model"] {
             assert!(column_exists(&conn, "voice_settings", col), "missing {col}");
         }

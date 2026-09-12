@@ -8,7 +8,7 @@ use std::pin::Pin;
 use super::{obj_schema, ToolCtx, ToolDef, ToolOutcome, Tier};
 
 fn nav_desc() -> &'static str {
-    "Navigiere in der App. module: mail, calendar, tasks, contacts, settings. optional date (YYYY-MM-DD) und view (day/week/month)."
+    "Navigiere in der App. module: mail, calendar, tasks, contacts, meetings, settings. optional date (YYYY-MM-DD) und view (day/week/month)."
 }
 
 pub fn tools(_locale: &str) -> Vec<ToolDef> {
@@ -19,7 +19,7 @@ pub fn tools(_locale: &str) -> Vec<ToolDef> {
             nav_desc(),
             obj_schema(
                 &[
-                    ("module", "string", "Zielmodul", Some("mail,calendar,tasks,contacts,settings")),
+                    ("module", "string", "Zielmodul", Some("mail,calendar,tasks,contacts,meetings,settings")),
                     ("date", "string", "Optionales Datum (YYYY-MM-DD) für Kalender", None),
                     ("view", "string", "Optionale Kalenderansicht", Some("day,week,month")),
                 ],
@@ -71,7 +71,7 @@ fn ui_navigate(_ctx: ToolCtx, args: serde_json::Value) -> Pin<Box<dyn std::futur
         let module = args.get("module").and_then(|v| v.as_str()).unwrap_or("mail");
         let date = args.get("date").and_then(|v| v.as_str());
         let view = args.get("view").and_then(|v| v.as_str());
-        let allowed = ["mail", "calendar", "tasks", "contacts", "settings"];
+        let allowed = ["mail", "calendar", "tasks", "contacts", "meetings", "settings"];
         if !allowed.contains(&module) {
             return Ok(ToolOutcome::Nachfrage(format!("Unbekanntes Modul '{module}'.")));
         }

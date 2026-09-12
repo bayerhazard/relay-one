@@ -18,6 +18,14 @@ storage:
   mountPath: /data/Relay
   size: 100Gi
 
+# Insilo-Meeting-Summaries: read-only Cross-App-Drop (Olares appCommon).
+# Insilo schreibt nach <appCommon>/insilo-meetings, Relay pollt das
+# Verzeichnis und zeigt die Meetings im eigenen „Meetings"-Bereich.
+insilo:
+  enabled: true
+  mountPath: /data/insilo
+  scanIntervalSec: 600
+
 # Trusted host suffix for the relay_key_guard: browser traffic arriving with
 # a Host header ending in this suffix bypasses the X-Relay-Key requirement
 # (protected by the entrance authLevel instead). Leave empty to require the

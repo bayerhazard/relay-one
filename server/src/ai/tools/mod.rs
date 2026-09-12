@@ -12,6 +12,7 @@
 pub mod calendar;
 pub mod contacts;
 pub mod mail;
+pub mod meetings;
 pub mod tasks;
 pub mod ui;
 
@@ -132,6 +133,7 @@ pub fn all_tools(locale: &str) -> Vec<ToolDef> {
     tools.extend(calendar::tools(locale));
     tools.extend(contacts::tools(locale));
     tools.extend(tasks::tools(locale));
+    tools.extend(meetings::tools(locale));
     tools.extend(ui::tools(locale));
     tools
 }
@@ -209,6 +211,9 @@ mod tests {
         "mail_move",
         "mail_propose_reply",
         "mail_search",
+        "meetings_get",
+        "meetings_list",
+        "meetings_search",
         "tasks_create",
         "tasks_delete",
         "tasks_list",

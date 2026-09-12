@@ -110,6 +110,16 @@ async fn main() {
         dav::scheduler::start_caldav_sync(caldav_state, caldav_shutdown_rx).await;
     });
 
+    // Insilo meeting scanner: polls the shared appCommon drop directory
+    // (RELAY_INSILO_DIR). Runs once at startup, then every
+    // RELAY_INSILO_SCAN_SECS. No-op when the directory is absent.
+    let insilo_state = state.clone();
+    let (insilo_shutdown_tx, insilo_shutdown_rx) = mpsc::channel(1);
+    *state.insilo_shutdown_tx.lock() = Some(insilo_shutdown_tx);
+    tokio::spawn(async move {
+        sync::insilo::spawn_loop(insilo_state, insilo_shutdown_rx).await;
+    });
+
     // Build the axum app: API under /api/v1.
     // SEC-15: Global body limit is 1 MB. Routes that accept large payloads
     // (send, import) override with 64 MB via route_layer in api/mod.rs.

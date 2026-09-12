@@ -14,6 +14,7 @@ pub mod export;
 pub mod health;
 pub mod import;
 pub mod invitations;
+pub mod meetings;
 pub mod messages;
 pub mod migrate;
 pub mod profile;
@@ -185,6 +186,10 @@ pub fn router() -> Router<AppState> {
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
         .route("/todos/sync", post(todos::sync_todos))
         .route("/todos/:uid", patch(todos::toggle_todo).delete(todos::delete_todo))
+        // Meetings (Insilo cross-app drop)
+        .route("/meetings", get(meetings::list_meetings))
+        .route("/meetings/scan", post(meetings::trigger_scan))
+        .route("/meetings/:id", get(meetings::get_meeting))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

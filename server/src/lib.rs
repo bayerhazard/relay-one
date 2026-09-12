@@ -53,6 +53,8 @@ pub struct AppState {
     pub caldav_accounts: Arc<parking_lot::RwLock<Vec<dav::CalDavSettings>>>,
     pub caldav_sync_token: Arc<parking_lot::RwLock<String>>,
     pub caldav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
+    /// Insilo meeting scanner (shared appCommon drop directory).
+    pub insilo_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Server → client notification bus (replaces Tauri `Emitter`).
     pub events: events::EventBus,
     /// Data root for ALL user data (EML archive, attachments, DBs).
@@ -88,6 +90,7 @@ impl AppState {
             caldav_accounts: Arc::new(parking_lot::RwLock::new(Vec::new())),
             caldav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             caldav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
+            insilo_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             events: events::EventBus::new(),
             data_root: std::env::var("RELAY_DATA_DIR")
                 .map(std::path::PathBuf::from)
@@ -158,6 +161,16 @@ impl AppState {
         if let Some(tx) = caldav_tx_opt {
             let _ = tx.send(()).await;
             tracing::info!("CalDAV: Shutdown-Signal gesendet");
+        }
+
+        // Step 1.7: Signal the Insilo meeting scanner to stop
+        let insilo_tx_opt = {
+            let mut guard = self.insilo_shutdown_tx.lock();
+            guard.take()
+        };
+        if let Some(tx) = insilo_tx_opt {
+            let _ = tx.send(()).await;
+            tracing::info!("Insilo-Scanner: Shutdown-Signal gesendet");
         }
 
         // Step 2: Short grace period for pending sync operations to drain

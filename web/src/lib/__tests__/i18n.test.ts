@@ -167,6 +167,7 @@ describe("i18n t() key reference scan", () => {
       "assistant.module.calendar",
       "assistant.module.contacts",
       "assistant.module.tasks",
+      "assistant.module.meetings",
       "assistant.module.settings",
       // Referenziert über das dynamische $t(`calendar.rsvp.${ps}`) in
       // calendar/+page.svelte (kein statisches t()-Literal).

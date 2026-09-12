@@ -8,7 +8,7 @@
   import type { AgentPlan } from "$lib/services/tauri";
 
   interface Props {
-    module: "mail" | "calendar" | "contacts" | "tasks" | "settings";
+    module: "mail" | "calendar" | "contacts" | "tasks" | "meetings" | "settings";
     context?: string;
   }
 
