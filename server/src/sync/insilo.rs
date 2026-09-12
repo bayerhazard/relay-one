@@ -217,6 +217,18 @@ pub fn run_insilo_scan(state: &AppState) -> ScanReport {
         let mut inserted = 0usize;
         let mut updated = 0usize;
         for (path, sha, p) in &gefunden {
+            // Vom Nutzer gelöscht → bleibt weg, auch wenn die Export-Datei
+            // noch existiert (der Upsert würde sonst `deleted = 0` setzen).
+            let ignored: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM meetings_ignored WHERE insilo_id = ?1",
+                    rusqlite::params![p.insilo_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if ignored > 0 {
+                continue;
+            }
             let existing: Option<(String, i64)> = conn
                 .query_row(
                     "SELECT sha256, deleted FROM meetings WHERE insilo_id = ?1",
@@ -396,5 +408,70 @@ schema: 1
     #[test]
     fn ohne_frontmatter_wird_abgelehnt() {
         assert!(parse_frontmatter("# Nur Markdown\n").is_err());
+    }
+
+    /// Nutzer-Delete übersteht Re-Scans: solange die Export-Datei existiert,
+    /// darf der Scan den Eintrag nicht wiederherstellen.
+    #[test]
+    fn user_deleted_meeting_bleibt_weg_beim_rescan() {
+        use crate::AppState;
+
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("meeting.md");
+        std::fs::write(&file, DATEI).unwrap();
+        // Datei "alt" machen (Freshness-Check: < 15 s = noch in Write).
+        let past = filetime::FileTime::from_unix_time(0, 0);
+        filetime::set_file_times(&file, past, past).unwrap();
+
+        std::env::set_var("RELAY_INSILO_DIR", tmp.path());
+        std::env::remove_var("RELAY_INSILO_ENABLED");
+
+        let mut state = AppState::new();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        *state.cache_db.lock() = Some(conn);
+
+        // 1. Scan: Meeting wird importiert.
+        let r1 = run_insilo_scan(&state);
+        assert_eq!(r1.inserted, 1, "erster Scan importiert das Meeting");
+
+        // 2. Nutzer-Delete: Soft-Delete + Tombstone.
+        with_db(&state, |conn| {
+            conn.execute(
+                "UPDATE meetings SET deleted = 1 WHERE insilo_id = 'b1e4f0aa-1234-4abc-9def-0123456789ab'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO meetings_ignored (insilo_id, deleted_at)
+                 VALUES ('b1e4f0aa-1234-4abc-9def-0123456789ab', datetime('now'))",
+                [],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+
+        // 3. Re-Scan: Datei existiert noch — Eintrag bleibt gelöscht.
+        let r2 = run_insilo_scan(&state);
+        assert_eq!(r2.inserted, 0);
+        assert_eq!(r2.updated, 0);
+        let deleted: i64 = with_db(&state, |conn| {
+            let d: i64 = conn
+                .query_row(
+                    "SELECT deleted FROM meetings WHERE insilo_id = 'b1e4f0aa-1234-4abc-9def-0123456789ab'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            Ok(d)
+        })
+        .unwrap();
+        assert_eq!(deleted, 1, "Tombstone verhindert die Wiederherstellung");
+
+        std::env::remove_var("RELAY_INSILO_DIR");
     }
 }

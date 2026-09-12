@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.154
+  version: 26.9.155
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.154
+  versionName: 26.9.155
   upgradeDescription: |
+    v26.9.155: Meetings can now be removed from Relay — the meeting view has a Delete button that takes the meeting out of the list (it stays in Insilo, and new scans will not bring it back). The "Refresh" button now spans the full sidebar width like the task module, and the small status lines under it were removed. Built for Olares 1.12.6.
     v26.9.154: Meeting minutes can now be sent by mail — the meeting view has an "Email minutes" button that opens the compose window with the subject and the full summary pre-filled, ready for a recipient. Built for Olares 1.12.6.
     v26.9.153: The Meetings sidebar now matches the other modules exactly — same search field size and position, centered module icons, divider at the same height — and the "Scan now" button is renamed to "Refresh" and styled like the task sidebar buttons. Built for Olares 1.12.6.
     v26.9.152: Fix — AI requests now send the JSON response format in the OpenAI-standard object form, so JSON-mode calls (follow-up suggestions, summaries, assistant) work with LiteLLM gateways that reject the bare string form. Built for Olares 1.12.6.

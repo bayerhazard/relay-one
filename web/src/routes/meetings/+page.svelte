@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
-    listMeetings, getMeeting, triggerMeetingScan, openEventStream,
+    listMeetings, getMeeting, triggerMeetingScan, deleteMeeting, openEventStream,
     getMeetingFollowups, createPlanFromSuggestion,
     type MeetingInfo, type MeetingDetail, type FollowupSuggestion,
   } from "$lib/services/tauri";
@@ -34,7 +34,6 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let scanning = $state(false);
-  let scanMsg = $state<string | null>(null);
   let search = $state("");
   let selectedId = $state<number | null>(null);
   let detail = $state<MeetingDetail | null>(null);
@@ -81,16 +80,28 @@
   async function handleScan() {
     if (scanning) return;
     scanning = true;
-    scanMsg = null;
     try {
-      const report = await triggerMeetingScan();
-      const n = report.inserted + report.updated + report.deleted;
-      scanMsg = translate("meetings.scanDone", { n });
+      await triggerMeetingScan();
       await loadMeetings();
-    } catch (e: unknown) {
-      scanMsg = e instanceof Error ? e.message : String(e);
+    } catch {
+      // Scan-Fehler bleiben unsichtbar — die Liste lädt sich ohnehin neu.
     } finally {
       scanning = false;
+    }
+  }
+
+  // Meeting aus Relay entfernen (Soft-Delete + Tombstone: der nächste Scan
+  // stellt es nicht wieder her, solange die Insilo-Datei existiert).
+  async function handleDelete() {
+    if (!detail) return;
+    if (!confirm(translate("meetings.deleteConfirm", { title: detail.title }))) return;
+    try {
+      await deleteMeeting(detail.id);
+      detail = null;
+      selectedId = null;
+      await loadMeetings();
+    } catch {
+      // Fehlermeldung bleibt im Detail-View sichtbar (loadMeetings wirft nicht).
     }
   }
 
@@ -232,12 +243,6 @@
       </button>
     </div>
 
-    {#if scanMsg}
-      <div class="mt-scan-msg">{scanMsg}</div>
-    {/if}
-
-    <div class="mt-count">{$t("meetings.count", { n: meetings.length })}</div>
-
     <div class="mt-list">
       {#if loading}
         <div class="mt-state">{$t("meetings.loading")}</div>
@@ -313,9 +318,14 @@
               {#if detail.language}<span>·</span><span>{$t("meetings.language")}: {detail.language}</span>{/if}
             </div>
           </div>
-          <button type="button" class="mt-btn mt-btn-ghost" onclick={emailMinutes}>
-            {$t("meetings.emailMinutes")}
-          </button>
+          <div class="mt-detail-actions">
+            <button type="button" class="mt-btn mt-btn-ghost" onclick={emailMinutes}>
+              {$t("meetings.emailMinutes")}
+            </button>
+            <button type="button" class="mt-btn mt-btn-ghost mt-btn-danger" onclick={handleDelete}>
+              {$t("meetings.delete")}
+            </button>
+          </div>
         </header>
 
         {#if detail.participants.length > 0}
@@ -422,7 +432,7 @@
   }
   .mt-nav-btn:hover { color: var(--color-text); background: var(--color-active-wash); }
 
-  .mt-tools { padding: 0 12px 8px; display: flex; gap: 8px; }
+  .mt-tools { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 8px; }
   .mt-btn {
     display: inline-flex;
     align-items: center;
@@ -440,18 +450,8 @@
   .mt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .mt-btn-ghost { border-color: transparent; background: transparent; color: var(--color-text-secondary); }
   .mt-btn-ghost:hover { background: var(--color-active-wash); }
-
-  .mt-scan-msg {
-    padding: 0 12px 6px;
-    font-size: 0.78rem;
-    color: var(--color-text-secondary);
-  }
-  .mt-count {
-    padding: 4px 12px 8px;
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    border-bottom: 1px solid var(--color-border);
-  }
+  .mt-btn-danger { color: var(--color-danger, #c0392b); }
+  .mt-btn-danger:hover { background: var(--color-active-wash); }
 
   .mt-list {
     flex: 1;
@@ -537,6 +537,7 @@
     margin-bottom: 24px;
   }
   .mt-detail-headline { min-width: 0; }
+  .mt-detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .mt-detail-header h1 {
     font-size: 1.4rem;
     font-weight: 600;

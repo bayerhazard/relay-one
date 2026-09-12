@@ -190,7 +190,7 @@ pub fn router() -> Router<AppState> {
         // Meetings (Insilo cross-app drop)
         .route("/meetings", get(meetings::list_meetings))
         .route("/meetings/scan", post(meetings::trigger_scan))
-        .route("/meetings/:id", get(meetings::get_meeting))
+        .route("/meetings/:id", get(meetings::get_meeting).delete(meetings::delete_meeting))
         // X-Relay-Key guard (Concept §12, F6): applied AFTER all routes so
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).

@@ -1449,6 +1449,10 @@ export async function triggerMeetingScan(): Promise<MeetingScanReport> {
   return post<MeetingScanReport>("/meetings/scan", {}, "Der Meeting-Scan konnte nicht gestartet werden.");
 }
 
+export async function deleteMeeting(id: number): Promise<void> {
+  return del<void>(`/meetings/${id}`, "Das Meeting konnte nicht gelöscht werden.");
+}
+
 // ─── AI Followups ───────────────────────────────────────────
 
 export interface FollowupTask {

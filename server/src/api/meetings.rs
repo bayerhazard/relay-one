@@ -5,6 +5,7 @@
 //! (zentral in `api/mod.rs` geregelt).
 
 use axum::extract::{Path, Query, State};
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -221,4 +222,141 @@ pub async fn get_meeting(
 pub async fn trigger_scan(State(state): State<AppState>) -> ApiResult<crate::sync::insilo::ScanReport> {
     let report = run_insilo_scan(&state);
     Ok(Json(report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AppState;
+
+    fn state_with_db() -> AppState {
+        let mut state = AppState::new();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        *state.cache_db.lock() = Some(conn);
+        state
+    }
+
+    fn insert_meeting(state: &AppState, insilo_id: &str, title: &str) -> i64 {
+        with_db(state, |conn| {
+            conn.execute(
+                "INSERT INTO meetings (insilo_id, path, sha256, title, meeting_date, body_md,
+                                       first_seen_at, updated_at)
+                 VALUES (?1, '/x.md', 'sha', ?2, '2026-09-12T09:00:00+00:00', 'Body',
+                         datetime('now'), datetime('now'))",
+                rusqlite::params![insilo_id, title],
+            )
+            .unwrap();
+            let id: i64 = conn
+                .query_row(
+                    "SELECT id FROM meetings WHERE insilo_id = ?1",
+                    rusqlite::params![insilo_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            Ok(id)
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn delete_meeting_soft_deletes_and_tombstones() {
+        let state = state_with_db();
+        let id = insert_meeting(&state, "abc-123", "Test");
+        let resp = delete_meeting(State(state.clone()), Path(id)).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+
+        let (deleted, ignored) = with_db(&state, |conn| {
+            let d: i64 = conn
+                .query_row("SELECT deleted FROM meetings WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+                .unwrap();
+            let i: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM meetings_ignored WHERE insilo_id = 'abc-123'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            Ok((d, i))
+        })
+        .unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(ignored, 1);
+    }
+
+    #[tokio::test]
+    async fn delete_meeting_unknown_id_gives_404() {
+        let state = state_with_db();
+        let resp = delete_meeting(State(state), Path(9999)).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_meeting_already_deleted_gives_404() {
+        let state = state_with_db();
+        let id = insert_meeting(&state, "abc-456", "Test 2");
+        delete_meeting(State(state.clone()), Path(id)).await;
+        let resp = delete_meeting(State(state), Path(id)).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+}
+
+/// `DELETE /api/v1/meetings/:id` — Meeting aus Relay entfernen.
+///
+/// Soft-Delete + Tombstone in `meetings_ignored`: solange die Insilo-
+/// Export-Datei existiert, würde der nächste Scan den Eintrag sonst
+/// wiederherstellen (Upsert setzt `deleted = 0`). Der Tombstone bleibt
+/// dauerhaft — ein erneutes Exportieren desselben Meetings bleibt unsichtbar.
+pub async fn delete_meeting(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> axum::response::Response {
+    let err_json = |status: axum::http::StatusCode, msg: &str| {
+        (
+            status,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            axum::body::Body::from(format!("{{\"error\": \"{}\"}}", msg.replace('"', "\\\""))),
+        )
+            .into_response()
+    };
+
+    let res: Result<(), String> = with_db(&state, |conn| {
+        let insilo_id: String = conn
+            .query_row(
+                "SELECT insilo_id FROM meetings WHERE id = ?1 AND deleted = 0",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .map_err(|e| {
+                if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                    "not_found".to_string()
+                } else {
+                    e.to_string()
+                }
+            })?;
+        conn.execute(
+            "UPDATE meetings SET deleted = 1, updated_at = datetime('now') WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO meetings_ignored (insilo_id, deleted_at) VALUES (?1, datetime('now'))",
+            rusqlite::params![insilo_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    });
+
+    match res {
+        Ok(()) => (
+            axum::http::StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            axum::body::Body::from("{\"ok\": true}"),
+        )
+            .into_response(),
+        Err(e) if e == "not_found" => {
+            err_json(axum::http::StatusCode::NOT_FOUND, "Meeting nicht gefunden")
+        }
+        Err(e) => err_json(axum::http::StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
 }

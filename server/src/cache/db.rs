@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -408,6 +408,15 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             updated_at    TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date DESC);
+
+        -- User-deleted meetings: the Insilo scan must not re-import these
+        -- while the export file still exists (the upsert would otherwise
+        -- reset `deleted = 0`). Keyed by insilo_id so a re-export of the
+        -- same meeting stays hidden.
+        CREATE TABLE IF NOT EXISTS meetings_ignored (
+            insilo_id   TEXT PRIMARY KEY,
+            deleted_at  TEXT NOT NULL
+        );
         ",
     )?;
 
@@ -434,6 +443,11 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     // version for DBs that predate it.
     if user_version < 2 {
         conn.pragma_update(None, "user_version", 2)?;
+    }
+    // v3: meetings_ignored table (user-deleted meetings survive re-scans).
+    // The table itself is created idempotently in the bootstrap above.
+    if user_version < 3 {
+        conn.pragma_update(None, "user_version", 3)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot
@@ -898,6 +912,20 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         init_db(&conn).unwrap();
         assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn fresh_db_has_meetings_ignored_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'meetings_ignored'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]
