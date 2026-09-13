@@ -48,10 +48,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          tags: ${{ steps.version.outputs.tag }}
           # no-cache (2026-09-13): der GHA-Cache lief ein STALES `COPY web/` —
-          # die Image-Version 26.9.156 enthielt den alten Web-Build (Almighty
-          # Relay 3.0-BranBtitle). Bis BuildKit-Invalidierung verlässlich ist:
-          # frisch bauen, ohne Layer-Cache.
+          # 26.9.156 enthielt den alten Web-Build. Frisch bauen, ohne Cache.
           no-cache: true
 
       - name: Summary
