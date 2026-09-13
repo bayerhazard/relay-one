@@ -1,4 +1,7 @@
 // Cache "now" for 60s — relative date formatting doesn't need second precision.
+import { get } from "svelte/store";
+import { lang } from "$lib/i18n";
+
 import DOMPurify from "dompurify";
 
 let cachedNowVal = 0;
@@ -106,22 +109,49 @@ export function extractName(from: string | undefined | null): string {
   return match ? match[1].trim() : from.replace(/<[^>]+>/, '').trim() || from;
 }
 
+// T15 (Review 2026-09-13): zentrale, app-locales-neutre Datums-Helfer.
+// "de" liefert den bisherigen Stil (dd.mm.yyyy, „Gestern"), jede andere
+// Sprache en-US-Formate (09/12/2026, "Yesterday"). Alle Module schalten
+// darauf um statt eigene hardbehobene Formate zu pflegen.
+export function localeTag(): string {
+  let language = "de";
+  try { language = get(lang); } catch { /* SSR-safe */ }
+  return language === "de" ? "de-DE" : "en-US";
+}
+
+export function fmtDateByLang(date: Date, localeTagStr: string): string {
+  return date.toLocaleDateString(localeTagStr, { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+export function fmtTimeByLang(date: Date, localeTagStr: string): string {
+  return date.toLocaleTimeString(localeTagStr, { hour: "2-digit", minute: "2-digit" });
+}
+
+export function fmtShortWeekday(date: Date, localeTagStr: string): string {
+  return date.toLocaleDateString(localeTagStr, { weekday: "short" });
+}
+
+export function fmtYesterdayWord(localeTagStr: string): string {
+  return localeTagStr === "de-DE" ? "Gestern" : "Yesterday";
+}
+
 export function formatDate(dateStr?: string): string {
   if (!dateStr) return "";
   try {
     const date = new Date(dateStr);
+    const loc = localeTag();
     const now = cachedNow();
     const diff = now.getTime() - date.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
     if (days === 0) {
-      return date.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+      return fmtTimeByLang(date, loc);
     } else if (days === 1) {
-      return "Gestern";
+      return fmtYesterdayWord(loc);
     } else if (days < 7) {
-      return date.toLocaleDateString("de-DE", { weekday: "short" });
+      return fmtShortWeekday(date, loc);
     } else {
-      return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+      return fmtDateByLang(date, loc);
     }
   } catch {
     return dateStr;

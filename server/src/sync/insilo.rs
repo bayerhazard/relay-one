@@ -59,8 +59,11 @@ struct Parsed {
 }
 
 /// Führende/abschließende Anführungszeichen von einem Skalar abstreifen.
+/// YAML-Scalar-Strippen: doppelte UND einfache Anführungszeichen (T13,
+/// Review 2026-09-13). Insilo schreibt fehlende Werte als `''` (YAML-Empty) —
+/// das gerenderte „''"-Literal produzierte tote „Open in Insilo"-Links.
 fn unquote(s: &str) -> &str {
-    s.trim().trim_matches('"')
+    s.trim().trim_matches(|c| c == '"' || c == '\'')
 }
 
 /// Handgemachter Frontmatter-Parser (Contract §3): erste Zeile `---`,
@@ -397,6 +400,16 @@ schema: 1
     fn fehlendes_insilo_id_wird_abgelehnt() {
         let content = "---\ntitle: \"X\"\n---\n\nBody\n";
         assert!(parse_frontmatter(content).is_err());
+    }
+
+    // T13 (Review 2026-09-13): Insilo schreibt fehlende Werte als
+    // Single-quoted YAML-Empty — das Literal darf nicht durchreichen.
+    #[test]
+    fn single_quoted_empty_source_url_wird_leer() {
+        let content = "---\ninsilo_id: \"a\"\ntitle: \"T\"\nparticipants: []\ntags: []\nsource_url: ''\n---\n\nBody\n";
+        let p = parse_frontmatter(content).unwrap();
+        assert_eq!(p.source_url, "");
+        assert_eq!(p.title, "T");
     }
 
     #[test]

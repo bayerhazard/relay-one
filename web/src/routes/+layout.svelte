@@ -7,6 +7,7 @@
   import { effects, applyEffect } from "$lib/stores/effects";
   import { calendarView } from "$lib/stores/calendarView";
   import { selection } from "$lib/stores/selection";
+  import { t } from "$lib/i18n";
   import { assistantAction } from "$lib/stores/assistantAction";
 
   interface Props {
@@ -17,7 +18,20 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
+  // Theme (T1, Review 2026-09-13): Mail/Settings setzen `theme-dark`
+  // jeweils nur bei eigenem Mount — Deep-Links auf die anderen vier
+  // Module starteten dadurch im Light-Mode. Das Layout wendet das
+  // Theme einmalig beim Start an; Mail/Settings bleiben funktional
+  // (sie schreiben denselben localStorage-Key).
+  function applyThemeFromStorage(): void {
+    let theme = "blue";
+    try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
+    if (theme === "dark") document.documentElement.classList.add("theme-dark");
+    else document.documentElement.classList.remove("theme-dark");
+  }
+
   onMount(async () => {
+    applyThemeFromStorage();
     try {
       await cacheInit();
     } catch (e: unknown) {
@@ -43,6 +57,7 @@
       setContact: (id, highlight) => selection.setContact(id, highlight),
       setTask: (id, highlight) => selection.setTask(id, highlight),
       setEvent: (id, highlight) => selection.setEvent(id, highlight),
+      setMeeting: (id, highlight) => selection.setMeeting(id, highlight),
       openCompose: (a) =>
         assistantAction.set({ type: "open_compose", to: a.to, subject: a.subject, body: a.body }),
       selectedMail: $selection.mail,
@@ -51,12 +66,12 @@
 </script>
 
 {#if !loading && !error && !$isOnline}
-  <div class="offline-banner">Offline — gelesene Mails bleiben verfügbar</div>
+  <div class="offline-banner">{$t("app.offline")}</div>
 {/if}
 
 {#if error}
   <div class="fatal-error">
-    <h2>Fehler beim Start</h2>
+    <h2>{$t("app.startError")}</h2>
     <p>{error}</p>
   </div>
 {:else if loading}

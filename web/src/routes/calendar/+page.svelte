@@ -18,6 +18,8 @@
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
   import RecipientInput from "$lib/components/RecipientInput.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
@@ -81,7 +83,12 @@
 
   async function loadInvitations() {
     try {
-      invitations = await listInvitations();
+      const raw = await listInvitations();
+      // T10 (Review 2026-09-13): doppelte event_uid im Backend-Result
+      // → `each_key_duplicate` im keyed Each der Einladungsliste.
+      const first = new Map<string, InvitationInfo>();
+      for (const inv of raw) if (!first.has(inv.event_uid)) first.set(inv.event_uid, inv);
+      invitations = [...first.values()];
     } catch {
       invitations = [];
     }
@@ -525,6 +532,8 @@
     try {
       const [from, to] = viewWindow();
       // Fetch across all calendars; visibility is filtered client-side.
+      // Recurring-Expansion liefert dieselbe id mehrfach (je Occurrence) —
+      // das ist legitim; Keyed-Each nutzen deshalb evKey (T10).
       events = await listEvents(null, isoDate(from), isoDate(to));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -574,7 +583,7 @@
       if (calId === null) throw new Error(translate("calendar.noCalForImport"));
       const { imported } = await importEvents(calId, ics);
       await loadEvents();
-      if (imported === 0) error = "Keine Termine in der Datei gefunden.";
+      if (imported === 0) error = translate("calendar.importNoEvents");
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -601,6 +610,20 @@
 
   // ─── Upcoming reminders (next 24h with alarms) ──
   let upcoming = $state<EventInfo[]>([]);
+
+  // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf Termine.
+  let evCtx = $state<{ x: number; y: number; event: EventInfo } | null>(null);
+  // Ein actives Menu rendert nur bei geöffnetem ctx — die Labels werden
+  // beim Öffnen frisch übersetzt, momentan über Snapshot-Ausdrücke.
+  let evCtxItems = $derived.by(() => {
+    const c = evCtx;
+    if (!c) return [];
+    return [
+      { label: translate("calendar.editEvent"), action: () => openEditEvent(c.event) },
+      { label: translate("calendar.deleteEvent"), danger: true, action: () => removeEvent(c.event) },
+    ];
+  });
+
   async function loadUpcoming() {
     try {
       const now = new Date();
@@ -782,6 +805,13 @@
   function cancelDeleteEvent() {
     showDeleteConfirm = false;
     pendingDeleteEvent = null;
+  }
+
+  // Stabler Each-Key über Occurrences (T10, Review 2026-09-13):
+  // Recurring-Events liefern dieselbe id pro Occurrence; ohne occurrence_start
+  // fällt der Key auf die Serien-Transferzeit zurück.
+  function evKey(ev: EventInfo): string {
+    return `${ev.id}@${ev.occurrence_start ?? ev.start}`;
   }
 
   function isInputFocused(): boolean {
@@ -970,8 +1000,9 @@
     {#if upcoming.length > 0}
       <div class="cal-upcoming">
         <div class="cal-upcoming-head">{$t("calendar.upcoming")}</div>
-        {#each upcoming as ev (ev.id)}
-          <button type="button" class="cal-upcoming-item" onclick={() => selectEvent(ev)}>
+        {#each upcoming as ev (evKey(ev))}
+          <button type="button" class="cal-upcoming-item" onclick={() => selectEvent(ev)}
+                  oncontextmenu={(e) => { e.preventDefault(); evCtx = { x: e.clientX, y: e.clientY, event: ev }; }}>
             <span class="cal-upcoming-bell" aria-hidden>◷</span>
             <div class="cal-upcoming-info">
               <span class="cal-upcoming-title">{ev.summary ?? $t("calendar.untitled")}</span>
@@ -1012,9 +1043,9 @@
           <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}>☰</button>
         {/if}
         <h1 class="cal-month">{periodLabel}</h1>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.back")}>‹</button>
+        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")}>‹</button>
         <button type="button" class="cal-btn cal-btn-ghost" onclick={goToday}>{$t("calendar.today")}</button>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.forward")}>›</button>
+        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")}>›</button>
       </div>
       <div class="cal-toolbar-center">
         <div class="cal-viewtoggle" role="tablist" aria-label={$t("calendar.view")}>
@@ -1024,6 +1055,16 @@
         </div>
       </div>
       <div class="cal-toolbar-right">
+        <button
+          type="button"
+          class="cal-btn cal-btn-ghost cal-nav"
+          onclick={handleSync}
+          disabled={syncing}
+          title={syncing ? $t("common.syncing") : $t("common.refresh")}
+          aria-label={$t("common.refresh")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
         <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
       </div>
     </header>
@@ -1049,13 +1090,14 @@
           >
             <span class="cal-cell-num">{day.getDate()}</span>
             <div class="cal-cell-events">
-              {#each (eventsByDay.get(dayKey(day)) ?? []) as ev (ev.id)}
+              {#each (eventsByDay.get(dayKey(day)) ?? []) as ev (evKey(ev))}
                 <button
                   type="button"
                   class="cal-event"
                   class:cancelled={ev.status === "CANCELLED"}
                   style="border-left-color: {calColor(calById(ev.calendar_id) ?? calendars[0])}"
                   onclick={(e) => { e.stopPropagation(); selectEvent(ev); }}
+                  oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); evCtx = { x: e.clientX, y: e.clientY, event: ev }; }}
                   title={ev.summary ?? ""}
                 >
                   <span class="cal-event-time">{fmtEventTime(ev)}</span>
@@ -1079,13 +1121,14 @@
         <div class="cal-week-body">
           {#each weekDays as d (localDayKey(d))}
             <div class="cal-week-col" class:is-today={localDayKey(d) === localDayKey(today)} onclick={() => openNewEventOn(d)}>
-              {#each (eventsByDay.get(localDayKey(d)) ?? []) as ev (ev.id)}
+              {#each (eventsByDay.get(localDayKey(d)) ?? []) as ev (evKey(ev))}
                 <button
                   type="button"
                   class="cal-event cal-event-block"
                   class:cancelled={ev.status === "CANCELLED"}
                   style="border-left-color: {calColor(calById(ev.calendar_id) ?? calendars[0])}"
                   onclick={(e) => { e.stopPropagation(); selectEvent(ev); }}
+                  oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); evCtx = { x: e.clientX, y: e.clientY, event: ev }; }}
                 >
                   <span class="cal-event-time">{fmtEventTime(ev)}</span>
                   <span class="cal-event-title">{ev.summary ?? $t("calendar.untitled")}</span>
@@ -1116,7 +1159,7 @@
         {#if dayEvents.length === 0}
           <div class="cal-day-empty">{$t("calendar.noEventsToday")}</div>
         {:else}
-          {#each dayEvents as ev (ev.id)}
+          {#each dayEvents as ev (evKey(ev))}
             <button
               type="button"
               class="cal-day-item"
@@ -1201,9 +1244,7 @@
         </div>
       </div>
     {:else}
-      <div class="cal-detail-empty">
-        <p>{$t("calendar.selectEvent")}</p>
-      </div>
+      <EmptyState title={$t("calendar.selectEvent")} icon="&#x1F4C5;" />
     {/if}
   </aside>
 </div>
@@ -1343,6 +1384,8 @@
     </div>
   </div>
 {/if}
+
+  <ContextMenu menu={evCtx} items={evCtxItems} onclose={() => (evCtx = null)} />
 
   <AssistantFab module="calendar" context={$t("calendar.viewContext", { view: periodLabel })} />
 
@@ -1847,7 +1890,6 @@
   .cal-detail-ico { color: var(--color-text-secondary); width: 16px; flex-shrink: 0; text-align: center; }
   .cal-detail-desc { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--color-text-secondary); white-space: pre-wrap; word-break: break-word; }
   .cal-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
-  .cal-detail-empty { padding: 40px 24px; text-align: center; color: var(--color-text-secondary); font-size: var(--fs-sm); }
   .cal-attendees { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .cal-attendee { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--fs-sm); }
   .cal-attendee-name { color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -2,13 +2,15 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
-    listContacts, createContact, updateContact, deleteContact,
+    listContacts, createContact, updateContact, deleteContact, syncCardDav,
     type ContactInfo, type ContactInput,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
@@ -49,6 +51,22 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  // Refresh (T7, Review 2026-09-13): CardDAV-Sync triggern und Liste neu
+  // holen — die anderen Module haben dieselbe Sync-Affordance.
+  let syncing = $state(false);
+  async function handleRefresh() {
+    if (syncing) return;
+    syncing = true;
+    try {
+      await syncCardDav();
+      await loadContacts();
+    } catch (e: unknown) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncing = false;
     }
   }
 
@@ -100,9 +118,27 @@
     }
   }
 
+  // In-app Bestätigung (S4, Review 2026-09-13): natives confirm() durch
+  // die gemeinsame ConfirmationDialog-Komponente ersetzt.
+  let deleteTarget = $state<ContactInfo | null>(null);
+
+  // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf der Kontaktliste.
+  let ctxMenu = $state<{ x: number; y: number; contact: ContactInfo } | null>(null);
+  let ctxItems = $derived.by(() => {
+    const c = ctxMenu;
+    if (!c) return [];
+    return [
+      { label: translate("contacts.editBtn"), action: () => openEdit(c.contact) },
+      { label: translate("contacts.deleteBtn"), danger: true, action: () => askDelete(c.contact) },
+    ];
+  });
+
+  function askDelete(c: ContactInfo): void {
+    deleteTarget = c;
+  }
+
   async function removeContact(c: ContactInfo) {
     const name = c.display_name || c.email || translate("contacts.unnamed");
-    if (!confirm(translate("contacts.deleteConfirm", { name }))) return;
     busy = true;
     error = null;
     try {
@@ -112,6 +148,7 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       busy = false;
+      deleteTarget = null;
     }
   }
 
@@ -140,6 +177,16 @@
   }
 </script>
 
+<!-- T8 (Review 2026-09-13): Escape schließt Dialoge global — der alte
+     Backdrop-Handler reagierte nur, wenn der Backdrop selbst den Fokus hielt. -->
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== "Escape" || busy) return;
+    if (editorOpen) { editorOpen = false; return; }
+    if (deleteTarget) deleteTarget = null;
+  }}
+/>
+
 <div class="ct-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
   {#if isNarrow && sidebarOpen}
     <div class="ct-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
@@ -156,6 +203,9 @@
       <button type="button" class="ct-btn ct-btn-primary" onclick={openCreate}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         {$t("contacts.new")}
+      </button>
+      <button type="button" class="ct-btn ct-btn-ghost" onclick={handleRefresh} disabled={syncing}>
+        {syncing ? $t("common.syncing") : $t("common.refresh")}
       </button>
     </div>
 
@@ -202,7 +252,10 @@
     {:else}
       <ul class="ct-list">
         {#each contacts as c (c.vcard_uid)}
-          <li class="ct-item">
+          <li
+            class="ct-item"
+            oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
+          >
             <div class="ct-avatar">{initials(c)}</div>
             <div class="ct-item-body">
               <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
@@ -217,7 +270,7 @@
               <button type="button" class="ct-icon-btn" onclick={() => openEdit(c)} title={$t("contacts.editBtn")}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
               </button>
-              <button type="button" class="ct-icon-btn ct-icon-btn-danger" onclick={() => removeContact(c)} title={$t("contacts.deleteBtn")}>
+              <button type="button" class="ct-icon-btn ct-icon-btn-danger" onclick={() => askDelete(c)} title={$t("contacts.deleteBtn")}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
               </button>
             </div>
@@ -267,7 +320,28 @@
   {/if}
 </div>
 
+  <ContextMenu
+    menu={ctxMenu}
+    items={ctxItems}
+    onclose={() => (ctxMenu = null)}
+  />
+
   <AssistantFab module="contacts" />
+
+  <ConfirmationDialog
+    open={deleteTarget !== null}
+    title={$t("contacts.delete")}
+    message={deleteTarget
+      ? translate("contacts.deleteConfirm", {
+          name: deleteTarget.display_name || deleteTarget.email || translate("contacts.unnamed"),
+        })
+      : ""}
+    confirmLabel={$t("contacts.delete")}
+    cancelLabel={$t("common.cancel")}
+    danger={true}
+    onconfirm={() => { if (deleteTarget) void removeContact(deleteTarget); }}
+    oncancel={() => (deleteTarget = null)}
+  />
 
 <style>
   .ct-app {

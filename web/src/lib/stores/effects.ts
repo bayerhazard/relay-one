@@ -15,6 +15,7 @@ export type Effect =
   | { kind: "contacts.open"; uid: string }
   | { kind: "tasks.open"; uid: string }
   | { kind: "calendar.open_event"; id: string }
+  | { kind: "meetings.open"; id: number }
   | { kind: "compose.open"; to: string; subject: string; body: string }
   | { kind: "highlight"; art: "mail" | "contact" | "task" | "event"; id: string };
 
@@ -62,6 +63,7 @@ export interface EffectContext {
   setContact: (id: string | null, highlight?: boolean) => void;
   setTask: (id: string | null, highlight?: boolean) => void;
   setEvent: (id: string | null, highlight?: boolean) => void;
+  setMeeting: (id: number | null, highlight?: boolean) => void;
   openCompose: (a: { to: string; subject: string; body: string }) => void;
   selectedMail?: { uid: number; folder: string; account: number } | null;
 }
@@ -98,6 +100,10 @@ export function applyEffect(e: Effect, ctx: EffectContext): void {
     case "calendar.open_event":
       ctx.setEvent(e.id, true);
       ctx.goto("/calendar");
+      break;
+    case "meetings.open":
+      ctx.setMeeting(e.id, true);
+      ctx.goto("/meetings");
       break;
     case "compose.open":
       ctx.openCompose({ to: e.to, subject: e.subject, body: e.body });

@@ -9,7 +9,10 @@
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
+  import { fmtDateByLang, localeTag as fmtLocaleTag } from "$lib/utils/format";
   import { t, translate } from "$lib/i18n";
   import { dataVersion } from "$lib/stores/invalidation";
 
@@ -139,14 +142,33 @@
     }
   }
 
+  // In-app Bestätigung (S4, Review 2026-09-13): natives confirm() durch
+  // die gemeinsame ConfirmationDialog-Komponente ersetzt.
+  let deleteTarget = $state<TodoInfo | null>(null);
+
+  // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf der Aufgabenliste.
+  let ctxMenu = $state<{ x: number; y: number; todo: TodoInfo } | null>(null);
+  let ctxItems = $derived.by(() => {
+    const c = ctxMenu;
+    if (!c) return [];
+    return [
+      { label: c.todo.status === "COMPLETED" ? translate("tasks.reopen") : translate("tasks.markDone"), action: () => onToggle(c.todo) },
+      { label: translate("tasks.deleteBtn"), danger: true, action: () => askDelete(c.todo) },
+    ];
+  });
+
+  function askDelete(t: TodoInfo): void {
+    deleteTarget = t;
+  }
+
   async function removeTodo(t: TodoInfo) {
-    const name = t.summary || translate("tasks.untitled");
-    if (!confirm(translate("tasks.deleteConfirm", { name }))) return;
     try {
       await deleteTodo(t.uid);
       await loadTodos();
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
+    } finally {
+      deleteTarget = null;
     }
   }
 
@@ -168,7 +190,7 @@
     if (!t.due_at) return "";
     const d = new Date(t.due_at);
     if (isNaN(d.getTime())) return t.due_at;
-    return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return fmtDateByLang(new Date(t.due_at), fmtLocaleTag());
   }
 
   function isOverdue(t: TodoInfo): boolean {
@@ -177,6 +199,15 @@
     return !isNaN(d.getTime()) && d.getTime() < Date.now();
   }
 </script>
+
+<!-- T8 (Review 2026-09-13): Escape schließt Dialoge global — siehe Kontakte. -->
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== "Escape" || busy) return;
+    if (editorOpen) { editorOpen = false; return; }
+    if (deleteTarget) deleteTarget = null;
+  }}
+/>
 
 <div class="tk-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
   {#if isNarrow && sidebarOpen}
@@ -267,7 +298,12 @@
     {:else}
       <ul class="tk-list">
         {#each visibleTodos as todo (todo.uid)}
-          <li class="tk-item" class:done={todo.status === "COMPLETED"} class:overdue={isOverdue(todo)}>
+          <li
+            class="tk-item"
+            class:done={todo.status === "COMPLETED"}
+            class:overdue={isOverdue(todo)}
+            oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, todo }; }}
+          >
             <button
               type="button"
               class="tk-check"
@@ -288,7 +324,7 @@
             {#if todo.priority}
               <span class="tk-prio" title={$t("tasks.priority", { p: todo.priority })}>P{todo.priority}</span>
             {/if}
-            <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => removeTodo(todo)} title={$t("tasks.deleteBtn")}>
+            <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => askDelete(todo)} title={$t("tasks.deleteBtn")}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
             </button>
           </li>
@@ -331,7 +367,26 @@
   {/if}
 </div>
 
+  <ContextMenu
+    menu={ctxMenu}
+    items={ctxItems}
+    onclose={() => (ctxMenu = null)}
+  />
+
   <AssistantFab module="tasks" />
+
+  <ConfirmationDialog
+    open={deleteTarget !== null}
+    title={$t("tasks.deleteBtn")}
+    message={deleteTarget
+      ? translate("tasks.deleteConfirm", { name: deleteTarget.summary || translate("tasks.untitled") })
+      : ""}
+    confirmLabel={$t("tasks.deleteBtn")}
+    cancelLabel={$t("common.cancel")}
+    danger={true}
+    onconfirm={() => { if (deleteTarget) void removeTodo(deleteTarget); }}
+    oncancel={() => (deleteTarget = null)}
+  />
 
 <style>
   .tk-app {

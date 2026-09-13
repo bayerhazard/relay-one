@@ -153,7 +153,7 @@
 
             <div class="form-group">
               <label for="splash-sender-name">{$t("splash.senderName")}</label>
-              <input id="splash-sender-name" bind:value={splashSenderName} placeholder="Max Mustermann" />
+              <input id="splash-sender-name" bind:value={splashSenderName} placeholder={$t("mail.pnameExample")} />
             </div>
             <div class="form-group">
               <label for="splash-sender-mail">{$t("splash.senderMail")}</label>

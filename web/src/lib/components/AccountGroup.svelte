@@ -253,7 +253,7 @@
         class="chevron"
         role="button"
         tabindex="0"
-        aria-label={collapsedFolders.has(node.name) ? "Unterordner einblenden" : "Unterordner ausblenden"}
+        aria-label={collapsedFolders.has(node.name) ? $t("mail.subfoldersShow") : $t("mail.subfoldersHide")}
         onclick={(e) => { e.stopPropagation(); onToggleFolder(account.id, node.name); }}
         onkeydown={(e) => {
           if (e.key === "Enter" || e.key === " ") {

@@ -168,8 +168,20 @@ import {
     }
   }
 
+  function askRestoreBackup(name: string) {
+    pendingRestoreName = name;
+    showRestoreConfirm = true;
+  }
+
+  async function confirmRestoreBackup() {
+    const name = pendingRestoreName;
+    showRestoreConfirm = false;
+    pendingRestoreName = null;
+    if (name == null) return;
+    void restoreBackup(name);
+  }
+
   async function restoreBackup(name: string) {
-    if (!window.confirm(translate("settings.restoreConfirm", { name }))) return;
     try {
       const r = await restoreBackupSnapshot(name);
       restoreResult = translate("settings.restored", { restored: r.restored, bytes: formatBytes(r.bytes), note: r.note ?? "" });
@@ -760,6 +772,9 @@ async function handleSaveCardDav() {
   // In-app confirmation (window.confirm is unreliable in the Tauri WKWebView).
   let showDeleteAccountConfirm = $state(false);
   let pendingDeleteAccountId = $state<number | null>(null);
+  // Restore-Backup ebenfalls in-app (S4, Review 2026-09-13).
+  let showRestoreConfirm = $state(false);
+  let pendingRestoreName = $state<string | null>(null);
 
   function handleDeleteAccount(id: number) {
     pendingDeleteAccountId = id;
@@ -1210,7 +1225,7 @@ async function handleSaveCardDav() {
             <div class="form-grid-2 mt-2">
               <div class="form-group">
                 <label for="sender-name">{$t("settings.senderName")}</label>
-                <input id="sender-name" bind:value={senderName} placeholder="Max Mustermann" class="form-control" />
+                <input id="sender-name" bind:value={senderName} placeholder={$t("mail.pnameExample")} class="form-control" />
               </div>
               <div class="form-group">
                 <label for="sender-mail">{$t("settings.senderMail")}</label>
@@ -1887,6 +1902,17 @@ async function handleSaveCardDav() {
   danger={true}
   onconfirm={doDeleteCalDav}
   oncancel={cancelDeleteCalDav}
+/>
+
+<ConfirmationDialog
+  open={showRestoreConfirm}
+  title={$t("settings.restoreTitle")}
+  message={pendingRestoreName ? translate("settings.restoreConfirm", { name: pendingRestoreName }) : ""}
+  confirmLabel={$t("settings.restore")}
+  cancelLabel={$t("common.cancel")}
+  danger={true}
+  onconfirm={confirmRestoreBackup}
+  oncancel={() => { showRestoreConfirm = false; pendingRestoreName = null; }}
 />
 
   <AssistantFab module="settings" />

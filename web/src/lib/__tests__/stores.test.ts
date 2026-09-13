@@ -116,6 +116,7 @@ describe("effect router (applyEffect, Concept §5.5 / §12.5)", () => {
       setContact: (id) => calls.push(`setContact:${id}`),
       setTask: (id) => calls.push(`setTask:${id}`),
       setEvent: (id) => calls.push(`setEvent:${id}`),
+      setMeeting: (id) => calls.push(`setMeeting:${id}`),
       openCompose: () => calls.push("openCompose"),
     };
     return { ctx, calls, gotoArgs };
@@ -140,6 +141,13 @@ describe("effect router (applyEffect, Concept §5.5 / §12.5)", () => {
     applyEffect({ kind: "contacts.open", uid: "c-9" }, ctx);
     expect(calls).toContain("setContact:c-9");
     expect(gotoArgs).toEqual(["/contacts"]);
+  });
+
+  it("meetings.open selects the meeting (T6) and navigates to /meetings", () => {
+    const { ctx, calls, gotoArgs } = mockCtx();
+    applyEffect({ kind: "meetings.open", id: 12 }, ctx);
+    expect(calls).toContain("setMeeting:12");
+    expect(gotoArgs).toEqual(["/meetings"]);
   });
 
   it("ignores an unknown effect kind (version skew) without throwing", () => {

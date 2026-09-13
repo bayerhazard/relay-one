@@ -1,7 +1,7 @@
 <script lang="ts">
   import DiffEditor from "./DiffEditor.svelte";
   import ToneControls from "./ToneControls.svelte";
-  import { t } from "$lib/i18n";
+  import { t, translate } from "$lib/i18n";
   import RecipientInput from "./RecipientInput.svelte";
   import {
     aiGenerateMail, aiSuggestRecipient, aiSuggestSubject, aiFormatText, getToneProfile,
@@ -200,7 +200,7 @@
         stream.getTracks().forEach(track => track.stop());
 
         if (audioChunks.length === 0) {
-          voiceError = "Kein Audio aufgezeichnet.";
+          voiceError = translate("mail.voiceNoAudio");
           return;
         }
 
@@ -213,7 +213,7 @@
         // Transcribe
         isGenerating = true;
         generationStep = 2;
-        generationStatus = "Transkribiere...";
+        generationStatus = translate("mail.gTranscribe");
 
         try {
           const transcript = await voiceTranscribe(base64);
@@ -222,7 +222,7 @@
             // Auto-generate after successful transcription
             await generate();
           } else {
-            voiceError = "Kein Text erkannt.";
+            voiceError = translate("mail.voiceNoText");
             isGenerating = false;
             generationStep = 0;
             generationStatus = "";
@@ -351,7 +351,7 @@
     isGenerating = true;
     generationError = null;
     generationStep = 1;
-    generationStatus = "Ermittle Adresse...";
+    generationStatus = translate("mail.gAddress");
     try {
       let originalMessage: string | undefined;
       if (mode === "reply" && mailChain.length > 0) {
@@ -371,7 +371,7 @@
 
       // Step 2: Generate main text
       generationStep = 2;
-      generationStatus = "Generiere Text...";
+      generationStatus = translate("mail.gGenerate");
       const result = await aiGenerateMail(
         accountId ?? 0,
         to[0] || "",
@@ -385,7 +385,7 @@
 
       // Step 3: Suggest subject if empty
       generationStep = 3;
-      generationStatus = "Ermittle fehlende Felder...";
+      generationStatus = translate("mail.gFields");
       if (!subject.trim()) {
         const s = await aiSuggestSubject(to[0] || "", "", userInput, originalMessage).catch(() => "");
         if (s.trim()) subject = s.trim();
@@ -641,24 +641,24 @@
       <div class="editor-preview">
         <div class="editor-resize">
           <div class="editor-header">
-          <span>Deine Nachricht:</span>
+          <span>{$t("mail.yourMessage")}</span>
           <div class="fmt-toolbar">
-            <button type="button" class="fmt-btn" onclick={() => execCmd("bold")} title="Fett">
+            <button type="button" class="fmt-btn" onclick={() => execCmd("bold")} title={$t("mail.fmtBold")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg>
             </button>
-            <button type="button" class="fmt-btn" onclick={() => execCmd("italic")} title="Kursiv">
+            <button type="button" class="fmt-btn" onclick={() => execCmd("italic")} title={$t("mail.fmtItalic")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
             </button>
-            <button type="button" class="fmt-btn" onclick={execHeading} title="Überschrift">
+            <button type="button" class="fmt-btn" onclick={execHeading} title={$t("mail.fmtHeading")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
             </button>
-            <button type="button" class="fmt-btn" onclick={() => execCmd("insertUnorderedList")} title="Liste">
+            <button type="button" class="fmt-btn" onclick={() => execCmd("insertUnorderedList")} title={$t("mail.fmtList")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>
             </button>
-            <button type="button" class="fmt-btn" onclick={execLink} title="Link">
+            <button type="button" class="fmt-btn" onclick={execLink} title={$t("mail.fmtLink")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             </button>
-            <button type="button" class="fmt-btn" onclick={execCode} title="Code">
+            <button type="button" class="fmt-btn" onclick={execCode} title={$t("mail.fmtCode")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             </button>
           </div>
@@ -684,7 +684,7 @@
             {#each attachments as att, i (i)}
               <span class="attachment-pill">
                 <span class="attachment-label" title={att.filename}>{att.filename} ({formatFileSize(att.size)})</span>
-                <button type="button" class="attachment-remove" onclick={() => removeAttachment(i)} title="Entfernen">&times;</button>
+                <button type="button" class="attachment-remove" onclick={() => removeAttachment(i)} title={$t("mail.fmtRemove")}>&times;</button>
               </span>
             {/each}
       </div>

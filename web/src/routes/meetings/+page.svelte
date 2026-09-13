@@ -9,14 +9,19 @@
   import ModuleIcons from "$lib/components/ModuleIcons.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { assistantCommand } from "$lib/stores/assistantCommand";
   import { assistantAction } from "$lib/stores/assistantAction";
+  import { selection } from "$lib/stores/selection";
   import { isFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
   import { renderMarkdown } from "$lib/utils/markdown";
+  import { fmtDateByLang, localeTag } from "$lib/utils/format";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
@@ -36,6 +41,23 @@
   let scanning = $state(false);
   let search = $state("");
   let selectedId = $state<number | null>(null);
+
+  // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf der Meetingliste.
+  let ctxMenu = $state<{ x: number; y: number; meeting: MeetingInfo } | null>(null);
+  let ctxItems = $derived.by(() => {
+    const c = ctxMenu;
+    if (!c) return [];
+    return [
+      {
+        label: translate("meetings.emailMinutes"),
+        action: () => {
+          selectedId = c.meeting.id;
+          void emailMinutesFor(c.meeting);
+        },
+      },
+      { label: translate("meetings.delete"), danger: true, action: () => askDeleteFor(c.meeting) },
+    ];
+  });
   let detail = $state<MeetingDetail | null>(null);
   let detailLoading = $state(false);
   let detailError = $state<string | null>(null);
@@ -94,15 +116,8 @@
   // stellt es nicht wieder her, solange die Insilo-Datei existiert).
   async function handleDelete() {
     if (!detail) return;
-    if (!confirm(translate("meetings.deleteConfirm", { title: detail.title }))) return;
-    try {
-      await deleteMeeting(detail.id);
-      detail = null;
-      selectedId = null;
-      await loadMeetings();
-    } catch {
-      // Fehlermeldung bleibt im Detail-View sichtbar (loadMeetings wirft nicht).
-    }
+    // In-app Bestätigung (S4, Review 2026-09-13) — kein natives confirm().
+    deleteTarget = { id: detail.id, title: detail.title };
   }
 
   // Der Export trägt eine YAML-Frontmatter (Metadaten) vor dem eigentlichen
@@ -114,6 +129,39 @@
   // "Minutes per Mail senden" öffnet das in-app-Compose im Mail-Modul mit
   // vorbefülltem Betreff und der Zusammenfassung als Text (gleicher Hand-off
   // wie der Assistent: Aktion setzen, dann ins Mail-Modul navigieren).
+  // Kontextmenü-Varianten (S4+T3): gleiche Logik wie Detail-Buttons, aber
+  // bezogen auf eine MeetingInfo aus der Liste statt auf das offene Detail.
+  let deleteTarget = $state<{ id: number; title: string } | null>(null);
+  function askDeleteFor(m: MeetingInfo): void {
+    deleteTarget = { id: m.id, title: m.title };
+  }
+  async function handleDeleteTarget() {
+    const t = deleteTarget;
+    if (!t) return;
+    deleteTarget = null;
+    try {
+      await deleteMeeting(t.id);
+      if (detail && detail.id === t.id) { detail = null; selectedId = null; }
+      await loadMeetings();
+    } catch {
+      // Fehler bleibt unsichtbar; Liste ist ohnehin frisch geladen.
+    }
+  }
+  async function emailMinutesFor(m: MeetingInfo) {
+    try {
+      const d = await getMeeting(m.id);
+      assistantAction.set({
+        type: "open_compose",
+        to: "",
+        subject: translate("meetings.minutesSubject", { title: d.title, date: fmtDate(d.meeting_date) }),
+        body: stripFrontmatter(d.body_md),
+      });
+      await goto(base + "/");
+    } catch {
+      // Detail-Fetch fehlgeschlagen → kein Versand.
+    }
+  }
+
   async function emailMinutes() {
     if (!detail) return;
     assistantAction.set({
@@ -128,7 +176,8 @@
   function fmtDate(iso: string): string {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
+    // T15 (Review 2026-09-13): einheitliches Datumsformat über die App-Locale.
+    return fmtDateByLang(d, localeTag());
   }
 
   function fmtDateTime(iso: string): string {
@@ -140,7 +189,7 @@
     });
   }
 
-  let detailHtml = $derived(detail ? renderMarkdown(detail.body_md) : "");
+  let detailHtml = $derived(detail ? renderMarkdown(stripFrontmatter(detail.body_md)) : "");
 
   // AI-Followups (Tasks/Termine) aus der Meeting-Zusammenfassung — on-demand
   // beim Öffnen generiert, pro Meeting-ID gecacht; bereits ausgeführte
@@ -221,6 +270,21 @@
     });
     return () => es?.close();
   });
+
+  // Assistent-Effekt "meetings.open": wenn eine Meeting-Selektion von außen
+  // ankommt (Concept §10.2), Detail laden und 2 s goldene Markierung.
+  $effect(() => {
+    const target = $selection.meeting;
+    if (target == null) return;
+    if (selectedId === target && detail) {
+      selection.clearHighlight();
+      return;
+    }
+    const m = meetings.find((x) => x.id === target);
+    if (!m) return;
+    void selectMeeting(m);
+    selection.clearHighlight();
+  });
 </script>
 
 <div class="mt-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
@@ -260,6 +324,7 @@
             class="mt-item"
             class:active={selectedId === m.id}
             onclick={() => selectMeeting(m)}
+            oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, meeting: m }; }}
           >
             <span class="mt-item-date">{fmtDate(m.meeting_date)}</span>
             <span class="mt-item-title">{m.title}</span>
@@ -304,7 +369,7 @@
         <p>{detailError}</p>
       </div>
     {:else if !detail}
-      <div class="mt-state">{$t("meetings.selectHint")}</div>
+      <EmptyState title={$t("meetings.selectHint")} icon="&#x1F5D3;" />
     {:else}
       <article class="mt-detail">
         <header class="mt-detail-header">
@@ -382,7 +447,7 @@
           {/if}
         </section>
 
-        {#if detail.source_url}
+        {#if detail.source_url.startsWith("http")}
           <footer class="mt-detail-footer">
             <a class="mt-link" href={detail.source_url} target="_blank" rel="noopener noreferrer">
               {$t("meetings.openInInsilo")}
@@ -393,6 +458,23 @@
     {/if}
   </main>
 </div>
+
+<ConfirmationDialog
+  open={deleteTarget !== null}
+  title={$t("meetings.delete")}
+  message={deleteTarget ? translate("meetings.deleteConfirm", { title: deleteTarget.title }) : ""}
+  confirmLabel={$t("meetings.delete")}
+  cancelLabel={$t("common.cancel")}
+  danger={true}
+  onconfirm={() => void handleDeleteTarget()}
+  oncancel={() => (deleteTarget = null)}
+/>
+
+<ContextMenu
+  menu={ctxMenu}
+  items={ctxItems}
+  onclose={() => (ctxMenu = null)}
+/>
 
 <AssistantFab module="meetings" />
 
@@ -492,6 +574,7 @@
     display: flex;
     gap: 8px;
     align-items: baseline;
+    white-space: nowrap;
   }
   .mt-item-tags {
     overflow: hidden;

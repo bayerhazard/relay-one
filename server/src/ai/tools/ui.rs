@@ -43,10 +43,10 @@ pub fn tools(_locale: &str) -> Vec<ToolDef> {
         ToolDef::new(
             "ui_open_item",
             Tier::Read,
-            "Öffnet einen konkreten Eintrag (Event/Task/Kontakt) in seinem Modul.",
+            "Öffnet einen konkreten Eintrag in seinem Modul und springt dorthin: module calendar + id (aus calendar_list_events), tasks + uid (aus tasks_list), contacts + uid (aus contacts_search), meetings + id (aus meetings_list). Zuerst suchen, dann öffnen.",
             obj_schema(
                 &[
-                    ("module", "string", "Modul des Eintrags", Some("calendar,tasks,contacts")),
+                    ("module", "string", "Modul des Eintrags", Some("calendar,tasks,contacts,meetings")),
                     ("id", "string", "ID des Eintrags (aus einem vorherigen Lese-Ergebnis)", None),
                 ],
                 &["module", "id"],
@@ -118,16 +118,21 @@ fn ui_open_item(ctx: ToolCtx, args: serde_json::Value) -> Pin<Box<dyn std::futur
                 ));
             }
         }
-        let allowed = ["calendar", "tasks", "contacts"];
+        let allowed = ["calendar", "tasks", "contacts", "meetings"];
         if !allowed.contains(&module) || id.is_empty() {
             return Ok(ToolOutcome::Nachfrage("Modul und ID werden benötigt.".into()));
         }
-        let (kind, id_field) = match module {
-            "calendar" => ("calendar.open_event", "id"),
-            "tasks" => ("tasks.open", "uid"),
-            "contacts" => ("contacts.open", "uid"),
+        let (kind, id_field, id_value) = match module {
+            "calendar" => ("calendar.open_event", "id", serde_json::Value::String(id.to_string())),
+            "tasks" => ("tasks.open", "uid", serde_json::Value::String(id.to_string())),
+            "contacts" => ("contacts.open", "uid", serde_json::Value::String(id.to_string())),
+            // Meetings-IDs sind numerisch (data-Contract des meetings.open-Effekts).
+            "meetings" => ("meetings.open", "id", id.parse::<i64>().map(serde_json::Value::from).unwrap_or(serde_json::Value::Null)),
             _ => unreachable!(),
         };
-        Ok(ToolOutcome::Nav(effect(kind, &[(id_field, serde_json::Value::String(id.to_string()))])))
+        if id_value.is_null() {
+            return Ok(ToolOutcome::Nachfrage("Meeting-IDs sind numerisch.".into()));
+        }
+        Ok(ToolOutcome::Nav(effect(kind, &[(id_field, id_value)])))
     })
 }

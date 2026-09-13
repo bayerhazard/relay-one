@@ -24,6 +24,7 @@
     type PlanStatus,
   } from "$lib/services/tauri";
   import PlanCard from "$lib/components/PlanCard.svelte";
+  import { renderMarkdown } from "$lib/utils/markdown";
 
   interface Props {
     open: boolean;
@@ -439,7 +440,9 @@
             <div class="chat-msg assistant error">{m.error}</div>
           {:else}
             <div class="chat-msg {m.role}">
-              <div class="chat-text">{m.text}</div>
+              <!-- T5 (Review 2026-09-13): Antworten in Markdown rendern
+                   (DOMPurify-gesichert wie alle {@html}-Ausgaben). -->
+              <div class="chat-text">{@html renderMarkdown(m.text)}</div>
               {#if m.role === "assistant" && ttsEnabled && m.text.trim()}
                 <button
                   type="button"
@@ -710,6 +713,24 @@
     line-height: 1.4;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  /* Markdown-Ausgabe (T5): Block-Abstände normieren, Code-Span Heben. */
+  .chat-text :global(p) { margin: 0.35em 0; }
+  .chat-text :global(p:first-child) { margin-top: 0; }
+  .chat-text :global(p:last-child) { margin-bottom: 0; }
+  .chat-text :global(ul), .chat-text :global(ol) { margin: 0.35em 0; padding-left: 1.3em; }
+  .chat-text :global(li) { margin: 0.2em 0; }
+  .chat-text :global(code) {
+    background: var(--color-active-wash);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-s);
+    padding: 1px 5px;
+    font-family: "Geist Mono", ui-monospace, monospace;
+    font-size: 0.85em;
+  }
+  .chat-msg.user .chat-text :global(code) {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: transparent;
   }
   .chat-msg.user {
     margin-left: auto;

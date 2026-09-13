@@ -16,12 +16,14 @@ export interface SelectionState {
   contact: string | null;
   task: string | null;
   event: string | null;
+  /** Meeting-Detail-Id (numerisch, Insilo-Meetings). */
+  meeting: number | null;
   /** True when the current selection came from an assistant effect (highlight). */
   highlight: boolean;
 }
 
 function defaultState(): SelectionState {
-  return { mail: null, contact: null, task: null, event: null, highlight: false };
+  return { mail: null, contact: null, task: null, event: null, meeting: null, highlight: false };
 }
 
 function createSelectionStore() {
@@ -36,6 +38,8 @@ function createSelectionStore() {
       update((s) => ({ ...s, task: id, highlight: id ? highlight : s.highlight })),
     setEvent: (id: string | null, highlight = false) =>
       update((s) => ({ ...s, event: id, highlight: id ? highlight : s.highlight })),
+    setMeeting: (id: number | null, highlight = false) =>
+      update((s) => ({ ...s, meeting: id, highlight: id ? highlight : s.highlight })),
     clearHighlight: () => update((s) => ({ ...s, highlight: false })),
     reset: () => set(defaultState()),
   };
