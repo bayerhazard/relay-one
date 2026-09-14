@@ -218,6 +218,7 @@ mod tests {
         "tasks_delete",
         "tasks_list",
         "tasks_toggle",
+        "ui_compose",
         "ui_navigate",
         "ui_open_item",
         "ui_set_view",

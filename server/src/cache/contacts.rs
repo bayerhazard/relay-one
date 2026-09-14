@@ -122,9 +122,14 @@ pub fn parse_address(addr: &str) -> (Option<String>, Option<String>) {
     }
     let lt = trimmed.find('<');
     let gt = trimmed.rfind('>');
+    // M4 (Review 2026-09-14): envelope names arrive raw-RFC2047-encoded
+    // ("=?utf-8?B?...?=") — decode them before storing/displaying.
+    let decode_name = |s: String| -> String { crate::imap::client::decode_rfc2047(&s) };
     let (name, email) = match (lt, gt) {
         (Some(l), Some(g)) if g > l => {
-            let name_part = trimmed[..l].trim().trim_matches('"').trim().to_string();
+            let name_part = decode_name(
+                trimmed[..l].trim().trim_matches('"').trim().to_string(),
+            );
             let email_part = trimmed[l + 1..g].trim().to_string();
             (
                 if name_part.is_empty() { None } else { Some(name_part) },
@@ -138,7 +143,7 @@ pub fn parse_address(addr: &str) -> (Option<String>, Option<String>) {
             } else {
                 None
             };
-            let name = if trimmed.contains('@') { None } else { Some(trimmed.to_string()) };
+            let name = if trimmed.contains('@') { None } else { Some(decode_name(trimmed.to_string())) };
             (name, email)
         }
     };
@@ -307,5 +312,14 @@ mod tests {
         let _ = enrich_from_envelope(&conn, "\"Max\" <max@example.com>", "", "").unwrap();
         let all = list_contacts(&conn, "max").unwrap();
         assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_address_rfc2047_name() {
+        // M4: encoded display names (mobile/desktop review 2026-09-14) must be
+        // decoded, not stored as raw RFC2047 words.
+        let (name, email) = parse_address("=?UTF-8?B?TcO8bGxlcg==?= <m@example.com>");
+        assert_eq!(email.as_deref(), Some("m@example.com"));
+        assert_eq!(name.as_deref(), Some("Müller"));
     }
 }

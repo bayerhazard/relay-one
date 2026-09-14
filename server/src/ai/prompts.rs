@@ -798,11 +798,13 @@ pub fn build_agent_prompt(locale: &str, heute: &str) -> String {
              contacts_search, mail_search, tasks_list). Answer based on the real tool results; \
              never invent. Where useful, name the people/events/emails you found. \
              - Never write by yourself. For every change (create an event, create a task, \
-             draft a reply, ...) call the matching write tool. It returns a confirmation card — \
-             the user confirms it. Briefly describe what you prepared. \
-             - External actions (send an invitation, RSVP, delete) need a second confirmation. \
-             - There is NO tool to send email. You only prepare drafts (mail_propose_reply); \
-             sending happens manually. \
+              draft a reply, ...) call the matching write tool. It returns a confirmation card — \
+              the user confirms it. Briefly describe what you prepared. \
+              - External actions (send an invitation, RSVP, delete) need a second confirmation. \
+              - There is NO tool to send email — sending always stays manual. You only draft: \
+              a reply to an existing mail via mail_propose_reply; a completely brand-new mail \
+              via ui_compose (it opens the composer pre-filled with to/subject/body). \
+              Never invent a recipient address — with an unknown address run contacts_search first. \
              - Do not use invented IDs. Where possible take names and let the tool resolve them. \
              If a tool asks a follow-up question (Nachfrage), ask it in the conversation. \
              \
@@ -825,8 +827,11 @@ pub fn build_agent_prompt(locale: &str, heute: &str) -> String {
              Antwort entwerfen, ...) rufst du das passende Write-Tool auf. Es liefert eine \
              Bestätigungskarte zurück — der Nutzer bestätigt sie. Beschreibe kurz, was du vorbereitet hast. \
              - Externe Aktionen (Einladung senden, RSVP, löschen) brauchen eine zweite Bestätigung. \
-             - Es gibt KEIN Tool zum Mail-Versand. Du bereitest nur Entwürfe vor (mail_propose_reply); \
-             gesendet wird nur manuell. \
+             - Es gibt KEIN Tool zum Mail-Versand — das Senden bleibt immer manuell. \
+              Du bereitest nur Entwürfe vor: eine Antwort auf eine bestehende Mail via \
+              mail_propose_reply; eine komplett neue Mail via ui_compose (öffnet den Composer \
+              mit Empfänger, Betreff und Text). Erfinde keine Empfängeradresse — bei \
+              unbekannter Adresse zuerst contacts_search. \
              - Verwende keine erfundenen IDs. Nimm wo möglich Namen entgegen und lasse das Tool sie auflösen. \
              Wenn ein Tool eine Rückfrage stellt (Nachfrage), stelle sie im Dialog. \
              \

@@ -53,6 +53,23 @@ pub fn tools(_locale: &str) -> Vec<ToolDef> {
             ),
             ui_open_item,
         ),
+        // Concept §6.2 (mail): the model never sends — it opens the composer
+        // pre-filled and the user sends manually. This closes the
+        // "kein Tool für neue Mails"-gap (Review 2026-09-14).
+        ToolDef::new(
+            "ui_compose",
+            Tier::Read,
+            "Öffnet ein neues E-Mail-Fenster (manuelles Senden) mit Empfänger, Betreff und vorformuliertem Text. Erfinde keine Empfängeradresse — bei unbekannter Adresse zuerst contacts_search.",
+            obj_schema(
+                &[
+                    ("to", "string", "Empfänger-Adresse (Pflicht)", None),
+                    ("subject", "string", "Betreff", None),
+                    ("body", "string", "Ausformulierter Mail-Text", None),
+                ],
+                &["to"],
+            ),
+            ui_compose,
+        ),
     ]
 }
 
@@ -135,4 +152,53 @@ fn ui_open_item(ctx: ToolCtx, args: serde_json::Value) -> Pin<Box<dyn std::futur
         }
         Ok(ToolOutcome::Nav(effect(kind, &[(id_field, id_value)])))
     })
+}
+
+fn ui_compose(_ctx: ToolCtx, args: serde_json::Value) -> Pin<Box<dyn std::future::Future<Output = Result<ToolOutcome, String>> + Send>> {
+    Box::pin(async move {
+        let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let subject = args.get("subject").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let body = args.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if to.is_empty() {
+            return Ok(ToolOutcome::Nachfrage(
+                "Der Empfänger fehlt. Bei unbekannter Adresse zuerst contacts_search aufrufen.".into(),
+            ));
+        }
+        Ok(ToolOutcome::Nav(effect(
+            "compose.open",
+            &[
+                ("to", serde_json::Value::String(to)),
+                ("subject", serde_json::Value::String(subject)),
+                ("body", serde_json::Value::String(body)),
+            ],
+        )))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The compose effect must match the frontend whitelist exactly
+    /// (effects.ts `compose.open`: to/subject/body strings).
+    #[tokio::test]
+    async fn compose_effect_carries_fields() {
+        let ctx = ToolCtx {
+            state: crate::AppState::new(),
+            locale: "de".into(),
+            known_ids: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
+        };
+        let tool = ui_compose(ctx, serde_json::json!({ "to": "max@example.com", "subject": "Meetup", "body": "Text" }))
+        .await
+        .unwrap();
+        match tool {
+            ToolOutcome::Nav(json) => {
+                let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(v["effect"], "compose.open");
+                assert_eq!(v["to"], "max@example.com");
+                assert_eq!(v["subject"], "Meetup");
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
 }
