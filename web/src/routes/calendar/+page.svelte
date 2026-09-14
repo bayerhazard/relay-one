@@ -11,6 +11,7 @@
     type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
   import { t, translate, lang } from "$lib/i18n";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import { calendarView } from "$lib/stores/calendarView";
   import { dataVersion } from "$lib/stores/invalidation";
   import { germanHolidays } from "$lib/holidays";
@@ -48,6 +49,7 @@
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isNarrow = $derived(viewportWidth <= 768);
   let sidebarOpen = $state(false);
+  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
   $effect(() => {
     const onResize = () => (viewportWidth = window.innerWidth);
     window.addEventListener("resize", onResize);
@@ -1040,7 +1042,7 @@
     <header class="cal-toolbar">
       <div class="cal-toolbar-left">
         {#if isNarrow}
-          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}>☰</button>
+          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         {/if}
         <h1 class="cal-month">{periodLabel}</h1>
         <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")}>‹</button>
@@ -1472,8 +1474,19 @@
   .cal-app.narrow .cal-menu-toggle { display: inline-flex; }
   .cal-app:not(.narrow) .cal-sidebar-close,
   .cal-app:not(.narrow) .cal-menu-toggle { display: none; }
-  .cal-app.narrow .cal-toolbar { padding: 10px 12px; }
-  .cal-app.narrow .cal-month { font-size: var(--fs-md); }
+  .cal-app.narrow .cal-toolbar {
+    padding: 10px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "left right" "center center";
+    row-gap: 8px;
+    column-gap: 6px;
+  }
+  .cal-app.narrow .cal-toolbar-left { grid-area: left; gap: 4px; }
+  .cal-app.narrow .cal-toolbar-center { grid-area: center; justify-self: start; }
+  .cal-app.narrow .cal-toolbar-right { grid-area: right; gap: 6px; }
+  .cal-app.narrow .cal-btn { padding: 6px 8px; font-size: var(--fs-xs); }
+  .cal-app.narrow .cal-viewtoggle .cal-vt { padding: 4px 8px; }
+  .cal-app.narrow .cal-month { font-size: var(--fs-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
   .cal-app.narrow .cal-icon-btn {
     min-width: 44px;
     min-height: 44px;
@@ -1680,6 +1693,7 @@
     display: flex;
     gap: 6px;
     align-items: baseline;
+    min-width: 0;
     padding: 2px 6px;
     border: none;
     background: var(--color-unread-wash);

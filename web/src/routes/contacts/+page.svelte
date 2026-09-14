@@ -14,6 +14,7 @@
   import { assistantAction } from "$lib/stores/assistantAction";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import { dataVersion } from "$lib/stores/invalidation";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
@@ -22,6 +23,7 @@
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isNarrow = $derived(viewportWidth <= 768);
   let sidebarOpen = $state(false);
+  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
   $effect(() => {
     const onResize = () => (viewportWidth = window.innerWidth);
     window.addEventListener("resize", onResize);
@@ -231,7 +233,7 @@
   <main class="ct-main">
     {#if isNarrow}
       <div class="ct-mobile-header">
-        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}>☰</button>
+        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <h1>{$t("contacts.title")}</h1>
       </div>
     {/if}
@@ -409,7 +411,7 @@
   }
   .ct-state-error { color: var(--color-danger); }
 
-  .ct-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .ct-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; gap: 6px; }
   .ct-item {
     display: flex;
     align-items: center;

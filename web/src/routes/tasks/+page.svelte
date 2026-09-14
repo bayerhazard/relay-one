@@ -14,6 +14,7 @@
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { fmtDateByLang, localeTag as fmtLocaleTag } from "$lib/utils/format";
   import { t, translate } from "$lib/i18n";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import { dataVersion } from "$lib/stores/invalidation";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
@@ -22,6 +23,7 @@
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isNarrow = $derived(viewportWidth <= 768);
   let sidebarOpen = $state(false);
+  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
   $effect(() => {
     const onResize = () => (viewportWidth = window.innerWidth);
     window.addEventListener("resize", onResize);
@@ -277,8 +279,13 @@
   <main class="tk-main">
     {#if isNarrow}
       <div class="tk-mobile-header">
-        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}>☰</button>
+        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <h1>{$t("tasks.title")}</h1>
+        <!-- M5 (Review 2026-09-14): creation lives in the sidebar, which is
+             hidden on mobile — give the mobile header its own add button. -->
+        <button type="button" class="tk-nav-btn tk-mobile-new" onclick={openCreate} aria-label={$t("tasks.new")}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     {/if}
     {#if loading}
@@ -494,7 +501,7 @@
   }
   .tk-state-error { color: var(--color-danger); }
 
-  .tk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .tk-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; gap: 6px; }
   .tk-item {
     display: flex;
     align-items: center;
@@ -658,4 +665,5 @@
     font-size: 1.25rem;
   }
   .tk-nav-btn:hover { background: var(--color-active-wash); }
+  .tk-mobile-new { margin-left: auto; }
 </style>

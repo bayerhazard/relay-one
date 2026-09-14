@@ -30,6 +30,7 @@ import {
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import { isFollowupDone } from "$lib/utils/followupMemory";
   import { dataVersion } from "$lib/stores/invalidation";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
@@ -51,6 +52,10 @@ import {
   let isCompact = $derived(viewportWidth <= 900);
   let isNarrow = $derived(viewportWidth <= 600);
   let sidebarOpen = $state(false); // only relevant in narrow mode (overlay)
+
+  // M6 (Review 2026-09-14): while the mobile folder drawer is open the
+  // assistant FAB would sit on top of it — hide it.
+  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
 
   // Touch devices: context menus render as iOS-style bottom sheets.
   let isTouchDevice = $state(false);
@@ -2168,6 +2173,11 @@ let sentFolderName = $state<string | null>(null);
   function handleKeydown(e: KeyboardEvent) {
     // Escape: close context menus, compose or confirmation dialog, or clear multi-selection
     if (e.key === "Escape") {
+      // M1 (Review 2026-09-14): mobile folder drawer must close on Escape first
+      if (isNarrow && sidebarOpen) {
+        sidebarOpen = false;
+        return;
+      }
       if (folderCtxMenu || moveMenu || linkMenu) {
         closeMenus();
         return;
@@ -2929,7 +2939,7 @@ let sentFolderName = $state<string | null>(null);
           <div class="list-title-area">
             {#if isNarrow}
               <button type="button" class="icon-btn menu-toggle" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.folders")} aria-label={$t("mail.toggleFolder")}>
-                &#9776;
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
               </button>
             {/if}
             <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>

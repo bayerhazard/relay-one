@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.157
+  version: 26.9.158
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.157
+  versionName: 26.9.158
   upgradeDescription: |
+    v26.9.158: Mobile fixes from the September 14 review — Escape now closes the mobile folder drawer (it previously stayed open and blocked the message list), menu buttons render as clean SVG icons instead of broken glyphs, the calendar toolbar wraps to two rows on phones and shows every control, the tasks header gets its own add button, the assistant button hides while a drawer or sheet is open, swipe action labels follow the app language, and contact display names are decoded from MIME encoding. Built for Olares 1.12.6.
     v26.9.157: Web-Frontend-Neuaufbau — 26.9.156 wurde wegen eines verhaltensbedingt
     veralteten Web-Build-Caches mit dem alten Frontend ausgeliefert. Fix: Build ohne
     Layer-Cache. Inhaltlich identisch zu 26.9.156. Built for Olares 1.12.6.

@@ -24,6 +24,7 @@ import {
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
+  import { fabHidden } from "$lib/stores/fabHidden";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
@@ -37,6 +38,7 @@ import {
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isNarrow = $derived(viewportWidth <= 600);
   let mobileContentOpen = $state(false);
+  $effect(() => { fabHidden.set(isNarrow && mobileContentOpen); });
 
   $effect(() => {
     if (typeof window === "undefined") return;

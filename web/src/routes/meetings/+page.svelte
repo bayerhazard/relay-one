@@ -15,6 +15,7 @@
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { selection } from "$lib/stores/selection";
   import { isFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
@@ -29,6 +30,7 @@
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isNarrow = $derived(viewportWidth <= 768);
   let sidebarOpen = $state(false);
+  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
   $effect(() => {
     const onResize = () => (viewportWidth = window.innerWidth);
     window.addEventListener("resize", onResize);
@@ -357,7 +359,7 @@
   <main class="mt-main">
     {#if isNarrow}
       <div class="mt-mobile-header">
-        <button type="button" class="mt-nav-btn mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")}>☰</button>
+        <button type="button" class="mt-nav-btn mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <h1>{$t("meetings.title")}</h1>
       </div>
     {/if}

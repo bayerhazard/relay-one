@@ -5,6 +5,7 @@
   import AssistantDrawer from "./AssistantDrawer.svelte";
   import { t } from "$lib/i18n";
   import { assistantCommand } from "$lib/stores/assistantCommand";
+  import { fabHidden } from "$lib/stores/fabHidden";
   import type { AgentPlan } from "$lib/services/tauri";
 
   interface Props {
@@ -29,6 +30,7 @@
 <button
   type="button"
   class="assistant-fab"
+  class:hidden={$fabHidden}
   onclick={() => (open = true)}
   title={$t("assistant.title")}
   aria-label={$t("assistant.open")}
@@ -63,6 +65,9 @@
     z-index: 900;
     opacity: 0.55;
     transition: opacity 150ms ease;
+  }
+  .assistant-fab.hidden {
+    display: none;
   }
   .assistant-fab:hover {
     opacity: 1;
