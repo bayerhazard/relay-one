@@ -46,7 +46,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1;
+    width: 100%;
+    flex: 0 0 auto;
     min-width: 0;
     height: 34px;
     padding: 0 12px;

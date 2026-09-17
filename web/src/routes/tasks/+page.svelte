@@ -6,7 +6,7 @@
     type TodoInfo, type TodoInput,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
@@ -260,17 +260,14 @@
     {/if}
     <div class="tk-count">{visibleTodos.length} {filter === "done" ? $t("tasks.countDone") : $t("tasks.countTasks")}</div>
 
-    <div class="tk-sidebar-footer">
+    <SidebarFooter active="tasks">
       <SidebarSearch
         bind:value={tkSearch}
         placeholder={$t("tasks.searchPlaceholder")}
         ariaLabel={$t("tasks.searchLabel")}
         clearLabel={$t("tasks.clearSearch")}
       />
-      <div class="tk-module-row">
-        <ModuleIcons active="tasks" />
-      </div>
-    </div>
+    </SidebarFooter>
   </aside>
   {#if !isNarrow}
     <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
@@ -478,16 +475,6 @@
     color: var(--color-text-secondary);
     border-top: 1px solid var(--color-border);
   }
-  .tk-sidebar-footer {
-    margin-top: auto;
-    padding: 12px;
-    border-top: 1px solid var(--color-border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .tk-module-row { display: flex; justify-content: center; }
-
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
   .tk-state {
     display: flex;

@@ -5,7 +5,7 @@
   import MessageList from "$lib/components/MessageList.svelte";
   import FolderList from "$lib/components/FolderList.svelte";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AccountGroup from "$lib/components/AccountGroup.svelte";
   import PromptDialog from "$lib/components/PromptDialog.svelte";
@@ -2895,38 +2895,32 @@ let sentFolderName = $state<string | null>(null);
             />
           {/each}
         </nav>
-        <div class="sidebar-footer">
-          <div class="footer-row">
-            <SidebarSearch
-              bind:value={searchQuery}
-              ariaLabel={$t("mail.searchAria")}
-              placeholder={searchFocused ? "" : $t("mail.search")}
-              clearLabel={$t("mail.clearSearch")}
-              onInput={onSearchInput}
-              onFocus={() => (searchFocused = true)}
-              onBlur={() => (searchFocused = false)}
-              onKeydown={(e) => { if (e.key === "Escape") clearSearch(); }}
+        <SidebarFooter active="mail">
+          <SidebarSearch
+            bind:value={searchQuery}
+            ariaLabel={$t("mail.searchAria")}
+            placeholder={searchFocused ? "" : $t("mail.search")}
+            clearLabel={$t("mail.clearSearch")}
+            onInput={onSearchInput}
+            onFocus={() => (searchFocused = true)}
+            onBlur={() => (searchFocused = false)}
+            onKeydown={(e) => { if (e.key === "Escape") clearSearch(); }}
+          >
+            <button
+              type="button"
+              class="flag-filter-btn"
+              class:active={flaggedSearchActive}
+              onclick={toggleFlagFilter}
+              title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
+              aria-label={$t("mail.flagOnly")}
+              aria-pressed={flaggedSearchActive}
             >
-              <button
-                type="button"
-                class="flag-filter-btn"
-                class:active={flaggedSearchActive}
-                onclick={toggleFlagFilter}
-                title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
-                aria-label={$t("mail.flagOnly")}
-                aria-pressed={flaggedSearchActive}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill={flaggedSearchActive ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z" />
-                </svg>
-              </button>
-            </SidebarSearch>
-          </div>
-
-          <div class="footer-row module-row">
-            <ModuleIcons active="mail" />
-          </div>
-        </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={flaggedSearchActive ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z" />
+              </svg>
+            </button>
+          </SidebarSearch>
+        </SidebarFooter>
       </div>
     </aside>
     {#if !isNarrow}
@@ -3342,13 +3336,6 @@ let sentFolderName = $state<string | null>(null);
     overflow-y: auto;
   }
  
-  .footer-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    padding: 0 15px;  }
   :global(.folder-item) {
     display: flex;
     align-items: center;
@@ -3405,42 +3392,6 @@ let sentFolderName = $state<string | null>(null);
     pointer-events: none;
   }
 
-  .sidebar-footer {
-    margin-top: auto;
-    padding: 12px;
-    border-top: 1px solid var(--color-border);
-  }
-  .version {
-    font-size: 0.75rem;
-    color: var(--color-text-secondary);
-    opacity: 0.6;
-    text-align: center;
-    display: block;
-    margin-top: 8px;
-    margin-bottom: 20px;
-    letter-spacing: 0.01em;
-  }
-  .module-row {
-    justify-content: center;
-    padding: 0 10px;
-  }
-  .module-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 12px;
-    border: none;
-    background: none;
-    color: var(--color-text-secondary);
-    border-radius: var(--radius-m);
-    cursor: pointer;
-    font-size: 0.85rem;
-  }
-  .module-btn:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
-  }
   .list-header-container {
     display: flex;
     flex-direction: column;
@@ -4284,9 +4235,6 @@ let sentFolderName = $state<string | null>(null);
   .app-container.narrow .preview-back-bar {
     padding-top: max(8px, env(safe-area-inset-top, 0px));
     min-height: 44px;
-  }
-  .app-container.narrow .sidebar-footer {
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
   }
   .app-container.narrow .menu-toggle,
   .app-container.narrow .icon-btn {

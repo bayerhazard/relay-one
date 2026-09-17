@@ -6,7 +6,7 @@
     type MeetingInfo, type MeetingDetail, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -339,17 +339,14 @@
       {/if}
     </div>
 
-    <div class="mt-sidebar-footer">
+    <SidebarFooter active="meetings">
       <SidebarSearch
         bind:value={search}
         placeholder={$t("meetings.searchPlaceholder")}
         ariaLabel={$t("meetings.searchLabel")}
         clearLabel={$t("meetings.clearSearch")}
       />
-      <div class="mt-module-row">
-        <ModuleIcons active="meetings" />
-      </div>
-    </div>
+    </SidebarFooter>
   </aside>
   {#if !isNarrow}
     <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
@@ -592,16 +589,6 @@
   }
   .mt-state-error { color: var(--color-danger, #c0392b); }
   .mt-state-error .mt-btn { margin-top: 10px; }
-
-  .mt-sidebar-footer {
-    margin-top: auto;
-    padding: 12px;
-    border-top: 1px solid var(--color-border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .mt-module-row { display: flex; justify-content: center; }
 
   .mt-main {
     flex: 1;

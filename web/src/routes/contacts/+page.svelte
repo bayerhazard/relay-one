@@ -6,7 +6,7 @@
     type ContactInfo, type ContactInput,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
@@ -213,7 +213,7 @@
 
     <div class="ct-count">{$t("contacts.count", { n: contacts.length })}</div>
 
-    <div class="ct-sidebar-footer">
+    <SidebarFooter active="contacts">
       <SidebarSearch
         bind:value={search}
         placeholder={$t("contacts.searchPlaceholder")}
@@ -221,10 +221,7 @@
         clearLabel={$t("contacts.clearSearch")}
         onInput={loadContacts}
       />
-      <div class="ct-module-row">
-        <ModuleIcons active="contacts" />
-      </div>
-    </div>
+    </SidebarFooter>
   </aside>
   {#if !isNarrow}
     <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
@@ -388,16 +385,6 @@
     border-top: 1px solid var(--color-border);
     margin-top: 8px;
   }
-  .ct-sidebar-footer {
-    margin-top: auto;
-    padding: 12px;
-    border-top: 1px solid var(--color-border);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .ct-module-row { display: flex; justify-content: center; }
-
   .ct-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
   .ct-state {
     display: flex;

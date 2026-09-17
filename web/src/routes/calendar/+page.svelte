@@ -16,7 +16,7 @@
   import { dataVersion } from "$lib/stores/invalidation";
   import { germanHolidays } from "$lib/holidays";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import ModuleIcons from "$lib/components/ModuleIcons.svelte";
+  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
   import SidebarSearch from "$lib/components/SidebarSearch.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -1015,24 +1015,23 @@
       </div>
     {/if}
 
-    <div class="cal-sidebar-footer">
+    <SidebarFooter active="calendar">
       <SidebarSearch
         bind:value={calSearch}
         placeholder={$t("calendar.searchPlaceholder")}
         ariaLabel={$t("calendar.searchLabel")}
         clearLabel={$t("calendar.clearSearch")}
       />
-      <div class="cal-module-row">
-        <ModuleIcons active="calendar" />
-      </div>
-      <input
-        type="file"
-        accept=".ics,text/calendar"
-        class="cal-file-input"
-        bind:this={importInput}
-        onchange={onImportFile}
-      />
-    </div>
+      {#snippet extra()}
+        <input
+          type="file"
+          accept=".ics,text/calendar"
+          class="cal-file-input"
+          bind:this={importInput}
+          onchange={onImportFile}
+        />
+      {/snippet}
+    </SidebarFooter>
   </aside>
   {#if !isNarrow}
     <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
@@ -1608,8 +1607,6 @@
   .cal-cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .cal-cal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .cal-sidebar-footer { padding: 12px; border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 10px; }
-  .cal-module-row { display: flex; justify-content: center; }
   .cal-file-input { display: none; }
 
   /* ── Main ── */
