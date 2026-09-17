@@ -54,9 +54,26 @@ pub struct CreateTodoRequest {
 }
 
 fn parse_due(s: &str) -> Result<chrono::DateTime<chrono::Utc>, ApiError> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .map(|d| d.with_timezone(&chrono::Utc))
-        .map_err(|e| ApiError(format!("Ungültiges Fälligkeitsdatum: {e}")))
+    let s = s.trim();
+    // Full RFC 3339 timestamp (e.g. "2026-09-01T09:00:00Z").
+    if let Ok(d) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(d.with_timezone(&chrono::Utc));
+    }
+    // Date-only value from an <input type="date"> (e.g. "2026-09-01"):
+    // interpret it as the local start of day in the app timezone.
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if let Some(naive) = date.and_hms_opt(0, 0, 0) {
+            if let Some(local) = chrono::TimeZone::from_local_datetime(
+                &chrono_tz::Europe::Berlin,
+                &naive,
+            )
+            .earliest()
+            {
+                return Ok(local.with_timezone(&chrono::Utc));
+            }
+        }
+    }
+    Err(ApiError(format!("Ungültiges Fälligkeitsdatum: {s}")))
 }
 
 pub async fn create_todo(
@@ -98,7 +115,7 @@ pub async fn create_todo(
         url,
         summary: Some(req.summary.clone()),
         description: req.description.clone(),
-        due: req.due.clone(),
+        due: due.map(|d| d.to_rfc3339()),
         completed: None,
         status: Some("NEEDS-ACTION".to_string()),
         priority: req.priority,
@@ -200,4 +217,28 @@ pub async fn sync_todos(State(state): State<AppState>) -> ApiResult<serde_json::
     .map_err(ApiError)?;
 
     Ok(Json(serde_json::json!({ "synced": count })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_due;
+
+    #[test]
+    fn parse_due_accepts_date_only() {
+        let d = parse_due("2026-09-01").unwrap();
+        // Midnight in Europe/Berlin (CEST, UTC+2 in September).
+        assert_eq!(d.to_rfc3339(), "2026-08-31T22:00:00+00:00");
+    }
+
+    #[test]
+    fn parse_due_accepts_rfc3339() {
+        let d = parse_due("2026-09-01T09:00:00Z").unwrap();
+        assert_eq!(d.to_rfc3339(), "2026-09-01T09:00:00+00:00");
+    }
+
+    #[test]
+    fn parse_due_rejects_invalid() {
+        assert!(parse_due("").is_err());
+        assert!(parse_due("not-a-date").is_err());
+    }
 }
