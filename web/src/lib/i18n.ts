@@ -256,6 +256,7 @@ export const translations: Record<Lang, Dict> = {
     "settings.accountConnected": "Konto \"{name}\" verbunden!",
 
     // Mail / Main view
+    "mail.title": "Mail",
     "mail.unknown": "Unbekannt",
     "mail.noSubject": "(Kein Betreff)",
     "mail.noContent": "(Kein Inhalt)",
@@ -917,6 +918,7 @@ export const translations: Record<Lang, Dict> = {
     "settings.accountConnected": "Account \"{name}\" connected!",
 
     // Mail / Main view
+    "mail.title": "Mail",
     "mail.unknown": "Unknown",
     "mail.noSubject": "(No subject)",
     "mail.noContent": "(No content)",

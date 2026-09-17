@@ -2924,7 +2924,7 @@ let sentFolderName = $state<string | null>(null);
           </div>
 
           <div class="footer-row module-row">
-            <ModuleIcons active="" />
+            <ModuleIcons active="mail" />
           </div>
         </div>
       </div>
