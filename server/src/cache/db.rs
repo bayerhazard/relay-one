@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -340,6 +340,21 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             status TEXT NOT NULL DEFAULT 'NEEDS-ACTION',
             priority INTEGER,
             ics_raw TEXT NOT NULL,
+            -- Task-module extensions (v4, Todoist-style workflow).
+            -- project_id: NULL = Inbox, otherwise the calendar collection.
+            project_id INTEGER REFERENCES calendars(id) ON DELETE SET NULL,
+            -- parent_uid: sub-task linkage (iCal RELATED-TO).
+            parent_uid TEXT,
+            -- labels: JSON array of CATEGORIES strings.
+            labels TEXT NOT NULL DEFAULT '[]',
+            -- section: optional section name inside a project (local grouping).
+            section TEXT,
+            -- rrule: raw RRULE value for recurring tasks (client-side repeat).
+            rrule TEXT,
+            -- sort_order: manual ordering inside a view.
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            -- due_has_time: 1 when DUE carried a time, 0 for date-only.
+            due_has_time INTEGER NOT NULL DEFAULT 0,
             synced_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(calendar_id, uid)
@@ -449,6 +464,24 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     if user_version < 3 {
         conn.pragma_update(None, "user_version", 3)?;
     }
+    // v4: task-module extensions on `todos` (Todoist-style workflow) — projects,
+    // sub-tasks, labels, sections, recurrence, manual order. Each ADD COLUMN is
+    // guarded so a partially-migrated DB converges; fresh DBs already have the
+    // columns from the CREATE in the bootstrap above.
+    if user_version < 4 {
+        add_column_if_missing(conn, "todos", "project_id", "INTEGER REFERENCES calendars(id) ON DELETE SET NULL")?;
+        add_column_if_missing(conn, "todos", "parent_uid", "TEXT")?;
+        add_column_if_missing(conn, "todos", "labels", "TEXT NOT NULL DEFAULT '[]'")?;
+        add_column_if_missing(conn, "todos", "section", "TEXT")?;
+        add_column_if_missing(conn, "todos", "rrule", "TEXT")?;
+        add_column_if_missing(conn, "todos", "sort_order", "INTEGER NOT NULL DEFAULT 0")?;
+        add_column_if_missing(conn, "todos", "due_has_time", "INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_todos_parent ON todos(parent_uid);
+             CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);",
+        )?;
+        conn.pragma_update(None, "user_version", 4)?;
+    }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot
     //    (NOT gated by user_version): new accounts/folders can appear after
@@ -475,6 +508,28 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     migrate_provider_trash_folders(conn)?;
     init_fts(conn);
 
+    Ok(())
+}
+
+/// Add a column to `table` if it does not exist yet. Strict (propagates
+/// errors) — used by the versioned forward migrations so a failure is visible
+/// instead of silently leaving a half-migrated schema.
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), rusqlite::Error> {
+    let exists = {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let names = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<Vec<String>, _>>()?;
+        names.iter().any(|n| n == column)
+    };
+    if !exists {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"), [])?;
+    }
     Ok(())
 }
 
@@ -926,6 +981,46 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn legacy_db_upgrades_to_v4_with_todo_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Minimal legacy shape: todos table without the task-module extensions
+        // and a DB at user_version 3 (pre-v4, 26.9.x era).
+        conn.execute_batch(
+            "CREATE TABLE calendars (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                display_name TEXT,
+                color TEXT
+            );
+            CREATE TABLE todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                calendar_id INTEGER NOT NULL,
+                uid TEXT NOT NULL,
+                url TEXT NOT NULL,
+                summary TEXT,
+                description TEXT,
+                due_at TEXT,
+                completed_at TEXT,
+                status TEXT NOT NULL DEFAULT 'NEEDS-ACTION',
+                priority INTEGER,
+                ics_raw TEXT NOT NULL,
+                synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(calendar_id, uid)
+            );
+            PRAGMA user_version = 3;",
+        )
+        .unwrap();
+        init_db(&conn).unwrap();
+        assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
+        for col in [
+            "project_id", "parent_uid", "labels", "section", "rrule", "sort_order", "due_has_time",
+        ] {
+            assert!(column_exists(&conn, "todos", col), "missing {col}");
+        }
     }
 
     #[test]

@@ -19,10 +19,10 @@ pub mod messages;
 pub mod migrate;
 pub mod profile;
 pub mod push;
+pub mod quick_add;
 pub mod send;
 pub mod settings;
 pub mod todos;
-
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -186,7 +186,11 @@ pub fn router() -> Router<AppState> {
 
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
         .route("/todos/sync", post(todos::sync_todos))
+        .route("/todos/quick-add", post(todos::quick_add_todo))
+        .route("/todos/views", get(todos::todo_views))
+        .route("/todos/reorder", post(todos::reorder_todos))
         .route("/todos/:uid", patch(todos::toggle_todo).delete(todos::delete_todo))
+        .route("/todos/:uid/succeed", post(todos::succeed_todo))
         // Meetings (Insilo cross-app drop)
         .route("/meetings", get(meetings::list_meetings))
         .route("/meetings/scan", post(meetings::trigger_scan))

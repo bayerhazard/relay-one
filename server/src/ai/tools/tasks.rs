@@ -32,6 +32,9 @@ pub fn tools(locale: &str) -> Vec<ToolDef> {
                     ("summary", "string", "Titel der Aufgabe", None),
                     ("due", "string", "Fällig (RFC 3339, z. B. 2026-09-11T09:00:00Z)", None),
                     ("priority", "integer", "Priorität 1 (hoch) – 9 (niedrig)", None),
+                    ("labels", "array", "Labels (Array von Strings)", None),
+                    ("rrule", "string", "Wiederholung als RRULE, z. B. FREQ=WEEKLY", None),
+                    ("project", "string", "Projektname (= Kalendername), optional", None),
                 ],
                 &["summary"],
             ),
@@ -100,10 +103,33 @@ fn tasks_create(_ctx: ToolCtx, args: serde_json::Value) -> Pin<Box<dyn std::futu
         }
         let due = args.get("due").and_then(|v| v.as_str()).map(str::to_string);
         let priority = args.get("priority").and_then(|v| v.as_i64());
-        let body = serde_json::json!({ "summary": summary, "due": due, "priority": priority });
+        let rrule = args.get("rrule").and_then(|v| v.as_str()).map(str::to_string);
+        let labels: Vec<String> = args
+            .get("labels")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let project = args.get("project").and_then(|v| v.as_str()).map(str::to_string);
+
+        let body = serde_json::json!({
+            "summary": summary,
+            "due": due,
+            "priority": priority,
+            "labels": labels,
+            "rrule": rrule,
+        });
         let mut rows = vec![("Titel".into(), summary.clone())];
         if let Some(d) = &due {
             rows.push(("Fällig".into(), d.clone()));
+        }
+        if let Some(r) = &rrule {
+            rows.push(("Wiederholung".into(), r.clone()));
+        }
+        if !labels.is_empty() {
+            rows.push(("Labels".into(), labels.join(", ")));
+        }
+        if let Some(p) = &project {
+            rows.push(("Projekt".into(), p.clone()));
         }
         Ok(ToolOutcome::Card(PreparedCard {
             tool: "tasks_create".into(),

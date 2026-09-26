@@ -281,8 +281,70 @@ pub async fn do_caldav_sync_account(
         cache::settings::set_setting(conn, &token_key, &new_token).map_err(|e| e.to_string())
     });
 
-    tracing::info!("CalDAV-Sync '{}': {} Events gespeichert", settings.name, saved);
-    Ok(Json(serde_json::json!({ "ok": true, "synced": saved })))
+    // Pull VTODOs in the same pass so tasks stay current without a separate
+    // ticker. Each todo is filed under the calendar collection its object URL
+    // belongs to (longest matching prefix wins); failures are logged, not
+    // swallowed, so a broken todo endpoint is visible in the logs.
+    let todos_saved = match client.fetch_all_todos().await {
+        Ok(todos) => save_todos_to_db(state, &todos),
+        Err(e) => {
+            tracing::warn!(
+                "CalDAV-Sync '{}': VTODO-Abruf fehlgeschlagen: {}",
+                settings.name,
+                e
+            );
+            0
+        }
+    };
+
+    tracing::info!(
+        "CalDAV-Sync '{}': {} Events, {} Todos gespeichert",
+        settings.name,
+        saved,
+        todos_saved
+    );
+    Ok(Json(
+        serde_json::json!({ "ok": true, "synced": saved, "todos": todos_saved }),
+    ))
+}
+
+/// Persist fetched VTODOs under the calendar collection their URL belongs to.
+/// Returns the number of rows written. Logs (rather than drops) failures.
+pub(crate) fn save_todos_to_db(state: &AppState, todos: &[crate::dav::ics::IcsTodo]) -> usize {
+    let mut written = 0usize;
+    match get_db(state) {
+        Ok(mut guard) => {
+            if let Some(conn) = guard.as_mut() {
+                let cals: Vec<(i64, String)> = {
+                    let mut stmt = match conn.prepare("SELECT id, url FROM calendars") {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!("Todo-Sync: Kalender-Abfrage fehlgeschlagen: {}", e);
+                            return 0;
+                        }
+                    };
+                    stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+                        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                        .unwrap_or_default()
+                };
+                let fallback = cals.first().map(|(id, _)| *id).unwrap_or(0);
+                for t in todos {
+                    let cal_id = cals
+                        .iter()
+                        .filter(|(_, url)| t.url.starts_with(url.as_str()))
+                        .max_by_key(|(_, url)| url.len())
+                        .map(|(id, _)| *id)
+                        .unwrap_or(fallback);
+                    match crate::cache::todo::upsert_todo(conn, cal_id, t) {
+                        Ok(()) => written += 1,
+                        Err(e) => tracing::warn!("Todo-Sync: upsert '{}' fehlgeschlagen: {}", t.uid, e),
+                    }
+                }
+            }
+        }
+        Err(e) => tracing::warn!("Todo-Sync: DB nicht verfügbar: {}", e),
+    }
+    written
 }
 
 // ---------------------------------------------------------------------------

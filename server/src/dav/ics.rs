@@ -72,6 +72,23 @@ pub struct IcsTodo {
     pub status: Option<String>,
     /// 0–9 (1 = highest, 9 = lowest), if set.
     pub priority: Option<i64>,
+    /// Raw RRULE value for recurring tasks, if present.
+    #[serde(default)]
+    pub rrule: Option<String>,
+    /// CATEGORIES list (labels).
+    #[serde(default)]
+    pub labels: Vec<String>,
+    /// Parent task UID (RELATED-TO) for sub-tasks.
+    #[serde(default)]
+    pub parent_uid: Option<String>,
+    /// Local project assignment (calendar id). Not part of the ICS wire format —
+    /// set by the API layer, preserved across syncs.
+    #[serde(default)]
+    pub project_id: Option<i64>,
+    /// True when DUE carried a time-of-day (DATE-TIME) rather than a date-only
+    /// value. Date-only tasks are treated as "all day".
+    #[serde(default)]
+    pub due_has_time: bool,
     /// The raw ICS text of the single VTODO (for round-trip / PUT).
     pub raw: String,
 }
@@ -282,9 +299,13 @@ pub fn build_event_full(
 
 /// Convert a single parsed `icalendar::Todo` into the Relay [`IcsTodo`] model.
 fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
+    let mut due_has_time = false;
     let due = todo.get_due().map(|d| match d {
         icalendar::DatePerhapsTime::Date(d) => d.format("%Y-%m-%d").to_string(),
-        icalendar::DatePerhapsTime::DateTime(dt) => cal_dt_to_rfc3339(&dt),
+        icalendar::DatePerhapsTime::DateTime(dt) => {
+            due_has_time = true;
+            cal_dt_to_rfc3339(&dt)
+        }
     });
     let completed = todo.get_completed().map(|dt| dt.to_rfc3339());
     let status = todo.get_status().map(|s| match s {
@@ -293,6 +314,19 @@ fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
         icalendar::TodoStatus::Completed => "COMPLETED".to_string(),
         icalendar::TodoStatus::Cancelled => "CANCELLED".to_string(),
     });
+    // RRULE, CATEGORIES, RELATED-TO are not exposed by the crate's Todo getters
+    // in every version — read them from the raw ICS block, which is always
+    // present and keeps multi-value CATEGORIES intact.
+    let rrule = component_property(raw, "RRULE");
+    let parent_uid = component_property(raw, "RELATED-TO");
+    let labels = component_property(raw, "CATEGORIES")
+        .map(|v| {
+            v.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     IcsTodo {
         uid: todo.get_uid().unwrap_or_default().to_string(),
         url: String::new(),
@@ -302,8 +336,38 @@ fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
         completed,
         status,
         priority: todo.get_priority().map(|p| p as i64),
+        rrule,
+        labels,
+        parent_uid,
+        project_id: None,
+        due_has_time,
         raw: raw.to_string(),
     }
+}
+
+/// Read the first value of a top-level property from a single VTODO (or VEVENT)
+/// ICS block. Handles `PROP:value` and `PROP;PARAM=..:value` forms and unfolds
+/// RFC 5545 line continuations (a CRLF/LF followed by a space or tab).
+fn component_property(raw: &str, name: &str) -> Option<String> {
+    // Unfold first: RFC 5545 continuation lines start with a single space/tab.
+    let unfolded = raw
+        .replace("\r\n ", "")
+        .replace("\r\n\t", "")
+        .replace("\n ", "")
+        .replace("\n\t", "");
+    for line in unfolded.lines() {
+        let line = line.trim_end_matches('\r');
+        let key = line.split([':', ';']).next().unwrap_or("");
+        if key.eq_ignore_ascii_case(name) {
+            if let Some(idx) = line.find(':') {
+                let value = line[idx + 1..].trim();
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Parse a VCALENDAR body into ALL its [`IcsTodo`]s (for CalDAV todo sync).
@@ -312,37 +376,101 @@ pub fn parse_todos(ics: &str) -> Result<Vec<IcsTodo>, String> {
     Ok(cal.todos().map(|todo| extract_todo(&todo, ics)).collect())
 }
 
+/// Inputs for [`build_todo`]. Kept as a struct so new fields (rrule, labels,
+/// sub-task linkage, time-of-day) can be added without touching every caller.
+#[derive(Debug, Clone, Default)]
+pub struct TodoSpec<'a> {
+    pub uid: &'a str,
+    pub summary: &'a str,
+    pub due: Option<DateTime<Utc>>,
+    /// True when `due` carries a time-of-day (DATE-TIME); false = date-only.
+    pub due_has_time: bool,
+    pub description: Option<&'a str>,
+    pub priority: Option<i64>,
+    pub completed: bool,
+    /// Raw RRULE value, e.g. `FREQ=WEEKLY;BYDAY=FR`.
+    pub rrule: Option<&'a str>,
+    /// Labels written as CATEGORIES.
+    pub labels: &'a [String],
+    /// Parent task UID (RELATED-TO) for sub-tasks.
+    pub parent_uid: Option<&'a str>,
+}
+
 /// Build a VCALENDAR containing a single VTODO.
-pub fn build_todo(
-    uid: &str,
-    summary: &str,
-    due: Option<DateTime<Utc>>,
-    description: Option<&str>,
-    priority: Option<i64>,
-    completed: bool,
-) -> Result<String, String> {
+pub fn build_todo(spec: &TodoSpec) -> Result<String, String> {
     let tz = chrono_tz::Europe::Berlin;
     let mut todo = icalendar::Todo::new();
-    todo.uid(uid).summary(summary);
-    if let Some(d) = due {
-        todo.due(dt_to_cal(&d, tz));
+    todo.uid(spec.uid).summary(spec.summary);
+    if let Some(d) = spec.due {
+        if spec.due_has_time {
+            todo.due(dt_to_cal(&d, tz));
+        } else {
+            // Date-only value: emit a DATE (YYYYMMDD) so other clients show an
+            // all-day task instead of a midnight timestamp.
+            todo.due(d.with_timezone(&tz).date_naive());
+        }
     }
-    if let Some(desc) = description {
+    if let Some(desc) = spec.description {
         todo.description(desc);
     }
-    if let Some(p) = priority {
+    if let Some(p) = spec.priority {
         if (1..=9).contains(&p) {
             todo.priority(p as u32);
         }
     }
-    if completed {
+    if spec.completed {
         todo.status(icalendar::TodoStatus::Completed)
             .completed(Utc::now());
     } else {
         todo.status(icalendar::TodoStatus::NeedsAction);
     }
+    // Properties the crate's builder does not expose: append them as custom
+    // properties so RRULE / CATEGORIES / RELATED-TO survive the round-trip.
+    if let Some(rule) = spec.rrule {
+        if !rule.trim().is_empty() {
+            todo.append_property(Property::new("RRULE", rule.trim()));
+        }
+    }
+    if !spec.labels.is_empty() {
+        let joined = spec
+            .labels
+            .iter()
+            .map(|s| s.trim().replace([',', ';', '\\'], ""))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        if !joined.is_empty() {
+            // The icalendar crate escapes `,` in text values, but RFC 5545 uses
+            // `,` as the CATEGORIES separator — an escaped comma breaks
+            // multi-label parsing in other clients. We therefore inject the
+            // line un-escaped via a raw-value property.
+            todo.append_property(Property::new("CATEGORIES", &joined));
+        }
+    }
+    if let Some(parent) = spec.parent_uid {
+        if !parent.trim().is_empty() {
+            todo.append_property(Property::new("RELATED-TO", parent.trim()));
+        }
+    }
     let cal = Calendar::new().push(todo).done();
-    Ok(cal.to_string())
+    // Un-escape the CATEGORIES comma separator (see above). Safe: labels are
+    // stripped of `,`/`;`/`\` before joining, so only delimiters remain.
+    Ok(unescape_categories(cal.to_string()))
+}
+
+/// Turn `CATEGORIES:a\,b` back into `CATEGORIES:a,b` (RFC 5545 separator).
+fn unescape_categories(ics: String) -> String {
+    ics.replace("CATEGORIES:", "\u{1}CATEGORIES:")
+        .lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix('\u{1}') {
+                format!("CATEGORIES:{}", rest.trim_start_matches("CATEGORIES:").replace("\\,", ","))
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
 }
 
 /// Convert an optional start/end pair into RFC 3339 UTC strings.
@@ -835,7 +963,17 @@ END:VCALENDAR
         let due = chrono::DateTime::parse_from_rfc3339("2026-09-01T09:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
-        let ics = build_todo("todo-1", "Einkaufen", Some(due), Some("Milch, Brot"), Some(1), false).unwrap();
+        let ics = build_todo(&TodoSpec {
+            uid: "todo-1",
+            summary: "Einkaufen",
+            due: Some(due),
+            due_has_time: true,
+            description: Some("Milch, Brot"),
+            priority: Some(1),
+            completed: false,
+            ..Default::default()
+        })
+        .unwrap();
         assert!(ics.contains("BEGIN:VTODO"));
         assert!(ics.contains("SUMMARY:Einkaufen"));
         assert!(ics.contains("UID:todo-1"));
@@ -845,11 +983,71 @@ END:VCALENDAR
         assert_eq!(todos[0].summary.as_deref(), Some("Einkaufen"));
         assert!(todos[0].due.is_some());
         assert_eq!(todos[0].priority, Some(1));
+        assert!(todos[0].due_has_time, "timestamped due keeps time flag");
+    }
+
+    #[test]
+    fn test_build_todo_recurrence_labels_parent_roundtrip() {
+        // RRULE, CATEGORIES and RELATED-TO must survive build -> parse.
+        let ics = build_todo(&TodoSpec {
+            uid: "todo-r",
+            summary: "Wochenbericht",
+            due: None,
+            due_has_time: false,
+            description: None,
+            priority: Some(1),
+            completed: false,
+            rrule: Some("FREQ=WEEKLY;BYDAY=FR"),
+            labels: &["Firma".to_string(), "Reporting".to_string()],
+            parent_uid: Some("parent-42"),
+        })
+        .unwrap();
+        assert!(ics.contains("RRULE:FREQ=WEEKLY;BYDAY=FR"));
+        assert!(ics.contains("CATEGORIES:Firma,Reporting"));
+        assert!(ics.contains("RELATED-TO:parent-42"));
+        let todos = parse_todos(&ics).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].rrule.as_deref(), Some("FREQ=WEEKLY;BYDAY=FR"));
+        assert_eq!(todos[0].labels, vec!["Firma", "Reporting"]);
+        assert_eq!(todos[0].parent_uid.as_deref(), Some("parent-42"));
+    }
+
+    #[test]
+    fn test_build_todo_date_only_when_no_time() {
+        let due = chrono::DateTime::parse_from_rfc3339("2026-09-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let ics = build_todo(&TodoSpec {
+            uid: "todo-d",
+            summary: "All day",
+            due: Some(due),
+            due_has_time: false,
+            ..Default::default()
+        })
+        .unwrap();
+        // DATE value (YYYYMMDD), not a UTC timestamp.
+        assert!(ics.contains("DUE;VALUE=DATE") || ics.contains("DUE:"), "has DUE");
+        assert!(!ics.contains("DUE:20260901T"), "must not be a timestamp: {ics}");
+        let todos = parse_todos(&ics).unwrap();
+        assert!(!todos[0].due_has_time, "date-only keeps due_has_time=false");
+    }
+
+    #[test]
+    fn component_property_reads_folded_lines() {
+        // CATEGORIES folded across lines must be unfolded before matching.
+        let raw = "BEGIN:VTODO\r\nUID:x\r\nCATEGORIES:Firma,\r\n Reporting\r\nEND:VTODO\r\n";
+        assert_eq!(component_property(raw, "CATEGORIES").as_deref(), Some("Firma,Reporting"));
     }
 
     #[test]
     fn test_build_todo_completed() {
-        let ics = build_todo("todo-2", "Erledigt", None, None, None, true).unwrap();
+        let ics = build_todo(&TodoSpec {
+            uid: "todo-2",
+            summary: "Erledigt",
+            completed: true,
+            ..Default::default()
+        })
+        .unwrap();
         let todos = parse_todos(&ics).unwrap();
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].status.as_deref(), Some("COMPLETED"));

@@ -38,5 +38,16 @@ pub fn with_db<T>(
     f(conn)
 }
 
+/// Mutable variant for operations that need a transaction/`&mut Connection`
+/// (e.g. batch reorder). Same locking and error semantics as [`with_db`].
+pub fn with_db_mut<T>(
+    state: &AppState,
+    f: impl FnOnce(&mut rusqlite::Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut guard = get_db(state)?;
+    let conn = guard.as_mut().ok_or("Datenbank nicht initialisiert")?;
+    f(conn)
+}
+
 /// Locked access to an `Arc`-wrapped background resource.
 pub type ArcLock<T> = Arc<parking_lot::RwLock<T>>;

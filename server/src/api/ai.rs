@@ -2003,7 +2003,7 @@ async fn execute_prepared(state: &AppState, step: &crate::ai::tools::PreparedCar
         }
         "tasks_toggle" => {
             let uid = last_path_segment(&step.request.path);
-            let req: crate::api::todos::ToggleTodoRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
+            let req: crate::api::todos::PatchTodoRequest = serde_json::from_value(body).map_err(|e| e.to_string())?;
             api_result_to_value(crate::api::todos::toggle_todo(State(state.clone()), Path(uid), Json(req)).await)
         }
         "tasks_delete" => {

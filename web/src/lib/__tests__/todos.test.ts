@@ -71,3 +71,66 @@ describe("todos service", () => {
     expect(res.synced).toBe(5);
   });
 });
+
+// ─── Task-module extensions (26.9.163) ───────────────────────────────
+
+import {
+  quickAddTodo, patchTodo, succeedTodo, reorderTodos, todoViews,
+  type TodoPatchInput,
+} from "$lib/services/tauri";
+
+describe("todos service — extended API", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("quickAddTodo POSTs text + project_id", async () => {
+    mockFetchOnce(200, { id: 1, uid: "u1", summary: "Budget" });
+    await quickAddTodo("Freitag Budget p1", 7);
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/todos/quick-add");
+    expect(opts?.method).toBe("POST");
+    expect(JSON.parse(opts?.body as string)).toEqual({ text: "Freitag Budget p1", project_id: 7 });
+  });
+
+  it("quickAddTodo sends null project when none given", async () => {
+    mockFetchOnce(200, {});
+    await quickAddTodo("Heute anrufen");
+    const [, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(opts?.body as string).project_id).toBeNull();
+  });
+
+  it("patchTodo PATCHes a partial field set", async () => {
+    mockFetchOnce(200, { uid: "u1" });
+    const patch: TodoPatchInput = { priority: 1, labels: ["Firma"], project_id: null };
+    await patchTodo("u1", patch);
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/todos/u1");
+    expect(opts?.method).toBe("PATCH");
+    expect(JSON.parse(opts?.body as string)).toEqual(patch);
+  });
+
+  it("succeedTodo POSTs to /todos/:uid/succeed", async () => {
+    mockFetchOnce(200, { uid: "next" });
+    await succeedTodo("u1");
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/todos/u1/succeed");
+    expect(opts?.method).toBe("POST");
+  });
+
+  it("reorderTodos POSTs the uid list", async () => {
+    mockFetchOnce(200, { reordered: 2 });
+    const r = await reorderTodos(["a", "b"]);
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/todos/reorder");
+    expect(JSON.parse(opts?.body as string)).toEqual({ uids: ["a", "b"] });
+    expect(r.reordered).toBe(2);
+  });
+
+  it("todoViews GETs /todos/views", async () => {
+    mockFetchOnce(200, { inbox: 1, today: 2, upcoming: 3, overdue: 0, done: 4, all: 10 });
+    const v = await todoViews();
+    const [url, opts] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/todos/views");
+    expect(opts?.method).toBe("GET");
+    expect(v.today).toBe(2);
+  });
+});

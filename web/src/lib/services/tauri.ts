@@ -1360,6 +1360,13 @@ export interface TodoInfo {
   completed_at: string | null;
   status: string;
   priority: number | null;
+  project_id: number | null;
+  parent_uid: string | null;
+  labels: string[];
+  section: string | null;
+  rrule: string | null;
+  sort_order: number;
+  due_has_time: boolean;
 }
 
 export interface TodoInput {
@@ -1367,6 +1374,34 @@ export interface TodoInput {
   description?: string;
   due?: string;
   priority?: number;
+  labels?: string[];
+  rrule?: string;
+  parent_uid?: string;
+  project_id?: number;
+  section?: string;
+}
+
+/** Partial update — absent keys are left unchanged. */
+export interface TodoPatchInput {
+  completed?: boolean;
+  summary?: string;
+  description?: string | null;
+  due?: string | null;
+  priority?: number | null;
+  labels?: string[];
+  rrule?: string | null;
+  project_id?: number | null;
+  section?: string | null;
+}
+
+/** Focus-view counters for the sidebar. */
+export interface TodoViews {
+  inbox: number;
+  today: number;
+  upcoming: number;
+  overdue: number;
+  done: number;
+  all: number;
 }
 
 export async function listTodos(completed?: boolean): Promise<TodoInfo[]> {
@@ -1378,8 +1413,36 @@ export async function createTodo(input: TodoInput): Promise<TodoInfo> {
   return post<TodoInfo>("/todos", input, "Aufgabe konnte nicht angelegt werden.");
 }
 
+/** Instant natural-language capture: parses and creates in one call. */
+export async function quickAddTodo(text: string, projectId?: number): Promise<TodoInfo> {
+  return post<TodoInfo>(
+    "/todos/quick-add",
+    { text, project_id: projectId ?? null },
+    "Aufgabe konnte nicht angelegt werden.",
+  );
+}
+
+export async function todoViews(): Promise<TodoViews> {
+  return get<TodoViews>("/todos/views", "Ansichten konnten nicht geladen werden.");
+}
+
 export async function toggleTodo(uid: string, completed: boolean): Promise<TodoInfo> {
   return apiCall<TodoInfo>("PATCH", `/todos/${encodeURIComponent(uid)}`, { completed }, "Aufgabe konnte nicht aktualisiert werden.");
+}
+
+/** Update any subset of task fields. */
+export async function patchTodo(uid: string, patch: TodoPatchInput): Promise<TodoInfo> {
+  return apiCall<TodoInfo>("PATCH", `/todos/${encodeURIComponent(uid)}`, patch, "Aufgabe konnte nicht aktualisiert werden.");
+}
+
+/** Complete a recurring task and spawn its next occurrence. */
+export async function succeedTodo(uid: string): Promise<TodoInfo> {
+  return post<TodoInfo>(`/todos/${encodeURIComponent(uid)}/succeed`, {}, "Aufgabe konnte nicht fortgeschrieben werden.");
+}
+
+/** Persist a manual order (array of UIDs in display order). */
+export async function reorderTodos(uids: string[]): Promise<{ reordered: number }> {
+  return post<{ reordered: number }>("/todos/reorder", { uids }, "Reihenfolge konnte nicht gespeichert werden.");
 }
 
 export async function deleteTodo(uid: string): Promise<{ deleted: boolean }> {
