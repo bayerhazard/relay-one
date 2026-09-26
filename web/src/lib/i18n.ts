@@ -529,9 +529,10 @@ export const translations: Record<Lang, Dict> = {
 
     // Tasks
     "tasks.title": "Aufgaben",
+    "tasks.new": "Neue Aufgabe",
+    "tasks.count": "{n} Aufgaben",
     "tasks.menu": "Menü",
     "tasks.close": "Schließen",
-    "tasks.syncing": "Synchronisiere…",
     "tasks.searchPlaceholder": "Aufgaben suchen…",
     "tasks.searchLabel": "Aufgaben suchen",
     "tasks.clearSearch": "Suche löschen",
@@ -552,7 +553,6 @@ export const translations: Record<Lang, Dict> = {
     "tasks.saving": "Speichern…",
     "tasks.deleteConfirm": "Aufgabe \"{name}\" wirklich löschen?",
     "tasks.synced": "{n} Aufgaben synchronisiert.",
-    "tasks.refresh": "Aktualisieren",
     "tasks.viewsLabel": "Ansichten",
     "tasks.viewInbox": "Eingang",
     "tasks.viewToday": "Heute",
@@ -1202,9 +1202,10 @@ export const translations: Record<Lang, Dict> = {
 
     // Tasks
     "tasks.title": "Tasks",
+    "tasks.new": "New task",
+    "tasks.count": "{n} tasks",
     "tasks.menu": "Menu",
     "tasks.close": "Close",
-    "tasks.syncing": "Syncing…",
     "tasks.searchPlaceholder": "Search tasks…",
     "tasks.searchLabel": "Search tasks",
     "tasks.clearSearch": "Clear search",
@@ -1225,7 +1226,6 @@ export const translations: Record<Lang, Dict> = {
     "tasks.saving": "Saving…",
     "tasks.deleteConfirm": "Delete task \"{name}\"?",
     "tasks.synced": "{n} task(s) synced.",
-    "tasks.refresh": "Refresh",
     "tasks.viewsLabel": "Views",
     "tasks.viewInbox": "Inbox",
     "tasks.viewToday": "Today",

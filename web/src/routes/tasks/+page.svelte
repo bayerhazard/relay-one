@@ -60,6 +60,12 @@
   // Live preview of what the parser understood (chips below the field).
   let qaParsed = $derived<ParsedQuickAdd>(parseQuickAdd(qaText));
 
+  /** Focus the Quick-Add field (sidebar "New" button + global Q shortcut). */
+  function focusQuickAdd() {
+    if (isNarrow) sidebarOpen = false;
+    qaInput?.focus();
+  }
+
   async function submitQuickAdd() {
     const text = qaText.trim();
     if (!text || busy) return;
@@ -520,22 +526,19 @@
     </nav>
 
     <!-- Projects (= CalDAV calendars) -->
-    <div class="tk-projects">
-      <div class="tk-projects-head">{$t("tasks.projects")}</div>
-      {#each projects as p (p.id)}
-        <button type="button" class="tk-view" class:active={selection === `p:${p.id}`} onclick={() => select(`p:${p.id}`)}>
-          <span class="tk-dot" style={`background:${p.color || "var(--color-text-secondary)"}`}></span>
-          <span class="tk-view-label">{p.name}</span>
-        </button>
-      {/each}
-    </div>
+    {#if projects.length}
+      <div class="tk-projects">
+        <div class="tk-projects-head">{$t("tasks.projects")}</div>
+        {#each projects as p (p.id)}
+          <button type="button" class="tk-view" class:active={selection === `p:${p.id}`} onclick={() => select(`p:${p.id}`)}>
+            <span class="tk-dot" style={`background:${p.color || "var(--color-text-secondary)"}`}></span>
+            <span class="tk-view-label">{p.name}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
-    <div class="tk-tools">
-      <button type="button" class="tk-btn tk-btn-ghost" onclick={onSync} disabled={syncing}>
-        {syncing ? $t("tasks.syncing") : $t("tasks.refresh")}
-      </button>
-      {#if syncMsg}<span class="tk-sync-msg">{syncMsg}</span>{/if}
-    </div>
+    <div class="tk-count">{$t("tasks.count", { n: visibleTodos.length })}</div>
 
     <SidebarFooter active="tasks">
       <SidebarSearch
@@ -554,8 +557,11 @@
   <main class="tk-main">
     {#if isNarrow}
       <div class="tk-mobile-header">
-        <button type="button" class="tk-nav-btn" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <h1>{selectionLabel()}</h1>
+        <button type="button" class="tk-nav-btn tk-mobile-new" onclick={focusQuickAdd} aria-label={$t("tasks.new")}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     {/if}
 
@@ -679,10 +685,10 @@
   </main>
 </div>
 
-<!-- Detail panel (inline, slide-over) -->
+<!-- Detail panel (centred modal) -->
 {#if detail}
-  <div class="tk-detail-scrim" role="presentation" onclick={closeDetail}></div>
-  <aside class="tk-detail" aria-label={$t("tasks.details")}>
+  <div class="tk-detail-scrim" role="button" tabindex="0" aria-label={$t("tasks.closeDialog")} onclick={(e) => { if (e.target === e.currentTarget) closeDetail(); }} onkeydown={(e) => { if (e.key === "Escape") closeDetail(); }}>
+  <aside class="tk-detail" role="dialog" aria-modal="true" tabindex="-1" aria-label={$t("tasks.details")}>
     <header class="tk-detail-head">
       <h2>{$t("tasks.details")}</h2>
       <button type="button" class="tk-icon-btn" onclick={closeDetail} aria-label={$t("tasks.closeDialog")}>✕</button>
@@ -761,6 +767,7 @@
       <button type="button" class="tk-btn tk-btn-primary" onclick={saveDetail} disabled={busy}>{busy ? $t("tasks.saving") : $t("common.save")}</button>
     </div>
   </aside>
+  </div>
 {/if}
 
 <!-- Sub-task creation dialog -->
@@ -822,6 +829,7 @@
     gap: 8px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    margin-bottom: 16px;
   }
 
   /* Focus views */
@@ -920,10 +928,10 @@
     padding: 3px 8px;
   }
   .tk-chip-title { color: var(--color-text); font-weight: 500; }
-  .tk-prio-chip { color: #fff; }
+  .tk-prio-chip { color: var(--color-unread-badge-text); }
   .tk-prio-chip.prio-1 { background: var(--color-danger); }
-  .tk-prio-chip.prio-2 { background: #ed914c; }
-  .tk-prio-chip.prio-3 { background: #60b0ff; }
+  .tk-prio-chip.prio-2 { background: var(--color-warning); }
+  .tk-prio-chip.prio-3 { background: var(--color-unread); }
 
   .tk-list-head {
     display: flex;
@@ -1027,10 +1035,10 @@
     border-radius: var(--radius-s);
     flex-shrink: 0;
   }
-  /* Priority colours follow the design-guide state palette (dark variants). */
-  .tk-prio.prio-1 { background: var(--color-danger); color: #fff; }
-  .tk-prio.prio-2 { background: #ed914c; color: #1a1a1a; }
-  .tk-prio.prio-3 { background: #60b0ff; color: #1a1a1a; }
+  /* Priority colours follow the design-guide state palette (theme-aware). */
+  .tk-prio.prio-1 { background: var(--color-danger); color: var(--color-unread-badge-text); }
+  .tk-prio.prio-2 { background: var(--color-warning); color: var(--color-unread-badge-text); }
+  .tk-prio.prio-3 { background: var(--color-unread); color: var(--color-unread-badge-text); }
 
   .tk-subtasks { list-style: none; margin: 4px 0 4px 34px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .tk-subtask { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: var(--radius-s); }
@@ -1075,23 +1083,28 @@
   .tk-btn-ghost:hover { background: var(--color-active-wash); }
   .tk-btn-danger { color: var(--color-danger); }
 
-  /* Detail panel */
-  .tk-detail-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.25); z-index: 70; }
-  .tk-detail {
+  /* Detail panel — centred modal, matching Contacts/Calendar pattern */
+  .tk-detail-scrim {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 420px;
-    max-width: 92vw;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .tk-detail {
+    width: 440px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
     background: var(--color-card, var(--color-list));
-    border-left: 1px solid var(--color-border);
-    z-index: 71;
-    padding: 18px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-l);
+    padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    overflow-y: auto;
   }
   .tk-detail-head { display: flex; align-items: center; justify-content: space-between; }
   .tk-detail-head h2 { margin: 0; font-size: var(--fs-md); }
@@ -1157,7 +1170,8 @@
   .tk-app.narrow .resize-handle { display: none; }
   .tk-app.narrow .tk-main { padding: 12px; }
   .tk-mobile-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .tk-mobile-header h1 { margin: 0; font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-mobile-header h1 { margin: 0; font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .tk-mobile-new { margin-left: auto; }
   .tk-nav-btn {
     display: inline-flex;
     align-items: center;

@@ -81,6 +81,11 @@ pub struct CreateTodoRequest {
     /// Section name inside the project, optional.
     #[serde(default)]
     pub section: Option<String>,
+    /// Explicit date-vs-date-time flag. When absent it is derived from whether
+    /// `due` carries a time (`T`). Quick-Add sends this so a date-only task
+    /// stays all-day even though the wire format is RFC 3339 at midnight.
+    #[serde(default)]
+    pub due_has_time: Option<bool>,
 }
 
 /// True when a due string carries a time-of-day (RFC 3339 with a `T`).
@@ -141,7 +146,9 @@ pub async fn create_todo(
 ) -> ApiResult<TodoRow> {
     let client = caldav_client(&state)?;
 
-    let has_time = req.due.as_deref().map(due_has_time).unwrap_or(false);
+    let has_time = req
+        .due_has_time
+        .unwrap_or_else(|| req.due.as_deref().map(due_has_time).unwrap_or(false));
     let due = match &req.due {
         Some(d) => Some(parse_due(d)?),
         None => None,
@@ -341,6 +348,7 @@ pub async fn quick_add_todo(
         parent_uid: None,
         project_id,
         section: parsed.section.clone(),
+        due_has_time: Some(parsed.due_has_time),
     };
     create_todo(State(state), Json(create)).await
 }

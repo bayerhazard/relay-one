@@ -345,9 +345,12 @@ fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
     }
 }
 
-/// Read the first value of a top-level property from a single VTODO (or VEVENT)
-/// ICS block. Handles `PROP:value` and `PROP;PARAM=..:value` forms and unfolds
-/// RFC 5545 line continuations (a CRLF/LF followed by a space or tab).
+/// Read the first value of a property from the **VTODO block** of an ICS body.
+///
+/// Scoped to `BEGIN:VTODO`…`END:VTODO`: a server may embed a `VTIMEZONE`
+/// component (which carries its own `RRULE` lines), and scanning the whole body
+/// would wrongly pick those up. Handles `PROP:value` and `PROP;PARAM=..:value`
+/// forms and unfolds RFC 5545 line continuations (CRLF/LF + space or tab).
 fn component_property(raw: &str, name: &str) -> Option<String> {
     // Unfold first: RFC 5545 continuation lines start with a single space/tab.
     let unfolded = raw
@@ -355,8 +358,21 @@ fn component_property(raw: &str, name: &str) -> Option<String> {
         .replace("\r\n\t", "")
         .replace("\n ", "")
         .replace("\n\t", "");
+    let mut in_todo = false;
     for line in unfolded.lines() {
         let line = line.trim_end_matches('\r');
+        let upper = line.to_ascii_uppercase();
+        if upper.starts_with("BEGIN:VTODO") {
+            in_todo = true;
+            continue;
+        }
+        if upper.starts_with("END:VTODO") {
+            in_todo = false;
+            continue;
+        }
+        if !in_todo {
+            continue;
+        }
         let key = line.split([':', ';']).next().unwrap_or("");
         if key.eq_ignore_ascii_case(name) {
             if let Some(idx) = line.find(':') {
@@ -1037,6 +1053,39 @@ END:VCALENDAR
         // CATEGORIES folded across lines must be unfolded before matching.
         let raw = "BEGIN:VTODO\r\nUID:x\r\nCATEGORIES:Firma,\r\n Reporting\r\nEND:VTODO\r\n";
         assert_eq!(component_property(raw, "CATEGORIES").as_deref(), Some("Firma,Reporting"));
+    }
+
+    #[test]
+    fn component_property_ignores_vtimezone_rrule() {
+        // A server may embed a VTIMEZONE whose RRULE must NOT be read as the
+        // task's recurrence (real-world SabreDAV/Baikal output).
+        let raw = "BEGIN:VCALENDAR\r\n\
+                   BEGIN:VTIMEZONE\r\n\
+                   TZID:Europe/Berlin\r\n\
+                   BEGIN:STANDARD\r\n\
+                   RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10\r\n\
+                   END:STANDARD\r\n\
+                   BEGIN:DAYLIGHT\r\n\
+                   RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3\r\n\
+                   END:DAYLIGHT\r\n\
+                   END:VTIMEZONE\r\n\
+                   BEGIN:VTODO\r\n\
+                   UID:t1\r\n\
+                   SUMMARY:Budget\r\n\
+                   RRULE:FREQ=WEEKLY;BYDAY=FR\r\n\
+                   END:VTODO\r\n\
+                   END:VCALENDAR\r\n";
+        assert_eq!(component_property(raw, "RRULE").as_deref(), Some("FREQ=WEEKLY;BYDAY=FR"));
+
+        let todos = parse_todos(raw).unwrap();
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].rrule.as_deref(), Some("FREQ=WEEKLY;BYDAY=FR"));
+    }
+
+    #[test]
+    fn component_property_none_when_no_todo_block() {
+        let raw = "BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nRRULE:FREQ=YEARLY\r\nEND:VTIMEZONE\r\nEND:VCALENDAR\r\n";
+        assert_eq!(component_property(raw, "RRULE"), None);
     }
 
     #[test]
