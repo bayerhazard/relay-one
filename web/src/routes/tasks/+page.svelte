@@ -500,6 +500,17 @@
       <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
 
+    <div class="tk-tools">
+      <button type="button" class="tk-btn tk-btn-primary" onclick={focusQuickAdd}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        {$t("tasks.new")}
+      </button>
+      <button type="button" class="tk-btn tk-btn-ghost" onclick={onSync} disabled={syncing}>
+        {syncing ? $t("common.syncing") : $t("common.refresh")}
+      </button>
+      {#if syncMsg}<span class="tk-sync-msg">{syncMsg}</span>{/if}
+    </div>
+
     <!-- Focus views -->
     <nav class="tk-views" aria-label={$t("tasks.viewsLabel")}>
       <button type="button" class="tk-view" class:active={selection === "inbox"} onclick={() => select("inbox")}>
