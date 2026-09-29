@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.166
+  version: 26.9.167
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.166
+  versionName: 26.9.167
   upgradeDescription: |
+    v26.9.167: Overdue tasks now use the same marking as an urgent mail — a red bar on the left edge with a subtle red wash — instead of a full red outline. Built for Olares 1.12.6.
     v26.9.166: The Tasks area now sits in the same shell as Mail, Contacts, Calendar and Meetings. The New and Refresh buttons moved back under the sidebar header (they had dropped to the bottom of the sidebar), the task counter now has the same styled divider row as the other modules, and the item titles use the same weight as the rest of the app. Recurrence and due-date markers are drawn as crisp inline icons instead of emoji, Escape now closes the task detail and sub-task dialogs from anywhere, and the label fields are fully localised. Built for Olares 1.12.6.
     v26.9.165: the Tasks sidebar now shows the New and Refresh buttons again — the button row was lost in the previous release, so only the styles were shipped and the buttons never appeared. v26.9.164: The Tasks area is now a full task manager. Quick Add captures a task with natural language in one line — dates like "Friday" or "3.10.", times, "p1"–"p4" priority, "#Project", "@label" and "/section" are recognised live while you type (press Q anywhere to focus it). The sidebar has focus views (Inbox, Today, Upcoming, All, Completed) plus your projects, which map to the CalDAV calendars, so everything stays usable in other calendar apps. Click a task for an inline detail panel with notes, date and time, priority, recurrence, project, section and labels; tasks can have sub-tasks and repeat (completing a recurring task creates its next occurrence). Completed tasks are hidden by default and can be shown with a toggle. All tasks sync over CalDAV. Built for Olares 1.12.6.
     v26.9.162: The lower sidebar block now looks identical in every area (Mail, Contacts, Calendar, Meetings, Tasks) — same module icons, same search field size and same divider height. In Contacts, Calendar, Meetings and Tasks the search field now matches Mail (slightly narrower and as tall as before). Built for Olares 1.12.6.
