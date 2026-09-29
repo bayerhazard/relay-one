@@ -1015,12 +1015,11 @@
     border-radius: var(--radius-m);
   }
   .tk-item.selected { border-color: var(--color-accent); }
-  /* Overdue: same marking as urgent mail — a red bar on the left edge plus a
-     subtle red wash, instead of a full red outline. Declared after .selected
+  /* Overdue: a red bar on the left edge only, like the urgent marking in the
+     mail list — the card keeps its normal background. Declared after .selected
      so the bar stays red even when the task is the selected one. */
   .tk-item.overdue {
     border-left: 3px solid var(--color-urgent);
-    background: var(--color-urgent-wash);
   }
   .tk-item.done { opacity: 0.6; }
   .tk-item.done .tk-item-summary { text-decoration: line-through; }
