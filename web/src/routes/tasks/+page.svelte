@@ -105,7 +105,7 @@
       const cals = await getCalendars();
       projects = cals.map((c) => ({
         id: c.id,
-        name: c.name || `Kalender ${c.id}`,
+        name: c.name || translate("tasks.calendarFallback", { id: c.id }),
         color: c.color,
       }));
     } catch {
@@ -123,8 +123,16 @@
     void loadAll();
   });
 
-  // Global quick-capture shortcut: press "Q" anywhere on the page.
+  // Global shortcuts: "Q" focuses Quick Add; Escape closes the task dialogs
+  // (matching Contacts/Calendar/Mail). ConfirmationDialog and ContextMenu own
+  // their own Escape handling, so leave them alone.
   function onGlobalKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      if (busy || deleteTarget || ctxMenu) return;
+      if (subtaskParent) { subtaskParent = null; return; }
+      if (detail) { closeDetail(); return; }
+      return;
+    }
     const el = e.target as HTMLElement | null;
     const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -596,7 +604,7 @@
         }}
       />
       <kbd class="tk-qa-kbd">Q</kbd>
-      <button type="button" class="tk-btn tk-btn-primary tk-qa-submit" onclick={submitQuickAdd} disabled={busy || !qaText.trim()}>
+      <button type="button" class="tk-btn tk-btn-ghost tk-qa-submit" onclick={submitQuickAdd} disabled={busy || !qaText.trim()}>
         {$t("tasks.add")}
       </button>
     </div>
@@ -604,9 +612,17 @@
       <div class="tk-qa-chips" aria-live="polite">
         <span class="tk-chip tk-chip-title">{qaParsed.title || $t("tasks.untitled")}</span>
         {#if qaParsed.due}
-          <span class="tk-chip">📅 {fmtDateByLang(qaParsed.due, fmtLocaleTag())}{qaParsed.dueHasTime ? ` ${String(qaParsed.due.getHours()).padStart(2, "0")}:${String(qaParsed.due.getMinutes()).padStart(2, "0")}` : ""}</span>
+          <span class="tk-chip">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            {fmtDateByLang(qaParsed.due, fmtLocaleTag())}{qaParsed.dueHasTime ? ` ${String(qaParsed.due.getHours()).padStart(2, "0")}:${String(qaParsed.due.getMinutes()).padStart(2, "0")}` : ""}
+          </span>
         {/if}
-        {#if qaParsed.rrule}<span class="tk-chip">🔁 {recurLabel(qaParsed.rrule)}</span>{/if}
+        {#if qaParsed.rrule}
+          <span class="tk-chip">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            {recurLabel(qaParsed.rrule)}
+          </span>
+        {/if}
         {#if qaParsed.priority < 4}<span class={`tk-chip tk-prio-chip ${prioClassByUi(qaParsed.priority)}`}>{PRIO_LABEL[qaParsed.priority]}</span>{/if}
         {#if qaParsed.project}<span class="tk-chip">#{qaParsed.project}</span>{/if}
         {#if qaParsed.section}<span class="tk-chip">/{qaParsed.section}</span>{/if}
@@ -662,7 +678,11 @@
                       {#if todo.due_at}
                         <span class="tk-item-due" class:overdue={isOverdue(todo)}>{dueLabel(todo)}</span>
                       {/if}
-                      {#if todo.rrule}<span class="tk-item-rep">🔁</span>{/if}
+                      {#if todo.rrule}
+                        <span class="tk-item-rep" title={recurLabel(todo.rrule)}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                        </span>
+                      {/if}
                       {#each todo.labels as l (l)}<span class="tk-item-label">@{l}</span>{/each}
                     </span>
                   {/if}
@@ -767,7 +787,7 @@
       </label>
       <label class="tk-field">
         <span>{$t("tasks.labelsLabel")}</span>
-        <input type="text" bind:value={edit.labelsText} placeholder="z.B. Firma, dringend" />
+        <input type="text" bind:value={edit.labelsText} placeholder={$t("tasks.phLabels")} />
       </label>
     </div>
 
@@ -822,7 +842,6 @@
     height: 100vh;
     background: var(--color-list);
     color: var(--color-text);
-    position: relative;
   }
   .tk-sidebar {
     flex-shrink: 0;
@@ -883,15 +902,15 @@
     letter-spacing: 0.04em;
     color: var(--color-text-secondary);
   }
-
-  .tk-tools {
-    margin-top: auto;
-    padding: 10px 12px 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+  .tk-count {
+    padding: 10px 16px;
+    font-size: var(--fs-xs);
+    color: var(--color-text-secondary);
     border-top: 1px solid var(--color-border);
+    margin-top: 8px;
   }
+
+  .tk-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
   .tk-sync-msg { font-size: var(--fs-xs); color: var(--color-text-secondary); }
 
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; min-width: 0; }
@@ -932,6 +951,9 @@
 
   .tk-qa-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
   .tk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: var(--fs-xs);
     color: var(--color-text-secondary);
     background: var(--color-active-wash);
@@ -1030,11 +1052,11 @@
     font-family: inherit;
     padding: 0;
   }
-  .tk-item-summary { font-weight: 500; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-item-summary { font-weight: 600; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tk-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .tk-item-due { font-size: var(--fs-xs); color: var(--color-text-secondary); }
   .tk-item-due.overdue { color: var(--color-danger); font-weight: 600; }
-  .tk-item-rep { font-size: var(--fs-xs); }
+  .tk-item-rep { display: inline-flex; align-items: center; color: var(--color-text-secondary); }
   .tk-item-label { font-size: var(--fs-xs); color: var(--color-text-secondary); }
 
   .tk-prio {
@@ -1105,7 +1127,7 @@
     z-index: 100;
   }
   .tk-detail {
-    width: 440px;
+    width: 420px;
     max-width: calc(100vw - 32px);
     max-height: calc(100vh - 64px);
     overflow-y: auto;
@@ -1176,8 +1198,10 @@
   }
   .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
   .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 55; }
-  .tk-app.narrow .tk-sidebar-close { display: inline-flex; }
-  .tk-app:not(.narrow) .tk-sidebar-close { display: none; }
+  .tk-app.narrow .tk-sidebar-close,
+  .tk-app.narrow .tk-menu-toggle { display: inline-flex; }
+  .tk-app:not(.narrow) .tk-sidebar-close,
+  .tk-app:not(.narrow) .tk-menu-toggle { display: none; }
   .tk-app.narrow .resize-handle { display: none; }
   .tk-app.narrow .tk-main { padding: 12px; }
   .tk-mobile-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -1197,5 +1221,8 @@
     font-size: 1.25rem;
   }
   .tk-nav-btn:hover { background: var(--color-active-wash); }
-  .tk-qa-kbd { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .tk-app.narrow .tk-sidebar { transition: none; }
+  }
+  .tk-app.narrow .tk-qa-kbd { display: none; }
 </style>
