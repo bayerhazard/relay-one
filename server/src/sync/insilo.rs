@@ -45,17 +45,17 @@ fn drop_dir() -> Option<PathBuf> {
 }
 
 /// Eine geparste Meeting-Datei (Frontmatter + Body).
-struct Parsed {
-    insilo_id: String,
-    title: String,
-    participants: Vec<String>,
-    tags: Vec<String>,
-    meeting_date: String,
-    duration_min: i64,
-    language: String,
-    template: String,
-    source_url: String,
-    body: String,
+pub(crate) struct Parsed {
+    pub(crate) insilo_id: String,
+    pub(crate) title: String,
+    pub(crate) participants: Vec<String>,
+    pub(crate) tags: Vec<String>,
+    pub(crate) meeting_date: String,
+    pub(crate) duration_min: i64,
+    pub(crate) language: String,
+    pub(crate) template: String,
+    pub(crate) source_url: String,
+    pub(crate) body: String,
 }
 
 /// Führende/abschließende Anführungszeichen von einem Skalar abstreifen.
@@ -71,7 +71,7 @@ fn unquote(s: &str) -> &str {
 /// `:` (Anführungszeichen abgestrifen); `participants`/`tags` sind
 /// JSON-Array-Literale (Insilo schreibt `json.dumps`). Der Body folgt
 /// unverändert nach dem schließenden `---`.
-fn parse_frontmatter(content: &str) -> Result<Parsed, String> {
+pub(crate) fn parse_frontmatter(content: &str) -> Result<Parsed, String> {
     let mut lines = content.lines();
     let first = lines.next().ok_or("leere Datei")?;
     if first.trim() != "---" {
@@ -163,6 +163,7 @@ pub fn run_insilo_scan(state: &AppState) -> ScanReport {
     let mut gefunden: Vec<(String, String, Parsed)> = Vec::new();
     let mut skipped = 0usize;
     let mut scanned = 0usize;
+    let idea_prefix = crate::sync::insilo_ideas::idea_prefix();
 
     match std::fs::read_dir(&dir) {
         Ok(entries) => {
@@ -199,6 +200,15 @@ pub fn run_insilo_scan(state: &AppState) -> ScanReport {
                 let sha = hex::encode(Sha256::digest(content.as_bytes()));
                 match parse_frontmatter(&content) {
                     Ok(p) => {
+                        // Ideen gehören nicht in die Meetings: Datei aus `gesehen`
+                        // entfernen, damit ein bereits importierter Eintrag beim
+                        // Löschlauf wieder verschwindet (der Ideen-Scanner
+                        // verarbeitet sie stattdessen zu Aufgaben).
+                        if crate::sync::insilo_ideas::is_idea_title(&p.title, &idea_prefix) {
+                            gesehen.remove(&name);
+                            skipped += 1;
+                            continue;
+                        }
                         scanned += 1;
                         gefunden.push((name, sha, p));
                     }

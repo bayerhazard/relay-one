@@ -61,8 +61,6 @@ spec:
             # Insilo-appData gelesen (read-only), daraus werden Aufgaben.
             - name: RELAY_INSILO_IDEAS_ENABLED
               value: {{ if hasKey $ideas "enabled" }}{{ $ideas.enabled | quote }}{{ else }}"true"{{ end }}
-            - name: RELAY_INSILO_IDEAS_DIR
-              value: {{ $ideas.mountPath | default "/data/insilo-ideas" | quote }}
             - name: RELAY_INSILO_IDEAS_SCAN_SECS
               value: {{ $ideas.scanIntervalSec | default 120 | quote }}
             - name: RELAY_INSILO_IDEA_PREFIX
@@ -94,9 +92,6 @@ spec:
               mountPath: {{ .Values.storage.mountPath }}
             - name: insilo-drop
               mountPath: /data/insilo
-              readOnly: true
-            - name: insilo-ideas
-              mountPath: {{ $ideas.mountPath | default "/data/insilo-ideas" }}
               readOnly: true
           startupProbe:
             httpGet:
@@ -139,12 +134,4 @@ spec:
             # Geteilter appCommon-Ordner: Insilo schreibt Meeting-Summaries
             # nach <appCommon>/insilo-meetings, Relay liest read-only.
             path: {{ .Values.userspace.appCommon }}/insilo-meetings
-            type: DirectoryOrCreate
-        - name: insilo-ideas
-          hostPath:
-            # Insilo-appData, aus dem eigenen appData abgeleitet: appData endet
-            # auf /<appName>, also /relay abschneiden und /insilo anhängen.
-            # (Kein `dir`: der Lint-Platzhalter ist interface{}; kein `..`:
-            # Kubernetes verbietet '..' in hostPath.)
-            path: {{ trimSuffix "/relay" (toString .Values.userspace.appData) }}/insilo
             type: DirectoryOrCreate

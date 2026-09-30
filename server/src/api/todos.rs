@@ -78,9 +78,6 @@ pub struct CreateTodoRequest {
     /// Target project (calendar id). None = Inbox.
     #[serde(default)]
     pub project_id: Option<i64>,
-    /// Section name inside the project, optional.
-    #[serde(default)]
-    pub section: Option<String>,
     /// Explicit date-vs-date-time flag. When absent it is derived from whether
     /// `due` carries a time (`T`). Quick-Add sends this so a date-only task
     /// stays all-day even though the wire format is RFC 3339 at midnight.
@@ -188,13 +185,6 @@ pub async fn create_todo(
         raw: ics,
     };
     with_db(&state, |conn| cache::todo::upsert_todo(conn, cal_id, &todo))?;
-    if let Some(section) = &req.section {
-        let u = cache::todo::TodoUpdate {
-            section: Some(Some(section.clone())),
-            ..Default::default()
-        };
-        let _ = with_db(&state, |conn| cache::todo::update_todo(conn, &uid, &u));
-    }
 
     let row = with_db(&state, |conn| {
         cache::todo::find_todo(conn, &uid).map(|o| o.ok_or_else(|| "Todo nicht gefunden".to_string()))
@@ -225,8 +215,6 @@ pub struct PatchTodoRequest {
     pub rrule: Option<Option<String>>,
     #[serde(default, with = "serde_with_optional")]
     pub project_id: Option<Option<i64>>,
-    #[serde(default, with = "serde_with_optional")]
-    pub section: Option<Option<String>>,
 }
 
 pub async fn toggle_todo(
@@ -258,7 +246,6 @@ pub async fn toggle_todo(
         labels: req.labels.clone(),
         rrule: req.rrule.clone(),
         project_id: req.project_id.clone(),
-        section: req.section.clone(),
     };
     with_db(&state, |conn| cache::todo::update_todo(conn, &uid, &update))?;
 
@@ -347,7 +334,6 @@ pub async fn quick_add_todo(
         rrule: parsed.rrule.clone(),
         parent_uid: None,
         project_id,
-        section: parsed.section.clone(),
         due_has_time: Some(parsed.due_has_time),
     };
     create_todo(State(state), Json(create)).await
@@ -485,13 +471,6 @@ pub async fn succeed_todo(
         raw: ics,
     };
     with_db(&state, |conn| cache::todo::upsert_todo(conn, cal_id, &new_todo))?;
-    if let Some(section) = &current.section {
-        let u = cache::todo::TodoUpdate {
-            section: Some(Some(section.clone())),
-            ..Default::default()
-        };
-        let _ = with_db(&state, |conn| cache::todo::update_todo(conn, &new_uid, &u));
-    }
 
     let row = with_db(&state, |conn| {
         cache::todo::find_todo(conn, &new_uid)

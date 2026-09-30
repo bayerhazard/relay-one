@@ -307,7 +307,7 @@
 
   let edit = $state({
     summary: "", description: "", due: "", dueTime: "", priority: 4 as number,
-    rrule: "", labelsText: "", section: "", projectId: null as number | null,
+    rrule: "", labelsText: "", projectId: null as number | null,
   });
 
   $effect(() => {
@@ -321,7 +321,6 @@
       priority: icalToPrio(d.priority),
       rrule: d.rrule ?? "",
       labelsText: d.labels.join(", "),
-      section: d.section ?? "",
       projectId: d.project_id,
     };
   });
@@ -373,7 +372,6 @@
         labels: edit.labelsText.split(",").map((s) => s.trim()).filter(Boolean),
         rrule: edit.rrule.trim() || null,
         project_id: edit.projectId,
-        section: edit.section.trim() || null,
       };
       await patchTodo(d.uid, patch);
       await loadAll();
@@ -625,7 +623,6 @@
         {/if}
         {#if qaParsed.priority < 4}<span class={`tk-chip tk-prio-chip ${prioClassByUi(qaParsed.priority)}`}>{PRIO_LABEL[qaParsed.priority]}</span>{/if}
         {#if qaParsed.project}<span class="tk-chip">#{qaParsed.project}</span>{/if}
-        {#if qaParsed.section}<span class="tk-chip">/{qaParsed.section}</span>{/if}
         {#each qaParsed.labels as l (l)}<span class="tk-chip">@{l}</span>{/each}
       </div>
     {/if}
@@ -781,10 +778,6 @@
     </label>
 
     <div class="tk-field-row">
-      <label class="tk-field">
-        <span>{$t("tasks.sectionLabel")}</span>
-        <input type="text" bind:value={edit.section} placeholder={$t("tasks.phOptional")} />
-      </label>
       <label class="tk-field">
         <span>{$t("tasks.labelsLabel")}</span>
         <input type="text" bind:value={edit.labelsText} placeholder={$t("tasks.phLabels")} />

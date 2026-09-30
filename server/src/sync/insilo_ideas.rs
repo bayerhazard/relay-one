@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
@@ -33,92 +33,37 @@ pub struct IdeaScanReport {
     pub skipped: usize,
 }
 
-/// A parsed idea memo.
-struct IdeaFile {
-    insilo_id: String,
-    title: String,
-    recorded_at: String,
-    duration_min: i64,
-    language: String,
-    transcript: String,
-}
-
-/// Idea drop directory from the environment; `None` = disabled.
+/// Idea drop directory: the shared Insilo drop (same as the meetings scanner)
+/// unless an explicit override is set; `None` = disabled.
 fn ideas_dir() -> Option<PathBuf> {
     if std::env::var("RELAY_INSILO_IDEAS_ENABLED").unwrap_or_default() == "false" {
         return None;
     }
-    let dir = std::env::var("RELAY_INSILO_IDEAS_DIR").ok()?;
+    let explicit = std::env::var("RELAY_INSILO_IDEAS_DIR")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let dir = explicit.or_else(|| std::env::var("RELAY_INSILO_DIR").ok())?;
     if dir.is_empty() {
         return None;
     }
     Some(PathBuf::from(dir))
 }
 
-fn idea_prefix() -> String {
+pub fn idea_prefix() -> String {
     std::env::var("RELAY_INSILO_IDEA_PREFIX")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "Idea".to_string())
 }
 
-fn unquote(s: &str) -> &str {
-    s.trim().trim_matches(|c| c == '"' || c == '\'')
-}
-
-/// Parse the audio-memo front-matter schema (`meeting_id`, `title`, `date`,
-/// `duration_min`, `language`, ...). List lines (`  - x`) are ignored.
-fn parse_idea(content: &str) -> Result<IdeaFile, String> {
-    let mut lines = content.lines();
-    if lines.next().map(|l| l.trim()) != Some("---") {
-        return Err("keine Frontmatter".into());
-    }
-    let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut closed = false;
-    for line in lines.by_ref() {
-        if line.trim() == "---" {
-            closed = true;
-            break;
-        }
-        // List items (speakers, tags as YAML list) have no useful key here.
-        if line.trim_start().starts_with("- ") {
-            continue;
-        }
-        if let Some((k, v)) = line.split_once(':') {
-            fields.insert(k.trim().to_string(), v.trim().to_string());
-        }
-    }
-    if !closed {
-        return Err("Frontmatter nicht geschlossen".into());
-    }
-    let field = |k: &str| fields.get(k).map(|s| s.as_str()).unwrap_or("");
-    let insilo_id = unquote(field("meeting_id")).to_string();
-    if insilo_id.is_empty() {
-        return Err("meeting_id fehlt".into());
-    }
-    let body = content
-        .find("\n---\n")
-        .map(|i| content[i + 5..].trim_start_matches('\n').to_string())
-        .unwrap_or_default();
-    Ok(IdeaFile {
-        insilo_id,
-        title: unquote(field("title")).to_string(),
-        recorded_at: unquote(field("date")).to_string(),
-        duration_min: field("duration_min").parse().unwrap_or(0),
-        language: unquote(field("language")).to_string(),
-        transcript: body,
-    })
-}
-
-/// True when the memo is an "idea" (title carries the configured prefix or the
-/// summary template is the quick-note one).
-fn is_idea(f: &IdeaFile, prefix: &str) -> bool {
-    let title = f.title.trim_start().to_lowercase();
+/// True when a memo title carries the configured "idea" prefix (case-insensitive).
+pub fn is_idea_title(title: &str, prefix: &str) -> bool {
+    let t = title.trim_start().to_lowercase();
     let p = prefix.trim().to_lowercase();
-    !p.is_empty() && title.starts_with(&p)
+    !p.is_empty() && t.starts_with(&p)
 }
 
-/// Recursively collect `.md` files (the Insilo audio tree is small).
+/// Recursively collect `.md` files (the Insilo drop is flat).
 fn collect_md(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -144,49 +89,51 @@ pub fn run_ideas_scan(state: &AppState) -> IdeaScanReport {
     collect_md(&dir, &mut files);
 
     let mut report = IdeaScanReport::default();
-    let mut parsed: Vec<(PathBuf, IdeaFile)> = Vec::new();
+    let mut candidates: Vec<(String, String, String, String, i64, String, String, String)> = Vec::new();
     for path in files {
-        // Only the transcript is relevant; summaries would duplicate it.
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if !name.ends_with(".transkript.md") {
+        if name.ends_with(".tmp") {
             continue;
         }
         let Ok(content) = std::fs::read_to_string(&path) else {
             report.skipped += 1;
             continue;
         };
-        match parse_idea(&content) {
-            Ok(f) if is_idea(&f, &prefix) => {
-                report.scanned += 1;
-                parsed.push((path, f));
-            }
-            Ok(_) => {} // a normal recording, not an idea
-            Err(_) => report.skipped += 1,
+        let Ok(p) = crate::sync::insilo::parse_frontmatter(&content) else {
+            report.skipped += 1;
+            continue;
+        };
+        if !is_idea_title(&p.title, &prefix) {
+            continue; // a normal meeting/recording
         }
+        report.scanned += 1;
+        let sha = hex::encode(Sha256::digest(content.as_bytes()));
+        candidates.push((
+            p.insilo_id,
+            path.to_string_lossy().to_string(),
+            sha,
+            p.title,
+            p.duration_min,
+            p.language,
+            p.meeting_date,
+            p.body,
+        ));
     }
-
-    let upserts: Vec<(String, String, String, IdeaFile)> = parsed
-        .into_iter()
-        .map(|(path, f)| {
-            let sha = hex::encode(Sha256::digest(f.transcript.as_bytes()));
-            (path.to_string_lossy().to_string(), sha, f.insilo_id.clone(), f)
-        })
-        .collect();
 
     let result = with_db(state, |conn| {
         let mut inserted = 0usize;
         let mut changed = 0usize;
-        for (path, sha, insilo_id, f) in &upserts {
+        for (insilo_id, path, sha, title, duration_min, language, recorded_at, body) in &candidates {
             match cache::ideas::upsert_idea(
                 conn,
                 insilo_id,
                 path,
                 sha,
-                &f.title,
-                &f.recorded_at,
-                f.duration_min,
-                &f.language,
-                &f.transcript,
+                title,
+                recorded_at,
+                *duration_min,
+                language,
+                body,
             ) {
                 Ok((true, _)) => inserted += 1,
                 Ok((false, true)) => changed += 1,
@@ -205,7 +152,7 @@ pub fn run_ideas_scan(state: &AppState) -> IdeaScanReport {
 
 // ── Verarbeitung ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 struct PlanCalendar {
     #[serde(default)]
     summary: String,
@@ -215,7 +162,7 @@ struct PlanCalendar {
     end: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 struct PlanMail {
     #[serde(default)]
     to: String,
@@ -225,14 +172,17 @@ struct PlanMail {
     body: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
-struct IdeaPlan {
+/// One task action derived from an idea.
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+struct PlanItem {
+    /// `create` (new task), `append` (add a note to target_uid's description)
+    /// or `subtask` (new sub-task under target_uid).
     #[serde(default)]
-    action: String,
+    kind: String,
     #[serde(default)]
-    append_to_uid: Option<String>,
+    target_uid: Option<String>,
     #[serde(default)]
-    summary: Option<String>,
+    title: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -241,6 +191,12 @@ struct IdeaPlan {
     priority: Option<i64>,
     #[serde(default)]
     labels: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default)]
+struct IdeaPlan {
+    #[serde(default)]
+    items: Vec<PlanItem>,
     #[serde(default)]
     calendar: Option<PlanCalendar>,
     #[serde(default)]
@@ -258,24 +214,33 @@ fn extract_json(raw: &str) -> Result<serde_json::Value, String> {
 }
 
 fn build_prompt(idea: &cache::ideas::IdeaRow, open_tasks: &[(String, String)]) -> (String, String) {
-    let system = "Du verarbeitest kurze Sprachmemos (Ideen) zu Aufgaben. Antworte NUR mit einem \
-JSON-Objekt, ohne Erklärtext.\n\
+    let system = "Du wandelst ein kurzes Sprachmemo (eine \"Idee\") in konkrete Aufgaben um. \
+Antworte NUR mit einem JSON-Objekt, ohne Erklärtext.\n\
 Regeln:\n\
-- Erzeuge GENAU EINE kompakte Aufgabe ODER ergänze GENAU EINE bestehende Aufgabe \
-(action \"create\" oder \"append\" + append_to_uid).\n\
-- Titel: maximal 8 Wörter. note: maximal 2 kurze Zeilen. Keine Romane, das Transkript nicht wiederholen.\n\
-- Ist die Idee klar eine Ergänzung zu einer offenen Aufgabe, nutze action \"append\".\n\
-- calendar/mail nur, wenn die Idee es klar verlangt. Mails werden NIE gesendet, Termine ohne Teilnehmer angelegt.\n\
+- Leite aus dem Memo die nötigen Aufgaben ab. Guideline: höchstens ~3 Aufgaben; nur wenn das Memo es hergibt.\n\
+- Jede Aufgabe ist entweder:\n\
+  * kind \"create\": eine neue, eigenständige Aufgabe.\n\
+  * kind \"append\": eine reine Ergänzung/Zusatzinfo zu einer BESTEHENDEN Aufgabe → in deren Beschreibung ergänzen (target_uid).\n\
+  * kind \"subtask\": eine echte, neue Reaktion/Teilschritt zu einer bestehenden Aufgabe → als Unteraufgabe (target_uid).\n\
+- target_uid nur aus der Liste der offenen Aufgaben wählen. Passt nichts, dann \"create\".\n\
+- title: maximal 8 Wörter, knapp und handlungsorientiert. note: maximal 2 kurze Zeilen. KEINE Romane, den Memo-Text nicht wiederholen.\n\
+- due: wenn ein Zeitbezug genannt ist (\"bis Freitag\", \"morgen\", \"nächste Woche\", konkretes Datum), als YYYY-MM-DD (oder RFC 3339 mit Uhrzeit); sonst null. Heutiges Datum: {HEUTE}.\n\
+- priority: 1 = höchste … 9 = niedrigste; aus Dringlichkeit ableiten (muss/wichtig/eilig → 1-3), sonst null.\n\
+- labels: kurze thematische Tags ohne #/@.\n\
+- calendar/mail NUR, wenn das Memo es klar verlangt. Mails werden NIE gesendet; Termine werden ohne Teilnehmer angelegt; dann als Entwurf/Termin vorbereitet.\n\
 - Erfinde keine Fakten.\n\
-Schema: {\"action\":\"create|append\",\"append_to_uid\":\"...\",\"summary\":\"...\",\"note\":\"...\",\
-\"due\":\"YYYY-MM-DD|RFC3339|null\",\"priority\":1-9|null,\"labels\":[\"...\"],\
+Schema: {\"items\":[{\"kind\":\"create|append|subtask\",\"target_uid\":\"...\",\"title\":\"...\",\"note\":\"...\",\
+\"due\":\"YYYY-MM-DD|null\",\"priority\":1-9|null,\"labels\":[\"...\"]}],\
 \"calendar\":{\"summary\":\"...\",\"start\":\"RFC3339\",\"end\":\"RFC3339\"}|null,\
 \"mail\":{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}|null}"
-        .to_string();
+        .replace("{HEUTE}", &chrono::Local::now().format("%Y-%m-%d").to_string());
     let mut user = String::new();
     user.push_str(&format!(
-        "Sprachmemo vom {} ({} min)\nTitel: {}\nTranskript:\n{}\n\n",
-        idea.recorded_at, idea.duration_min, idea.title, crate::ai::agent::clamp_text(&idea.transcript_md, 6000)
+        "Sprachmemo vom {} ({} min)\nTitel: {}\nInhalt (Insilo-Zusammenfassung):\n{}\n\n",
+        idea.recorded_at,
+        idea.duration_min,
+        idea.title,
+        crate::ai::agent::clamp_text(idea_content(&idea.transcript_md), 6000)
     ));
     user.push_str("Offene Aufgaben (uid | Titel):\n");
     if open_tasks.is_empty() {
@@ -308,22 +273,34 @@ fn build_description(note: &str, done: &[String]) -> String {
     parts.join("\n\n")
 }
 
-/// Create a fresh task and return its uid.
-async fn create_task(state: &AppState, summary: &str, description: &str, plan: &IdeaPlan) -> Result<String, String> {
-    let mut labels = plan.labels.clone();
+/// Create a fresh task (optionally as a sub-task) and return its uid.
+#[allow(clippy::too_many_arguments)]
+async fn create_task(
+    state: &AppState,
+    title: &str,
+    description: &str,
+    labels: &[String],
+    due: Option<String>,
+    priority: Option<i64>,
+    parent_uid: Option<String>,
+) -> Result<String, String> {
+    let mut labels: Vec<String> = labels.to_vec();
     if !labels.iter().any(|l| l.eq_ignore_ascii_case("Idee")) {
         labels.push("Idee".to_string());
     }
+    let title = crate::ai::agent::clamp_text(title, 120);
+    if title.trim().is_empty() {
+        return Err("leerer Aufgabentitel".into());
+    }
     let req = crate::api::todos::CreateTodoRequest {
-        summary: crate::ai::agent::clamp_text(summary, 120),
+        summary: title,
         description: if description.trim().is_empty() { None } else { Some(description.to_string()) },
-        due: plan.due.clone().filter(|d| !d.trim().is_empty()),
-        priority: plan.priority,
+        due: due.filter(|d| !d.trim().is_empty()),
+        priority,
         labels,
         rrule: None,
-        parent_uid: None,
+        parent_uid,
         project_id: None,
-        section: None,
         due_has_time: None,
     };
     let res = crate::api::todos::create_todo(axum::extract::State(state.clone()), axum::Json(req)).await;
@@ -356,7 +333,6 @@ async fn append_task(state: &AppState, uid: &str, addition: &str) -> Result<Stri
         labels: None,
         rrule: None,
         project_id: None,
-        section: None,
     };
     match crate::api::todos::toggle_todo(axum::extract::State(state.clone()), axum::extract::Path(uid.to_string()), axum::Json(req)).await {
         Ok(_) => Ok(uid.to_string()),
@@ -427,31 +403,57 @@ async fn prepare_mail(state: &AppState, mail: &PlanMail) -> Result<String, Strin
     }
 }
 
-/// First `n` words of the first meaningful text line (fallback title).
-/// Skips headings and strips a leading `[0:00] **Speaker**:` transcript marker.
-fn first_words(text: &str, n: usize) -> String {
-    let line = text
-        .lines()
-        .map(|l| l.trim())
-        .find(|l| !l.is_empty() && !l.starts_with('#'))
-        .unwrap_or("");
-    let mut s = line;
-    if let Some(rest) = s.strip_prefix('[') {
-        if let Some(pos) = rest.find(']') {
-            s = rest[pos + 1..].trim();
-        }
+/// The meaningful part of an Insilo export body: from the first "## " section
+/// on (skips the duplicated second front-matter block at the top).
+fn idea_content(body: &str) -> &str {
+    match body.find("\n## ") {
+        Some(i) => body[i + 1..].trim_start(),
+        None => body.trim_start(),
     }
-    if let Some(rest) = s.strip_prefix("**") {
-        if let Some(end) = rest.find("**") {
-            s = rest[end + 2..].trim_start_matches(':').trim();
-        }
-    }
-    let words: Vec<&str> = s.split_whitespace().take(n).collect();
-    words.join(" ")
 }
 
-/// Process a single idea end-to-end. Errors are retried by the caller.
-async fn process_one(state: &AppState, idea: &cache::ideas::IdeaRow) -> Result<(), String> {
+/// First `n` words of the first meaningful content line (fallback title).
+/// Skips headings and the Insilo metadata/front-matter lines.
+fn first_words(text: &str, n: usize) -> String {
+    let content = idea_content(text);
+    for raw in content.lines() {
+        let mut s = raw.trim();
+        if s.is_empty() || s == "---" || s.starts_with('#') || s.starts_with('*') {
+            continue;
+        }
+        // Front-matter-ish "key: value" lines (lowercase key, no space).
+        if let Some((k, _)) = s.split_once(':') {
+            if !k.contains(' ') && k.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                continue;
+            }
+        }
+        s = s.trim_start_matches("- ").trim();
+        if let Some(rest) = s.strip_prefix('[') {
+            if let Some(pos) = rest.find(']') {
+                s = rest[pos + 1..].trim();
+            }
+        }
+        if let Some(rest) = s.strip_prefix("**") {
+            if let Some(end) = rest.find("**") {
+                s = rest[end + 2..].trim_start_matches(':').trim();
+            }
+        }
+        if s.is_empty() {
+            continue;
+        }
+        let words: Vec<&str> = s.split_whitespace().take(n).collect();
+        return words.join(" ");
+    }
+    String::new()
+}
+
+/// Process a single idea end-to-end. `dry_run` returns the LLM plan without
+/// writing anything. Errors are retried by the caller.
+async fn process_one(
+    state: &AppState,
+    idea: &cache::ideas::IdeaRow,
+    dry_run: bool,
+) -> Result<IdeaPlan, String> {
     let client = {
         let guard = state.ai_client.read();
         guard.as_ref().cloned().ok_or("KI-Client nicht konfiguriert")?
@@ -464,9 +466,13 @@ async fn process_one(state: &AppState, idea: &cache::ideas::IdeaRow) -> Result<(
     .collect();
 
     let (system, user) = build_prompt(idea, &open_tasks);
-    let raw = client.complete_user_json(&system, &user, Some(0.2), Some(1200)).await?;
+    let raw = client.complete_user_json(&system, &user, Some(0.2), Some(1500)).await?;
     let plan: IdeaPlan = serde_json::from_value(extract_json(&raw)?)
         .map_err(|e| format!("Plan nicht lesbar: {e}"))?;
+
+    if dry_run {
+        return Ok(plan);
+    }
 
     // Prepared side artefacts — never any external effect (no send, no invite).
     let mut done: Vec<String> = Vec::new();
@@ -487,53 +493,102 @@ async fn process_one(state: &AppState, idea: &cache::ideas::IdeaRow) -> Result<(
         }
     }
 
-    let note = plan.note.clone().unwrap_or_default();
-    let append_target = plan
-        .append_to_uid
-        .clone()
-        .filter(|uid| plan.action.eq_ignore_ascii_case("append") && open_tasks.iter().any(|(u, _)| u == uid));
+    let mut items = plan.items.clone();
+    if items.len() > 5 {
+        items.truncate(5); // sanity cap; the prompt already targets ~3
+    }
 
-    let task_uid = match append_target {
-        Some(uid) => {
-            let mut addition = String::new();
-            if !note.trim().is_empty() {
-                addition.push_str("Mighty: ");
-                addition.push_str(note.trim());
-            }
-            if !done.is_empty() {
-                if !addition.is_empty() {
-                    addition.push('\n');
+    let mut primary: Option<String> = None;
+    for (idx, item) in items.iter().enumerate() {
+        let extra: &[String] = if idx == 0 { &done } else { &[] };
+        match plan_item(state, &open_tasks, item, extra).await {
+            Ok(Some(uid)) => {
+                if primary.is_none() {
+                    primary = Some(uid);
                 }
-                addition.push_str(&done.join("\n"));
             }
-            if addition.is_empty() {
-                addition.push_str("Mighty: Ergänzung aus Sprachmemo.");
-            }
-            append_task(state, &uid, &addition).await?
+            Ok(None) => {}
+            Err(e) => tracing::warn!(insilo_id = %idea.insilo_id, "Idee-Item fehlgeschlagen: {e}"),
         }
+    }
+
+    // Guarantee: every idea results in at least one task.
+    let task_uid = match primary {
+        Some(u) => u,
         None => {
-            let summary = {
-                let s = plan.summary.clone().unwrap_or_default();
-                if s.trim().is_empty() {
-                    let fallback = first_words(&idea.transcript_md, 8);
-                    if fallback.is_empty() {
-                        format!("Idee vom {}", idea.recorded_at)
-                    } else {
-                        fallback
-                    }
+            let title = {
+                let t = first_words(&idea.transcript_md, 8);
+                if t.is_empty() {
+                    format!("Idee vom {}", idea.recorded_at)
                 } else {
-                    s
+                    t
                 }
             };
-            let description = build_description(&note, &done);
-            create_task(state, &summary, &description, &plan).await?
+            let desc = build_description("", &done);
+            create_task(state, &title, &desc, &[], None, None, None).await?
         }
     };
 
     with_db(state, |conn| {
         cache::ideas::mark_done(conn, &idea.insilo_id, &task_uid).map_err(|e| e.to_string())
     })?;
-    Ok(())
+    Ok(plan)
+}
+
+/// Execute one plan item and return the affected task uid (None = skipped).
+async fn plan_item(
+    state: &AppState,
+    open_tasks: &[(String, String)],
+    item: &PlanItem,
+    extra_done: &[String],
+) -> Result<Option<String>, String> {
+    let kind = item.kind.trim().to_lowercase();
+    let known = |u: &str| open_tasks.iter().any(|(x, _)| x == u);
+    match kind.as_str() {
+        "append" => {
+            let Some(uid) = item.target_uid.clone().filter(|u| known(u)) else {
+                return Ok(None);
+            };
+            let mut addition = String::new();
+            if let Some(note) = item.note.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                addition.push_str("Mighty: ");
+                addition.push_str(note);
+            }
+            if !extra_done.is_empty() {
+                if !addition.is_empty() {
+                    addition.push('\n');
+                }
+                addition.push_str(&extra_done.join("\n"));
+            }
+            if addition.is_empty() {
+                addition.push_str("Mighty: Ergänzung aus Sprachmemo.");
+            }
+            Ok(Some(append_task(state, &uid, &addition).await?))
+        }
+        "subtask" => {
+            let Some(uid) = item.target_uid.clone().filter(|u| known(u)) else {
+                return Ok(None);
+            };
+            let title = item.title.clone().unwrap_or_default();
+            if title.trim().is_empty() {
+                return Ok(None);
+            }
+            let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
+            Ok(Some(
+                create_task(state, &title, &desc, &item.labels, item.due.clone(), item.priority, Some(uid)).await?,
+            ))
+        }
+        _ => {
+            let title = item.title.clone().unwrap_or_default();
+            if title.trim().is_empty() {
+                return Ok(None);
+            }
+            let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
+            Ok(Some(
+                create_task(state, &title, &desc, &item.labels, item.due.clone(), item.priority, None).await?,
+            ))
+        }
+    }
 }
 
 /// Fallback: never lose an idea when the LLM keeps failing.
@@ -543,7 +598,7 @@ async fn create_fallback_task(state: &AppState, idea: &cache::ideas::IdeaRow) ->
         summary = format!("Idee vom {}", idea.recorded_at);
     }
     let desc = "Mighty: Automatische Verarbeitung fehlgeschlagen – Inhalt bitte prüfen.";
-    create_task(state, &summary, desc, &IdeaPlan::default()).await
+    create_task(state, &summary, desc, &[], None, None, None).await
 }
 
 fn schedule_retry(state: &AppState, idea: &cache::ideas::IdeaRow, attempts: i64, error: &str) {
@@ -596,8 +651,8 @@ pub async fn process_due_ideas(state: &AppState) {
         }
     };
     for idea in due {
-        match process_one(state, &idea).await {
-            Ok(()) => tracing::info!(insilo_id = %idea.insilo_id, "Idee verarbeitet"),
+        match process_one(state, &idea, false).await {
+            Ok(_) => tracing::info!(insilo_id = %idea.insilo_id, "Idee verarbeitet"),
             Err(e) => {
                 if is_infra_error(&e) {
                     tracing::warn!(insilo_id = %idea.insilo_id, "Idee: KI temporär nicht verfügbar, Retry in 15 min: {e}");
@@ -659,45 +714,111 @@ pub async fn spawn_loop(state: std::sync::Arc<AppState>, mut shutdown_rx: mpsc::
     }
 }
 
+/// Scan + process now (manual trigger / QA). `dry_run` returns the LLM plans
+/// without writing anything. Processes up to `limit` due ideas.
+pub async fn process_now(
+    state: &AppState,
+    limit: i64,
+    dry_run: bool,
+) -> crate::api::ideas::ProcessIdeasResult {
+    let scan = run_ideas_scan(state);
+    let due = with_db(state, |conn| {
+        cache::ideas::list_due_ideas(conn, limit).map_err(|e| e.to_string())
+    })
+    .unwrap_or_default();
+
+    let mut processed = 0usize;
+    let mut failed = 0usize;
+    let mut plans: Vec<serde_json::Value> = Vec::new();
+
+    for idea in due {
+        match process_one(state, &idea, dry_run).await {
+            Ok(plan) => {
+                processed += 1;
+                if dry_run {
+                    plans.push(serde_json::json!({
+                        "insilo_id": idea.insilo_id,
+                        "title": idea.title,
+                        "recorded_at": idea.recorded_at,
+                        "plan": plan,
+                    }));
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                if is_infra_error(&e) {
+                    schedule_infra_retry(state, &idea, &e);
+                } else {
+                    let attempts = idea.attempts + 1;
+                    if attempts >= BACKOFF_SECS.len() as i64 {
+                        match create_fallback_task(state, &idea).await {
+                            Ok(uid) => {
+                                let _ = with_db(state, |c| {
+                                    cache::ideas::mark_done(c, &idea.insilo_id, &uid)
+                                        .map_err(|e| e.to_string())
+                                });
+                            }
+                            Err(e2) => schedule_retry(state, &idea, attempts, &e2),
+                        }
+                    } else {
+                        schedule_retry(state, &idea, attempts, &e);
+                    }
+                }
+            }
+        }
+    }
+
+    crate::api::ideas::ProcessIdeasResult {
+        scanned_inserted: scan.inserted,
+        scanned_changed: scan.changed,
+        processed,
+        failed,
+        dry_run,
+        plans,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const IDEE: &str = r#"---
-source: insilo
-meeting_id: fda85ffe-751a-4b98-b459-04bc6f434c67
+insilo_id: "fda85ffe-751a-4b98-b459-04bc6f434c67"
 title: "Idea from 09/29 · 03:46 PM"
-date: "2026-09-29T13:46:05.306000+00:00"
+recorded_at: "2026-09-29T13:46:05.306000+00:00"
 duration_min: 2
-template: Schnellnotiz
-language: de
+language: "de"
+participants: ["Marc"]
 tags: []
-speakers:
-  - Marc
-  - Marc
+template: "Schnellnotiz"
+crm: false
+source_url: ''
+schema: 1
 ---
 
-# Idea from 09/29
+## Kerninhalt
 
-[0:00] **Marc**: Wir sollten den Newsletter neu aufsetzen.
+- Newsletter neu aufsetzen.
+
+## Offene Aufgaben
+
+- Newsletter-Konzept erstellen
 "#;
 
     #[test]
-    fn parse_idea_liest_audio_schema() {
-        let f = parse_idea(IDEE).unwrap();
-        assert_eq!(f.insilo_id, "fda85ffe-751a-4b98-b459-04bc6f434c67");
-        assert_eq!(f.title, "Idea from 09/29 · 03:46 PM");
-        assert_eq!(f.duration_min, 2);
-        assert!(f.transcript.contains("Newsletter"));
-        assert!(!f.transcript.contains("meeting_id"));
+    fn common_idee_wird_geparst() {
+        let p = crate::sync::insilo::parse_frontmatter(IDEE).unwrap();
+        assert_eq!(p.insilo_id, "fda85ffe-751a-4b98-b459-04bc6f434c67");
+        assert_eq!(p.title, "Idea from 09/29 · 03:46 PM");
+        assert_eq!(p.duration_min, 2);
+        assert!(p.body.contains("Newsletter"));
     }
 
     #[test]
     fn is_idea_nutzt_prefix_case_insensitive() {
-        let f = parse_idea(IDEE).unwrap();
-        assert!(is_idea(&f, "Idea"));
-        assert!(is_idea(&f, "idea"));
-        assert!(!is_idea(&f, "Notiz"));
+        assert!(is_idea_title("Idea from 09/29", "Idea"));
+        assert!(is_idea_title("idea vom 29.", "Idea"));
+        assert!(!is_idea_title("Aufnahme vom 14.09.", "Idea"));
     }
 
     #[test]
@@ -716,7 +837,8 @@ speakers:
     }
 
     #[test]
-    fn build_description_setzt_mighty_block_ab() {        let d = build_description("Essenz der Idee.", &["Mighty: Mail-Entwurf vorbereitet (nicht gesendet).".into()]);
+    fn build_description_setzt_mighty_block_ab() {
+        let d = build_description("Essenz der Idee.", &["Mighty: Mail-Entwurf vorbereitet (nicht gesendet).".into()]);
         assert!(d.starts_with("Essenz der Idee."));
         assert!(d.contains("Mighty: Mail-Entwurf vorbereitet"));
     }
@@ -731,9 +853,9 @@ speakers:
         let tmp = tempfile::tempdir().unwrap();
         let org = tmp.path().join("org-1");
         std::fs::create_dir_all(&org).unwrap();
-        std::fs::write(org.join("idea.transkript.md"), IDEE).unwrap();
+        std::fs::write(org.join("idea.md"), IDEE).unwrap();
         std::fs::write(
-            org.join("meeting.transkript.md"),
+            org.join("meeting.md"),
             IDEE.replace("Idea from 09/29 · 03:46 PM", "Aufnahme vom 14.09."),
         )
         .unwrap();

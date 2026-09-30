@@ -16,12 +16,11 @@ describe("parseQuickAdd", () => {
     expect(r.priority).toBe(4);
   });
 
-  it("extracts project, label and section", () => {
-    const r = p("Angebot senden #Firma @dringend /Q3");
+  it("extracts project and label", () => {
+    const r = p("Angebot senden #Firma @dringend");
     expect(r.title).toBe("Angebot senden");
     expect(r.project).toBe("Firma");
     expect(r.labels).toEqual(["dringend"]);
-    expect(r.section).toBe("Q3");
   });
 
   it("accepts % as a label prefix", () => {
@@ -83,12 +82,11 @@ describe("parseQuickAdd", () => {
   });
 
   it("handles a full quick-add line", () => {
-    const r = p("Freitag Budget prüfen p1 #Firma @dringend /Q3");
+    const r = p("Freitag Budget prüfen p1 #Firma @dringend");
     expect(r.title).toBe("Budget prüfen");
     expect(r.priority).toBe(1);
     expect(r.project).toBe("Firma");
     expect(r.labels).toEqual(["dringend"]);
-    expect(r.section).toBe("Q3");
     expect(r.due).not.toBeNull();
   });
 

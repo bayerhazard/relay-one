@@ -1407,7 +1407,6 @@ export interface TodoInfo {
   project_id: number | null;
   parent_uid: string | null;
   labels: string[];
-  section: string | null;
   rrule: string | null;
   sort_order: number;
   due_has_time: boolean;
@@ -1422,7 +1421,6 @@ export interface TodoInput {
   rrule?: string;
   parent_uid?: string;
   project_id?: number;
-  section?: string;
 }
 
 /** Partial update — absent keys are left unchanged. */
@@ -1435,7 +1433,6 @@ export interface TodoPatchInput {
   labels?: string[];
   rrule?: string | null;
   project_id?: number | null;
-  section?: string | null;
 }
 
 /** Focus-view counters for the sidebar. */

@@ -19,7 +19,6 @@ pub struct TodoRow {
     pub project_id: Option<i64>,
     pub parent_uid: Option<String>,
     pub labels: Vec<String>,
-    pub section: Option<String>,
     pub rrule: Option<String>,
     pub sort_order: i64,
     pub due_has_time: bool,
@@ -44,7 +43,6 @@ fn row_to_todo(row: &rusqlite::Row) -> rusqlite::Result<TodoRow> {
         project_id: row.get("project_id")?,
         parent_uid: row.get("parent_uid")?,
         labels,
-        section: row.get("section")?,
         rrule: row.get("rrule")?,
         sort_order: row.get("sort_order").unwrap_or(0),
         due_has_time: row.get::<_, Option<i64>>("due_has_time")?.unwrap_or(0) != 0,
@@ -52,7 +50,7 @@ fn row_to_todo(row: &rusqlite::Row) -> rusqlite::Result<TodoRow> {
 }
 
 const COLS: &str = "id, calendar_id, uid, summary, description, due_at, completed_at, status, \
-                    priority, project_id, parent_uid, labels, section, rrule, sort_order, due_has_time";
+                    priority, project_id, parent_uid, labels, rrule, sort_order, due_has_time";
 
 /// List to-dos, optionally filtered: `completed` = Some(true) only done,
 /// Some(false) only open, None = all. Ordered by manual order, then due date.
@@ -154,7 +152,6 @@ pub struct TodoUpdate {
     pub labels: Option<Vec<String>>,
     pub rrule: Option<Option<String>>,
     pub project_id: Option<Option<i64>>,
-    pub section: Option<Option<String>>,
 }
 
 /// Apply a partial update. Returns the number of rows touched.
@@ -193,10 +190,6 @@ pub fn update_todo(conn: &Connection, uid: &str, u: &TodoUpdate) -> Result<usize
     if let Some(v) = &u.project_id {
         sets.push("project_id = ?");
         params.push(Box::new(*v));
-    }
-    if let Some(v) = &u.section {
-        sets.push("section = ?");
-        params.push(Box::new(v.clone()));
     }
     if sets.is_empty() {
         return Ok(0);

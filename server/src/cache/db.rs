@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -347,8 +347,6 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             parent_uid TEXT,
             -- labels: JSON array of CATEGORIES strings.
             labels TEXT NOT NULL DEFAULT '[]',
-            -- section: optional section name inside a project (local grouping).
-            section TEXT,
             -- rrule: raw RRULE value for recurring tasks (client-side repeat).
             rrule TEXT,
             -- sort_order: manual ordering inside a view.
@@ -495,7 +493,6 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         add_column_if_missing(conn, "todos", "project_id", "INTEGER REFERENCES calendars(id) ON DELETE SET NULL")?;
         add_column_if_missing(conn, "todos", "parent_uid", "TEXT")?;
         add_column_if_missing(conn, "todos", "labels", "TEXT NOT NULL DEFAULT '[]'")?;
-        add_column_if_missing(conn, "todos", "section", "TEXT")?;
         add_column_if_missing(conn, "todos", "rrule", "TEXT")?;
         add_column_if_missing(conn, "todos", "sort_order", "INTEGER NOT NULL DEFAULT 0")?;
         add_column_if_missing(conn, "todos", "due_has_time", "INTEGER NOT NULL DEFAULT 0")?;
@@ -530,6 +527,11 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, next_retry_at);",
         )?;
         conn.pragma_update(None, "user_version", 5)?;
+    }
+    // v6: drop the unused local-only `section` column on `todos`.
+    if user_version < 6 {
+        drop_column_if_exists(conn, "todos", "section")?;
+        conn.pragma_update(None, "user_version", 6)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot
@@ -578,6 +580,25 @@ fn add_column_if_missing(
     };
     if !exists {
         conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"), [])?;
+    }
+    Ok(())
+}
+
+/// Drop a column if it exists (SQLite `DROP COLUMN` errors on a missing one).
+fn drop_column_if_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<(), rusqlite::Error> {
+    let exists = {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let names = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<Vec<String>, _>>()?;
+        names.iter().any(|n| n == column)
+    };
+    if exists {
+        conn.execute(&format!("ALTER TABLE {table} DROP COLUMN {column}"), [])?;
     }
     Ok(())
 }
@@ -1066,7 +1087,7 @@ mod tests {
         init_db(&conn).unwrap();
         assert_eq!(user_version(&conn), CURRENT_SCHEMA_VERSION);
         for col in [
-            "project_id", "parent_uid", "labels", "section", "rrule", "sort_order", "due_has_time",
+            "project_id", "parent_uid", "labels", "rrule", "sort_order", "due_has_time",
         ] {
             assert!(column_exists(&conn, "todos", col), "missing {col}");
         }

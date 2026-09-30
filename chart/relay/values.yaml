@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.9.174
+  tag: 26.9.175
   pullPolicy: IfNotPresent
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed
@@ -26,13 +26,11 @@ insilo:
   mountPath: /data/insilo
   scanIntervalSec: 600
 
-# Insilo-Ideen (Sprachmemos vom Typ "Idee"): Relay liest sie direkt aus dem
-# Insilo-appData (read-only, aus dem eigenen appData abgeleitet — Insilo bleibt
-# unangetastet) und verarbeitet jede Idee zu einer Aufgabe oder ergänzt eine
-# bestehende. Keine eigene UI; die Schnipsel werden nicht angezeigt.
+# Insilo-Ideen (Sprachmemos vom Typ "Idee"): sie liegen im selben geteilten
+# Drop wie die Meetings (appCommon). Relay filtert sie dort heraus, verarbeitet
+# jede Idee zu einer Aufgabe und listet sie NICHT mehr im Meetings-Bereich.
 insiloIdeas:
   enabled: true
-  mountPath: /data/insilo-ideas
   scanIntervalSec: 120
   ideaPrefix: "Idea"
 

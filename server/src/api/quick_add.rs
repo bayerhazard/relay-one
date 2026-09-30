@@ -5,7 +5,7 @@
 //! ```text
 //! "Freitag Budget prüfen p1 #Firma @dringend /Q3"
 //!   -> title="Budget prüfen", due=next Friday, priority=1,
-//!      project="Firma", labels=["dringend"], section="Q3"
+//!      project="Firma", labels=["dringend"]
 //! ```
 //!
 //! Supported tokens (case-insensitive, German + English):
@@ -67,7 +67,6 @@ pub struct ParsedTask {
     pub priority: Prio,
     pub project: Option<String>,
     pub labels: Vec<String>,
-    pub section: Option<String>,
     /// Raw RRULE value when a recurrence was recognised.
     pub rrule: Option<String>,
 }
@@ -81,7 +80,6 @@ impl Default for ParsedTask {
             priority: Prio::P4,
             project: None,
             labels: Vec::new(),
-            section: None,
             rrule: None,
         }
     }
@@ -130,14 +128,6 @@ pub fn parse(input: &str, now_local: DateTime<Local>) -> ParsedTask {
                 if !out.labels.contains(&label) {
                     out.labels.push(label);
                 }
-                i += 1;
-                continue;
-            }
-        }
-        // ── Section /Name ────────────────────────────────────────────────
-        if let Some(rest) = tok.strip_prefix('/') {
-            if !rest.is_empty() {
-                out.section = Some(rest.to_string());
                 i += 1;
                 continue;
             }
@@ -446,12 +436,11 @@ mod tests {
     }
 
     #[test]
-    fn project_label_section() {
-        let r = p("Angebot senden #Firma @dringend /Q3");
+    fn project_and_labels() {
+        let r = p("Angebot senden #Firma @dringend");
         assert_eq!(r.title, "Angebot senden");
         assert_eq!(r.project.as_deref(), Some("Firma"));
         assert_eq!(r.labels, vec!["dringend"]);
-        assert_eq!(r.section.as_deref(), Some("Q3"));
     }
 
     #[test]
@@ -540,12 +529,11 @@ mod tests {
 
     #[test]
     fn full_quick_add_line() {
-        let r = p("Freitag Budget prüfen p1 #Firma @dringend /Q3");
+        let r = p("Freitag Budget prüfen p1 #Firma @dringend");
         assert_eq!(r.title, "Budget prüfen");
         assert_eq!(r.priority, Prio::P1);
         assert_eq!(r.project.as_deref(), Some("Firma"));
         assert_eq!(r.labels, vec!["dringend"]);
-        assert_eq!(r.section.as_deref(), Some("Q3"));
         assert_eq!(r.due.unwrap().with_timezone(&Local).date_naive(),
                    NaiveDate::from_ymd_opt(2026, 9, 18).unwrap());
     }

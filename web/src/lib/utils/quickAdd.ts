@@ -12,7 +12,6 @@ export interface ParsedQuickAdd {
   priority: number;
   project: string | null;
   labels: string[];
-  section: string | null;
   rrule: string | null;
 }
 
@@ -91,7 +90,6 @@ export function parseQuickAdd(input: string, now: Date = new Date()): ParsedQuic
     priority: 4,
     project: null,
     labels: [],
-    section: null,
     rrule: null,
   };
   const leftover: string[] = [];
@@ -110,7 +108,6 @@ export function parseQuickAdd(input: string, now: Date = new Date()): ParsedQuic
       if (!out.labels.includes(label)) out.labels.push(label);
       i++; continue;
     }
-    if (tok.length > 1 && tok.startsWith("/")) { out.section = tok.slice(1); i++; continue; }
 
     // Priority
     if (/^p[1-4]$/.test(lower)) { out.priority = Number(lower[1]); i++; continue; }
