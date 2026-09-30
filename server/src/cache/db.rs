@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -453,6 +453,14 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             updated_at    TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, next_retry_at);
+
+        -- Hidden tag candidates: label proposals awaiting promotion (N tasks).
+        CREATE TABLE IF NOT EXISTS label_candidates (
+            label      TEXT NOT NULL,
+            task_uid   TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (label, task_uid)
+        );
         ",
     )?;
 
@@ -532,6 +540,18 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     if user_version < 6 {
         drop_column_if_exists(conn, "todos", "section")?;
         conn.pragma_update(None, "user_version", 6)?;
+    }
+    // v7: hidden tag candidates (label proposals awaiting promotion at N tasks).
+    if user_version < 7 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS label_candidates (
+                label      TEXT NOT NULL,
+                task_uid   TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (label, task_uid)
+            );",
+        )?;
+        conn.pragma_update(None, "user_version", 7)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

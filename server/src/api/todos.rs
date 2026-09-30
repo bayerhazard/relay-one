@@ -536,6 +536,104 @@ pub(crate) fn normalize_title(s: &str) -> String {
 }
 
 #[derive(serde::Serialize)]
+pub struct ConsolidateReport {
+    pub tags_before: usize,
+    pub tags_after: usize,
+    pub tasks_changed: usize,
+    pub candidates_created: usize,
+}
+
+/// `POST /api/v1/todos/consolidate` — normalise labels (case/synonyms), rename
+/// `Idee` -> `Insilo`, and apply the conservative tag policy to existing data:
+/// thematic tags covering < THRESHOLD tasks are removed from the tasks and kept
+/// as hidden candidates (so they can still be promoted later).
+pub async fn consolidate_todos(State(state): State<AppState>) -> ApiResult<ConsolidateReport> {
+    use std::collections::{HashMap, HashSet};
+
+    let rows = with_db(&state, |conn| {
+        cache::todo::list_todos(conn, None).map_err(|e| e.to_string())
+    })?;
+
+    // Pass 1: normalised labels per task + thematic counts.
+    let mut per_task: Vec<(String, Vec<String>)> = Vec::new();
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for r in &rows {
+        let mut labels: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for l in &r.labels {
+            let n = cache::tags::normalize_label(l);
+            if n.is_empty() || !seen.insert(n.clone()) {
+                continue;
+            }
+            if n != cache::tags::ORIGIN_LABEL {
+                *counts.entry(n.clone()).or_insert(0) += 1;
+            }
+            labels.push(n);
+        }
+        per_task.push((r.uid.clone(), labels));
+    }
+    let tags_before = counts.len();
+    let kept: HashSet<String> = counts
+        .iter()
+        .filter(|(_, c)| **c >= cache::tags::THRESHOLD)
+        .map(|(l, _)| l.clone())
+        .collect();
+    let tags_after = kept.len();
+
+    let mut report = ConsolidateReport {
+        tags_before,
+        tags_after,
+        tasks_changed: 0,
+        candidates_created: 0,
+    };
+
+    // Pass 2: rewrite labels where they change; park dropped tags as candidates.
+    for (idx, (uid, labels)) in per_task.iter().enumerate() {
+        let mut new_labels: Vec<String> = Vec::new();
+        for l in labels {
+            if l == cache::tags::ORIGIN_LABEL || kept.contains(l) {
+                new_labels.push(l.clone());
+            } else {
+                let _ = with_db(&state, |c| {
+                    cache::tags::add_candidate(c, l, uid).map_err(|e| e.to_string())
+                });
+                report.candidates_created += 1;
+            }
+        }
+
+        let mut original: Vec<String> = rows[idx]
+            .labels
+            .iter()
+            .map(|s| cache::tags::normalize_label(s))
+            .filter(|s| !s.is_empty())
+            .collect();
+        original.sort();
+        original.dedup();
+        let mut next = new_labels.clone();
+        next.sort();
+        next.dedup();
+        if original == next {
+            continue;
+        }
+
+        let req = PatchTodoRequest {
+            completed: None,
+            summary: None,
+            description: None,
+            due: None,
+            priority: None,
+            labels: Some(new_labels),
+            rrule: None,
+            project_id: None,
+        };
+        if toggle_todo(State(state.clone()), Path(uid.clone()), Json(req)).await.is_ok() {
+            report.tasks_changed += 1;
+        }
+    }
+    Ok(Json(report))
+}
+
+#[derive(serde::Serialize)]
 pub struct DedupeReport {
     pub groups: usize,
     pub kept: usize,

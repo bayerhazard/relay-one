@@ -13,6 +13,7 @@ pub mod messages;
 pub mod settings;
 pub mod sync_state;
 pub mod snippets;
+pub mod tags;
 pub mod todo;
 pub mod topic;
 

@@ -237,7 +237,11 @@ fn relevant_tasks(content: &str, open_tasks: &[(String, String)]) -> Vec<(String
     scored.into_iter().take(15).map(|(_, t)| t.clone()).collect()
 }
 
-fn build_prompt(idea: &cache::ideas::IdeaRow, open_tasks: &[(String, String)]) -> (String, String) {
+fn build_prompt(
+    idea: &cache::ideas::IdeaRow,
+    open_tasks: &[(String, String)],
+    known_tags: &[(String, i64)],
+) -> (String, String) {
     let system = "Du wandelst ein kurzes Sprachmemo (eine \"Idee\") in konkrete Aufgaben um. \
 Antworte NUR mit einem JSON-Objekt, ohne Erklärtext.\n\
 Regeln:\n\
@@ -249,7 +253,7 @@ Regeln:\n\
 - title: maximal 8 Wörter, knapp und handlungsorientiert. note: maximal 2 kurze Zeilen. KEINE Romane, den Memo-Text nicht wiederholen.\n\
 - due: wenn ein Zeitbezug genannt ist (\"bis Freitag\", \"morgen\", \"nächste Woche\", konkretes Datum), als YYYY-MM-DD (oder RFC 3339 mit Uhrzeit); sonst null. Heutiges Datum: {HEUTE}.\n\
 - priority: 1 = höchste … 9 = niedrigste; aus Dringlichkeit ableiten (muss/wichtig/eilig → 1-3), sonst null.\n\
-- labels: kurze thematische Tags ohne #/@.\n\
+- labels: HÖCHSTENS EIN Themen-Tag pro Aufgabe, und nur wenn es ein fundamentales, wiederkehrendes Thema ist (kein Einzelfall/Feature). Bevorzuge STRENG einen der gelisteten vorhandenen Tags (exakte Schreibweise). Wenn keiner passt: leeres Array [] — erfinde KEINEN neuen Tag. Zusätzlich: setze NIE \"Insilo\", das wird automatisch vergeben.\n\
 - calendar/mail NUR, wenn das Memo es klar verlangt. Mails werden NIE gesendet; Termine werden ohne Teilnehmer angelegt; dann als Entwurf/Termin vorbereitet.\n\
 - mail.to MUSS eine E-Mail-Adresse sein. Ist nur ein Name bekannt, KEINE mail anlegen – stattdessen eine Aufgabe \"Mail an <Name> vorbereiten\".\n\
 - Erfinde keine Fakten.\n\
@@ -273,6 +277,14 @@ Schema: {\"items\":[{\"kind\":\"create|append|subtask\",\"target_uid\":\"...\",\
     } else {
         for (uid, summary) in relevant.iter() {
             user.push_str(&format!("- {} | {}\n", uid, crate::ai::agent::clamp_text(summary, 100)));
+        }
+    }
+    user.push_str("\nVorhandene Tags (Name | Anzahl Aufgaben) – bevorzugt wiederverwenden:\n");
+    if known_tags.is_empty() {
+        user.push_str("(keine)\n");
+    } else {
+        for (label, count) in known_tags.iter().take(30) {
+            user.push_str(&format!("- {} ({})\n", label, count));
         }
     }
     (system, user)
@@ -299,20 +311,16 @@ fn build_description(note: &str, done: &[String]) -> String {
 }
 
 /// Create a fresh task (optionally as a sub-task) and return its uid.
-#[allow(clippy::too_many_arguments)]
+/// The task starts with only the origin label; a thematic tag is applied
+/// afterwards by the conservative tag policy.
 async fn create_task(
     state: &AppState,
     title: &str,
     description: &str,
-    labels: &[String],
     due: Option<String>,
     priority: Option<i64>,
     parent_uid: Option<String>,
 ) -> Result<String, String> {
-    let mut labels: Vec<String> = labels.to_vec();
-    if !labels.iter().any(|l| l.eq_ignore_ascii_case("Idee")) {
-        labels.push("Idee".to_string());
-    }
     let title = crate::ai::agent::clamp_text(title, 120);
     if title.trim().is_empty() {
         return Err("leerer Aufgabentitel".into());
@@ -322,7 +330,7 @@ async fn create_task(
         description: if description.trim().is_empty() { None } else { Some(description.to_string()) },
         due: due.filter(|d| !d.trim().is_empty()),
         priority,
-        labels,
+        labels: vec![crate::cache::tags::ORIGIN_LABEL.to_string()],
         rrule: None,
         parent_uid,
         project_id: None,
@@ -333,6 +341,110 @@ async fn create_task(
         Ok(axum::Json(row)) => Ok(row.uid),
         Err(e) => Err(e.0),
     }
+}
+
+/// Conservative tag policy for one freshly created task: reuse an active
+/// label, otherwise park the proposal as a hidden candidate (promoted once it
+/// covers THRESHOLD tasks). At most one thematic tag per task.
+async fn apply_thematic_tag(state: &AppState, uid: &str, proposed: Option<&str>) {
+    let Some(raw) = proposed.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let label = crate::cache::tags::normalize_label(raw);
+    if label.is_empty() || label == crate::cache::tags::ORIGIN_LABEL {
+        return;
+    }
+    let current = match with_db(state, |c| cache::todo::find_todo(c, uid).map_err(|e| e.to_string())) {
+        Ok(Some(row)) => row,
+        _ => return,
+    };
+    // Already carries a thematic tag → leave it (max 1).
+    let has_thematic = current.labels.iter().any(|l| {
+        let n = crate::cache::tags::normalize_label(l);
+        n != crate::cache::tags::ORIGIN_LABEL && !n.is_empty()
+    });
+    if has_thematic {
+        return;
+    }
+    let active = with_db(state, |c| cache::tags::active_labels(c)).unwrap_or_default();
+    if active.contains_key(&label) {
+        let _ = set_task_labels(state, uid, &current.labels, Some(&label)).await;
+        return;
+    }
+    // Hidden candidate; promote once it reaches the threshold.
+    let _ = with_db(state, |c| {
+        cache::tags::add_candidate(c, &label, uid).map_err(|e| e.to_string())
+    });
+    let n = with_db(state, |c| cache::tags::candidate_count(c, &label).map_err(|e| e.to_string())).unwrap_or(0);
+    if n >= crate::cache::tags::THRESHOLD {
+        promote_label(state, &label).await;
+    }
+}
+
+/// Replace a task's labels (keeps existing ones, optionally adds one label).
+async fn set_task_labels(
+    state: &AppState,
+    uid: &str,
+    current: &[String],
+    add: Option<&str>,
+) -> Result<(), String> {
+    let mut labels: Vec<String> = current.to_vec();
+    if let Some(l) = add {
+        if !labels.iter().any(|x| x.eq_ignore_ascii_case(l)) {
+            labels.push(l.to_string());
+        }
+    }
+    let req = crate::api::todos::PatchTodoRequest {
+        completed: None,
+        summary: None,
+        description: None,
+        due: None,
+        priority: None,
+        labels: Some(labels),
+        rrule: None,
+        project_id: None,
+    };
+    match crate::api::todos::toggle_todo(
+        axum::extract::State(state.clone()),
+        axum::extract::Path(uid.to_string()),
+        axum::Json(req),
+    )
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.0),
+    }
+}
+
+/// Promote a candidate label: apply it to all its (still untagged) tasks.
+async fn promote_label(state: &AppState, label: &str) {
+    let uids = with_db(state, |c| {
+        cache::tags::candidate_tasks(c, label).map_err(|e| e.to_string())
+    })
+    .unwrap_or_default();
+    let mut applied = 0usize;
+    for uid in &uids {
+        let Some(row) = with_db(state, |c| cache::todo::find_todo(c, uid).map_err(|e| e.to_string()))
+            .ok()
+            .flatten()
+        else {
+            continue;
+        };
+        let has_other = row.labels.iter().any(|l| {
+            let n = crate::cache::tags::normalize_label(l);
+            n != crate::cache::tags::ORIGIN_LABEL && !n.is_empty() && n != label
+        });
+        if has_other {
+            continue;
+        }
+        if set_task_labels(state, uid, &row.labels, Some(label)).await.is_ok() {
+            applied += 1;
+        }
+    }
+    let _ = with_db(state, |c| {
+        cache::tags::remove_candidates(c, label).map_err(|e| e.to_string())
+    });
+    tracing::info!(label, applied, "Tag-Kandidat befördert");
 }
 
 /// Append the prepared lines to an existing task's description.
@@ -506,7 +618,31 @@ async fn process_one(
     .map(|t| (t.uid, t.summary.unwrap_or_default()))
     .collect();
 
-    let (system, user) = build_prompt(idea, &open_tasks);
+    // Existing tag vocabulary (active >= THRESHOLD + hidden candidates) so the
+    // model reuses labels instead of inventing new ones.
+    let mut tag_map: std::collections::HashMap<String, i64> = with_db(state, |c| {
+        cache::tags::label_counts(c)
+    })
+    .unwrap_or_default();
+    let candidates: std::collections::HashMap<String, i64> = with_db(state, |c| {
+        let mut stmt = c
+            .prepare("SELECT label, COUNT(*) FROM label_candidates GROUP BY label")
+            .map_err(|e| e.to_string())?;
+        let m = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(m)
+    })
+    .unwrap_or_default();
+    for (label, n) in candidates {
+        tag_map.entry(label).or_insert(n);
+    }
+    let mut tag_counts: Vec<(String, i64)> = tag_map.into_iter().collect();
+    tag_counts.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let (system, user) = build_prompt(idea, &open_tasks, &tag_counts);
     let raw = client.complete_user_json(&system, &user, Some(0.2), Some(1500)).await?;
     let plan: IdeaPlan = serde_json::from_value(extract_json(&raw)?)
         .map_err(|e| format!("Plan nicht lesbar: {e}"))?;
@@ -571,7 +707,7 @@ async fn process_one(
                 }
             };
             let desc = build_description("", &done);
-            create_task(state, &title, &desc, &[], None, None, None).await?
+            create_task(state, &title, &desc, None, None, None).await?
         }
     };
 
@@ -633,7 +769,7 @@ async fn plan_item(
             }
             let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
             Ok(Some(
-                create_task(state, &title, &desc, &item.labels, item.due.clone(), item.priority, Some(uid)).await?,
+                create_task(state, &title, &desc, item.due.clone(), item.priority, Some(uid)).await?,
             ))
         }
         _ => {
@@ -660,9 +796,9 @@ async fn plan_item(
                 return Ok(Some(append_task(state, &uid, &addition).await?));
             }
             let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
-            Ok(Some(
-                create_task(state, &title, &desc, &item.labels, item.due.clone(), item.priority, None).await?,
-            ))
+            let uid = create_task(state, &title, &desc, item.due.clone(), item.priority, None).await?;
+            apply_thematic_tag(state, &uid, item.labels.first().map(|s| s.as_str())).await;
+            Ok(Some(uid))
         }
     }
 }
@@ -674,7 +810,7 @@ async fn create_fallback_task(state: &AppState, idea: &cache::ideas::IdeaRow) ->
         summary = format!("Idee vom {}", idea.recorded_at);
     }
     let desc = "Mighty: Automatische Verarbeitung fehlgeschlagen – Inhalt bitte prüfen.";
-    create_task(state, &summary, desc, &[], None, None, None).await
+    create_task(state, &summary, desc, None, None, None).await
 }
 
 fn schedule_retry(state: &AppState, idea: &cache::ideas::IdeaRow, attempts: i64, error: &str) {
