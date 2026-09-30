@@ -523,6 +523,101 @@ pub async fn delete_todo(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
+/// Normalise a title for duplicate detection: lowercase, non-alphanumerics →
+/// spaces, collapse whitespace.
+pub(crate) fn normalize_title(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[derive(serde::Serialize)]
+pub struct DedupeReport {
+    pub groups: usize,
+    pub kept: usize,
+    pub merged: usize,
+    pub deleted: usize,
+}
+
+/// `POST /api/v1/todos/dedupe` — merge open tasks that share an identical
+/// normalised title: keep the richest one, fold the others' descriptions into
+/// it (as `Mighty:` lines) and delete the duplicates locally + on CalDAV.
+pub async fn dedupe_todos(State(state): State<AppState>) -> ApiResult<DedupeReport> {
+    let rows = with_db(&state, |conn| {
+        cache::todo::list_todos(conn, Some(false)).map_err(|e| e.to_string())
+    })?;
+    let mut groups: std::collections::HashMap<String, Vec<TodoRow>> = std::collections::HashMap::new();
+    for r in rows {
+        let key = normalize_title(r.summary.as_deref().unwrap_or(""));
+        if key.is_empty() {
+            continue;
+        }
+        groups.entry(key).or_default().push(r);
+    }
+    let client = caldav_client(&state).ok();
+    let mut report = DedupeReport { groups: 0, kept: 0, merged: 0, deleted: 0 };
+
+    for (_key, mut items) in groups {
+        if items.len() < 2 {
+            continue;
+        }
+        report.groups += 1;
+        // Keeper: longest description, tie-break oldest id.
+        items.sort_by_key(|r| {
+            (std::cmp::Reverse(r.description.as_deref().map(str::len).unwrap_or(0)), r.id)
+        });
+        let keeper = items.remove(0);
+        let mut desc = keeper.description.clone().unwrap_or_default();
+        let mut folded = 0usize;
+
+        for dup in &items {
+            if let Some(d) = dup.description.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+                if !desc.contains(d) {
+                    if !desc.trim().is_empty() {
+                        desc.push('\n');
+                    }
+                    desc.push_str("Mighty: zusammengeführt – ");
+                    desc.push_str(d);
+                    folded += 1;
+                }
+            }
+            let url: Option<String> = with_db(&state, |conn| {
+                conn.query_row("SELECT url FROM todos WHERE uid = ?1", [&dup.uid], |r| r.get(0))
+                    .map(Some)
+                    .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e.to_string()) })
+            })?;
+            if let (Some(c), Some(u)) = (client.as_ref(), url.as_deref()) {
+                if !u.is_empty() {
+                    let _ = c.delete_event(u).await;
+                }
+            }
+            with_db(&state, |conn| cache::todo::delete_todo(conn, &dup.uid))?;
+            report.deleted += 1;
+        }
+
+        if folded > 0 {
+            let req = PatchTodoRequest {
+                completed: None,
+                summary: None,
+                description: Some(Some(desc)),
+                due: None,
+                priority: None,
+                labels: None,
+                rrule: None,
+                project_id: None,
+            };
+            let _ = toggle_todo(State(state.clone()), Path(keeper.uid.clone()), Json(req)).await;
+            report.merged += folded;
+        }
+        report.kept += 1;
+    }
+    Ok(Json(report))
+}
+
 /// `POST /api/v1/todos/sync` — pull all VTODOs from CalDAV into the local cache.
 ///
 /// Each VTODO is filed under the calendar collection its object URL belongs to

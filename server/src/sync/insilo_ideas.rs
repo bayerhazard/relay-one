@@ -581,6 +581,18 @@ async fn process_one(
     Ok(plan)
 }
 
+/// Existing open task with the same normalised title (duplicate guard).
+fn find_open_by_title(open_tasks: &[(String, String)], title: &str) -> Option<String> {
+    let n = crate::api::todos::normalize_title(title);
+    if n.is_empty() {
+        return None;
+    }
+    open_tasks
+        .iter()
+        .find(|(_, s)| crate::api::todos::normalize_title(s) == n)
+        .map(|(u, _)| u.clone())
+}
+
 /// Execute one plan item and return the affected task uid (None = skipped).
 async fn plan_item(
     state: &AppState,
@@ -628,6 +640,24 @@ async fn plan_item(
             let title = item.title.clone().unwrap_or_default();
             if title.trim().is_empty() {
                 return Ok(None);
+            }
+            // Duplicate of an existing open task → enrich it instead of a new task.
+            if let Some(uid) = find_open_by_title(open_tasks, &title) {
+                let mut addition = String::new();
+                if let Some(note) = item.note.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    addition.push_str("Mighty: ");
+                    addition.push_str(note);
+                }
+                if !extra_done.is_empty() {
+                    if !addition.is_empty() {
+                        addition.push('\n');
+                    }
+                    addition.push_str(&extra_done.join("\n"));
+                }
+                if addition.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(append_task(state, &uid, &addition).await?));
             }
             let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
             Ok(Some(
@@ -902,6 +932,16 @@ schema: 1
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn find_open_by_title_ignoriert_punktuation() {
+        let tasks = vec![
+            ("u1".to_string(), "LLM-Router konfigurieren".to_string()),
+            ("u2".to_string(), "Rechnung senden".to_string()),
+        ];
+        assert_eq!(find_open_by_title(&tasks, "llm router konfigurieren"), Some("u1".into()));
+        assert_eq!(find_open_by_title(&tasks, "Etwas anderes"), None);
     }
 
     #[test]

@@ -11,6 +11,7 @@
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import SummaryLine from "$lib/components/SummaryLine.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { fmtDateByLang, localeTag as fmtLocaleTag } from "$lib/utils/format";
   import { t, translate } from "$lib/i18n";
@@ -52,6 +53,17 @@
   let syncing = $state(false);
   let syncMsg = $state<string | null>(null);
   let tkSearch = $state("");
+  /** Active tag filter (combined with the current view); null = none. */
+  let tagFilter = $state<string | null>(null);
+
+  /** All labels across the tasks with their counts (for the sidebar). */
+  let allTags = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const t of todos) {
+      for (const l of t.labels) m.set(l, (m.get(l) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  });
 
   // ── Quick Add ────────────────────────────────────────────────────────
   let qaText = $state("");
@@ -179,6 +191,7 @@
       if (selection === "done") return isDone(t);
       // Every non-"done" view hides completed tasks unless the toggle is on.
       if (!showDone && isDone(t)) return false;
+      if (tagFilter && !t.labels.includes(tagFilter)) return false;
       return inSelection(t, selection);
     });
     if (q) {
@@ -438,6 +451,12 @@
     if (isNarrow) sidebarOpen = false;
   }
 
+  /** Toggle the tag filter (combined with the current view). */
+  function selectTag(tag: string) {
+    tagFilter = tagFilter === tag ? null : tag;
+    if (isNarrow) sidebarOpen = false;
+  }
+
   function selectionLabel(): string {
     switch (true) {
       case selection === "inbox": return translate("tasks.viewInbox");
@@ -555,6 +574,18 @@
       </div>
     {/if}
 
+    {#if allTags.length}
+      <div class="tk-projects tk-tags">
+        <div class="tk-projects-head">{$t("tasks.tags")}</div>
+        {#each allTags as [tag, count] (tag)}
+          <button type="button" class="tk-view" class:active={tagFilter === tag} onclick={() => selectTag(tag)}>
+            <span class="tk-tag">{tag}</span>
+            <span class="tk-badge">{count}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     <div class="tk-count">{$t("tasks.count", { n: visibleTodos.length })}</div>
 
     <SidebarFooter active="tasks">
@@ -623,7 +654,7 @@
         {/if}
         {#if qaParsed.priority < 4}<span class={`tk-chip tk-prio-chip ${prioClassByUi(qaParsed.priority)}`}>{PRIO_LABEL[qaParsed.priority]}</span>{/if}
         {#if qaParsed.project}<span class="tk-chip">#{qaParsed.project}</span>{/if}
-        {#each qaParsed.labels as l (l)}<span class="tk-chip">@{l}</span>{/each}
+        {#each qaParsed.labels as l (l)}<span class="tk-chip">{l}</span>{/each}
       </div>
     {/if}
 
@@ -670,6 +701,7 @@
                 </button>
                 <button type="button" class="tk-item-body" onclick={() => openDetail(todo)}>
                   <span class="tk-item-summary">{todo.summary || $t("tasks.untitled")}</span>
+                  {#if todo.description}<SummaryLine summary={todo.description} />{/if}
                   {#if todo.due_at || todo.labels.length || todo.rrule}
                     <span class="tk-item-meta">
                       {#if todo.due_at}
@@ -680,7 +712,7 @@
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
                         </span>
                       {/if}
-                      {#each todo.labels as l (l)}<span class="tk-item-label">@{l}</span>{/each}
+                      {#each todo.labels as l (l)}<span class="tk-tag">{l}</span>{/each}
                     </span>
                   {/if}
                 </button>
@@ -888,6 +920,7 @@
   .tk-badge-danger { color: var(--color-danger); }
 
   .tk-projects { padding: 8px; border-top: 1px solid var(--color-border); margin-top: 6px; }
+  .tk-tags .tk-view { justify-content: space-between; }
   .tk-projects-head {
     padding: 4px 10px 8px;
     font-size: var(--fs-xs);
@@ -996,25 +1029,24 @@
   }
   .tk-state-error { color: var(--color-danger); }
 
-  .tk-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; gap: 6px; }
+  .tk-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; }
   .tk-item-wrap { display: flex; flex-direction: column; }
+  /* Flat row, aligned with the mail inbox list (border-left + bottom divider). */
   .tk-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
-    padding: 10px 14px;
-    background: var(--color-card, var(--color-list));
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-m);
+    padding: 10px 16px;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--color-border);
   }
-  .tk-item.selected { border-color: var(--color-accent); }
+  .tk-item:hover { background: var(--color-sidebar); }
+  .tk-item.selected { background: var(--color-active-wash); border-left-color: var(--color-accent); }
   /* Overdue: a red bar on the left edge only, like the urgent marking in the
-     mail list — the card keeps its normal background. Declared after .selected
-     so the bar stays red even when the task is the selected one. */
-  .tk-item.overdue {
-    border-left: 3px solid var(--color-urgent);
-  }
+     mail list. Declared after .selected so the bar stays red when selected. */
+  .tk-item.overdue { border-left-color: var(--color-urgent); }
   .tk-item.done { opacity: 0.6; }
+  .tk-item.done .tk-item-summary { text-decoration: line-through; }
   .tk-item.done .tk-item-summary { text-decoration: line-through; }
 
   .tk-check {
@@ -1056,6 +1088,17 @@
   .tk-item-due.overdue { color: var(--color-danger); font-weight: 600; }
   .tk-item-rep { display: inline-flex; align-items: center; color: var(--color-text-secondary); }
   .tk-item-label { font-size: var(--fs-xs); color: var(--color-text-secondary); }
+  /* Tag pill (no "@"), like the mail draft badge / quick-add chips. */
+  .tk-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--fs-xs);
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    padding: 1px 7px;
+    border-radius: var(--radius-s);
+    white-space: nowrap;
+  }
 
   .tk-prio {
     font-size: var(--fs-xs);

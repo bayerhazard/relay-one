@@ -192,6 +192,7 @@ pub fn router() -> Router<AppState> {
         .route("/todos/sync", post(todos::sync_todos))
         .route("/todos/quick-add", post(todos::quick_add_todo))
         .route("/todos/views", get(todos::todo_views))
+        .route("/todos/dedupe", post(todos::dedupe_todos))
         .route("/todos/reorder", post(todos::reorder_todos))
         .route("/todos/:uid", patch(todos::toggle_todo).delete(todos::delete_todo))
         .route("/todos/:uid/succeed", post(todos::succeed_todo))

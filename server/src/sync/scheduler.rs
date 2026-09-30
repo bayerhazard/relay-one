@@ -1724,9 +1724,10 @@ async fn process_sync_task(
                     .as_ref()
                     .ok_or("Datenbank nicht initialisiert")?;
                 let mut stmt = conn.prepare(
-                    "SELECT id, uid, folder FROM messages \
-                     WHERE account_id = ?1 AND (body_text IS NULL OR body_text = '') \
-                     ORDER BY id DESC LIMIT 25"
+                    "SELECT m.id, m.uid, f.name FROM messages m \
+                     JOIN folders f ON f.id = m.folder_id \
+                     WHERE m.account_id = ?1 AND (m.body_text IS NULL OR m.body_text = '') \
+                     ORDER BY m.id DESC LIMIT 25"
                 ).map_err(|e| e.to_string())?;
                 let rows = stmt.query_map(rusqlite::params![account_id as i64], |r| {
                     Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?))
