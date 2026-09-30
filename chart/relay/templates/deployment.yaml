@@ -54,6 +54,16 @@ spec:
               value: {{ .Values.insilo.enabled | quote }}
             - name: RELAY_INSILO_SCAN_SECS
               value: {{ .Values.insilo.scanIntervalSec | quote }}
+            # Insilo-Ideen (Sprachmemos vom Typ "Idee"): direkt aus dem
+            # Insilo-appData gelesen (read-only), daraus werden Aufgaben.
+            - name: RELAY_INSILO_IDEAS_ENABLED
+              value: {{ .Values.insiloIdeas.enabled | quote }}
+            - name: RELAY_INSILO_IDEAS_DIR
+              value: "{{ .Values.insiloIdeas.mountPath }}"
+            - name: RELAY_INSILO_IDEAS_SCAN_SECS
+              value: {{ .Values.insiloIdeas.scanIntervalSec | quote }}
+            - name: RELAY_INSILO_IDEA_PREFIX
+              value: {{ .Values.insiloIdeas.ideaPrefix | quote }}
             {{- if .Values.trustedHostSuffix }}
             - name: RELAY_TRUSTED_HOST_SUFFIX
               value: {{ .Values.trustedHostSuffix | quote }}
@@ -81,6 +91,9 @@ spec:
               mountPath: {{ .Values.storage.mountPath }}
             - name: insilo-drop
               mountPath: /data/insilo
+              readOnly: true
+            - name: insilo-ideas
+              mountPath: {{ .Values.insiloIdeas.mountPath }}
               readOnly: true
           startupProbe:
             httpGet:
@@ -123,4 +136,10 @@ spec:
             # Geteilter appCommon-Ordner: Insilo schreibt Meeting-Summaries
             # nach <appCommon>/insilo-meetings, Relay liest read-only.
             path: {{ .Values.userspace.appCommon }}/insilo-meetings
+            type: DirectoryOrCreate
+        - name: insilo-ideas
+          hostPath:
+            # Insilo-appData, aus dem EIGENEN appData abgeleitet (.../Data/insilo).
+            # Relay liest die Idee-Sprachmemos read-only; Insilo bleibt unberührt.
+            path: {{ dir .Values.userspace.appData }}/insilo
             type: DirectoryOrCreate

@@ -120,6 +120,16 @@ async fn main() {
         sync::insilo::spawn_loop(insilo_state, insilo_shutdown_rx).await;
     });
 
+    // Insilo idea processor: reads the Idea voice memos from the Insilo appData
+    // (read-only) and turns each into a task. Runs once at startup, then every
+    // RELAY_INSILO_IDEAS_SCAN_SECS; retries failures with backoff.
+    let ideas_state = state.clone();
+    let (ideas_shutdown_tx, ideas_shutdown_rx) = mpsc::channel(1);
+    *state.ideas_shutdown_tx.lock() = Some(ideas_shutdown_tx);
+    tokio::spawn(async move {
+        sync::insilo_ideas::spawn_loop(ideas_state, ideas_shutdown_rx).await;
+    });
+
     // Build the axum app: API under /api/v1.
     // SEC-15: Global body limit is 1 MB. Routes that accept large payloads
     // (send, import) override with 64 MB via route_layer in api/mod.rs.

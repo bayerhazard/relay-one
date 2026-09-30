@@ -55,6 +55,8 @@ pub struct AppState {
     pub caldav_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Insilo meeting scanner (shared appCommon drop directory).
     pub insilo_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
+    /// Insilo idea memo processor (reads the Insilo appData, creates tasks).
+    pub ideas_shutdown_tx: Arc<parking_lot::Mutex<Option<mpsc::Sender<()>>>>,
     /// Server → client notification bus (replaces Tauri `Emitter`).
     pub events: events::EventBus,
     /// Data root for ALL user data (EML archive, attachments, DBs).
@@ -91,6 +93,7 @@ impl AppState {
             caldav_sync_token: Arc::new(parking_lot::RwLock::new(String::new())),
             caldav_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             insilo_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
+            ideas_shutdown_tx: Arc::new(parking_lot::Mutex::new(None)),
             events: events::EventBus::new(),
             data_root: std::env::var("RELAY_DATA_DIR")
                 .map(std::path::PathBuf::from)
@@ -171,6 +174,16 @@ impl AppState {
         if let Some(tx) = insilo_tx_opt {
             let _ = tx.send(()).await;
             tracing::info!("Insilo-Scanner: Shutdown-Signal gesendet");
+        }
+
+        // Step 1.8: Signal the Insilo idea processor to stop
+        let ideas_tx_opt = {
+            let mut guard = self.ideas_shutdown_tx.lock();
+            guard.take()
+        };
+        if let Some(tx) = ideas_tx_opt {
+            let _ = tx.send(()).await;
+            tracing::info!("Insilo-Ideen: Shutdown-Signal gesendet");
         }
 
         // Step 2: Short grace period for pending sync operations to drain

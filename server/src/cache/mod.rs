@@ -7,6 +7,7 @@ pub mod db;
 pub mod delete_queue;
 pub mod provider_ops;
 pub mod fingerprint;
+pub mod ideas;
 pub mod learning;
 pub mod messages;
 pub mod settings;

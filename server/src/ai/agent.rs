@@ -143,6 +143,18 @@ pub fn clamp_json(v: &serde_json::Value, max_bytes: usize) -> serde_json::Value 
     serde_json::Value::String(out)
 }
 
+/// Truncate a plain string to at most `max_chars` characters (char boundary),
+/// appending a marker when shortened. Used for compact task titles/notes.
+pub fn clamp_text(s: &str, max_chars: usize) -> String {
+    let trimmed = s.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out: String = trimmed.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
 fn tool_msg(id: &str, content: &str) -> ChatMessage {
     ChatMessage {
         role: "tool".to_string(),

@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -432,6 +432,29 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             insilo_id   TEXT PRIMARY KEY,
             deleted_at  TEXT NOT NULL
         );
+
+        -- Insilo ideas (voice memos of type Idee): read straight from the
+        -- Insilo appData, converted into tasks. Internal bookkeeping only —
+        -- never surfaced in the UI; transcripts are kept for retries.
+        CREATE TABLE IF NOT EXISTS ideas (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            insilo_id     TEXT NOT NULL UNIQUE,
+            path          TEXT NOT NULL,
+            sha256        TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            recorded_at   TEXT NOT NULL DEFAULT '',
+            duration_min  INTEGER NOT NULL DEFAULT 0,
+            language      TEXT NOT NULL DEFAULT 'de',
+            transcript_md TEXT NOT NULL DEFAULT '',
+            status        TEXT NOT NULL DEFAULT 'pending',
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            last_error    TEXT,
+            next_retry_at TEXT,
+            task_uid      TEXT,
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, next_retry_at);
         ",
     )?;
 
@@ -481,6 +504,32 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
              CREATE INDEX IF NOT EXISTS idx_todos_project ON todos(project_id);",
         )?;
         conn.pragma_update(None, "user_version", 4)?;
+    }
+    // v5: ideas table (Insilo idea memos → tasks). Created idempotently in the
+    // bootstrap above; this step marks the version for DBs that predate it.
+    if user_version < 5 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ideas (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                insilo_id     TEXT NOT NULL UNIQUE,
+                path          TEXT NOT NULL,
+                sha256        TEXT NOT NULL,
+                title         TEXT NOT NULL,
+                recorded_at   TEXT NOT NULL DEFAULT '',
+                duration_min  INTEGER NOT NULL DEFAULT 0,
+                language      TEXT NOT NULL DEFAULT 'de',
+                transcript_md TEXT NOT NULL DEFAULT '',
+                status        TEXT NOT NULL DEFAULT 'pending',
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                last_error    TEXT,
+                next_retry_at TEXT,
+                task_uid      TEXT,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status, next_retry_at);",
+        )?;
+        conn.pragma_update(None, "user_version", 5)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.9.169
+  tag: 26.9.170
   pullPolicy: IfNotPresent
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed
@@ -25,6 +25,16 @@ insilo:
   enabled: true
   mountPath: /data/insilo
   scanIntervalSec: 600
+
+# Insilo-Ideen (Sprachmemos vom Typ "Idee"): Relay liest sie direkt aus dem
+# Insilo-appData (read-only, aus dem eigenen appData abgeleitet — Insilo bleibt
+# unangetastet) und verarbeitet jede Idee zu einer Aufgabe oder ergänzt eine
+# bestehende. Keine eigene UI; die Schnipsel werden nicht angezeigt.
+insiloIdeas:
+  enabled: true
+  mountPath: /data/insilo-ideas
+  scanIntervalSec: 120
+  ideaPrefix: "Idea"
 
 # Trusted host suffix for the relay_key_guard: browser traffic arriving with
 # a Host header ending in this suffix bypasses the X-Relay-Key requirement
