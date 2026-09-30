@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.170
+  version: 26.9.171
   categories:
     - Utilities
 entrances:
@@ -24,9 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.170
+  versionName: 26.9.171
   upgradeDescription: |
-    v26.9.170: Insilo idea voice memos are now turned into tasks automatically. Relay reads the Idea memos from the Insilo app data and creates one compact task per idea (or enriches an existing task). Where the AI can already prepare something it does so and notes it in the task with a "Mighty:" line — mail drafts are prepared but never sent, calendar entries are created without inviting anyone. Failures are retried automatically; nothing is lost. Built for Olares 1.12.6.
+    v26.9.171: Insilo idea voice memos are now turned into tasks automatically. Relay reads the Idea memos from the Insilo app data and creates one compact task per idea (or enriches an existing task). Where the AI can already prepare something it does so and notes it in the task with a "Mighty:" line — mail drafts are prepared but never sent, calendar entries are created without inviting anyone. Failures are retried automatically; nothing is lost. Built for Olares 1.12.6.
     v26.9.169: Relay can adopt a mail account from Olares on first launch. If you have stored SMTP (and optionally IMAP, your name and company details) under Olares -> Settings -> Advanced -> System environment variables, the setup wizard offers "Adopt automatically" or "Set up manually", and the same import is available under Settings -> Email accounts. Every value is optional and missing fields can be filled in later; passwords never reach the browser. Built for Olares 1.12.6.
     v26.9.168: Overdue tasks keep the standard card background — only the red bar on the left edge marks them, matching the urgent marking in the mail list. Built for Olares 1.12.6.
     v26.9.167: Overdue tasks now use the same marking as an urgent mail — a red bar on the left edge with a subtle red wash — instead of a full red outline. Built for Olares 1.12.6.

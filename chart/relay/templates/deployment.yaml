@@ -139,7 +139,8 @@ spec:
             type: DirectoryOrCreate
         - name: insilo-ideas
           hostPath:
-            # Insilo-appData, aus dem EIGENEN appData abgeleitet (.../Data/insilo).
-            # Relay liest die Idee-Sprachmemos read-only; Insilo bleibt unberührt.
-            path: {{ dir .Values.userspace.appData }}/insilo
+            # Insilo-appData: aus dem eigenen appData abgeleitet. Kein `dir`
+            # (app-service rendert den Lint-Platzhalter als interface{} und
+            # `dir` verlangt strikt string) — daher der ..-Trick.
+            path: {{ .Values.userspace.appData }}/../insilo
             type: DirectoryOrCreate
