@@ -228,6 +228,7 @@ Regeln:\n\
 - priority: 1 = höchste … 9 = niedrigste; aus Dringlichkeit ableiten (muss/wichtig/eilig → 1-3), sonst null.\n\
 - labels: kurze thematische Tags ohne #/@.\n\
 - calendar/mail NUR, wenn das Memo es klar verlangt. Mails werden NIE gesendet; Termine werden ohne Teilnehmer angelegt; dann als Entwurf/Termin vorbereitet.\n\
+- mail.to MUSS eine E-Mail-Adresse sein. Ist nur ein Name bekannt, KEINE mail anlegen – stattdessen eine Aufgabe \"Mail an <Name> vorbereiten\".\n\
 - Erfinde keine Fakten.\n\
 Schema: {\"items\":[{\"kind\":\"create|append|subtask\",\"target_uid\":\"...\",\"title\":\"...\",\"note\":\"...\",\
 \"due\":\"YYYY-MM-DD|null\",\"priority\":1-9|null,\"labels\":[\"...\"]}],\
@@ -375,6 +376,10 @@ async fn prepare_mail(state: &AppState, mail: &PlanMail) -> Result<String, Strin
     let to = mail.to.trim();
     if to.is_empty() {
         return Err("Mail ohne Empfänger".into());
+    }
+    // A draft needs a real address; a bare name would produce a broken draft.
+    if !to.contains('@') {
+        return Err(format!("Empfänger '{to}' ist keine E-Mail-Adresse"));
     }
     let account_id = with_db(state, |conn| {
         cache::accounts::list_accounts(conn).map_err(|e| e.to_string())
