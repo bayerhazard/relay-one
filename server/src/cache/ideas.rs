@@ -148,3 +148,21 @@ pub fn mark_failed(
     )?;
     Ok(())
 }
+
+/// Retry without counting the attempt (temporary infrastructure outage, e.g. the
+/// LLM is down). The idea keeps its low attempt count so a short outage never
+/// triggers the fallback task.
+pub fn mark_retry(
+    conn: &Connection,
+    insilo_id: &str,
+    error: &str,
+    next_retry_at: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE ideas SET status = 'failed', last_error = ?2, next_retry_at = ?3,
+                          updated_at = datetime('now')
+         WHERE insilo_id = ?1",
+        params![insilo_id, error, next_retry_at],
+    )?;
+    Ok(())
+}

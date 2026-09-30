@@ -556,6 +556,34 @@ fn schedule_retry(state: &AppState, idea: &cache::ideas::IdeaRow, attempts: i64,
     });
 }
 
+/// Temporary infrastructure outage (LLM/gateway down, circuit breaker open):
+/// retry without counting the attempt, so a short outage never triggers the
+/// fallback task.
+fn is_infra_error(e: &str) -> bool {
+    let l = e.to_lowercase();
+    [
+        "503", "502", "504", "429",
+        "temporär nicht verfügbar",
+        "circuit breaker",
+        "connection",
+        "connect error",
+        "disconnect",
+        "timeout",
+        "timed out",
+    ]
+    .iter()
+    .any(|p| l.contains(p))
+}
+
+fn schedule_infra_retry(state: &AppState, idea: &cache::ideas::IdeaRow, error: &str) {
+    let next = chrono::Utc::now() + chrono::Duration::seconds(900);
+    let next_str = next.format("%Y-%m-%d %H:%M:%S").to_string();
+    let _ = with_db(state, |conn| {
+        cache::ideas::mark_retry(conn, &idea.insilo_id, error, &next_str)
+            .map_err(|e| e.to_string())
+    });
+}
+
 /// Process a small batch of due ideas (called after each scan tick).
 pub async fn process_due_ideas(state: &AppState) {
     let due = match with_db(state, |conn| {
@@ -571,6 +599,11 @@ pub async fn process_due_ideas(state: &AppState) {
         match process_one(state, &idea).await {
             Ok(()) => tracing::info!(insilo_id = %idea.insilo_id, "Idee verarbeitet"),
             Err(e) => {
+                if is_infra_error(&e) {
+                    tracing::warn!(insilo_id = %idea.insilo_id, "Idee: KI temporär nicht verfügbar, Retry in 15 min: {e}");
+                    schedule_infra_retry(state, &idea, &e);
+                    continue;
+                }
                 let attempts = idea.attempts + 1;
                 if attempts >= BACKOFF_SECS.len() as i64 {
                     match create_fallback_task(state, &idea).await {
@@ -674,8 +707,16 @@ speakers:
     }
 
     #[test]
-    fn build_description_setzt_mighty_block_ab() {
-        let d = build_description("Essenz der Idee.", &["Mighty: Mail-Entwurf vorbereitet (nicht gesendet).".into()]);
+    fn infra_fehler_werden_erkannt() {
+        assert!(is_infra_error("503 ServiceUnavailable: connect error"));
+        assert!(is_infra_error("KI-System temporär nicht verfügbar (Circuit Breaker offen, 15s verbleibend)"));
+        assert!(is_infra_error("request timeout after 120s"));
+        assert!(!is_infra_error("Plan nicht lesbar: erwartet create/append"));
+        assert!(!is_infra_error("KI-Client nicht konfiguriert"));
+    }
+
+    #[test]
+    fn build_description_setzt_mighty_block_ab() {        let d = build_description("Essenz der Idee.", &["Mighty: Mail-Entwurf vorbereitet (nicht gesendet).".into()]);
         assert!(d.starts_with("Essenz der Idee."));
         assert!(d.contains("Mighty: Mail-Entwurf vorbereitet"));
     }
