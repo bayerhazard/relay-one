@@ -487,6 +487,18 @@ async fn process_one(
         let guard = state.ai_client.read();
         guard.as_ref().cloned().ok_or("KI-Client nicht konfiguriert")?
     };
+
+    // Idempotency: if a previous (possibly aborted) run already produced a task
+    // for this idea, do not create a second one.
+    if !dry_run {
+        if let Some(uid) = idea.task_uid.as_deref().filter(|u| !u.is_empty()) {
+            let uid = uid.to_string();
+            with_db(state, |conn| {
+                cache::ideas::mark_done(conn, &idea.insilo_id, &uid).map_err(|e| e.to_string())
+            })?;
+            return Ok(IdeaPlan::default());
+        }
+    }
     let open_tasks: Vec<(String, String)> = with_db(state, |conn| {
         cache::todo::list_todos(conn, Some(false)).map_err(|e| e.to_string())
     })?
@@ -533,6 +545,11 @@ async fn process_one(
         match plan_item(state, &open_tasks, item, extra).await {
             Ok(Some(uid)) => {
                 if primary.is_none() {
+                    // Record immediately so a crash/retry cannot duplicate.
+                    let _ = with_db(state, |conn| {
+                        cache::ideas::set_task_uid(conn, &idea.insilo_id, &uid)
+                            .map_err(|e| e.to_string())
+                    });
                     primary = Some(uid);
                 }
             }

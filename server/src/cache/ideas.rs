@@ -192,7 +192,7 @@ pub fn claim_due_ideas(conn: &Connection, limit: i64) -> Result<Vec<IdeaRow>, ru
 pub fn reset_all(conn: &Connection) -> Result<usize, rusqlite::Error> {
     conn.execute(
         "UPDATE ideas SET status = 'pending', attempts = 0, last_error = NULL,
-                          next_retry_at = NULL, updated_at = datetime('now')",
+                          next_retry_at = NULL, task_uid = NULL, updated_at = datetime('now')",
         [],
     )
 }
