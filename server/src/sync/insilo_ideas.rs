@@ -671,7 +671,7 @@ fn schedule_infra_retry(state: &AppState, idea: &cache::ideas::IdeaRow, error: &
 /// Process a small batch of due ideas (called after each scan tick).
 pub async fn process_due_ideas(state: &AppState) {
     let due = match with_db(state, |conn| {
-        cache::ideas::list_due_ideas(conn, 5).map_err(|e| e.to_string())
+        cache::ideas::claim_due_ideas(conn, 5).map_err(|e| e.to_string())
     }) {
         Ok(v) => v,
         Err(e) => {
@@ -752,7 +752,7 @@ pub async fn process_now(
 ) -> crate::api::ideas::ProcessIdeasResult {
     let scan = run_ideas_scan(state);
     let due = with_db(state, |conn| {
-        cache::ideas::list_due_ideas(conn, limit).map_err(|e| e.to_string())
+        cache::ideas::claim_due_ideas(conn, limit).map_err(|e| e.to_string())
     })
     .unwrap_or_default();
 
@@ -863,6 +863,28 @@ schema: 1
         assert!(is_infra_error("request timeout after 120s"));
         assert!(!is_infra_error("Plan nicht lesbar: erwartet create/append"));
         assert!(!is_infra_error("KI-Client nicht konfiguriert"));
+    }
+
+    #[test]
+    fn claim_verhindert_doppelverarbeitung() {
+        use crate::AppState;
+        let mut state = AppState::new();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        *state.cache_db.lock() = Some(conn);
+
+        with_db(&state, |conn| {
+            cache::ideas::upsert_idea(conn, "i1", "/p", "s1", "T1", "d", 1, "de", "x")
+                .map_err(|e| e.to_string())?;
+            cache::ideas::upsert_idea(conn, "i2", "/p", "s2", "T2", "d", 1, "de", "y")
+                .map_err(|e| e.to_string())?;
+            let first = cache::ideas::claim_due_ideas(conn, 10).unwrap();
+            assert_eq!(first.len(), 2, "beide Ideen werden geclaimt");
+            let second = cache::ideas::claim_due_ideas(conn, 10).unwrap();
+            assert!(second.is_empty(), "zweiter Claim liefert nichts (kein Doppellauf)");
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[test]

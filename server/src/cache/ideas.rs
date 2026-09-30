@@ -132,6 +132,62 @@ pub fn set_task_uid(conn: &Connection, insilo_id: &str, task_uid: &str) -> Resul
     Ok(())
 }
 
+/// Atomically claim up to `limit` due ideas (pending/failed → processing) and
+/// return them. Prevents the background loop and the manual endpoint from
+/// processing the same idea twice. A `processing` row stuck for >15 min
+/// (crash/restart) is reclaimed.
+pub fn claim_due_ideas(conn: &Connection, limit: i64) -> Result<Vec<IdeaRow>, rusqlite::Error> {
+    let tx = conn.unchecked_transaction()?;
+    let ids: Vec<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT insilo_id FROM ideas
+             WHERE (status IN ('pending', 'failed')
+                    AND (next_retry_at IS NULL OR next_retry_at <= datetime('now')))
+                OR (status = 'processing' AND updated_at <= datetime('now', '-15 minutes'))
+             ORDER BY id
+             LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map(params![limit], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    for id in &ids {
+        tx.execute(
+            "UPDATE ideas SET status = 'processing', updated_at = datetime('now') WHERE insilo_id = ?1",
+            params![id],
+        )?;
+    }
+    tx.commit()?;
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let row = conn.query_row(
+            "SELECT insilo_id, path, sha256, title, recorded_at, duration_min,
+                    language, transcript_md, status, attempts, task_uid
+             FROM ideas WHERE insilo_id = ?1",
+            params![id],
+            |r| {
+                Ok(IdeaRow {
+                    insilo_id: r.get(0)?,
+                    path: r.get(1)?,
+                    sha256: r.get(2)?,
+                    title: r.get(3)?,
+                    recorded_at: r.get(4)?,
+                    duration_min: r.get(5)?,
+                    language: r.get(6)?,
+                    transcript_md: r.get(7)?,
+                    status: r.get(8)?,
+                    attempts: r.get(9)?,
+                    task_uid: r.get(10)?,
+                })
+            },
+        )?;
+        out.push(row);
+    }
+    Ok(out)
+}
+
 /// Re-queue every idea for a fresh processing run (QA / manual re-run).
 pub fn reset_all(conn: &Connection) -> Result<usize, rusqlite::Error> {
     conn.execute(
