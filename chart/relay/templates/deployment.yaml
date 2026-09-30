@@ -1,3 +1,6 @@
+{{- /* app-service rendert mit den in der Application-CR gespeicherten Values;
+       in späteren Releases neu hinzugekommene Keys fehlen dort → dict + default. */ -}}
+{{- $ideas := .Values.insiloIdeas | default dict -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,13 +60,13 @@ spec:
             # Insilo-Ideen (Sprachmemos vom Typ "Idee"): direkt aus dem
             # Insilo-appData gelesen (read-only), daraus werden Aufgaben.
             - name: RELAY_INSILO_IDEAS_ENABLED
-              value: {{ .Values.insiloIdeas.enabled | quote }}
+              value: {{ if hasKey $ideas "enabled" }}{{ $ideas.enabled | quote }}{{ else }}"true"{{ end }}
             - name: RELAY_INSILO_IDEAS_DIR
-              value: "{{ .Values.insiloIdeas.mountPath }}"
+              value: {{ $ideas.mountPath | default "/data/insilo-ideas" | quote }}
             - name: RELAY_INSILO_IDEAS_SCAN_SECS
-              value: {{ .Values.insiloIdeas.scanIntervalSec | quote }}
+              value: {{ $ideas.scanIntervalSec | default 120 | quote }}
             - name: RELAY_INSILO_IDEA_PREFIX
-              value: {{ .Values.insiloIdeas.ideaPrefix | quote }}
+              value: {{ $ideas.ideaPrefix | default "Idea" | quote }}
             {{- if .Values.trustedHostSuffix }}
             - name: RELAY_TRUSTED_HOST_SUFFIX
               value: {{ .Values.trustedHostSuffix | quote }}
@@ -93,7 +96,7 @@ spec:
               mountPath: /data/insilo
               readOnly: true
             - name: insilo-ideas
-              mountPath: {{ .Values.insiloIdeas.mountPath }}
+              mountPath: {{ $ideas.mountPath | default "/data/insilo-ideas" }}
               readOnly: true
           startupProbe:
             httpGet:
