@@ -4,7 +4,7 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.9.168
+  tag: 26.9.169
   pullPolicy: IfNotPresent
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed
@@ -32,3 +32,36 @@ insilo:
 # key for ALL requests (fail-closed). Set to your entrance domain, e.g.
 # "olares.de" for Olares or "example.com" for other deployments.
 trustedHostSuffix: ""
+
+# Defaults for the Olares env mapping (declared in OlaresManifest envs[]).
+# Olares overrides these at install with the user's values; empty means the
+# variable is unset and Relay falls back to manual setup.
+olaresEnv:
+  RELAY_OLARES_EMAIL: ""
+  RELAY_OLARES_USERNAME: ""
+  RELAY_OLARES_TIMEZONE: ""
+  RELAY_OLARES_FIRSTNAME: ""
+  RELAY_OLARES_LASTNAME: ""
+  RELAY_OLARES_COMPANY_NAME: ""
+  RELAY_OLARES_COMPANY_ADDRESS: ""
+  RELAY_OLARES_COMPANY_PHONE: ""
+  RELAY_OLARES_COMPANY_WEBSITE: ""
+  RELAY_OLARES_COMPANY_EMAIL: ""
+  RELAY_OLARES_COMPANY_VAT_ID: ""
+  RELAY_OLARES_COMPANY_REGISTER: ""
+  RELAY_OLARES_MAIL_ACCOUNT_NAME: ""
+  RELAY_OLARES_MAIL_SIGNATURE: ""
+  RELAY_OLARES_IMAP_SERVER: ""
+  RELAY_OLARES_IMAP_PORT: ""
+  RELAY_OLARES_IMAP_USERNAME: ""
+  RELAY_OLARES_IMAP_PASSWORD: ""
+  RELAY_OLARES_IMAP_SSL: ""
+  RELAY_OLARES_SMTP_SERVER: ""
+  RELAY_OLARES_SMTP_PORT: ""
+  RELAY_OLARES_SMTP_USERNAME: ""
+  RELAY_OLARES_SMTP_PASSWORD: ""
+  RELAY_OLARES_SMTP_FROM_ADDRESS: ""
+  RELAY_OLARES_SMTP_SECURITY_PROTOCOLS: ""
+  RELAY_OLARES_SMTP_USE_TLS: ""
+  RELAY_OLARES_SMTP_USE_SSL: ""
+  RELAY_OLARES_SMTP_ENABLED: ""

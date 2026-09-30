@@ -20,6 +20,7 @@ vi.mock("$lib/services/tauri", async (importOriginal) => {
     fetchFromImap: vi.fn(),
     fetchMessages: vi.fn(),
     connectAccount: vi.fn(),
+  getOlaresMailStatus: vi.fn().mockResolvedValue({ configured: false }),
     deleteAccount: vi.fn(),
     saveSettings: vi.fn(),
     getSettings: vi.fn().mockResolvedValue(null),

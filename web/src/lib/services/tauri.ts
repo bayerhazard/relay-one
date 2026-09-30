@@ -95,6 +95,48 @@ export async function setMoveToTrash(enabled: boolean): Promise<void> {
 
 // ─── Accounts ──────────────────────────────────────────────
 
+export interface OlaresMailSide {
+  server: string | null;
+  port: number | null;
+  username: string | null;
+  password_present: boolean;
+}
+
+export interface OlaresMailStatus {
+  configured: boolean;
+  complete: boolean;
+  identity: {
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    username: string | null;
+    timezone: string | null;
+  };
+  company: {
+    name: string | null;
+    address: string | null;
+    phone: string | null;
+    website: string | null;
+    email: string | null;
+    vat_id: string | null;
+    register: string | null;
+  };
+  account_name: string | null;
+  signature: string | null;
+  imap: OlaresMailSide;
+  imap_ssl: boolean | null;
+  smtp: OlaresMailSide;
+  smtp_security: string | null;
+  smtp_from_address: string | null;
+  smtp_enabled: boolean | null;
+  missing: string[];
+}
+
+/** Read the mail/identity values Olares injected (secrets only reported as present/absent). */
+export async function getOlaresMailStatus(): Promise<OlaresMailStatus> {
+  return get("/olares-mail/status", "Die Olares-Maildaten konnten nicht gelesen werden.");
+}
+
 export async function connectAccount(
   name: string,
   imapHost: string,
@@ -110,6 +152,7 @@ export async function connectAccount(
   senderName: string,
   senderEmail: string,
   imapInsecure = false,
+  useOlaresPassword = false,
 ): Promise<AccountInfo> {
   return post("/accounts", {
     name,
@@ -118,6 +161,7 @@ export async function connectAccount(
     imap_username: imapUsername, imap_password: imapPassword,
     smtp_username: smtpUsername, smtp_password: smtpPassword,
     sender_name: senderName, sender_email: senderEmail,
+    use_olares_password: useOlaresPassword,
   }, "Das Konto konnte nicht verbunden werden.");
 }
 

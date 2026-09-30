@@ -1,5 +1,7 @@
   <script lang="ts">
-    import { connectAccount, deleteAccount, saveSettings } from "$lib/services/tauri";
+    import { onMount, tick } from "svelte";
+    import { connectAccount, deleteAccount, saveSettings, getOlaresMailStatus } from "$lib/services/tauri";
+    import type { OlaresMailStatus } from "$lib/services/tauri";
     import type { AccountInfo } from "$lib/stores/accounts";
     import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
 
@@ -10,6 +12,15 @@
     let { oncomplete }: Props = $props();
 
     let splashStep = $state<"intro" | "setup_mail" | "setup_llm">("intro");
+
+    // Values Olares injected via the chart's env mapping (secrets only present/absent).
+    let olares = $state<OlaresMailStatus | null>(null);
+    let splashUseOlaresPassword = $state(false);
+    let hasOlaresMail = $derived(!!olares && olares.configured);
+
+    onMount(() => {
+      getOlaresMailStatus().then((s) => { olares = s; }).catch(() => { olares = null; });
+    });
 
     let splashAcctName = $state("");
     let splashImapHost = $state("");
@@ -61,6 +72,7 @@
           splashSenderName,
           splashSenderMail,
           splashImapInsecure,
+          splashUseOlaresPassword,
         );
         splashCreatedAccount = acct;
         splashStep = "setup_llm";
@@ -68,6 +80,37 @@
         splashAcctError = localizeError(e instanceof Error ? e.message : String(e));
       } finally {
         splashAcctConnecting = false;
+      }
+    }
+
+    /** Fill the setup form from the values Olares injected. */
+    function prefillFromOlares() {
+      const o = olares;
+      if (!o) return;
+      splashAcctName = o.account_name || o.identity.email || o.identity.first_name || "";
+      if (o.imap.server) splashImapHost = o.imap.server;
+      splashImapPort = o.imap.port ?? 993;
+      splashImapSsl = o.imap_ssl ?? true;
+      splashAcctUser = o.imap.username || o.identity.email || "";
+      if (o.smtp.server) splashSmtpHost = o.smtp.server;
+      splashSmtpPort = o.smtp.port ?? 587;
+      splashSmtpTls = (o.smtp_security ?? "starttls") !== "ssl";
+      splashSmtpUser = o.smtp.username || o.imap.username || o.identity.email || "";
+      splashSenderName =
+        [o.identity.first_name, o.identity.last_name].filter(Boolean).join(" ") ||
+        o.identity.username || "";
+      splashSenderMail = o.smtp_from_address || o.identity.email || "";
+    }
+
+    /** "Automatisch übernehmen": prefill and — when complete — connect using the
+        passwords held by Olares (they never reach the browser). */
+    async function adoptFromOlares() {
+      prefillFromOlares();
+      splashUseOlaresPassword = !!olares?.complete;
+      splashStep = "setup_mail";
+      if (olares?.complete) {
+        await tick();
+        await handleSplashConnectAccount();
       }
     }
 
@@ -127,9 +170,37 @@
             </div>
           </div>
           
-          <button type="button" class="btn-splash-primary" onclick={() => (splashStep = "setup_mail")}>
-            {$t("splash.setupNow")}
-          </button>
+          {#if hasOlaresMail}
+            <div class="olares-hint">
+              <p class="olares-hint-title">{$t("splash.olaresFound")}</p>
+              <ul class="olares-hint-list">
+                {#if olares?.identity.email}<li>{$t("splash.olaresEmail")}: {olares.identity.email}</li>{/if}
+                {#if olares?.identity.first_name || olares?.identity.last_name}
+                  <li>{$t("splash.olaresName")}: {[olares.identity.first_name, olares.identity.last_name].filter(Boolean).join(" ")}</li>
+                {/if}
+                {#if olares?.imap.server}
+                  <li>IMAP: {olares.imap.server}{olares.imap.username ? ` · ${olares.imap.username}` : ""}</li>
+                {/if}
+                {#if olares?.smtp.server}<li>SMTP: {olares.smtp.server}</li>{/if}
+                {#if olares?.company.name}<li>{$t("splash.olaresCompany")}: {olares.company.name}</li>{/if}
+              </ul>
+              {#if !olares?.complete && olares?.missing.length}
+                <p class="olares-hint-missing">{$t("splash.olaresMissing")}: {olares.missing.join(", ")}</p>
+              {/if}
+              <div class="olares-actions">
+                <button type="button" class="btn-splash-secondary" onclick={() => (splashStep = "setup_mail")}>
+                  {$t("splash.setupManual")}
+                </button>
+                <button type="button" class="btn-splash-primary" onclick={adoptFromOlares}>
+                  {$t("splash.setupAuto")}
+                </button>
+              </div>
+            </div>
+          {:else}
+            <button type="button" class="btn-splash-primary" onclick={() => (splashStep = "setup_mail")}>
+              {$t("splash.setupNow")}
+            </button>
+          {/if}
         </div>
       {:else if splashStep === "setup_mail"}
         <div class="splash-form-view">
@@ -371,6 +442,29 @@
     color: var(--color-text-secondary);
     line-height: 1.5;
   }
+  .olares-hint {
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    background: var(--color-sidebar);
+  }
+  .olares-hint-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); margin-bottom: 8px; }
+  .olares-hint-list {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+  .olares-hint-missing { font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 12px; }
+  .olares-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
   .btn-link {
     background: none;
     border: none;

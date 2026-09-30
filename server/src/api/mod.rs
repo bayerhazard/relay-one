@@ -17,6 +17,7 @@ pub mod invitations;
 pub mod meetings;
 pub mod messages;
 pub mod migrate;
+pub mod olares_mail;
 pub mod profile;
 pub mod push;
 pub mod quick_add;
@@ -65,6 +66,7 @@ pub fn router() -> Router<AppState> {
         .route("/accounts", get(accounts::list_accounts).post(accounts::connect_account))
         .route("/accounts/delete", post(accounts::delete_account))
         .route("/accounts/config", post(accounts::update_account))
+        .route("/olares-mail/status", get(olares_mail::olares_mail_status))
         // Folders
         .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))

@@ -58,6 +58,21 @@ spec:
             - name: RELAY_TRUSTED_HOST_SUFFIX
               value: {{ .Values.trustedHostSuffix | quote }}
             {{- end }}
+            # Olares user/system env → Relay (seeded at first launch; empty when
+            # the user has not configured the matching Olares variable).
+            {{- range $k := list
+                "EMAIL" "USERNAME" "TIMEZONE"
+                "FIRSTNAME" "LASTNAME"
+                "COMPANY_NAME" "COMPANY_ADDRESS" "COMPANY_PHONE" "COMPANY_WEBSITE"
+                "COMPANY_EMAIL" "COMPANY_VAT_ID" "COMPANY_REGISTER"
+                "MAIL_ACCOUNT_NAME" "MAIL_SIGNATURE"
+                "IMAP_SERVER" "IMAP_PORT" "IMAP_USERNAME" "IMAP_PASSWORD" "IMAP_SSL"
+                "SMTP_SERVER" "SMTP_PORT" "SMTP_USERNAME" "SMTP_PASSWORD"
+                "SMTP_FROM_ADDRESS" "SMTP_SECURITY_PROTOCOLS" "SMTP_USE_TLS"
+                "SMTP_USE_SSL" "SMTP_ENABLED" }}
+            - name: RELAY_OLARES_{{ $k }}
+              value: {{ (index $.Values.olaresEnv (printf "RELAY_OLARES_%s" $k)) | quote }}
+            {{- end }}
           ports:
             - containerPort: 3000
               name: http

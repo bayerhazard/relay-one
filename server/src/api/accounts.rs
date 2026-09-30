@@ -49,6 +49,11 @@ pub struct ConnectAccountRequest {
     pub smtp_password: String,
     pub sender_name: String,
     pub sender_email: String,
+    /// When true, empty passwords are filled from the Olares env
+    /// (`RELAY_OLARES_IMAP_PASSWORD` / `RELAY_OLARES_SMTP_PASSWORD`) before
+    /// validation — the browser never receives the stored password.
+    #[serde(default)]
+    pub use_olares_password: bool,
 }
 
 /// `POST /api/v1/accounts` — validate, connect, persist a new account.
@@ -56,6 +61,17 @@ pub async fn connect_account(
     State(state): State<AppState>,
     Json(req): Json<ConnectAccountRequest>,
 ) -> ApiResult<AccountInfo> {
+    let mut req = req;
+    // Adopt passwords from the Olares env when the caller asked for it and did
+    // not send one (the value never leaves the server).
+    if req.use_olares_password {
+        if req.imap_password.is_empty() {
+            req.imap_password = super::olares_mail::env_value("RELAY_OLARES_IMAP_PASSWORD");
+        }
+        if req.smtp_password.is_empty() {
+            req.smtp_password = super::olares_mail::env_value("RELAY_OLARES_SMTP_PASSWORD");
+        }
+    }
     tracing::info!(
         "connect_account body: name={:?} imap_host={:?} imap_port={} imap_ssl={} smtp_host={:?} smtp_port={} smtp_tls={} imap_username={:?} imap_password_len={} smtp_username={:?} smtp_password_len={} sender_name={:?} sender_email={:?}",
         req.name, req.imap_host, req.imap_port, req.imap_ssl,

@@ -14,6 +14,7 @@ import {
     getAttachmentCacheStats, cleanupAttachmentCache, clearAttachmentCache, clearAiSummaries,
     setupPush, teardownPush, pushEnabled,
     getDeleteQueue, retryDeleteQueueRow, removeDeleteQueueRow, downloadExport, createBackup, listBackups, restoreBackupSnapshot,
+    getOlaresMailStatus,
   } from "$lib/services/tauri";
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
@@ -675,6 +676,8 @@ async function handleSaveCardDav() {
   let smtpPass = $state("");
   let senderName = $state("");
   let senderMail = $state("");
+  /** When true, empty passwords are taken from the Olares env server-side. */
+  let useOlaresPassword = $state(false);
   let acctConnecting = $state(false);
   let acctError = $state<string | null>(null);
   let acctSuccess = $state<string | null>(null);
@@ -715,7 +718,7 @@ async function handleSaveCardDav() {
           acctName, imapHost, imapPort, imapSsl,
           smtpHost, smtpPort, smtpTls,
           acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
-          imapInsecure,
+          imapInsecure, useOlaresPassword,
         );
         acctSuccess = translate("settings.accountConnected", { name: acctName });
       }
@@ -725,6 +728,7 @@ async function handleSaveCardDav() {
       acctPass = ""; smtpUser = ""; smtpPass = ""; senderName = ""; senderMail = "";
       imapPort = 993; imapSsl = true; imapInsecure = false;
       smtpPort = 587; smtpTls = true;
+      useOlaresPassword = false;
       isEditing = false;
       editingAccountId = null;
       
@@ -760,11 +764,43 @@ async function handleSaveCardDav() {
     }
   }
 
+  /** Fill the account form from the values Olares injected (secrets stay server-side). */
+  async function importFromOlares() {
+    acctError = null;
+    acctSuccess = null;
+    try {
+      const s = await getOlaresMailStatus();
+      if (!s.configured) {
+        acctError = translate("settings.olaresNone");
+        return;
+      }
+      acctName = s.account_name || s.identity.email || acctName;
+      if (s.imap.server) imapHost = s.imap.server;
+      imapPort = s.imap.port ?? 993;
+      imapSsl = s.imap_ssl ?? true;
+      acctUser = s.imap.username || s.identity.email || acctUser;
+      if (s.smtp.server) smtpHost = s.smtp.server;
+      smtpPort = s.smtp.port ?? 587;
+      smtpTls = (s.smtp_security ?? "starttls") !== "ssl";
+      smtpUser = s.smtp.username || s.imap.username || s.identity.email || "";
+      senderName =
+        [s.identity.first_name, s.identity.last_name].filter(Boolean).join(" ") ||
+        s.identity.username || senderName;
+      senderMail = s.smtp_from_address || s.identity.email || senderMail;
+      useOlaresPassword = s.complete;
+      acctSuccess = translate("settings.olaresImported");
+      setTimeout(() => (acctSuccess = null), 4000);
+    } catch (e: unknown) {
+      acctError = localizeError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function handleCancelEdit() {
     acctName = ""; imapHost = ""; smtpHost = ""; acctUser = "";
     acctPass = ""; smtpUser = ""; smtpPass = ""; senderName = ""; senderMail = "";
     imapPort = 993; imapSsl = true; imapInsecure = false;
     smtpPort = 587; smtpTls = true;
+    useOlaresPassword = false;
     isEditing = false;
     editingAccountId = null;
     acctError = null;
@@ -1144,6 +1180,13 @@ async function handleSaveCardDav() {
           <div class="card-header">
             <h3>{isEditing ? $t("settings.editAccountTitle") : $t("settings.newAccountTitle")}</h3>
             <p class="card-desc">{$t("settings.accountFormDesc")}</p>
+          </div>
+
+          <div class="olares-import-row">
+            <button type="button" class="btn-action-ghost" onclick={importFromOlares}>
+              {$t("settings.olaresImport")}
+            </button>
+            <span class="olares-import-hint">{$t("settings.olaresImportHint")}</span>
           </div>
 
           <div class="card-body">
@@ -2992,6 +3035,19 @@ async function handleSaveCardDav() {
   .btn-action-ghost:hover {
     background: var(--color-list);
     border-color: var(--color-accent);
+  }
+
+  .olares-import-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 0 24px 16px;
+  }
+
+  .olares-import-hint {
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
   }
 
   .btn-action-danger-ghost {

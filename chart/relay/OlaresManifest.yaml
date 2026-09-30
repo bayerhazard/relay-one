@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.168
+  version: 26.9.169
   categories:
     - Utilities
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.168
+  versionName: 26.9.169
   upgradeDescription: |
+    v26.9.169: Relay can adopt a mail account from Olares on first launch. If you have stored SMTP (and optionally IMAP, your name and company details) under Olares -> Settings -> Advanced -> System environment variables, the setup wizard offers "Adopt automatically" or "Set up manually", and the same import is available under Settings -> Email accounts. Every value is optional and missing fields can be filled in later; passwords never reach the browser. Built for Olares 1.12.6.
     v26.9.168: Overdue tasks keep the standard card background — only the red bar on the left edge marks them, matching the urgent marking in the mail list. Built for Olares 1.12.6.
     v26.9.167: Overdue tasks now use the same marking as an urgent mail — a red bar on the left edge with a subtle red wash — instead of a full red outline. Built for Olares 1.12.6.
     v26.9.166: The Tasks area now sits in the same shell as Mail, Contacts, Calendar and Meetings. The New and Refresh buttons moved back under the sidebar header (they had dropped to the bottom of the sidebar), the task counter now has the same styled divider row as the other modules, and the item titles use the same weight as the rest of the app. Recurrence and due-date markers are drawn as crisp inline icons instead of emoji, Escape now closes the task detail and sub-task dialogs from anywhere, and the label fields are fully localised. Built for Olares 1.12.6.
@@ -73,7 +74,95 @@ spec:
 permission:
   appData: true
   appCommon: true
-envs: []
+envs:
+  # Olares user/system variables → Relay. All optional: if the user has not set
+  # them, they resolve to empty and Relay simply offers manual setup. Custom
+  # vars (IMAP_*, FIRSTNAME, COMPANY_*, MAIL_*) live in Settings → Advanced →
+  # System environment variables and get the OLARES_USER_ prefix automatically.
+  - envName: RELAY_OLARES_EMAIL
+    required: false
+    valueFrom: { envName: OLARES_USER_EMAIL }
+  - envName: RELAY_OLARES_USERNAME
+    required: false
+    valueFrom: { envName: OLARES_USER_USERNAME }
+  - envName: RELAY_OLARES_TIMEZONE
+    required: false
+    valueFrom: { envName: OLARES_USER_TIMEZONE }
+  - envName: RELAY_OLARES_FIRSTNAME
+    required: false
+    valueFrom: { envName: OLARES_USER_FIRSTNAME }
+  - envName: RELAY_OLARES_LASTNAME
+    required: false
+    valueFrom: { envName: OLARES_USER_LASTNAME }
+  - envName: RELAY_OLARES_COMPANY_NAME
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_NAME }
+  - envName: RELAY_OLARES_COMPANY_ADDRESS
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_ADDRESS }
+  - envName: RELAY_OLARES_COMPANY_PHONE
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_PHONE }
+  - envName: RELAY_OLARES_COMPANY_WEBSITE
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_WEBSITE }
+  - envName: RELAY_OLARES_COMPANY_EMAIL
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_EMAIL }
+  - envName: RELAY_OLARES_COMPANY_VAT_ID
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_VAT_ID }
+  - envName: RELAY_OLARES_COMPANY_REGISTER
+    required: false
+    valueFrom: { envName: OLARES_USER_COMPANY_REGISTER }
+  - envName: RELAY_OLARES_MAIL_ACCOUNT_NAME
+    required: false
+    valueFrom: { envName: OLARES_USER_MAIL_ACCOUNT_NAME }
+  - envName: RELAY_OLARES_MAIL_SIGNATURE
+    required: false
+    valueFrom: { envName: OLARES_USER_MAIL_SIGNATURE }
+  - envName: RELAY_OLARES_IMAP_SERVER
+    required: false
+    valueFrom: { envName: OLARES_USER_IMAP_SERVER }
+  - envName: RELAY_OLARES_IMAP_PORT
+    required: false
+    valueFrom: { envName: OLARES_USER_IMAP_PORT }
+  - envName: RELAY_OLARES_IMAP_USERNAME
+    required: false
+    valueFrom: { envName: OLARES_USER_IMAP_USERNAME }
+  - envName: RELAY_OLARES_IMAP_PASSWORD
+    required: false
+    valueFrom: { envName: OLARES_USER_IMAP_PASSWORD }
+  - envName: RELAY_OLARES_IMAP_SSL
+    required: false
+    valueFrom: { envName: OLARES_USER_IMAP_SSL }
+  - envName: RELAY_OLARES_SMTP_SERVER
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_SERVER }
+  - envName: RELAY_OLARES_SMTP_PORT
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_PORT }
+  - envName: RELAY_OLARES_SMTP_USERNAME
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_USERNAME }
+  - envName: RELAY_OLARES_SMTP_PASSWORD
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_PASSWORD }
+  - envName: RELAY_OLARES_SMTP_FROM_ADDRESS
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_FROM_ADDRESS }
+  - envName: RELAY_OLARES_SMTP_SECURITY_PROTOCOLS
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_SECURITY_PROTOCOLS }
+  - envName: RELAY_OLARES_SMTP_USE_TLS
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_USE_TLS }
+  - envName: RELAY_OLARES_SMTP_USE_SSL
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_USE_SSL }
+  - envName: RELAY_OLARES_SMTP_ENABLED
+    required: false
+    valueFrom: { envName: OLARES_USER_SMTP_ENABLED }
 options:
   apiTimeout: 0
   dependencies:
