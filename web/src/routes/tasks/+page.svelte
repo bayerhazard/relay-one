@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import {
     listTodos, createTodo, toggleTodo, patchTodo, deleteTodo, succeedTodo,
-    quickAddTodo, todoViews, syncTodos, getCalendars,
+    quickAddTodo, todoViews, getCalendars,
     type TodoInfo, type TodoPatchInput,
   } from "$lib/services/tauri";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
@@ -48,22 +48,17 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let selection = $state<Selection>("all");
-  let showDone = $state(false);
   let busy = $state(false);
-  let syncing = $state(false);
-  let syncMsg = $state<string | null>(null);
   let tkSearch = $state("");
   /** Active tag filter (combined with the current view); null = none. */
   let tagFilter = $state<string | null>(null);
 
   /** Sort mode (server-side): work | due | priority | title | created | manual. */
   let sortMode = $state<string>("work");
-  let sortDir = $state<string>("asc");
 
   function persistSort() {
     try {
       localStorage.setItem("relay_todo_sort", sortMode);
-      localStorage.setItem("relay_todo_sort_dir", sortDir);
     } catch {
       /* ignore (private mode) */
     }
@@ -71,12 +66,6 @@
 
   async function setSort(mode: string) {
     sortMode = mode;
-    persistSort();
-    await loadAll();
-  }
-
-  async function setSortDir(dir: string) {
-    sortDir = dir;
     persistSort();
     await loadAll();
   }
@@ -127,16 +116,24 @@
     loading = true;
     error = null;
     try {
+      await refreshQuiet();
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** Reload the list without toggling the loading state (poll / focus). */
+  async function refreshQuiet() {
+    try {
       const [list, views] = await Promise.all([
-        listTodos(undefined, sortMode, sortDir),
+        listTodos(undefined, sortMode),
         todoViews(),
       ]);
       todos = list;
       counts = views;
+      error = null;
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
-    } finally {
-      loading = false;
     }
   }
 
@@ -156,14 +153,26 @@
   onMount(() => {
     try {
       const m = localStorage.getItem("relay_todo_sort");
-      const d = localStorage.getItem("relay_todo_sort_dir");
       if (m) sortMode = m;
-      if (d) sortDir = d;
     } catch {
       /* ignore */
     }
     void loadAll();
     void loadProjects();
+
+    // Auto-refresh: the server syncs CalDAV in the background; poll the local
+    // cache periodically and whenever the tab regains focus/visibility.
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refreshQuiet();
+    }, 60_000);
+    const onVis = () => { if (document.visibilityState === "visible") void refreshQuiet(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
   });
 
   // Reload after an assistant plan execution; skip the first run.
@@ -229,7 +238,7 @@
     let list = todos.filter((t) => {
       if (selection === "done") return isDone(t);
       // Every non-"done" view hides completed tasks unless the toggle is on.
-      if (!showDone && isDone(t)) return false;
+      if (isDone(t)) return false;
       if (tagFilter && !t.labels.includes(tagFilter)) return false;
       return inSelection(t, selection);
     });
@@ -337,21 +346,6 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       deleteTarget = null;
-    }
-  }
-
-  async function onSync() {
-    syncing = true;
-    syncMsg = null;
-    try {
-      const r = await syncTodos();
-      syncMsg = translate("tasks.synced", { n: r.synced });
-      await loadAll();
-      await loadProjects();
-    } catch (e: unknown) {
-      syncMsg = e instanceof Error ? e.message : String(e);
-    } finally {
-      syncing = false;
     }
   }
 
@@ -582,17 +576,6 @@
       <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
 
-    <div class="tk-tools">
-      <button type="button" class="tk-btn tk-btn-primary" onclick={focusQuickAdd}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        {$t("tasks.new")}
-      </button>
-      <button type="button" class="tk-btn tk-btn-ghost" onclick={onSync} disabled={syncing}>
-        {syncing ? $t("common.syncing") : $t("common.refresh")}
-      </button>
-      {#if syncMsg}<span class="tk-sync-msg">{syncMsg}</span>{/if}
-    </div>
-
     <!-- Focus views -->
     <nav class="tk-views" aria-label={$t("tasks.viewsLabel")}>
       <button type="button" class="tk-view" class:active={selection === "inbox"} onclick={() => select("inbox")}>
@@ -644,27 +627,6 @@
     {/if}
 
     <div class="tk-count">{$t("tasks.count", { n: visibleTodos.length })}</div>
-
-    <div class="tk-sort">
-      <label class="tk-sort-row">
-        <span>{$t("tasks.sortLabel")}</span>
-        <select value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
-          <option value="work">{$t("tasks.sortWork")}</option>
-          <option value="due">{$t("tasks.sortDue")}</option>
-          <option value="priority">{$t("tasks.sortPriority")}</option>
-          <option value="title">{$t("tasks.sortTitle")}</option>
-          <option value="created">{$t("tasks.sortCreated")}</option>
-          <option value="manual">{$t("tasks.sortManual")}</option>
-        </select>
-      </label>
-      <label class="tk-sort-row">
-        <span>{$t("tasks.sortDir")}</span>
-        <select value={sortDir} onchange={(e) => setSortDir((e.currentTarget as HTMLSelectElement).value)}>
-          <option value="asc">{$t("tasks.sortAsc")}</option>
-          <option value="desc">{$t("tasks.sortDesc")}</option>
-        </select>
-      </label>
-    </div>
 
     <SidebarFooter active="tasks">
       <SidebarSearch
@@ -738,9 +700,16 @@
 
     <div class="tk-list-head">
       <h2>{selectionLabel()}</h2>
-      <label class="tk-showdone">
-        <input type="checkbox" bind:checked={showDone} />
-        {$t("tasks.showDone")}
+      <label class="tk-sort-inline">
+        <span>{$t("tasks.sortLabel")}</span>
+        <select value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
+          <option value="work">{$t("tasks.sortWork")}</option>
+          <option value="due">{$t("tasks.sortDue")}</option>
+          <option value="priority">{$t("tasks.sortPriority")}</option>
+          <option value="title">{$t("tasks.sortTitle")}</option>
+          <option value="created">{$t("tasks.sortCreated")}</option>
+          <option value="manual">{$t("tasks.sortManual")}</option>
+        </select>
       </label>
     </div>
 
@@ -1048,10 +1017,13 @@
     margin-top: 8px;
   }
 
-  .tk-sort { padding: 10px 16px 4px; display: flex; flex-direction: column; gap: 8px; }
-  .tk-sort-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-xs); color: var(--color-text-secondary); }
-  .tk-sort-row select {
-    flex: 1; min-width: 0; font-family: inherit; font-size: var(--fs-xs);
+  /* Inline sort control in the list header. */
+  .tk-sort-inline {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: var(--fs-xs); color: var(--color-text-secondary); flex-shrink: 0;
+  }
+  .tk-sort-inline select {
+    font-family: inherit; font-size: var(--fs-xs);
     padding: 4px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-s);
     background: var(--color-card, var(--color-list)); color: var(--color-text);
   }
@@ -1073,9 +1045,6 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tk-next-title:hover { color: var(--color-accent); }
-
-  .tk-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
-  .tk-sync-msg { font-size: var(--fs-xs); color: var(--color-text-secondary); }
 
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; min-width: 0; }
 
@@ -1135,17 +1104,10 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
+    flex-wrap: wrap;
     margin: 4px 0 12px;
   }
   .tk-list-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
-  .tk-showdone {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-xs);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-  }
 
   .tk-group-head {
     font-size: var(--fs-xs);

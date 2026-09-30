@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.9.183
+  version: 26.9.184
   categories:
     - Utilities
 entrances:
@@ -24,9 +24,10 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.9.183
+  versionName: 26.9.184
   upgradeDescription: |
-    v26.9.183: Task list defaults to a dependency-aware work order (due bucket, priority, alphabetical). Priorities are unified to one canonical 1-5 scale (1 highest, 5 lowest, or none) across app, API and AI. Tasks can depend on other tasks ("blocked by"), shown as "Waiting on"; blockers are never sorted before the task they block. New sort/order options in the sidebar. Built for Olares 1.12.6.
+    v26.9.184: The Tasks sidebar is slimmer — the redundant New and Refresh buttons are gone (you add tasks in the field at the top of the list, and the list now refreshes itself every minute and when the window regains focus). Sorting moved into the list header as a single dropdown. The "Show completed" toggle was removed; completed tasks are available via the "Completed" view. Built for Olares 1.12.6.
+    v26.9.184: Task list defaults to a dependency-aware work order (due bucket, priority, alphabetical). Priorities are unified to one canonical 1-5 scale (1 highest, 5 lowest, or none) across app, API and AI. Tasks can depend on other tasks ("blocked by"), shown as "Waiting on"; blockers are never sorted before the task they block. Sort/order options in the list header. Built for Olares 1.12.6.
     v26.9.181: Tags are now handled conservatively. A thematic tag only appears once it marks five tasks; until then proposals stay hidden. Existing tags are normalised (case/synonyms) and rare ones (fewer than five tasks) are removed and kept hidden for possible later promotion. The origin label is now "Insilo". A maintenance pass cleans up existing tasks. Built for Olares 1.12.6.
     v26.9.180: The task list now matches the mail inbox — flat rows with a two-line description preview, tag pills instead of "@" text. The left sidebar gains a Tags section: every theme label with a count, one click filters the list (combine with any view). New open tasks with an identical title are merged instead of duplicated, and a maintenance pass can clean up existing duplicates. Also fixes the background mail-body pre-fetch (wrong column). Built for Olares 1.12.6.
     v26.9.179: Insilo idea memos are now always processed into tasks immediately and no longer appear in the Meetings area. Each idea yields one compact task (or enriches an existing one): a note goes into the description, a real follow-up becomes a sub-task. Where the AI can already prepare something it does so and notes it with a "Mighty:" line — mail drafts are prepared but never sent, calendar entries are created without inviting anyone. Due date and priority are filled from the memo; failures are retried automatically. The unused "section" field was removed. Built for Olares 1.12.6.
