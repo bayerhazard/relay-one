@@ -20,6 +20,9 @@ pub struct ProcessIdeasRequest {
     /// When true, return the plans without creating/updating anything.
     #[serde(default)]
     pub dry_run: bool,
+    /// Re-queue every idea before processing (manual/QA re-run).
+    #[serde(default)]
+    pub reset: bool,
 }
 
 #[derive(Serialize)]
@@ -38,6 +41,11 @@ pub async fn process_ideas(
     State(state): State<AppState>,
     Json(req): Json<ProcessIdeasRequest>,
 ) -> ApiResult<ProcessIdeasResult> {
+    if req.reset {
+        let _ = crate::db::with_db(&state, |conn| {
+            crate::cache::ideas::reset_all(conn).map_err(|e| e.to_string())
+        });
+    }
     let limit = req.limit.unwrap_or(50).clamp(1, 200);
     let out = crate::sync::insilo_ideas::process_now(&state, limit, req.dry_run).await;
     Ok(Json(out))

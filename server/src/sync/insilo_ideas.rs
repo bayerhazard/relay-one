@@ -213,16 +213,39 @@ fn extract_json(raw: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&raw[s..=e]).map_err(|err| format!("ungültiges JSON: {err}"))
 }
 
+/// Open tasks that share a meaningful (>4 chars) word with the memo content —
+/// keeps the "existing task" list short so the model actually compares it.
+fn relevant_tasks(content: &str, open_tasks: &[(String, String)]) -> Vec<(String, String)> {
+    let hay = content.to_lowercase();
+    let mut scored: Vec<(usize, &(String, String))> = open_tasks
+        .iter()
+        .filter_map(|t| {
+            let lower = t.1.to_lowercase();
+            let words: Vec<&str> = lower
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.chars().count() >= 5)
+                .collect();
+            let score = words.iter().filter(|w| hay.contains(**w)).count();
+            if score > 0 {
+                Some((score, t))
+            } else {
+                None
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().take(15).map(|(_, t)| t.clone()).collect()
+}
+
 fn build_prompt(idea: &cache::ideas::IdeaRow, open_tasks: &[(String, String)]) -> (String, String) {
     let system = "Du wandelst ein kurzes Sprachmemo (eine \"Idee\") in konkrete Aufgaben um. \
 Antworte NUR mit einem JSON-Objekt, ohne Erklärtext.\n\
 Regeln:\n\
+- Prüfe ZUERST die gelisteten offenen Aufgaben: Hat eine dasselbe Thema wie das Memo?\n\
+  * Gleiches Thema + reine Zusatzinfo/Ergänzung → kind \"append\" (target_uid): in deren Beschreibung ergänzen.\n\
+  * Gleiches Thema + neuer, eigenständiger Schritt/Reaktion → kind \"subtask\" (target_uid): als Unteraufgabe.\n\
+  * Kein passendes Thema → kind \"create\": neue, eigenständige Aufgabe.\n\
 - Leite aus dem Memo die nötigen Aufgaben ab. Guideline: höchstens ~3 Aufgaben; nur wenn das Memo es hergibt.\n\
-- Jede Aufgabe ist entweder:\n\
-  * kind \"create\": eine neue, eigenständige Aufgabe.\n\
-  * kind \"append\": eine reine Ergänzung/Zusatzinfo zu einer BESTEHENDEN Aufgabe → in deren Beschreibung ergänzen (target_uid).\n\
-  * kind \"subtask\": eine echte, neue Reaktion/Teilschritt zu einer bestehenden Aufgabe → als Unteraufgabe (target_uid).\n\
-- target_uid nur aus der Liste der offenen Aufgaben wählen. Passt nichts, dann \"create\".\n\
 - title: maximal 8 Wörter, knapp und handlungsorientiert. note: maximal 2 kurze Zeilen. KEINE Romane, den Memo-Text nicht wiederholen.\n\
 - due: wenn ein Zeitbezug genannt ist (\"bis Freitag\", \"morgen\", \"nächste Woche\", konkretes Datum), als YYYY-MM-DD (oder RFC 3339 mit Uhrzeit); sonst null. Heutiges Datum: {HEUTE}.\n\
 - priority: 1 = höchste … 9 = niedrigste; aus Dringlichkeit ableiten (muss/wichtig/eilig → 1-3), sonst null.\n\
@@ -243,11 +266,12 @@ Schema: {\"items\":[{\"kind\":\"create|append|subtask\",\"target_uid\":\"...\",\
         idea.title,
         crate::ai::agent::clamp_text(idea_content(&idea.transcript_md), 6000)
     ));
-    user.push_str("Offene Aufgaben (uid | Titel):\n");
-    if open_tasks.is_empty() {
-        user.push_str("(keine)\n");
+    let relevant = relevant_tasks(&idea.transcript_md, open_tasks);
+    user.push_str("Relevante offene Aufgaben (uid | Titel):\n");
+    if relevant.is_empty() {
+        user.push_str("(keine passenden)\n");
     } else {
-        for (uid, summary) in open_tasks.iter().take(60) {
+        for (uid, summary) in relevant.iter() {
             user.push_str(&format!("- {} | {}\n", uid, crate::ai::agent::clamp_text(summary, 100)));
         }
     }
@@ -839,6 +863,17 @@ schema: 1
         assert!(is_infra_error("request timeout after 120s"));
         assert!(!is_infra_error("Plan nicht lesbar: erwartet create/append"));
         assert!(!is_infra_error("KI-Client nicht konfiguriert"));
+    }
+
+    #[test]
+    fn relevante_aufgaben_werden_gefiltert() {
+        let tasks = vec![
+            ("u1".to_string(), "Release 1.0 Analysten vorbereiten".to_string()),
+            ("u2".to_string(), "Rechnung an Nordlicht senden".to_string()),
+        ];
+        let r = relevant_tasks("Wir müssen das Release für Analysten finalisieren", &tasks);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].0, "u1");
     }
 
     #[test]

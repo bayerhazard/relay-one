@@ -132,6 +132,15 @@ pub fn set_task_uid(conn: &Connection, insilo_id: &str, task_uid: &str) -> Resul
     Ok(())
 }
 
+/// Re-queue every idea for a fresh processing run (QA / manual re-run).
+pub fn reset_all(conn: &Connection) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "UPDATE ideas SET status = 'pending', attempts = 0, last_error = NULL,
+                          next_retry_at = NULL, updated_at = datetime('now')",
+        [],
+    )
+}
+
 /// Record a failed attempt and schedule the next retry.
 pub fn mark_failed(
     conn: &Connection,
