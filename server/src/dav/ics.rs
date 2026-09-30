@@ -70,7 +70,8 @@ pub struct IcsTodo {
     pub completed: Option<String>,
     /// NEEDS-ACTION / IN-PROCESS / COMPLETED / CANCELLED
     pub status: Option<String>,
-    /// 0–9 (1 = highest, 9 = lowest), if set.
+    /// Canonical priority: 1 (highest) – 5 (lowest), `None` = unset.
+    /// Mapped from/to the iCalendar `0–9` wire scale at parse/build time.
     pub priority: Option<i64>,
     /// Raw RRULE value for recurring tasks, if present.
     #[serde(default)]
@@ -81,6 +82,9 @@ pub struct IcsTodo {
     /// Parent task UID (RELATED-TO) for sub-tasks.
     #[serde(default)]
     pub parent_uid: Option<String>,
+    /// Blocking tasks this to-do depends on (`RELATED-TO;RELTYPE=DEPENDS-ON`).
+    #[serde(default)]
+    pub dependencies: Vec<String>,
     /// Local project assignment (calendar id). Not part of the ICS wire format —
     /// set by the API layer, preserved across syncs.
     #[serde(default)]
@@ -318,7 +322,19 @@ fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
     // in every version — read them from the raw ICS block, which is always
     // present and keeps multi-value CATEGORIES intact.
     let rrule = component_property(raw, "RRULE");
-    let parent_uid = component_property(raw, "RELATED-TO");
+    // RELATED-TO is multi-valued: a plain value (or RELTYPE=PARENT/CHILD) is the
+    // sub-task parent, while `RELTYPE=DEPENDS-ON` entries are blockers.
+    let mut parent_uid: Option<String> = None;
+    let mut dependencies: Vec<String> = Vec::new();
+    for (params, value) in component_entries(raw, "RELATED-TO") {
+        if params.contains("RELTYPE=DEPENDS-ON") {
+            if !dependencies.iter().any(|d| d == &value) {
+                dependencies.push(value);
+            }
+        } else if parent_uid.is_none() {
+            parent_uid = Some(value);
+        }
+    }
     let labels = component_property(raw, "CATEGORIES")
         .map(|v| {
             v.split(',')
@@ -335,10 +351,11 @@ fn extract_todo(todo: &icalendar::Todo, raw: &str) -> IcsTodo {
         due,
         completed,
         status,
-        priority: todo.get_priority().map(|p| p as i64),
+        priority: crate::priority::from_ical(todo.get_priority().map(|p| p as i64)),
         rrule,
         labels,
         parent_uid,
+        dependencies,
         project_id: None,
         due_has_time,
         raw: raw.to_string(),
@@ -386,6 +403,47 @@ fn component_property(raw: &str, name: &str) -> Option<String> {
     None
 }
 
+/// Like [`component_property`] but returns **all** matching lines in the VTODO
+/// block, each as `(params_uppercase, value)`. `params` is the part between the
+/// property name and `:` (e.g. `RELTYPE=DEPENDS-ON`), uppercased for matching.
+fn component_entries(raw: &str, name: &str) -> Vec<(String, String)> {
+    let unfolded = raw
+        .replace("\r\n ", "")
+        .replace("\r\n\t", "")
+        .replace("\n ", "")
+        .replace("\n\t", "");
+    let mut in_todo = false;
+    let mut out = Vec::new();
+    for line in unfolded.lines() {
+        let line = line.trim_end_matches('\r');
+        let upper = line.to_ascii_uppercase();
+        if upper.starts_with("BEGIN:VTODO") {
+            in_todo = true;
+            continue;
+        }
+        if upper.starts_with("END:VTODO") {
+            in_todo = false;
+            continue;
+        }
+        if !in_todo {
+            continue;
+        }
+        let key = line.split([':', ';']).next().unwrap_or("");
+        if !key.eq_ignore_ascii_case(name) {
+            continue;
+        }
+        if let Some(idx) = line.find(':') {
+            let value = line[idx + 1..].trim();
+            if value.is_empty() {
+                continue;
+            }
+            let params = upper.get(name.len()..idx).unwrap_or("").to_string();
+            out.push((params, value.to_string()));
+        }
+    }
+    out
+}
+
 /// Parse a VCALENDAR body into ALL its [`IcsTodo`]s (for CalDAV todo sync).
 pub fn parse_todos(ics: &str) -> Result<Vec<IcsTodo>, String> {
     let cal: Calendar = ics.parse().map_err(|e| format!("ICS-Parsing fehlgeschlagen: {e}"))?;
@@ -402,6 +460,7 @@ pub struct TodoSpec<'a> {
     /// True when `due` carries a time-of-day (DATE-TIME); false = date-only.
     pub due_has_time: bool,
     pub description: Option<&'a str>,
+    /// Canonical priority 1 (highest) – 5 (lowest); mapped to the iCal 0–9 wire.
     pub priority: Option<i64>,
     pub completed: bool,
     /// Raw RRULE value, e.g. `FREQ=WEEKLY;BYDAY=FR`.
@@ -410,6 +469,8 @@ pub struct TodoSpec<'a> {
     pub labels: &'a [String],
     /// Parent task UID (RELATED-TO) for sub-tasks.
     pub parent_uid: Option<&'a str>,
+    /// Blocking task UIDs (`RELATED-TO;RELTYPE=DEPENDS-ON`).
+    pub dependencies: &'a [String],
 }
 
 /// Build a VCALENDAR containing a single VTODO.
@@ -430,8 +491,8 @@ pub fn build_todo(spec: &TodoSpec) -> Result<String, String> {
         todo.description(desc);
     }
     if let Some(p) = spec.priority {
-        if (1..=9).contains(&p) {
-            todo.priority(p as u32);
+        if let Some(wire) = crate::priority::to_ical(Some(p)) {
+            todo.priority(wire as u32);
         }
     }
     if spec.completed {
@@ -465,8 +526,17 @@ pub fn build_todo(spec: &TodoSpec) -> Result<String, String> {
     }
     if let Some(parent) = spec.parent_uid {
         if !parent.trim().is_empty() {
-            todo.append_property(Property::new("RELATED-TO", parent.trim()));
+            todo.append_multi_property(Property::new("RELATED-TO", parent.trim()));
         }
+    }
+    for dep in spec.dependencies {
+        let dep = dep.trim();
+        if dep.is_empty() {
+            continue;
+        }
+        let mut prop = Property::new("RELATED-TO", dep);
+        prop.add_parameter("RELTYPE", "DEPENDS-ON");
+        todo.append_multi_property(prop);
     }
     let cal = Calendar::new().push(todo).done();
     // Un-escape the CATEGORIES comma separator (see above). Safe: labels are
@@ -1016,16 +1086,22 @@ END:VCALENDAR
             rrule: Some("FREQ=WEEKLY;BYDAY=FR"),
             labels: &["Firma".to_string(), "Reporting".to_string()],
             parent_uid: Some("parent-42"),
+            dependencies: &["blocker-7".to_string()],
         })
         .unwrap();
         assert!(ics.contains("RRULE:FREQ=WEEKLY;BYDAY=FR"));
         assert!(ics.contains("CATEGORIES:Firma,Reporting"));
         assert!(ics.contains("RELATED-TO:parent-42"));
+        assert!(
+            ics.contains("RELATED-TO;RELTYPE=DEPENDS-ON:blocker-7"),
+            "missing DEPENDS-ON in {ics}"
+        );
         let todos = parse_todos(&ics).unwrap();
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].rrule.as_deref(), Some("FREQ=WEEKLY;BYDAY=FR"));
         assert_eq!(todos[0].labels, vec!["Firma", "Reporting"]);
         assert_eq!(todos[0].parent_uid.as_deref(), Some("parent-42"));
+        assert_eq!(todos[0].dependencies, vec!["blocker-7"]);
     }
 
     #[test]

@@ -47,7 +47,7 @@
   let counts = $state({ inbox: 0, today: 0, upcoming: 0, overdue: 0, done: 0, all: 0 });
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let selection = $state<Selection>("today");
+  let selection = $state<Selection>("all");
   let showDone = $state(false);
   let busy = $state(false);
   let syncing = $state(false);
@@ -55,6 +55,31 @@
   let tkSearch = $state("");
   /** Active tag filter (combined with the current view); null = none. */
   let tagFilter = $state<string | null>(null);
+
+  /** Sort mode (server-side): work | due | priority | title | created | manual. */
+  let sortMode = $state<string>("work");
+  let sortDir = $state<string>("asc");
+
+  function persistSort() {
+    try {
+      localStorage.setItem("relay_todo_sort", sortMode);
+      localStorage.setItem("relay_todo_sort_dir", sortDir);
+    } catch {
+      /* ignore (private mode) */
+    }
+  }
+
+  async function setSort(mode: string) {
+    sortMode = mode;
+    persistSort();
+    await loadAll();
+  }
+
+  async function setSortDir(dir: string) {
+    sortDir = dir;
+    persistSort();
+    await loadAll();
+  }
 
   /** All labels across the tasks with their counts (for the sidebar). */
   let allTags = $derived.by(() => {
@@ -102,7 +127,10 @@
     loading = true;
     error = null;
     try {
-      const [list, views] = await Promise.all([listTodos(), todoViews()]);
+      const [list, views] = await Promise.all([
+        listTodos(undefined, sortMode, sortDir),
+        todoViews(),
+      ]);
       todos = list;
       counts = views;
     } catch (e: unknown) {
@@ -125,7 +153,18 @@
     }
   }
 
-  onMount(() => { void loadAll(); void loadProjects(); });
+  onMount(() => {
+    try {
+      const m = localStorage.getItem("relay_todo_sort");
+      const d = localStorage.getItem("relay_todo_sort_dir");
+      if (m) sortMode = m;
+      if (d) sortDir = d;
+    } catch {
+      /* ignore */
+    }
+    void loadAll();
+    void loadProjects();
+  });
 
   // Reload after an assistant plan execution; skip the first run.
   let assistantReloaded = false;
@@ -221,6 +260,12 @@
   let topLevel = $derived.by(() => {
     const visibleUids = new Set(visibleTodos.map((t) => t.uid));
     return visibleTodos.filter((t) => !t.parent_uid || !visibleUids.has(t.parent_uid));
+  });
+
+  // "Next steps" strip for the Today view: the first unblocked tasks in work order.
+  let nextSteps = $derived.by(() => {
+    if (selection !== "today") return [] as TodoInfo[];
+    return topLevel.filter((t) => !isDone(t) && !isBlocked(t)).slice(0, 5);
   });
 
   // Day grouping for the Upcoming view.
@@ -319,8 +364,9 @@
   });
 
   let edit = $state({
-    summary: "", description: "", due: "", dueTime: "", priority: 4 as number,
+    summary: "", description: "", due: "", dueTime: "", priority: null as number | null,
     rrule: "", labelsText: "", projectId: null as number | null,
+    dependencies: [] as string[],
   });
 
   $effect(() => {
@@ -331,10 +377,11 @@
       description: d.description ?? "",
       due: d.due_at ? dueDay(d) ?? "" : "",
       dueTime: d.due_at && d.due_has_time ? timeOf(d.due_at) : "",
-      priority: icalToPrio(d.priority),
+      priority: d.priority,
       rrule: d.rrule ?? "",
       labelsText: d.labels.join(", "),
       projectId: d.project_id,
+      dependencies: [...(d.dependencies ?? [])],
     };
   });
 
@@ -344,16 +391,26 @@
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
 
-  function icalToPrio(p: number | null): number {
-    if (p === null) return 4;
-    if (p <= 2) return 1;
-    if (p <= 4) return 2;
-    if (p <= 6) return 3;
-    return 4;
+  /** Open tasks that can be chosen as a blocker for the task being edited. */
+  let blockerOptions = $derived.by(() => {
+    if (!detail) return [] as TodoInfo[];
+    return todos
+      .filter((t) => t.uid !== detail!.uid && t.status !== "COMPLETED")
+      .sort((a, b) => (a.summary ?? "").localeCompare(b.summary ?? ""));
+  });
+
+  /** Open blocker UIDs for a task (unknown/done blockers do not count). */
+  function openBlockers(t: TodoInfo): string[] {
+    if (!t.dependencies?.length) return [];
+    const byUid = new Map(todos.map((x) => [x.uid, x]));
+    return t.dependencies.filter((uid) => {
+      const b = byUid.get(uid);
+      return b ? b.status !== "COMPLETED" : false;
+    });
   }
 
-  function prioToIcal(p: number): number | null {
-    return p === 1 ? 1 : p === 2 ? 3 : p === 3 ? 5 : null;
+  function isBlocked(t: TodoInfo): boolean {
+    return openBlockers(t).length > 0;
   }
 
   function openDetail(t: TodoInfo) {
@@ -381,10 +438,11 @@
         summary: edit.summary,
         description: edit.description || null,
         due,
-        priority: prioToIcal(edit.priority),
+        priority: edit.priority,
         labels: edit.labelsText.split(",").map((s) => s.trim()).filter(Boolean),
         rrule: edit.rrule.trim() || null,
         project_id: edit.projectId,
+        dependencies: edit.dependencies,
       };
       await patchTodo(d.uid, patch);
       await loadAll();
@@ -425,8 +483,7 @@
   }
 
   function prioClass(p: number | null): string {
-    const ui = icalToPrio(p);
-    return ui === 4 ? "" : `prio-${ui}`;
+    return p ? `prio-${p}` : "";
   }
 
   function dueLabel(t: TodoInfo): string {
@@ -504,9 +561,9 @@
     }
   }
 
-  /** CSS class for a priority on the UI scale (1..4). */
-  function prioClassByUi(ui: number): string {
-    return ui >= 4 ? "" : `prio-${ui}`;
+  /** CSS class for a canonical priority (1..5). */
+  function prioClassByUi(ui: number | null): string {
+    return ui ? `prio-${ui}` : "";
   }
 </script>
 
@@ -588,6 +645,27 @@
 
     <div class="tk-count">{$t("tasks.count", { n: visibleTodos.length })}</div>
 
+    <div class="tk-sort">
+      <label class="tk-sort-row">
+        <span>{$t("tasks.sortLabel")}</span>
+        <select value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
+          <option value="work">{$t("tasks.sortWork")}</option>
+          <option value="due">{$t("tasks.sortDue")}</option>
+          <option value="priority">{$t("tasks.sortPriority")}</option>
+          <option value="title">{$t("tasks.sortTitle")}</option>
+          <option value="created">{$t("tasks.sortCreated")}</option>
+          <option value="manual">{$t("tasks.sortManual")}</option>
+        </select>
+      </label>
+      <label class="tk-sort-row">
+        <span>{$t("tasks.sortDir")}</span>
+        <select value={sortDir} onchange={(e) => setSortDir((e.currentTarget as HTMLSelectElement).value)}>
+          <option value="asc">{$t("tasks.sortAsc")}</option>
+          <option value="desc">{$t("tasks.sortDesc")}</option>
+        </select>
+      </label>
+    </div>
+
     <SidebarFooter active="tasks">
       <SidebarSearch
         bind:value={tkSearch}
@@ -652,7 +730,7 @@
             {recurLabel(qaParsed.rrule)}
           </span>
         {/if}
-        {#if qaParsed.priority < 4}<span class={`tk-chip tk-prio-chip ${prioClassByUi(qaParsed.priority)}`}>{PRIO_LABEL[qaParsed.priority]}</span>{/if}
+        {#if qaParsed.priority !== null}<span class={`tk-chip tk-prio-chip ${prioClassByUi(qaParsed.priority)}`}>{PRIO_LABEL[qaParsed.priority]}</span>{/if}
         {#if qaParsed.project}<span class="tk-chip">#{qaParsed.project}</span>{/if}
         {#each qaParsed.labels as l (l)}<span class="tk-chip">{l}</span>{/each}
       </div>
@@ -665,6 +743,21 @@
         {$t("tasks.showDone")}
       </label>
     </div>
+
+    {#if nextSteps.length}
+      <div class="tk-next">
+        <div class="tk-next-head">{$t("tasks.nextSteps")}</div>
+        <ol class="tk-next-list">
+          {#each nextSteps as task (task.uid)}
+            <li class="tk-next-item">
+              <button type="button" class="tk-check tk-check-sm" onclick={() => onToggle(task)} aria-label={$t("tasks.markDone")}></button>
+              <button type="button" class="tk-next-title" onclick={() => openDetail(task)}>{task.summary || $t("tasks.untitled")}</button>
+              {#if task.due_at}<span class="tk-item-due" class:overdue={isOverdue(task)}>{dueLabel(task)}</span>{/if}
+            </li>
+          {/each}
+        </ol>
+      </div>
+    {/if}
 
     {#if loading}
       <div class="tk-state">{$t("tasks.loading")}</div>
@@ -687,6 +780,7 @@
                 class="tk-item"
                 class:done={isDone(todo)}
                 class:overdue={isOverdue(todo)}
+                class:blocked={isBlocked(todo)}
                 class:selected={detailUid === todo.uid}
                 oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, todo }; }}
               >
@@ -702,8 +796,11 @@
                 <button type="button" class="tk-item-body" onclick={() => openDetail(todo)}>
                   <span class="tk-item-summary">{todo.summary || $t("tasks.untitled")}</span>
                   {#if todo.description}<SummaryLine summary={todo.description} />{/if}
-                  {#if todo.due_at || todo.labels.length || todo.rrule}
+                  {#if todo.due_at || todo.labels.length || todo.rrule || isBlocked(todo)}
                     <span class="tk-item-meta">
+                      {#if isBlocked(todo)}
+                        <span class="tk-item-blocked" title={$t("tasks.blockedHint")}>⛓ {openBlockers(todo).length}</span>
+                      {/if}
                       {#if todo.due_at}
                         <span class="tk-item-due" class:overdue={isOverdue(todo)}>{dueLabel(todo)}</span>
                       {/if}
@@ -717,7 +814,7 @@
                   {/if}
                 </button>
                 {#if todo.priority}
-                  <span class={`tk-prio ${prioClass(todo.priority)}`} title={$t("tasks.priority", { p: icalToPrio(todo.priority) })}>{PRIO_LABEL[icalToPrio(todo.priority)]}</span>
+                  <span class={`tk-prio ${prioClass(todo.priority)}`} title={$t("tasks.priority", { p: todo.priority })}>{PRIO_LABEL[todo.priority]}</span>
                 {/if}
                 <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => askDelete(todo)} title={$t("tasks.deleteBtn")}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
@@ -777,11 +874,17 @@
 
     <label class="tk-field">
       <span>{$t("tasks.priorityLabel")}</span>
-      <select bind:value={edit.priority}>
-        <option value={1}>{PRIO_LABEL[1]}</option>
-        <option value={2}>{PRIO_LABEL[2]}</option>
-        <option value={3}>{PRIO_LABEL[3]}</option>
-        <option value={4}>{PRIO_LABEL[4]}</option>
+      <select
+        value={edit.priority ?? ""}
+        onchange={(e) => {
+          const v = (e.currentTarget as HTMLSelectElement).value;
+          edit.priority = v === "" ? null : Number(v);
+        }}
+      >
+        <option value="">{$t("tasks.priorityNone")}</option>
+        {#each [1, 2, 3, 4, 5] as p}
+          <option value={p}>{PRIO_LABEL[p]}</option>
+        {/each}
       </select>
     </label>
 
@@ -815,6 +918,15 @@
         <input type="text" bind:value={edit.labelsText} placeholder={$t("tasks.phLabels")} />
       </label>
     </div>
+
+    <label class="tk-field">
+      <span>{$t("tasks.dependsOnLabel")}</span>
+      <select multiple bind:value={edit.dependencies} size={Math.min(5, Math.max(2, blockerOptions.length))}>
+        {#each blockerOptions as b (b.uid)}
+          <option value={b.uid}>{b.summary || $t("tasks.untitled")}</option>
+        {/each}
+      </select>
+    </label>
 
     <div class="tk-detail-actions">
       <button type="button" class="tk-btn tk-btn-ghost" onclick={() => openSubtaskFor(detail!)}>{$t("tasks.subtaskAdd")}</button>
@@ -935,6 +1047,32 @@
     border-top: 1px solid var(--color-border);
     margin-top: 8px;
   }
+
+  .tk-sort { padding: 10px 16px 4px; display: flex; flex-direction: column; gap: 8px; }
+  .tk-sort-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-xs); color: var(--color-text-secondary); }
+  .tk-sort-row select {
+    flex: 1; min-width: 0; font-family: inherit; font-size: var(--fs-xs);
+    padding: 4px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-s);
+    background: var(--color-card, var(--color-list)); color: var(--color-text);
+  }
+
+  /* "Next steps" strip (Today view). */
+  .tk-next {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-m);
+    padding: 10px 12px;
+    margin-bottom: 16px;
+    background: var(--color-card, var(--color-list));
+  }
+  .tk-next-head { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-secondary); margin-bottom: 8px; }
+  .tk-next-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .tk-next-item { display: flex; align-items: center; gap: 10px; }
+  .tk-next-title {
+    flex: 1; min-width: 0; text-align: left; background: none; border: none; cursor: pointer;
+    color: var(--color-text); font-size: var(--fs-sm); font-family: inherit;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tk-next-title:hover { color: var(--color-accent); }
 
   .tk-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
   .tk-sync-msg { font-size: var(--fs-xs); color: var(--color-text-secondary); }
@@ -1113,6 +1251,17 @@
   .tk-prio.prio-1 { background: var(--color-danger); color: var(--color-unread-badge-text); }
   .tk-prio.prio-2 { background: var(--color-warning); color: var(--color-unread-badge-text); }
   .tk-prio.prio-3 { background: var(--color-unread); color: var(--color-unread-badge-text); }
+  /* 4/5 are intentionally muted (border + secondary text, no filled colour). */
+  .tk-prio.prio-4 { background: var(--color-active-wash); color: var(--color-text-secondary); }
+  .tk-prio.prio-5 {
+    background: transparent;
+    color: var(--color-text-tertiary, var(--color-text-secondary));
+    border: 1px solid var(--color-border);
+  }
+
+  /* Blocked tasks: de-emphasised, not hidden. */
+  .tk-item.blocked .tk-item-summary { color: var(--color-text-secondary); }
+  .tk-item-blocked { color: var(--color-text-secondary); font-size: var(--fs-xs); }
 
   .tk-subtasks { list-style: none; margin: 4px 0 4px 34px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .tk-subtask { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: var(--radius-s); }

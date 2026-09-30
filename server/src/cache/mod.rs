@@ -10,6 +10,7 @@ pub mod fingerprint;
 pub mod ideas;
 pub mod learning;
 pub mod messages;
+pub mod order;
 pub mod settings;
 pub mod sync_state;
 pub mod snippets;

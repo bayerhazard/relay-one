@@ -22,6 +22,8 @@ pub struct TodoRow {
     pub rrule: Option<String>,
     pub sort_order: i64,
     pub due_has_time: bool,
+    /// Blocking task UIDs (`RELATED-TO;RELTYPE=DEPENDS-ON`).
+    pub dependencies: Vec<String>,
 }
 
 fn row_to_todo(row: &rusqlite::Row) -> rusqlite::Result<TodoRow> {
@@ -46,7 +48,46 @@ fn row_to_todo(row: &rusqlite::Row) -> rusqlite::Result<TodoRow> {
         rrule: row.get("rrule")?,
         sort_order: row.get("sort_order").unwrap_or(0),
         due_has_time: row.get::<_, Option<i64>>("due_has_time")?.unwrap_or(0) != 0,
+        dependencies: Vec::new(),
     })
+}
+
+/// Load the `blocked_uid -> [blocker_uid]` map for the given task UIDs.
+fn deps_for(conn: &Connection, uids: &[String]) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
+    use std::collections::HashMap;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    if uids.is_empty() {
+        return Ok(map);
+    }
+    let placeholders = std::iter::repeat("?").take(uids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT blocked_uid, blocker_uid FROM todo_deps WHERE blocked_uid IN ({placeholders}) ORDER BY blocker_uid"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let params: Vec<&dyn rusqlite::types::ToSql> =
+        uids.iter().map(|u| u as &dyn rusqlite::types::ToSql).collect();
+    let rows = stmt
+        .query_map(params.as_slice(), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?;
+    for r in rows {
+        let (blocked, blocker) = r.map_err(|e| e.to_string())?;
+        map.entry(blocked).or_default().push(blocker);
+    }
+    Ok(map)
+}
+
+/// Attach dependencies from `todo_deps` to a set of rows.
+fn attach_deps(conn: &Connection, rows: &mut [TodoRow]) -> Result<(), String> {
+    let uids: Vec<String> = rows.iter().map(|r| r.uid.clone()).collect();
+    let mut map = deps_for(conn, &uids)?;
+    for r in rows.iter_mut() {
+        if let Some(deps) = map.remove(&r.uid) {
+            r.dependencies = deps;
+        }
+    }
+    Ok(())
 }
 
 const COLS: &str = "id, calendar_id, uid, summary, description, due_at, completed_at, status, \
@@ -74,6 +115,7 @@ pub fn list_todos(conn: &Connection, completed: Option<bool>) -> Result<Vec<Todo
     for r in rows {
         out.push(r.map_err(|e| e.to_string())?);
     }
+    attach_deps(conn, &mut out)?;
     Ok(out)
 }
 
@@ -85,7 +127,13 @@ pub fn find_todo(conn: &Connection, uid: &str) -> Result<Option<TodoRow>, String
         .query_map(rusqlite::params![uid], row_to_todo)
         .map_err(|e| e.to_string())?;
     match rows.next() {
-        Some(r) => r.map(Some).map_err(|e| e.to_string()),
+        Some(r) => {
+            let mut row: TodoRow = r.map_err(|e| e.to_string())?;
+            row.dependencies = deps_for(conn, std::slice::from_ref(&row.uid))?
+                .remove(&row.uid)
+                .unwrap_or_default();
+            Ok(Some(row))
+        }
         None => Ok(None),
     }
 }
@@ -138,7 +186,33 @@ pub fn upsert_todo(conn: &Connection, calendar_id: i64, t: &IcsTodo) -> Result<(
         ],
     )
     .map_err(|e| e.to_string())?;
+    reconcile_deps(conn, &t.uid, &t.dependencies)?;
     Ok(())
+}
+
+/// Replace the dependency set (`blocked by`) of a task. Self-references are
+/// dropped. Non-existent blocker UIDs are kept — the task may not be synced yet.
+fn reconcile_deps(conn: &Connection, uid: &str, deps: &[String]) -> Result<(), String> {
+    conn.execute("DELETE FROM todo_deps WHERE blocked_uid = ?1", rusqlite::params![uid])
+        .map_err(|e| e.to_string())?;
+    if !deps.is_empty() {
+        let mut stmt = conn
+            .prepare("INSERT OR IGNORE INTO todo_deps (blocked_uid, blocker_uid) VALUES (?1, ?2)")
+            .map_err(|e| e.to_string())?;
+        for dep in deps {
+            let dep = dep.trim();
+            if dep.is_empty() || dep == uid {
+                continue;
+            }
+            stmt.execute(rusqlite::params![uid, dep]).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Set the dependency list of a task by UID (used by the API PATCH).
+pub fn set_dependencies(conn: &Connection, uid: &str, deps: &[String]) -> Result<(), String> {
+    reconcile_deps(conn, uid, deps)
 }
 
 /// Fields the API accepts on PATCH. `None` = leave unchanged.
@@ -152,6 +226,8 @@ pub struct TodoUpdate {
     pub labels: Option<Vec<String>>,
     pub rrule: Option<Option<String>>,
     pub project_id: Option<Option<i64>>,
+    /// Replacement dependency list (`blocked by`), applied after the columns.
+    pub dependencies: Option<Vec<String>>,
 }
 
 /// Apply a partial update. Returns the number of rows touched.
@@ -191,15 +267,22 @@ pub fn update_todo(conn: &Connection, uid: &str, u: &TodoUpdate) -> Result<usize
         sets.push("project_id = ?");
         params.push(Box::new(*v));
     }
-    if sets.is_empty() {
+    if sets.is_empty() && u.dependencies.is_none() {
         return Ok(0);
     }
-    sets.push("updated_at = datetime('now')");
-    let sql = format!("UPDATE todos SET {} WHERE uid = ?", sets.join(", "));
-    params.push(Box::new(uid.to_string()));
-    let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|b| b.as_ref()).collect();
-    conn.execute(&sql, refs.as_slice())
-        .map_err(|e| e.to_string())
+    let mut touched = 0usize;
+    if !sets.is_empty() {
+        sets.push("updated_at = datetime('now')");
+        let sql = format!("UPDATE todos SET {} WHERE uid = ?", sets.join(", "));
+        params.push(Box::new(uid.to_string()));
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|b| b.as_ref()).collect();
+        touched = conn.execute(&sql, refs.as_slice()).map_err(|e| e.to_string())?;
+    }
+    if let Some(deps) = &u.dependencies {
+        set_dependencies(conn, uid, deps)?;
+        touched = touched.max(1);
+    }
+    Ok(touched)
 }
 
 /// Mark a to-do completed (or reopen) by UID.
@@ -233,10 +316,15 @@ pub fn reorder_todos(conn: &mut Connection, order: &[(String, i64)]) -> Result<(
     tx.commit().map_err(|e| e.to_string())
 }
 
-/// Delete a to-do by UID.
+/// Delete a to-do by UID (and its dependency links).
 pub fn delete_todo(conn: &Connection, uid: &str) -> Result<(), String> {
     conn.execute("DELETE FROM todos WHERE uid = ?1", rusqlite::params![uid])
         .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM todo_deps WHERE blocked_uid = ?1 OR blocker_uid = ?1",
+        rusqlite::params![uid],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -271,6 +359,7 @@ mod tests {
             rrule: None,
             labels: Vec::new(),
             parent_uid: None,
+            dependencies: Vec::new(),
             project_id: None,
             due_has_time: true,
             raw: "BEGIN:VCALENDAR\nEND:VCALENDAR".to_string(),
@@ -328,6 +417,29 @@ mod tests {
         assert_eq!(row.rrule.as_deref(), Some("FREQ=WEEKLY;BYDAY=FR"));
         assert_eq!(row.parent_uid.as_deref(), Some("parent-1"));
         assert!(row.due_has_time);
+    }
+
+    #[test]
+    fn test_dependencies_reconcile_and_cascade() {
+        let conn = test_db();
+        let a = test_todo("a", "Blocker", "NEEDS-ACTION");
+        let mut b = test_todo("b", "Blocked", "NEEDS-ACTION");
+        b.dependencies = vec!["a".into(), "b".into(), "ghost".into()]; // self dropped
+        upsert_todo(&conn, 1, &a).unwrap();
+        upsert_todo(&conn, 1, &b).unwrap();
+
+        let row = find_todo(&conn, "b").unwrap().unwrap();
+        assert_eq!(row.dependencies, vec!["a", "ghost"], "self reference dropped");
+
+        // Deleting the blocker removes the link (ghost stays: unknown UID).
+        delete_todo(&conn, "a").unwrap();
+        assert_eq!(find_todo(&conn, "b").unwrap().unwrap().dependencies, vec!["ghost"]);
+
+        // Re-upsert with a different set replaces the old one.
+        let mut b2 = test_todo("b", "Blocked", "NEEDS-ACTION");
+        b2.dependencies = vec!["y".into()];
+        upsert_todo(&conn, 1, &b2).unwrap();
+        assert_eq!(find_todo(&conn, "b").unwrap().unwrap().dependencies, vec!["y"]);
     }
 
     #[test]

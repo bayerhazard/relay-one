@@ -8,14 +8,14 @@ export interface ParsedQuickAdd {
   title: string;
   due: Date | null;
   dueHasTime: boolean;
-  /** 1 = highest … 4 = none (Todoist UI scale). */
-  priority: number;
+  /** 1 = highest … 5 = lowest; `null` = no priority. */
+  priority: number | null;
   project: string | null;
   labels: string[];
   rrule: string | null;
 }
 
-export const PRIO_LABEL: Record<number, string> = { 1: "P1", 2: "P2", 3: "P3", 4: "P4" };
+export const PRIO_LABEL: Record<number, string> = { 1: "P1", 2: "P2", 3: "P3", 4: "P4", 5: "P5" };
 
 const WEEKDAYS: Record<string, number> = {
   montag: 1, monday: 1, mo: 1, mon: 1,
@@ -87,7 +87,7 @@ export function parseQuickAdd(input: string, now: Date = new Date()): ParsedQuic
     title: "",
     due: null,
     dueHasTime: false,
-    priority: 4,
+    priority: null,
     project: null,
     labels: [],
     rrule: null,
@@ -110,7 +110,7 @@ export function parseQuickAdd(input: string, now: Date = new Date()): ParsedQuic
     }
 
     // Priority
-    if (/^p[1-4]$/.test(lower)) { out.priority = Number(lower[1]); i++; continue; }
+    if (/^p[1-5]$/.test(lower)) { out.priority = Number(lower[1]); i++; continue; }
 
     // Recurrence
     const rec = parseRecurrence(tokens, i);

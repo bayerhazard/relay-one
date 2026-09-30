@@ -1410,6 +1410,8 @@ export interface TodoInfo {
   rrule: string | null;
   sort_order: number;
   due_has_time: boolean;
+  /** Blocking task UIDs ("blocked by"). */
+  dependencies: string[];
 }
 
 export interface TodoInput {
@@ -1421,6 +1423,7 @@ export interface TodoInput {
   rrule?: string;
   parent_uid?: string;
   project_id?: number;
+  dependencies?: string[];
 }
 
 /** Partial update — absent keys are left unchanged. */
@@ -1433,6 +1436,7 @@ export interface TodoPatchInput {
   labels?: string[];
   rrule?: string | null;
   project_id?: number | null;
+  dependencies?: string[];
 }
 
 /** Focus-view counters for the sidebar. */
@@ -1445,8 +1449,16 @@ export interface TodoViews {
   all: number;
 }
 
-export async function listTodos(completed?: boolean): Promise<TodoInfo[]> {
-  const q = completed === undefined ? "" : `?completed=${completed}`;
+export async function listTodos(
+  completed?: boolean,
+  sort?: string,
+  dir?: string,
+): Promise<TodoInfo[]> {
+  const params = new URLSearchParams();
+  if (completed !== undefined) params.set("completed", String(completed));
+  if (sort) params.set("sort", sort);
+  if (dir) params.set("dir", dir);
+  const q = params.toString() ? `?${params.toString()}` : "";
   return get<TodoInfo[]>(`/todos${q}`, "Aufgaben konnten nicht geladen werden.");
 }
 

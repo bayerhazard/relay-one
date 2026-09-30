@@ -44,14 +44,54 @@ pub struct TodosQuery {
     /// "true" = only completed, "false" = only open, absent = all.
     #[serde(default)]
     pub completed: Option<bool>,
+    /// Sort mode: `work` (default, dependency-aware work order), `due`,
+    /// `priority`, `title`, `created`, `manual`.
+    #[serde(default)]
+    pub sort: Option<String>,
+    /// `asc` (default) or `desc`.
+    #[serde(default)]
+    pub dir: Option<String>,
 }
 
 pub async fn list_todos(
     State(state): State<AppState>,
     Query(q): Query<TodosQuery>,
 ) -> ApiResult<Vec<TodoRow>> {
-    let rows = with_db(&state, |conn| cache::todo::list_todos(conn, q.completed))?;
+    let mut rows = with_db(&state, |conn| cache::todo::list_todos(conn, q.completed))?;
+    sort_todos(&mut rows, q.sort.as_deref().unwrap_or("work"));
+    if q.dir.as_deref() == Some("desc") {
+        rows.reverse();
+    }
     Ok(Json(rows))
+}
+
+/// Apply a sort mode in place. `work` uses the dependency-aware work order.
+fn sort_todos(rows: &mut [TodoRow], mode: &str) {
+    let alpha = |r: &TodoRow| r.summary.as_deref().unwrap_or("").trim().to_lowercase();
+    let due_key = |r: &TodoRow| r.due_at.clone().unwrap_or_else(|| "\u{10FFFF}".to_string());
+    match mode {
+        "title" => rows.sort_by(|a, b| alpha(a).cmp(&alpha(b)).then(a.id.cmp(&b.id))),
+        "priority" => rows.sort_by(|a, b| {
+            a.priority.unwrap_or(6).cmp(&b.priority.unwrap_or(6))
+                .then(due_key(a).cmp(&due_key(b)))
+                .then(alpha(a).cmp(&alpha(b)))
+                .then(a.id.cmp(&b.id))
+        }),
+        "due" => rows.sort_by(|a, b| {
+            due_key(a).cmp(&due_key(b)).then(a.id.cmp(&b.id))
+        }),
+        "created" => rows.sort_by_key(|r| r.id),
+        "manual" => rows.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.id.cmp(&b.id))),
+        _ => {
+            let order = cache::order::work_order(rows);
+            let pos: std::collections::HashMap<&str, usize> = order
+                .iter()
+                .enumerate()
+                .map(|(i, u)| (u.as_str(), i))
+                .collect();
+            rows.sort_by_key(|r| pos.get(r.uid.as_str()).copied().unwrap_or(usize::MAX));
+        }
+    }
 }
 
 /// `POST /api/v1/todos` — create a to-do (CalDAV + local cache).
@@ -75,6 +115,9 @@ pub struct CreateTodoRequest {
     /// Parent task UID for sub-tasks, optional.
     #[serde(default)]
     pub parent_uid: Option<String>,
+    /// Blocking task UIDs ("blocked by", `RELATED-TO;RELTYPE=DEPENDS-ON`).
+    #[serde(default)]
+    pub dependencies: Vec<String>,
     /// Target project (calendar id). None = Inbox.
     #[serde(default)]
     pub project_id: Option<i64>,
@@ -157,11 +200,12 @@ pub async fn create_todo(
         due,
         due_has_time: has_time,
         description: req.description.as_deref(),
-        priority: req.priority,
+        priority: crate::priority::normalize(req.priority),
         completed: false,
         rrule: req.rrule.as_deref(),
         labels: &req.labels,
         parent_uid: req.parent_uid.as_deref(),
+        dependencies: &req.dependencies,
     })
     .map_err(ApiError)?;
 
@@ -176,10 +220,11 @@ pub async fn create_todo(
         due: due.map(|d| d.to_rfc3339()),
         completed: None,
         status: Some("NEEDS-ACTION".to_string()),
-        priority: req.priority,
+        priority: crate::priority::normalize(req.priority),
         rrule: req.rrule.clone(),
         labels: req.labels.clone(),
         parent_uid: req.parent_uid.clone(),
+        dependencies: req.dependencies.clone(),
         project_id: req.project_id,
         due_has_time: has_time,
         raw: ics,
@@ -215,6 +260,9 @@ pub struct PatchTodoRequest {
     pub rrule: Option<Option<String>>,
     #[serde(default, with = "serde_with_optional")]
     pub project_id: Option<Option<i64>>,
+    /// Replacement dependency list ("blocked by"); `[]` clears it.
+    #[serde(default)]
+    pub dependencies: Option<Vec<String>>,
 }
 
 pub async fn toggle_todo(
@@ -242,10 +290,11 @@ pub async fn toggle_todo(
             .as_ref()
             .map(|_| due_parsed.map(|d| d.to_rfc3339())),
         due_has_time: has_time,
-        priority: req.priority.clone(),
+        priority: req.priority.as_ref().map(|inner| crate::priority::normalize(*inner)),
         labels: req.labels.clone(),
         rrule: req.rrule.clone(),
         project_id: req.project_id.clone(),
+        dependencies: req.dependencies.clone(),
     };
     with_db(&state, |conn| cache::todo::update_todo(conn, &uid, &update))?;
 
@@ -275,6 +324,7 @@ pub async fn toggle_todo(
                     rrule: t.rrule.as_deref(),
                     labels: &t.labels,
                     parent_uid: t.parent_uid.as_deref(),
+                    dependencies: &t.dependencies,
                 }) {
                     let _ = client.update_event(&url, &ics).await;
                 }
@@ -329,10 +379,11 @@ pub async fn quick_add_todo(
         summary: parsed.title.clone(),
         description: None,
         due: parsed.due.map(|d| d.to_rfc3339()),
-        priority: parsed.priority.to_ical(),
+        priority: parsed.priority.to_canonical(),
         labels: parsed.labels.clone(),
         rrule: parsed.rrule.clone(),
         parent_uid: None,
+        dependencies: Vec::new(),
         project_id,
         due_has_time: Some(parsed.due_has_time),
     };
@@ -449,6 +500,7 @@ pub async fn succeed_todo(
         rrule: Some(&rule),
         labels: &current.labels,
         parent_uid: current.parent_uid.as_deref(),
+        dependencies: &current.dependencies,
     })
     .map_err(ApiError)?;
 
@@ -466,6 +518,7 @@ pub async fn succeed_todo(
         rrule: Some(rule),
         labels: current.labels.clone(),
         parent_uid: current.parent_uid.clone(),
+        dependencies: current.dependencies.clone(),
         project_id: current.project_id,
         due_has_time: current.due_has_time,
         raw: ics,
@@ -622,6 +675,7 @@ pub async fn consolidate_todos(State(state): State<AppState>) -> ApiResult<Conso
             labels: Some(new_labels),
             rrule: None,
             project_id: None,
+            dependencies: None,
         };
         if toggle_todo(State(state.clone()), Path(uid.clone()), Json(req)).await.is_ok() {
             report.tasks_changed += 1;
@@ -704,6 +758,7 @@ pub async fn dedupe_todos(State(state): State<AppState>) -> ApiResult<DedupeRepo
                 labels: None,
                 rrule: None,
                 project_id: None,
+                dependencies: None,
             };
             let _ = toggle_todo(State(state.clone()), Path(keeper.uid.clone()), Json(req)).await;
             report.merged += folded;

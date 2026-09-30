@@ -13,7 +13,7 @@ describe("parseQuickAdd", () => {
     const r = p("Budget prüfen");
     expect(r.title).toBe("Budget prüfen");
     expect(r.due).toBeNull();
-    expect(r.priority).toBe(4);
+    expect(r.priority).toBeNull();
   });
 
   it("extracts project and label", () => {
@@ -27,10 +27,10 @@ describe("parseQuickAdd", () => {
     expect(p("Test %wichtig").labels).toEqual(["wichtig"]);
   });
 
-  it("parses priority p1..p4", () => {
+  it("parses priority p1..p5", () => {
     expect(p("A p1").priority).toBe(1);
     expect(p("A p3").priority).toBe(3);
-    expect(p("A p4").priority).toBe(4);
+    expect(p("A p5").priority).toBe(5);
   });
 
   it("resolves relative dates", () => {

@@ -114,6 +114,7 @@ mod tests {
             rrule: None,
             labels: labels.iter().map(|s| s.to_string()).collect(),
             parent_uid: None,
+            dependencies: Vec::new(),
             project_id: None,
             due_has_time: false,
             raw: String::new(),

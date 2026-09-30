@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -359,6 +359,15 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         CREATE INDEX IF NOT EXISTS idx_todos_uid ON todos(uid);
         CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_at);
+
+        -- v8: task dependencies (blocked by). blocked_uid waits for blocker_uid
+        -- (`RELATED-TO;RELTYPE=DEPENDS-ON`). Local table, rebuilt on sync.
+        CREATE TABLE IF NOT EXISTS todo_deps (
+            blocked_uid TEXT NOT NULL,
+            blocker_uid TEXT NOT NULL,
+            PRIMARY KEY (blocked_uid, blocker_uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_todo_deps_blocker ON todo_deps(blocker_uid);
         ",
     )?;
 
@@ -552,6 +561,24 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             );",
         )?;
         conn.pragma_update(None, "user_version", 7)?;
+    }
+    // v8: task dependencies + canonical priority scale (1–5).
+    if user_version < 8 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS todo_deps (
+                blocked_uid TEXT NOT NULL,
+                blocker_uid TEXT NOT NULL,
+                PRIMARY KEY (blocked_uid, blocker_uid)
+            );
+            CREATE INDEX IF NOT EXISTS idx_todo_deps_blocker ON todo_deps(blocker_uid);
+            -- Old rows stored the iCalendar PRIORITY wire value (1–9); map to
+            -- the canonical 1–5 scale (1–2→1, 3–4→2, 5–6→3, 7–8→4, 9→5).
+            UPDATE todos SET priority = MIN(5, MAX(1, (priority + 1) / 2))
+                WHERE priority IS NOT NULL AND priority >= 1;
+            UPDATE todos SET priority = NULL
+                WHERE priority IS NOT NULL AND priority < 1;",
+        )?;
+        conn.pragma_update(None, "user_version", 8)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

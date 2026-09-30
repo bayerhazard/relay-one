@@ -18,6 +18,7 @@ pub mod imap;
 #[cfg(test)]
 pub mod ics_spike;
 pub mod imip;
+pub mod priority;
 pub mod push;
 pub mod security;
 pub mod smtp;

@@ -516,7 +516,7 @@ pub fn build_followups_v2_prompt(
                     Du erstellt NUR Vorschlaege; nichts wird ausgefuehrt. \
                     \
                     Verfuegbare Tools (verwende NUR diese Namen, args exakt nach Schema): \
-                    - tasks_create: {\"summary\": string (Pflicht, max. 8 Woerter), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = hoch … 9 = niedrig)} \
+                    - tasks_create: {\"summary\": string (Pflicht, max. 8 Woerter), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = hoechste … 5 = niedrigste)} \
                     - mail_propose_reply: {\"id\": string (Pflicht, = die Nachrichten-ID unten), \"body\": string (Pflicht, Antwort-Entwurf, max. 4 Saetze)} \
                     - calendar_create_event: {\"summary\": string (Pflicht), \"start\": string (Pflicht, RFC3339 UTC), \"end\": string|null (RFC3339 UTC, Default start+1h), \"description\": string|null, \"attendees\": string[]|null} \
                     \
@@ -539,7 +539,7 @@ pub fn build_followups_v2_prompt(
                     You only create SUGGESTIONS; nothing is executed. \
                     \
                     Available tools (use ONLY these names, args exactly per schema): \
-                    - tasks_create: {\"summary\": string (required, max 8 words), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = high … 9 = low)} \
+                    - tasks_create: {\"summary\": string (required, max 8 words), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = highest … 5 = lowest)} \
                     - mail_propose_reply: {\"id\": string (required, = the message id below), \"body\": string (required, reply draft, max 4 sentences)} \
                     - calendar_create_event: {\"summary\": string (required), \"start\": string (required, RFC3339 UTC), \"end\": string|null (RFC3339 UTC, default start+1h), \"description\": string|null, \"attendees\": string[]|null} \
                     \
@@ -579,7 +579,7 @@ pub fn build_meeting_followups_prompt(
                     Du erstellt NUR Vorschlaege; nichts wird ausgefuehrt. \
                     \
                     Verfuegbare Tools (verwende NUR diese Namen, args exakt nach Schema): \
-                    - tasks_create: {\"summary\": string (Pflicht, max. 8 Woerter), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = hoch … 9 = niedrig)} \
+                    - tasks_create: {\"summary\": string (Pflicht, max. 8 Woerter), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = hoechste … 5 = niedrigste)} \
                     - calendar_create_event: {\"summary\": string (Pflicht), \"start\": string (Pflicht, RFC3339 UTC), \"end\": string|null (RFC3339 UTC, Default start+1h), \"description\": string|null, \"attendees\": string[]|null} \
                     \
                     Erstelle maximal 3 konkrete Vorschlaege, die aus dem Meeting folgen \
@@ -603,7 +603,7 @@ pub fn build_meeting_followups_prompt(
                     You only create SUGGESTIONS; nothing is executed. \
                     \
                     Available tools (use ONLY these names, args exactly per schema): \
-                    - tasks_create: {\"summary\": string (required, max 8 words), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = high … 9 = low)} \
+                    - tasks_create: {\"summary\": string (required, max 8 words), \"due\": string|null (RFC3339 UTC), \"priority\": integer|null (1 = highest … 5 = lowest)} \
                     - calendar_create_event: {\"summary\": string (required), \"start\": string (required, RFC3339 UTC), \"end\": string|null (RFC3339 UTC, default start+1h), \"description\": string|null, \"attendees\": string[]|null} \
                     \
                     Create at most 3 concrete suggestions implied by the meeting \

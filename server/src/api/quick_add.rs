@@ -14,7 +14,7 @@
 //! - Times: `um 14`, `14:30`, `9 uhr`, `at 14:00`
 //! - Recurrence: `jeden tag`, `täglich`, `jede woche`, `wöchentlich`,
 //!   `jeden freitag`, `monatlich`, `jeden monat`, `jährlich`, `alle 2 wochen`
-//! - Priority: `p1`–`p4` (1 = highest, mapped to iCal 1/3/5/9)
+//! - Priority: `p1`–`p5` (1 = highest … 5 = lowest)
 //! - Project: `#Name`
 //! - Label: `@Name` or `%Name`
 //! - Section: `/Name`
@@ -24,33 +24,39 @@
 
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone, Utc};
 
-/// Priority in the Todoist UI sense (1 = highest … 4 = none).
+/// Priority on the app's canonical scale (1 = highest … 5 = lowest, `None` = unset).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Prio {
     P1,
     P2,
     P3,
     P4,
+    P5,
+    None,
 }
 
 impl Prio {
-    /// Map to the iCal `PRIORITY` scale (1 highest … 9 lowest). P4 = 0 (none).
-    pub fn to_ical(self) -> Option<i64> {
+    /// Canonical value (1–5), or `None` for "no priority".
+    pub fn to_canonical(self) -> Option<i64> {
         match self {
             Prio::P1 => Some(1),
-            Prio::P2 => Some(3),
-            Prio::P3 => Some(5),
-            Prio::P4 => None,
+            Prio::P2 => Some(2),
+            Prio::P3 => Some(3),
+            Prio::P4 => Some(4),
+            Prio::P5 => Some(5),
+            Prio::None => None,
         }
     }
 
-    /// Map back from an iCal priority value.
-    pub fn from_ical(p: Option<i64>) -> Prio {
+    /// Map a canonical value (1–5) back to the UI enum.
+    pub fn from_canonical(p: Option<i64>) -> Prio {
         match p {
-            Some(n) if n >= 1 && n <= 2 => Prio::P1,
-            Some(n) if n >= 3 && n <= 4 => Prio::P2,
-            Some(n) if n >= 5 && n <= 6 => Prio::P3,
-            _ => Prio::P4,
+            Some(1) => Prio::P1,
+            Some(2) => Prio::P2,
+            Some(3) => Prio::P3,
+            Some(4) => Prio::P4,
+            Some(5) => Prio::P5,
+            _ => Prio::None,
         }
     }
 }
@@ -77,7 +83,7 @@ impl Default for ParsedTask {
             title: String::new(),
             due: None,
             due_has_time: false,
-            priority: Prio::P4,
+            priority: Prio::None,
             project: None,
             labels: Vec::new(),
             rrule: None,
@@ -180,6 +186,7 @@ fn parse_priority(lower: &str) -> Option<Prio> {
         "p2" => Some(Prio::P2),
         "p3" => Some(Prio::P3),
         "p4" => Some(Prio::P4),
+        "p5" => Some(Prio::P5),
         _ => None,
     }
 }
@@ -432,7 +439,7 @@ mod tests {
         let r = p("Budget prüfen");
         assert_eq!(r.title, "Budget prüfen");
         assert!(r.due.is_none());
-        assert_eq!(r.priority, Prio::P4);
+        assert_eq!(r.priority, Prio::None);
     }
 
     #[test]
@@ -450,13 +457,17 @@ mod tests {
     }
 
     #[test]
-    fn priority_p1_to_p4() {
+    fn priority_p1_to_p5() {
         assert_eq!(p("A p1").priority, Prio::P1);
-        assert_eq!(p("A p4").priority, Prio::P4);
-        assert_eq!(Prio::P1.to_ical(), Some(1));
-        assert_eq!(Prio::P2.to_ical(), Some(3));
-        assert_eq!(Prio::P3.to_ical(), Some(5));
-        assert_eq!(Prio::P4.to_ical(), None);
+        assert_eq!(p("A p5").priority, Prio::P5);
+        assert_eq!(Prio::P1.to_canonical(), Some(1));
+        assert_eq!(Prio::P2.to_canonical(), Some(2));
+        assert_eq!(Prio::P3.to_canonical(), Some(3));
+        assert_eq!(Prio::P4.to_canonical(), Some(4));
+        assert_eq!(Prio::P5.to_canonical(), Some(5));
+        assert_eq!(Prio::None.to_canonical(), None);
+        assert_eq!(Prio::from_canonical(Some(3)), Prio::P3);
+        assert_eq!(Prio::from_canonical(None), Prio::None);
     }
 
     #[test]

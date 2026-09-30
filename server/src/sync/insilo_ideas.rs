@@ -189,6 +189,10 @@ struct PlanItem {
     due: Option<String>,
     #[serde(default)]
     priority: Option<i64>,
+    /// Blockers: existing task UIDs or the exact title of another item in the
+    /// same plan that must be done first.
+    #[serde(default)]
+    depends_on: Vec<String>,
     #[serde(default)]
     labels: Vec<String>,
 }
@@ -252,13 +256,14 @@ Regeln:\n\
 - Leite aus dem Memo die nötigen Aufgaben ab. Guideline: höchstens ~3 Aufgaben; nur wenn das Memo es hergibt.\n\
 - title: maximal 8 Wörter, knapp und handlungsorientiert. note: maximal 2 kurze Zeilen. KEINE Romane, den Memo-Text nicht wiederholen.\n\
 - due: wenn ein Zeitbezug genannt ist (\"bis Freitag\", \"morgen\", \"nächste Woche\", konkretes Datum), als YYYY-MM-DD (oder RFC 3339 mit Uhrzeit); sonst null. Heutiges Datum: {HEUTE}.\n\
-- priority: 1 = höchste … 9 = niedrigste; aus Dringlichkeit ableiten (muss/wichtig/eilig → 1-3), sonst null.\n\
+- priority: 1-5 (1 = höchste … 5 = niedrigste) oder null. Kriterien: 1 = Frist heute/überfällig, blockiert anderes, explizit dringend; 2 = Frist in ≤ 3-5 Tagen, wichtig; 3 = normale Aufgabe ohne Zeitdruck; 4 = niedrig/Nice-to-have; 5 = Backlog ohne Zeitbezug. Konservativ bleiben, KEINE P1-Inflation, im Zweifel null.\n\
+- depends_on: optionale Liste echter Abhängigkeiten (\"muss zuerst erledigt werden\"). Einträge sind entweder eine uid aus den gelisteten offenen Aufgaben ODER der EXAKTE Titel einer anderen Aufgabe aus DIESEM Plan, die zuerst kommen muss. Leer lassen, wenn keine zwingende Reihenfolge besteht.\n\
 - labels: HÖCHSTENS EIN Themen-Tag pro Aufgabe, und nur wenn es ein fundamentales, wiederkehrendes Thema ist (kein Einzelfall/Feature). Bevorzuge STRENG einen der gelisteten vorhandenen Tags (exakte Schreibweise). Wenn keiner passt: leeres Array [] — erfinde KEINEN neuen Tag. Zusätzlich: setze NIE \"Insilo\", das wird automatisch vergeben.\n\
 - calendar/mail NUR, wenn das Memo es klar verlangt. Mails werden NIE gesendet; Termine werden ohne Teilnehmer angelegt; dann als Entwurf/Termin vorbereitet.\n\
 - mail.to MUSS eine E-Mail-Adresse sein. Ist nur ein Name bekannt, KEINE mail anlegen – stattdessen eine Aufgabe \"Mail an <Name> vorbereiten\".\n\
 - Erfinde keine Fakten.\n\
 Schema: {\"items\":[{\"kind\":\"create|append|subtask\",\"target_uid\":\"...\",\"title\":\"...\",\"note\":\"...\",\
-\"due\":\"YYYY-MM-DD|null\",\"priority\":1-9|null,\"labels\":[\"...\"]}],\
+\"due\":\"YYYY-MM-DD|null\",\"priority\":1-5|null,\"depends_on\":[\"uid|Titel\"],\"labels\":[\"...\"]}],\
 \"calendar\":{\"summary\":\"...\",\"start\":\"RFC3339\",\"end\":\"RFC3339\"}|null,\
 \"mail\":{\"to\":\"...\",\"subject\":\"...\",\"body\":\"...\"}|null}"
         .replace("{HEUTE}", &chrono::Local::now().format("%Y-%m-%d").to_string());
@@ -320,6 +325,7 @@ async fn create_task(
     due: Option<String>,
     priority: Option<i64>,
     parent_uid: Option<String>,
+    dependencies: Vec<String>,
 ) -> Result<String, String> {
     let title = crate::ai::agent::clamp_text(title, 120);
     if title.trim().is_empty() {
@@ -333,6 +339,7 @@ async fn create_task(
         labels: vec![crate::cache::tags::ORIGIN_LABEL.to_string()],
         rrule: None,
         parent_uid,
+        dependencies,
         project_id: None,
         due_has_time: None,
     };
@@ -403,6 +410,7 @@ async fn set_task_labels(
         labels: Some(labels),
         rrule: None,
         project_id: None,
+        dependencies: None,
     };
     match crate::api::todos::toggle_todo(
         axum::extract::State(state.clone()),
@@ -470,6 +478,7 @@ async fn append_task(state: &AppState, uid: &str, addition: &str) -> Result<Stri
         labels: None,
         rrule: None,
         project_id: None,
+        dependencies: None,
     };
     match crate::api::todos::toggle_todo(axum::extract::State(state.clone()), axum::extract::Path(uid.to_string()), axum::Json(req)).await {
         Ok(_) => Ok(uid.to_string()),
@@ -676,10 +685,31 @@ async fn process_one(
     }
 
     let mut primary: Option<String> = None;
+    // Titles of tasks created within this plan → UID, for intra-plan depends_on.
+    let mut created: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let extra: &[String] = if idx == 0 { &done } else { &[] };
-        match plan_item(state, &open_tasks, item, extra).await {
+        // Resolve depends_on: an existing open-task UID or a title created
+        // earlier in this same plan.
+        let deps: Vec<String> = item
+            .depends_on
+            .iter()
+            .filter_map(|d| {
+                let d = d.trim();
+                if d.is_empty() {
+                    return None;
+                }
+                if open_tasks.iter().any(|(u, _)| u == d) {
+                    return Some(d.to_string());
+                }
+                created.get(&d.to_lowercase()).cloned()
+            })
+            .collect();
+        match plan_item(state, &open_tasks, item, extra, &deps).await {
             Ok(Some(uid)) => {
+                if let Some(title) = item.title.as_ref().filter(|t| !t.trim().is_empty()) {
+                    created.insert(title.trim().to_lowercase(), uid.clone());
+                }
                 if primary.is_none() {
                     // Record immediately so a crash/retry cannot duplicate.
                     let _ = with_db(state, |conn| {
@@ -707,7 +737,7 @@ async fn process_one(
                 }
             };
             let desc = build_description("", &done);
-            create_task(state, &title, &desc, None, None, None).await?
+            create_task(state, &title, &desc, None, None, None, Vec::new()).await?
         }
     };
 
@@ -735,6 +765,7 @@ async fn plan_item(
     open_tasks: &[(String, String)],
     item: &PlanItem,
     extra_done: &[String],
+    dependencies: &[String],
 ) -> Result<Option<String>, String> {
     let kind = item.kind.trim().to_lowercase();
     let known = |u: &str| open_tasks.iter().any(|(x, _)| x == u);
@@ -769,7 +800,7 @@ async fn plan_item(
             }
             let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
             Ok(Some(
-                create_task(state, &title, &desc, item.due.clone(), item.priority, Some(uid)).await?,
+                create_task(state, &title, &desc, item.due.clone(), item.priority, Some(uid), dependencies.to_vec()).await?,
             ))
         }
         _ => {
@@ -796,7 +827,7 @@ async fn plan_item(
                 return Ok(Some(append_task(state, &uid, &addition).await?));
             }
             let desc = build_description(&item.note.clone().unwrap_or_default(), extra_done);
-            let uid = create_task(state, &title, &desc, item.due.clone(), item.priority, None).await?;
+            let uid = create_task(state, &title, &desc, item.due.clone(), item.priority, None, dependencies.to_vec()).await?;
             apply_thematic_tag(state, &uid, item.labels.first().map(|s| s.as_str())).await;
             Ok(Some(uid))
         }
@@ -810,7 +841,7 @@ async fn create_fallback_task(state: &AppState, idea: &cache::ideas::IdeaRow) ->
         summary = format!("Idee vom {}", idea.recorded_at);
     }
     let desc = "Mighty: Automatische Verarbeitung fehlgeschlagen – Inhalt bitte prüfen.";
-    create_task(state, &summary, desc, None, None, None).await
+    create_task(state, &summary, desc, None, None, None, Vec::new()).await
 }
 
 fn schedule_retry(state: &AppState, idea: &cache::ideas::IdeaRow, attempts: i64, error: &str) {
