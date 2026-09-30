@@ -601,12 +601,9 @@ pub async fn consolidate_todos(State(state): State<AppState>) -> ApiResult<Conso
             }
         }
 
-        let mut original: Vec<String> = rows[idx]
-            .labels
-            .iter()
-            .map(|s| cache::tags::normalize_label(s))
-            .filter(|s| !s.is_empty())
-            .collect();
+        // Rewrite whenever the *raw* labels differ from the canonical set
+        // (case unification + `Idee`->`Insilo`), not just the normalised one.
+        let mut original: Vec<String> = rows[idx].labels.clone();
         original.sort();
         original.dedup();
         let mut next = new_labels.clone();
