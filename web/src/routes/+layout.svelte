@@ -1,5 +1,6 @@
 <script lang="ts">
   import "../styles/global.css";
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { cacheInit } from "$lib/services/tauri";
@@ -58,13 +59,19 @@
 </script>
 
 {#if !loading && !error && !$isOnline}
-  <div class="offline-banner">{$t("app.offline")}</div>
+  <!-- HB-ZUSTAND, pinned to the top edge as a slim banner. -->
+  <div class="hinweis offline-banner" data-art="achtung"><Symbol name="achtung" size={16} /><span>{$t("app.offline")}</span></div>
 {/if}
 
 {#if error}
   <div class="fatal-error">
-    <h2>{$t("app.startError")}</h2>
-    <p>{error}</p>
+    <div class="hinweis" data-art="fehler">
+      <Symbol name="achtung" size={16} />
+      <div>
+        <h2>{$t("app.startError")}</h2>
+        <p>{error}</p>
+      </div>
+    </div>
   </div>
 {:else if loading}
   <div class="loading-screen">
@@ -79,17 +86,26 @@
 {/if}
 
 <style>
+  /* ── Start error, full screen [RL-HUELLE] ────────────────────────────────── */
+  /* The HB-ZUSTAND error line, centred on an empty page. */
   .fatal-error {
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100vh;
-    color: var(--am-fehler);
-    font-family: var(--am-schrift-sans);
+    padding: var(--am-raum-4);
+    background: var(--am-seite);
   }
-  .fatal-error h2 { margin-bottom: 8px; }
+  .fatal-error .hinweis {
+    max-width: 35rem;
+  }
+  .fatal-error h2 {
+    margin: 0 0 var(--am-raum-1);
+    font-size: 1rem;
+    color: inherit;
+  }
 
+  /* ── Loading dots while the cache starts [RL-HUELLE] ─────────────────────── */
   .loading-screen {
     display: flex;
     align-items: center;
@@ -115,18 +131,23 @@
     40% { opacity: 1; transform: scale(1); }
   }
 
+  /* ── Offline banner, on HB-ZUSTAND [RL-HUELLE] ───────────────────────────── */
+  /* Colours, sign and border come from .hinweis[data-art="achtung"]; this
+     only pins it to the top edge as a full-width strip. */
   .offline-banner {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 9999;
-    padding: 6px 16px;
-    background: var(--am-achtung-flaeche);
-    color: var(--am-achtung);
-    font-size: 12px;
-    font-family: var(--am-schrift-sans);
-    text-align: center;
-    border-bottom: 1px solid var(--am-achtung-rand);
+    align-items: center;
+    justify-content: center;
+    padding: var(--am-raum-1) var(--am-raum-4);
+    border-width: 0 0 1px;
+    border-radius: 0;
+    font-size: 0.75rem;
+  }
+  .offline-banner > :global(svg) {
+    margin-top: 0;
   }
 </style>

@@ -21,6 +21,8 @@
 {/if}
 
 <style>
+  /* ── Reply suggestions [RL-VORSCHLAEGE] ────────────────────────────────────
+     One-tap reply chips under a message — chips, Relay's own (not AM-KNOPF). */
   .reply-suggestions {
     display: flex;
     flex-wrap: wrap;
@@ -38,6 +40,8 @@
     border: 1px solid var(--am-rand);
     border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
+    color: var(--am-text-primaer);
+    font-family: inherit;
     font-size: 0.75rem;
     cursor: pointer;
     transition: all var(--am-dauer-schnell) var(--am-kurve);
@@ -50,5 +54,9 @@
     border-color: var(--am-handlung-ruhend);
     color: var(--am-handlung-ruhend);
     background: var(--am-seite);
+  }
+  .suggestion-chip:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
   }
 </style>

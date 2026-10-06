@@ -144,7 +144,7 @@
   </script>
 
   <div class="splash-screen">
-    <div class="splash-card">
+    <div class="karte splash-card">
       <div class="lang-toggle" role="group" aria-label={$t("splash.language")}>
         <button type="button" class:active={$lang === "de"} onclick={() => setLang("de")}>DE</button>
         <button type="button" class:active={$lang === "en"} onclick={() => setLang("en")}>EN</button>
@@ -189,16 +189,16 @@
                 <p class="olares-hint-missing">{$t("splash.olaresMissing")}: {olares.missing.join(", ")}</p>
               {/if}
               <div class="olares-actions">
-                <button type="button" class="btn-splash-secondary" onclick={() => (splashStep = "setup_mail")}>
+                <button type="button" class="btn btn-sekundaer" onclick={() => (splashStep = "setup_mail")}>
                   {$t("splash.setupManual")}
                 </button>
-                <button type="button" class="btn-splash-primary" onclick={adoptFromOlares}>
+                <button type="button" class="btn btn-primaer" onclick={adoptFromOlares}>
                   {$t("splash.setupAuto")}
                 </button>
               </div>
             </div>
           {:else}
-            <button type="button" class="btn-splash-primary" onclick={() => (splashStep = "setup_mail")}>
+            <button type="button" class="btn btn-primaer" onclick={() => (splashStep = "setup_mail")}>
               {$t("splash.setupNow")}
             </button>
           {/if}
@@ -209,94 +209,91 @@
           <p class="splash-subtitle">{$t("splash.step1Of2")}</p>
           
           <div class="splash-form">
-            <div class="form-group span-2">
+            <div class="feld span-2">
               <label for="splash-acct-name">{$t("splash.displayName")}</label>
               <input id="splash-acct-name" bind:value={splashAcctName} placeholder={$t("splash.displayNamePlaceholder")} />
             </div>
 
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-acct-user">{$t("splash.username")}</label>
               <input id="splash-acct-user" bind:value={splashAcctUser} placeholder="max@gmx.de" />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-acct-pass">{$t("splash.password")}</label>
               <input id="splash-acct-pass" type="password" bind:value={splashAcctPass} />
             </div>
 
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-sender-name">{$t("splash.senderName")}</label>
               <input id="splash-sender-name" bind:value={splashSenderName} placeholder={$t("mail.pnameExample")} />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-sender-mail">{$t("splash.senderMail")}</label>
               <input id="splash-sender-mail" type="text" inputmode="email" bind:value={splashSenderMail} placeholder="max@gmx.de" />
             </div>
 
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-imap-host">{$t("splash.imapServer")}</label>
               <input id="splash-imap-host" bind:value={splashImapHost} placeholder="imap.gmx.net" />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-imap-port">{$t("splash.imapPort")}</label>
               <div class="port-ssl-row">
                 <input id="splash-imap-port" type="number" bind:value={splashImapPort} />
-                <label class="toggle-label">
-                  <input type="checkbox" class="toggle" bind:checked={splashImapSsl} />
-                  <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">SSL</span>
-                </label>
+                <div class="schalter-zeile">
+                  <button type="button" id="splash-imap-ssl" aria-labelledby="splash-imap-ssl-text" class="schalter" class:an={splashImapSsl} role="switch" aria-checked={splashImapSsl} onclick={() => (splashImapSsl = !splashImapSsl)}><span class="schalter-knauf" aria-hidden="true"></span></button>
+                  <label for="splash-imap-ssl" id="splash-imap-ssl-text" class="schalter-text">SSL</label>
+                </div>
               </div>
             </div>
-            <div class="form-group span-2">
-              <label class="toggle-label">
-                <input type="checkbox" class="toggle" bind:checked={splashImapInsecure} />
-                <span class="toggle-track" aria-hidden="true"></span>
-                <span class="toggle-text">{$t("splash.allowInsecure")}</span>
-              </label>
+            <div class="span-2">
+              <div class="schalter-zeile">
+                <button type="button" id="splash-imap-insecure" aria-labelledby="splash-imap-insecure-text" class="schalter" class:an={splashImapInsecure} role="switch" aria-checked={splashImapInsecure} onclick={() => (splashImapInsecure = !splashImapInsecure)}><span class="schalter-knauf" aria-hidden="true"></span></button>
+                <label for="splash-imap-insecure" id="splash-imap-insecure-text" class="schalter-text">{$t("splash.allowInsecure")}</label>
+              </div>
             </div>
 
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-smtp-host">{$t("splash.smtpServer")}</label>
               <input id="splash-smtp-host" bind:value={splashSmtpHost} placeholder="mail.gmx.net" />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-smtp-port">{$t("splash.smtpPort")}</label>
               <div class="port-ssl-row">
                 <input id="splash-smtp-port" type="number" bind:value={splashSmtpPort} />
-                <label class="toggle-label">
-                  <input type="checkbox" class="toggle" bind:checked={splashSmtpTls} />
-                  <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">TLS</span>
-                </label>
+                <div class="schalter-zeile">
+                  <button type="button" id="splash-smtp-tls" aria-labelledby="splash-smtp-tls-text" class="schalter" class:an={splashSmtpTls} role="switch" aria-checked={splashSmtpTls} onclick={() => (splashSmtpTls = !splashSmtpTls)}><span class="schalter-knauf" aria-hidden="true"></span></button>
+                  <label for="splash-smtp-tls" id="splash-smtp-tls-text" class="schalter-text">TLS</label>
+                </div>
               </div>
             </div>
 
-            <div class="form-group span-2">
-              <button type="button" class="btn-link" onclick={() => (splashAdvancedMail = !splashAdvancedMail)}>
+            <div class="span-2">
+              <button type="button" class="btn btn-still btn-klein splash-advanced" onclick={() => (splashAdvancedMail = !splashAdvancedMail)}>
                 {#if splashAdvancedMail}<Symbol name="chevron-hoch" size={16} />{:else}<Symbol name="chevron" size={16} />{/if}
                 {splashAdvancedMail ? $t("splash.hideAdvanced") : $t("splash.showAdvanced")}
               </button>
             </div>
             {#if splashAdvancedMail}
-              <div class="form-group">
+              <div class="feld">
                 <label for="splash-smtp-user">{$t("splash.smtpUsername")}</label>
                 <input id="splash-smtp-user" bind:value={splashSmtpUser} placeholder={$t("splash.optionalImapUser")} />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="splash-smtp-pass">{$t("splash.smtpPassword")}</label>
                 <input id="splash-smtp-pass" type="password" bind:value={splashSmtpPass} placeholder={$t("splash.optionalImapPassword")} />
               </div>
             {/if}
 
             {#if splashAcctError}
-              <div class="error-message span-2">{splashAcctError}</div>
+              <div class="hinweis span-2" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{splashAcctError}</span></div>
             {/if}
 
             <div class="splash-actions span-2">
-              <button type="button" class="btn-splash-secondary" onclick={() => (splashStep = "intro")}>
+              <button type="button" class="btn btn-sekundaer" onclick={() => (splashStep = "intro")}>
                 {$t("common.back")}
               </button>
-              <button type="button" class="btn-splash-primary" onclick={handleSplashConnectAccount} disabled={splashAcctConnecting}>
+              <button type="button" class="btn btn-primaer" onclick={handleSplashConnectAccount} disabled={splashAcctConnecting}>
                 {splashAcctConnecting ? $t("splash.connecting") : $t("common.next")}
               </button>
             </div>
@@ -308,28 +305,28 @@
           <p class="splash-subtitle">{$t("splash.step2Of2")}</p>
           
           <div class="splash-form">
-            <div class="form-group span-2">
+            <div class="feld span-2">
               <label for="splash-ai-url">{$t("splash.apiUrl")}</label>
               <input id="splash-ai-url" type="text" inputmode="url" bind:value={splashAiUrl} placeholder="https://llm.aimighty.de/v1" />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-ai-key">{$t("splash.apiKey")}</label>
               <input id="splash-ai-key" type="password" bind:value={splashAiKey} placeholder="ollama" />
             </div>
-            <div class="form-group">
+            <div class="feld">
               <label for="splash-ai-model">{$t("splash.modelId")}</label>
               <input id="splash-ai-model" type="text" bind:value={splashAiModel} placeholder="chat" />
             </div>
 
             {#if splashAiError}
-              <div class="error-message span-2">{splashAiError}</div>
+              <div class="hinweis span-2" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{splashAiError}</span></div>
             {/if}
 
             <div class="splash-actions span-2">
-              <button type="button" class="btn-splash-secondary" onclick={handleSplashBackToMail}>
+              <button type="button" class="btn btn-sekundaer" onclick={handleSplashBackToMail}>
                 {$t("common.back")}
               </button>
-              <button type="button" class="btn-splash-primary" onclick={handleSplashCompleteSetup} disabled={splashAiSaving}>
+              <button type="button" class="btn btn-primaer" onclick={handleSplashCompleteSetup} disabled={splashAiSaving}>
                 {splashAiSaving ? $t("common.saving") : $t("splash.finish")}
               </button>
             </div>
@@ -340,33 +337,38 @@
   </div>
 
 <style>
+  /* ── Splash shell [RL-ANMELDUNG] ──────────────────────────────────────── */
   .splash-screen {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: var(--am-flaeche-1);
+    background: var(--am-seite);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
     overflow-y: auto;
-    padding: 24px;
+    padding: var(--am-raum-6);
   }
+  /* Card look comes from AM-KARTE; only size, spacing and entry here. */
   .splash-card {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
     padding: 48px;
     width: 100%;
     max-width: 720px;
-    box-shadow: none;
     display: flex;
     flex-direction: column;
     position: relative;
     animation: fadeIn 0.25s ease-out;
   }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  /* ── Language switch [RL-ANMELDUNG] ───────────────────────────────────────
+     A segmented DE/EN switcher stays Relay's own until HB-SEGMENT. */
   .lang-toggle {
     position: absolute;
     top: 16px;
@@ -376,7 +378,7 @@
     border: 1px solid var(--am-rand);
     border-radius: var(--am-radius-mittel);
     padding: 2px;
-    background: var(--am-flaeche-1);
+    background: var(--am-seite);
   }
   .lang-toggle button {
     background: transparent;
@@ -394,13 +396,11 @@
     color: var(--am-handlung-text);
   }
   .lang-toggle button:focus-visible {
-    outline: 2px solid var(--am-handlung-ruhend);
+    outline: 2px solid var(--am-fokus-ring);
     outline-offset: 1px;
   }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
-  }
+
+  /* ── Intro [RL-ANMELDUNG] ─────────────────────────────────────────────── */
   .splash-intro {
     display: flex;
     flex-direction: column;
@@ -444,14 +444,16 @@
     color: var(--am-text-gedaempft);
     line-height: 1.5;
   }
+
+  /* ── Olares hint [RL-ANMELDUNG] ───────────────────────────────────────── */
   .olares-hint {
     width: 100%;
     text-align: left;
     border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border-radius: var(--am-radius-mittel);
     padding: 16px 20px;
     margin-bottom: 24px;
-    background: var(--am-flaeche-1);
+    background: var(--am-seite);
   }
   .olares-hint-title { font-size: 0.875rem; font-weight: 600; color: var(--am-text-primaer); margin-bottom: 8px; }
   .olares-hint-list {
@@ -465,53 +467,11 @@
     color: var(--am-text-gedaempft);
   }
   .olares-hint-missing { font-size: 0.75rem; color: var(--am-text-gedaempft); margin-bottom: 12px; }
-  .olares-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .olares-actions { display: flex; justify-content: flex-end; gap: var(--am-raum-4); }
 
-  .btn-link {
-    background: none;
-    border: none;
-    color: var(--am-handlung-ruhend);
-    cursor: pointer;
-    text-decoration: underline;
-    font-size: 0.8125rem;
-    padding: 8px 0;
-  }
-  .btn-link:hover {
-    color: var(--am-handlung-hover);
-  }
-
-  .btn-splash-primary {
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    font-size: 0.875rem;
-    font-weight: 600;
-    padding: 10px 24px;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-splash-primary:hover:not(:disabled) {
-    background: var(--am-handlung-hover);
-  }
-  .btn-splash-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-splash-secondary {
-    background: transparent;
-    border: 1px solid var(--am-rand);
-    color: var(--am-text-primaer);
-    font-size: 0.875rem;
-    font-weight: 600;
-    padding: 10px 20px;
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-splash-secondary:hover {
-    background: var(--am-flaeche-1);
-  }
+  /* ── Setup form [RL-ANMELDUNG] ────────────────────────────────────────────
+     Fields, switches and buttons come from AM-FELD, AM-HAKEN and AM-KNOPF;
+     only the two-column grid lives here. */
   .splash-form-view {
     display: flex;
     flex-direction: column;
@@ -529,94 +489,26 @@
     text-align: left;
     margin-top: 20px;
   }
-  .form-group.span-2 {
+  /* The grid gap spaces the fields. */
+  .splash-form .feld { margin-bottom: 0; }
+  .span-2 {
     grid-column: span 2;
   }
+  .splash-advanced { justify-self: start; }
   .port-ssl-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 41px;
+    gap: var(--am-raum-4);
     width: 100%;
   }
-  .splash-form .form-group .port-ssl-row input[type="number"] {
+  .port-ssl-row input[type="number"] {
     width: 75px;
     flex-shrink: 0;
   }
-  .toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--am-text-primaer);
-    user-select: none;
-    height: 100%;
-  }
-  .toggle-label .toggle {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .toggle-label .toggle-track {
-    position: relative;
-    width: 34px;
-    height: 20px;
-    border-radius: 999px;
-    background: var(--am-rand);
-    transition: background var(--am-dauer-mittel) var(--am-kurve);
-    flex-shrink: 0;
-  }
-  .toggle-label .toggle-track::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--am-text-auf-farbe);
-    box-shadow: none;
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-  }
-  .toggle-label .toggle:checked + .toggle-track {
-    background: var(--am-handlung-ruhend);
-  }
-  .toggle-label .toggle:checked + .toggle-track::after {
-    transform: translateX(14px);
-  }
-  .toggle-label .toggle:focus-visible + .toggle-track {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 20%, transparent);
-  }
-  .toggle-text {
-    line-height: 1;
-  }
-  .splash-form .form-group label:not(.check-label):not(.toggle-label) {
-    display: block;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--am-text-gedaempft);
-    margin-bottom: 6px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  .splash-form .form-group input {
-    width: 100%;
-    padding: 10px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    color: var(--am-text-primaer);
-    background: var(--am-seite);
-    box-shadow: none;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .splash-form .form-group input:focus {
-    border-color: var(--am-handlung-ruhend);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
-    background: var(--am-seite);
-  }
+  .splash-form .schalter-zeile { margin: 0; align-items: center; }
+  /* Inside a .feld the switch label would pick up the field-label gap. */
+  .port-ssl-row .schalter-text { margin-bottom: 0; }
   .splash-actions {
     display: flex;
     justify-content: space-between;
@@ -624,11 +516,5 @@
     margin-top: 12px;
     border-top: 1px solid var(--am-rand);
     padding-top: 24px;
-  }
-  .splash-actions.span-2 {
-    grid-column: span 2;
-  }
-  .error-message.span-2 {
-    grid-column: span 2;
   }
 </style>

@@ -24,6 +24,8 @@
 </div>
 
 <style>
+  /* ── Sidebar footer [RL-SPALTE] ───────────────────────────────────────────
+     Layout only: search row above, module switcher below (until Etappe 6). */
   .sidebar-footer {
     margin-top: auto;
     padding: 12px;

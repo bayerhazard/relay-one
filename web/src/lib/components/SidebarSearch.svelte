@@ -27,71 +27,62 @@
   } = $props();
 </script>
 
+<!-- Search field after HB-SUCHE's pattern: the input is the real AM-FELD
+     `.input`; icon and trailing buttons sit on top of it. -->
 <div class="ss-bar">
   {#if showIcon}
     <span class="ss-icon" aria-hidden="true">
       <Symbol name="suche" size={16} />
     </span>
   {/if}
-  <input type="text" class="ss-input" {placeholder} aria-label={ariaLabel} bind:value oninput={onInput} onfocus={onFocus} onblur={onBlur} onkeydown={onKeydown} />
-  {@render children?.()}
-  {#if value}
-    <button type="button" class="ss-clear" onclick={() => (value = "")} aria-label={clearLabel}>
-      <Symbol name="schliessen" size={16} />
-    </button>
-  {/if}
+  <input type="text" class="input ss-input" class:mit-zeichen={showIcon} {placeholder} aria-label={ariaLabel} bind:value oninput={onInput} onfocus={onFocus} onblur={onBlur} onkeydown={onKeydown} />
+  <div class="ss-aktionen">
+    {@render children?.()}
+    {#if value}
+      <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => (value = "")} aria-label={clearLabel} title={clearLabel}>
+        <Symbol name="schliessen" size={16} />
+      </button>
+    {/if}
+  </div>
 </div>
 
 <style>
+  /* ── Sidebar search [RL-SPALTE] ───────────────────────────────────────────
+     Field and buttons from AM-FELD / AM-KNOPF; only the overlay placement
+     lives here (HB-SUCHE's `.kopfsuche` arrangement, until Etappe 6). */
   .ss-bar {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
     width: 100%;
     flex: 0 0 auto;
     min-width: 0;
-    height: 34px;
-    padding: 0 12px;
-    border-radius: var(--am-radius-mittel);
-    border: 1px solid var(--am-rand);
-    background: var(--am-seite);
-    transition: border-color var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .ss-bar:focus-within {
-    border-color: var(--am-handlung-ruhend);
   }
   .ss-icon {
+    position: absolute;
+    left: var(--am-raum-3);
     display: inline-flex;
-    flex-shrink: 0;
     color: var(--am-text-gedaempft);
-    opacity: 0.6;
+    pointer-events: none;
   }
   .ss-input {
-    flex: 1;
     min-width: 0;
-    border: none;
-    background: transparent;
-    color: var(--am-text-primaer);
-    font-size: var(--fs-base);
-    font-family: inherit;
-    outline: none;
   }
-  .ss-input::placeholder {
-    color: var(--am-text-gedaempft);
+  /* Room for the icon on the left and for each trailing button on the right. */
+  .ss-input.mit-zeichen {
+    padding-left: calc(var(--am-raum-3) + 16px + var(--am-raum-2));
   }
-  .ss-clear {
-    display: inline-flex;
+  .ss-bar:has(.ss-aktionen > :global(*)) .ss-input {
+    padding-right: var(--am-ziel-zeiger);
+  }
+  .ss-bar:has(.ss-aktionen > :global(* + *)) .ss-input {
+    padding-right: calc(var(--am-ziel-zeiger) * 2);
+  }
+  .ss-aktionen {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border: none;
-    background: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 2px;
-    border-radius: var(--am-radius-klein);
-  }
-  .ss-clear:hover {
-    color: var(--am-text-primaer);
   }
 </style>

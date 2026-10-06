@@ -175,6 +175,25 @@
     onclose();
   }
 
+  function handleCloseBackdrop(e: MouseEvent) {
+    // A click beside the question returns to the draft, like Escape:
+    // discarding is final and must be chosen, not missed into.
+    if ((e.target as HTMLElement).classList.contains("dialog-schicht")) showCloseDialog = false;
+  }
+
+  // Escape only dismisses the question and returns to the draft — never
+  // discards. Focus moves into the dialog so the keyboard lands there (CI HB-DIALOG).
+  function handleCloseKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      showCloseDialog = false;
+    }
+  }
+  let closeSaveButton = $state<HTMLButtonElement | null>(null);
+  $effect(() => {
+    if (showCloseDialog && closeSaveButton) closeSaveButton.focus();
+  });
+
   // ─── Voice-to-Mail ───────────────────────────────────────────────
 
   async function toggleVoiceInput() {
@@ -560,25 +579,26 @@
 <div class="compose-window">
   <div class="compose-header">
     <h2>{mode === "new" ? $t("compose.newMessage") : mode === "forward" ? $t("compose.forwardTitle") : $t("compose.replyTitle")}</h2>
-    <button type="button" class="close-btn" onclick={handleClose} title={$t("compose.close")} aria-label={$t("compose.close")}>
-      <span class="close-icon-desktop"><Symbol name="schliessen" size={16} /></span>
-      <span class="close-icon-mobile">&#8592; {$t("compose.back")}</span>
+    <!-- Icon-only on desktop; on phones the same button reads "Zurück". -->
+    <button type="button" class="btn btn-still" class:btn-symbol={!isNarrow} onclick={handleClose} title={$t("compose.close")} aria-label={$t("compose.close")}>
+      <span class="close-icon-desktop"><Symbol name="schliessen" size={20} /></span>
+      <span class="close-icon-mobile"><Symbol name="zurueck" size={16} /> {$t("compose.back")}</span>
     </button>
   </div>
 
   <div class="compose-body">
-    <div class="field">
+    <div class="feld compose-feld">
       <label for="to">{$t("compose.toLabel")}</label>
-     <div class="to-row">
-        <RecipientInput bind:value={to} {accountId} />
+      <div class="to-row">
+        <RecipientInput id="to" bind:value={to} {accountId} />
         <span class="ccbcc-group">
         {#if !ccVisible}
-          <button type="button" class="ccbcc-toggle" onclick={() => showCc = true} title={$t("compose.ccAdd")}>
+          <button type="button" class="btn btn-still btn-klein" onclick={() => showCc = true} title={$t("compose.ccAdd")}>
             Cc
           </button>
         {/if}
         {#if !bccVisible}
-          <button type="button" class="ccbcc-toggle" onclick={() => showBcc = true} title={$t("compose.bccAdd")}>
+          <button type="button" class="btn btn-still btn-klein" onclick={() => showBcc = true} title={$t("compose.bccAdd")}>
             Bcc
           </button>
         {/if}
@@ -586,29 +606,33 @@
       </div>
     </div>
     {#if ccVisible}
-      <div class="field">
-        <label>{$t("compose.ccLabel")}</label>
+      <div class="feld compose-feld">
+        <label for="cc">{$t("compose.ccLabel")}</label>
         <div class="ccbcc-input-wrapper">
-          <RecipientInput bind:value={cc} {accountId} />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { cc = []; showCc = false; }} title={$t("compose.ccRemove")}>&times;</button>
+          <RecipientInput id="cc" bind:value={cc} {accountId} />
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => { cc = []; showCc = false; }} title={$t("compose.ccRemove")} aria-label={$t("compose.ccRemove")}>
+            <Symbol name="schliessen" size={16} />
+          </button>
         </div>
       </div>
     {/if}
     {#if bccVisible}
-      <div class="field">
-        <label>{$t("compose.bccLabel")}</label>
+      <div class="feld compose-feld">
+        <label for="bcc">{$t("compose.bccLabel")}</label>
         <div class="ccbcc-input-wrapper">
-          <RecipientInput bind:value={bcc} {accountId} />
-          <button type="button" class="ccbcc-clear-btn" onclick={() => { bcc = []; showBcc = false; }} title={$t("compose.bccRemove")}>&times;</button>
+          <RecipientInput id="bcc" bind:value={bcc} {accountId} />
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => { bcc = []; showBcc = false; }} title={$t("compose.bccRemove")} aria-label={$t("compose.bccRemove")}>
+            <Symbol name="schliessen" size={16} />
+          </button>
         </div>
       </div>
     {/if}
-    <div class="field">
+    <div class="feld compose-feld">
       <label for="subject">{$t("compose.subjectLabel")}</label>
       <div class="to-row">
         <input id="subject" type="text" bind:value={subject} placeholder={$t("compose.subject")} />
         <span class="ccbcc-group">
-          <button type="button" class="ccbcc-toggle" onclick={addAttachment} title={$t("compose.attachFile")}>
+          <button type="button" class="btn btn-still btn-klein" onclick={addAttachment} title={$t("compose.attachFile")}>
             {$t("compose.attachment")}
           </button>
         </span>
@@ -644,22 +668,22 @@
           <div class="editor-header">
           <span>{$t("mail.yourMessage")}</span>
           <div class="fmt-toolbar">
-            <button type="button" class="fmt-btn" onclick={() => execCmd("bold")} title={$t("mail.fmtBold")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => execCmd("bold")} title={$t("mail.fmtBold")} aria-label={$t("mail.fmtBold")}>
               <Symbol name="fett" size={16} />
             </button>
-            <button type="button" class="fmt-btn" onclick={() => execCmd("italic")} title={$t("mail.fmtItalic")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => execCmd("italic")} title={$t("mail.fmtItalic")} aria-label={$t("mail.fmtItalic")}>
               <Symbol name="kursiv" size={16} />
             </button>
-            <button type="button" class="fmt-btn" onclick={execHeading} title={$t("mail.fmtHeading")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={execHeading} title={$t("mail.fmtHeading")} aria-label={$t("mail.fmtHeading")}>
               <Symbol name="ueberschrift" size={16} />
             </button>
-            <button type="button" class="fmt-btn" onclick={() => execCmd("insertUnorderedList")} title={$t("mail.fmtList")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => execCmd("insertUnorderedList")} title={$t("mail.fmtList")} aria-label={$t("mail.fmtList")}>
               <Symbol name="aufzaehlung" size={16} />
             </button>
-            <button type="button" class="fmt-btn" onclick={execLink} title={$t("mail.fmtLink")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={execLink} title={$t("mail.fmtLink")} aria-label={$t("mail.fmtLink")}>
               <Symbol name="verknuepfung" size={16} />
             </button>
-            <button type="button" class="fmt-btn" onclick={execCode} title={$t("mail.fmtCode")}>
+            <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={execCode} title={$t("mail.fmtCode")} aria-label={$t("mail.fmtCode")}>
               <Symbol name="code" size={16} />
             </button>
           </div>
@@ -685,7 +709,9 @@
             {#each attachments as att, i (i)}
               <span class="attachment-pill">
                 <span class="attachment-label" title={att.filename}>{att.filename} ({formatFileSize(att.size)})</span>
-                <button type="button" class="attachment-remove" onclick={() => removeAttachment(i)} title={$t("mail.fmtRemove")}>&times;</button>
+                <button type="button" class="attachment-remove" onclick={() => removeAttachment(i)} title={$t("mail.fmtRemove")} aria-label={$t("mail.fmtRemove")}>
+                  <Symbol name="schliessen" size={16} />
+                </button>
               </span>
             {/each}
       </div>
@@ -708,7 +734,9 @@
   </div>
 
   <div class="editor-toolbar">
-    <button type="button" class="btn-ai" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
+    <!-- "Senden" is the one primary of the compose view; Generieren and
+         Formatieren are secondary. `btn-ai`/`btn-send` are layout hooks only. -->
+    <button type="button" class="btn btn-sekundaer btn-ai" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
       <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? $t("compose.recordingStop") : $t("compose.dictationStart")}>
         <Symbol name="mikrofon" size={16} />
       </span>
@@ -727,37 +755,40 @@
         {/if}
       </span>
     </button>
-    <button type="button" class="btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
+    <button type="button" class="btn btn-sekundaer btn-ai" onclick={handleFormat} disabled={isGenerating || !userInput.trim()}>
       {$t("compose.format")}
     </button>
     <div class="spacer"></div>
-    <button type="button" class="btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
+    <button type="button" class="btn btn-primaer btn-send" onclick={handleSend} disabled={!to[0]?.trim() || !subject.trim() || !userInput.trim()}>
       {$isOnline ? $t("compose.send") : $t("compose.saveOffline")}
     </button>
   </div>
 </div>
 
+<!-- HB-DIALOG, the Rückfrage: "Speichern" first and primary, "Verwerfen"
+     secondary after it. A click on the backdrop returns to the draft. -->
 {#if showCloseDialog}
-  <div class="close-dialog-overlay" role="presentation" onclick={handleCloseDiscard}>
-    <div class="close-dialog" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <p class="close-dialog-title">{$t("compose.saveDraft")}</p>
-      <div class="close-dialog-actions">
-        <button type="button" class="btn-discard" onclick={handleCloseDiscard}>{$t("compose.discard")}</button>
-        <button type="button" class="btn-save" onclick={handleCloseSave}>{$t("compose.save")}</button>
+  <div
+    class="dialog-schicht"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="compose-close-title"
+    tabindex="-1"
+    onkeydown={handleCloseKeydown}
+    onclick={handleCloseBackdrop}
+  >
+    <div class="karte rueckfrage">
+      <h2 id="compose-close-title">{$t("compose.saveDraft")}</h2>
+      <div class="btn-reihe">
+        <button type="button" class="btn btn-primaer" onclick={handleCloseSave} bind:this={closeSaveButton}>{$t("compose.save")}</button>
+        <button type="button" class="btn btn-sekundaer" onclick={handleCloseDiscard}>{$t("compose.discard")}</button>
       </div>
     </div>
   </div>
 {/if}
 
 <style>
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes scaleIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
-  }
+  /* ── Compose window [RL-VERFASSEN] ─────────────────────────────────────── */
   .compose-window {
     border: 1px solid var(--am-rand);
     border-radius: 12px;
@@ -780,13 +811,7 @@
     flex-shrink: 0;
   }
   .compose-header h2 { font-size: 1rem; font-weight: 600; color: var(--am-text-primaer); }
-  .close-btn {
-    background: none; border: none; cursor: pointer;
-    font-size: 1rem; color: var(--am-text-gedaempft);
-    padding: 4px 8px; border-radius: var(--am-radius-mittel);
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .close-btn:hover { background: var(--am-flaeche-1); color: var(--am-text-primaer); }
+  .close-icon-desktop { display: inline-flex; }
   .close-icon-mobile { display: none; }
   .compose-body {
     padding: 20px;
@@ -799,23 +824,14 @@
   .compose-body::-webkit-scrollbar {
     display: none;
   }
-  .field {
+
+  /* ── Header fields: label left, field right [RL-VERFASSEN] ─────────────────
+     AM-FELD draws label and input; only the row layout is Relay's. */
+  .compose-feld {
     display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
   }
-  .field label {
-    width: 60px; font-size: 0.875rem; color: var(--am-text-gedaempft);
-    text-align: right; flex-shrink: 0; font-weight: 500;
-  }
-  .field input {
-    flex: 1; border: 1px solid var(--am-rand); border-radius: 8px;
-    padding: 9px 14px; font-size: 0.875rem;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .field input:focus {
-    outline: none;
-    border-color: var(--am-handlung-ruhend);
+  .compose-feld label {
+    width: 60px; text-align: right; flex-shrink: 0; margin-bottom: 0;
   }
   .to-row {
     flex: 1;
@@ -831,61 +847,32 @@
   }
   .ccbcc-group {
     display: flex;
-    gap: 0;
     margin-left: auto;
     flex-shrink: 0;
   }
-  .ccbcc-toggle {
-    flex-shrink: 0;
-    border: none;
-    background: none;
-    color: var(--am-text-gedaempft);
-    font-size: 0.75rem;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    padding: 6px 1px;
-    transition: color var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .ccbcc-toggle:hover {
-    color: var(--am-handlung-ruhend);
-  }
   .ccbcc-input-wrapper {
-    position: relative;
     flex: 1;
     display: flex;
     align-items: center;
+    gap: 4px;
+    min-width: 0;
   }
-  .ccbcc-clear-btn {
-    position: absolute;
-    right: 10px;
-    border: none;
-    background: none;
-    font-size: 1.125rem;
-    line-height: 1;
-    cursor: pointer;
-    color: var(--am-text-gedaempft);
-    opacity: 0.5;
-    padding: 2px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .ccbcc-clear-btn:hover {
-    opacity: 1;
-    color: var(--am-fehler);
+  .ccbcc-input-wrapper :global(.recipient-input) {
+    flex: 1;
+    min-width: 0;
   }
   .tone-section {
     margin: 16px 0; padding: 12px 0;
     border-top: 1px solid var(--am-rand);
     border-bottom: 1px solid var(--am-rand);
   }
+
+  /* ── Original message (reply / forward) [RL-VERFASSEN] ──────────────────── */
   .chain-preview {
     margin-top: 10px;
     margin-bottom: 16px;
     border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border-radius: var(--am-radius-mittel);
     overflow: hidden;
     max-height: 120px;
     display: flex;
@@ -932,10 +919,14 @@
     padding: 10px 14px;
     color: var(--am-text-gedaempft);
   }
+
+  /* ── Rich-text editor [RL-VERFASSEN] ───────────────────────────────────────
+     A composite input (contenteditable + format toolbar), Relay's own. The
+     toolbar buttons themselves are AM-KNOPF. */
   .editor-preview {
     margin-bottom: 16px;
     border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border-radius: var(--am-radius-mittel);
     overflow: visible;
     display: flex;
     flex-direction: column;
@@ -971,7 +962,7 @@
     font-size: 0.875rem;
     font-weight: 700;
     color: var(--am-text-gedaempft);
-    padding: 5px 12px;
+    padding: 0 4px 0 12px;
     background: var(--am-flaeche-1);
     border-bottom: 1px solid var(--am-rand);
     flex-shrink: 0;
@@ -982,21 +973,6 @@
   .fmt-toolbar {
     display: flex;
     gap: 1px;
-  }
-  .fmt-btn {
-    background: transparent;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    color: var(--am-text-gedaempft);
-    padding: 4px 5px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .fmt-btn:hover {
-    background: var(--am-flaeche-2);
-    color: var(--am-text-primaer);
   }
   .editor:empty::before {
     content: attr(data-placeholder);
@@ -1048,6 +1024,33 @@
   .editor-wrapper.has-attachments .editor {
     padding-bottom: 44px;
   }
+  .generation-status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: color-mix(in srgb, var(--am-seite) 85%, transparent);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .generation-status .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--am-handlung-ruhend);
+    animation: dotPulse 1.4s ease-in-out infinite;
+  }
+  .generation-status .dot:nth-child(1) { animation-delay: 0s; }
+  .generation-status .dot:nth-child(2) { animation-delay: 0.2s; }
+  .generation-status .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotPulse {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ── Attachment pills [RL-VERFASSEN] ─────────────────────────────────────── */
   .editor-attachments {
     position: absolute;
     bottom: 18px;
@@ -1057,6 +1060,57 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  .attachment-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--am-flaeche-2);
+    border: 1px solid var(--am-rand);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: var(--am-text-primaer);
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
+  }
+  .attachment-pill:hover {
+    border-color: color-mix(in srgb, var(--am-handlung-ruhend) 30%, transparent);
+  }
+  .attachment-label {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+  }
+  /* Part of the pill (Relay-own), not an AM-KNOPF: a 40 px button would
+     burst the pill. Shown on hover and on keyboard focus. */
+  .attachment-remove {
+    border: none;
+    background: none;
+    color: var(--am-text-gedaempft);
+    cursor: pointer;
+    line-height: 1;
+    opacity: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
+    flex-shrink: 0;
+  }
+  .attachment-pill:hover .attachment-remove,
+  .attachment-remove:focus-visible {
+    opacity: 1;
+  }
+  .attachment-remove:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
+  }
+  .attachment-remove:hover {
+    color: var(--am-fehler);
+  }
+
+  /* ── Action bar (Generieren · Formatieren · Senden) [RL-VERFASSEN] ─────────
+     AM-KNOPF draws the buttons; `btn-ai`/`btn-send` only place them. */
   .editor-toolbar {
     display: flex;
     gap: 10px;
@@ -1071,24 +1125,8 @@
     border-top: 1px solid var(--am-rand);
   }
   .spacer { flex: 1; }
-  .btn-ai {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    min-height: var(--am-ziel-zeiger);
-    border: 1px solid var(--am-rand-betont-farbe);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    font-family: inherit;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-ai:hover:not(:disabled) { border-color: var(--am-handlung-ruhend); }
-  .btn-ai:disabled { opacity: 0.45; cursor: default; }
+  /* Recording is Relay's own state of "Generieren": red and pulsing while
+     the microphone listens, so it reads as "tap to stop". */
   .btn-ai.recording { background: var(--am-fehler); border-color: var(--am-fehler); color: var(--am-handlung-text); animation: toolbarPulse 1.5s ease-in-out infinite; }
 
   .toggle-mic {
@@ -1125,165 +1163,13 @@
   .btn-label { pointer-events: none; }
   .label-short { display: none; }
 
-  .btn-send {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 5px 18px;
-    min-height: var(--am-ziel-zeiger);
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-    font-family: inherit;
-  }
-  .btn-send:hover:not(:disabled) { background: var(--am-handlung-hover); }
-  .btn-send:disabled { opacity: 0.5; cursor: default; }
-
   @keyframes toolbarPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.85; }
   }
 
-  .error-banner {
-    background: color-mix(in srgb, var(--am-fehler) 8%, transparent); color: var(--am-fehler);
-    padding: 10px 14px; border-radius: 8px; font-size: 0.75rem; margin-top: 12px;
-  }
-  .generation-status {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: color-mix(in srgb, var(--am-seite) 85%, transparent);
-    pointer-events: none;
-    z-index: 5;
-  }
-  .generation-status .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--am-handlung-ruhend);
-    animation: dotPulse 1.4s ease-in-out infinite;
-  }
-  .generation-status .dot:nth-child(1) { animation-delay: 0s; }
-  .generation-status .dot:nth-child(2) { animation-delay: 0.2s; }
-  .generation-status .dot:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes dotPulse {
-    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
-  }
-
-  .attachment-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    background: var(--am-flaeche-2);
-    border: 1px solid var(--am-rand);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    color: var(--am-text-primaer);
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .attachment-pill:hover {
-    border-color: color-mix(in srgb, var(--am-handlung-ruhend) 30%, transparent);
-  }
-  .attachment-label {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 200px;
-  }
-  .attachment-remove {
-    border: none;
-    background: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-    opacity: 0;
-    padding: 0;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-    flex-shrink: 0;
-  }
-  .attachment-pill:hover .attachment-remove {
-    opacity: 1;
-  }
-  .attachment-remove:hover {
-    color: var(--am-fehler);
-  }
-
-  .close-dialog-overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: fadeIn 0.15s ease-out;
-  }
-  .close-dialog {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    padding: 24px 28px;
-    min-width: 280px;
-    box-shadow: none;
-    animation: scaleIn 0.15s ease-out;
-  }
-  .close-dialog-title {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-    margin: 0 0 20px 0;
-    text-align: center;
-  }
-  .close-dialog-actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-  }
-  .btn-discard {
-    padding: 8px 18px;
-    border: 1px solid var(--am-rand);
-    border-radius: 8px;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    font-family: inherit;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-discard:hover {
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-ruhend);
-  }
-  .btn-save {
-    padding: 8px 18px;
-    border: none;
-    border-radius: 8px;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    font-family: inherit;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-save:hover {
-    background: var(--am-handlung-hover);
-  }
-
-  /* Mobile: compose fills the screen (iPhone). */
+  /* ── Phone layout [RL-VERFASSEN] ───────────────────────────────────────────
+     Compose fills the screen (iPhone). */
   @media (max-width: 600px) {
     .compose-window {
       margin: 0;
@@ -1299,39 +1185,30 @@
       padding-right: 16px;
     }
     .close-icon-desktop { display: none; }
-    .close-icon-mobile { display: inline; font-size: 0.9375rem; font-weight: 500; }
-    .close-btn { padding: 10px 12px; }
+    .close-icon-mobile { display: inline-flex; align-items: center; gap: var(--am-raum-1); }
     .compose-body {
       padding: 16px;
       /* The sticky toolbar carries its own safe-area padding. */
       padding-bottom: 16px;
     }
-    /* Stack fields vertically on phones — labels above inputs, no cramped
-       right-aligned 60px labels next to inputs. */
-    .field {
+    /* Stack fields vertically on phones — labels above inputs, as AM-FELD
+       draws them, instead of cramped right-aligned 60px labels. */
+    .compose-feld {
       flex-direction: column;
       align-items: stretch;
       gap: 6px;
       margin-bottom: 16px;
     }
-    .field label {
+    .compose-feld label {
       width: auto;
       text-align: left;
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
-    .field input,
+    /* 16px prevents the iOS focus auto-zoom. */
     .to-row input {
-      padding: 12px 14px;
       font-size: 1rem;
     }
     .to-row {
       gap: 8px;
-    }
-    .ccbcc-group {
-      flex-shrink: 0;
     }
     .tone-section {
       margin-top: 4px;
@@ -1345,7 +1222,7 @@
     .editor-resize {
       min-height: 120px;
     }
-    /* Toolbar: all three actions in ONE row, 45px touch targets.
+    /* Toolbar: all three actions in ONE row, touch-sized by AM-KNOPF.
        Padding above/below the buttons stays 10px so they don't hug the
        borders — the editor is scrollable above, the toolbar stays pinned. */
     .editor-toolbar {
@@ -1359,22 +1236,11 @@
     .btn-ai {
       flex: 1 1 0;
       min-width: 0;
-      height: 45px;
-      padding: 0 8px;
-      justify-content: center;
-      align-items: center;
     }
     .btn-send {
       flex: 0 0 auto;
-      height: 45px;
-      padding: 0 16px;
-      justify-content: center;
-      align-items: center;
     }
     .label-long { display: none; }
     .label-short { display: inline; }
   }
 </style>
-
-
-

@@ -19,8 +19,10 @@
   <div class="diff-toolbar">
     <span class="diff-title">{$t("diff.title")}</span>
     <div class="diff-actions">
-      <button type="button" class="btn-reject" onclick={onreject}>{$t("diff.reject")}</button>
-      <button type="button" class="btn-accept" onclick={onaccept}>{$t("diff.accept")}</button>
+      <!-- The diff sits inside the compose view, whose one primary is
+           "Senden": accepting is secondary, rejecting quiet (AM-KNOPF). -->
+      <button type="button" class="btn btn-still btn-klein" onclick={onreject}>{$t("diff.reject")}</button>
+      <button type="button" class="btn btn-sekundaer btn-klein" onclick={onaccept}>{$t("diff.accept")}</button>
     </div>
   </div>
   <div class="diff-content">
@@ -40,16 +42,18 @@
 </div>
 
 <style>
+  /* ── Diff view [RL-VERGLEICH] ──────────────────────────────────────────────
+     Shows the AI draft against the user's text, line by line. */
   .diff-editor {
     border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border-radius: var(--am-radius-mittel);
     overflow: hidden;
   }
   .diff-toolbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 4px 4px 4px 12px;
     background: var(--am-flaeche-1);
     border-bottom: 1px solid var(--am-rand);
   }
@@ -58,37 +62,13 @@
     font-weight: 600;
     color: var(--am-text-gedaempft);
   }
+  /* Rejecting a suggestion is not destructive — never red (CI R1/G2). */
   .diff-actions {
     display: flex;
     gap: 8px;
   }
-  .btn-accept,
-  .btn-reject {
-    padding: 4px 12px;
-    min-height: var(--am-ziel-zeiger);
-    border-radius: var(--am-radius-mittel);
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid transparent;
-  }
-  /* Accept is the primary action of the diff; rejecting a suggestion is not
-     destructive, so it is secondary — never green or red (CI R1/G2). */
-  .btn-accept {
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-  }
-  .btn-accept:hover {
-    background: var(--am-handlung-hover);
-  }
-  .btn-reject {
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    border-color: var(--am-rand-betont-farbe);
-  }
-  .btn-reject:hover {
-    background: var(--am-flaeche-2);
-  }
+
+  /* ── Diff lines [RL-VERGLEICH] ─────────────────────────────────────────── */
   .diff-content {
     padding: 12px;
     font-family: var(--am-schrift-mono);

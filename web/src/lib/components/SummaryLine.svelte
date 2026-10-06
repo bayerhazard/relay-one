@@ -9,6 +9,8 @@
 <p class="summary-line">{summary}</p>
 
 <style>
+  /* ── Summary line [RL-ZUSAMMENFASSUNG] ─────────────────────────────────────
+     Two-line AI summary under a message row or task. */
   .summary-line {
     font-size: 0.625rem;
     color: var(--am-text-gedaempft);

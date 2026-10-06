@@ -13,6 +13,7 @@
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import SummaryLine from "$lib/components/SummaryLine.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { fmtDateByLang, localeTag as fmtLocaleTag } from "$lib/utils/format";
   import { t, translate } from "$lib/i18n";
@@ -572,7 +573,7 @@
   <aside class="tk-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="tk-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="tk-nav-btn tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")} title={$t("tasks.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
@@ -646,9 +647,9 @@
   <main class="tk-main">
     {#if isNarrow}
       <div class="tk-mobile-header">
-        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")} title={$t("tasks.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{selectionLabel()}</h1>
-        <button type="button" class="tk-nav-btn tk-mobile-new" onclick={focusQuickAdd} aria-label={$t("tasks.new")}>
+        <button type="button" class="btn btn-still btn-symbol tk-mobile-new" onclick={focusQuickAdd} aria-label={$t("tasks.new")} title={$t("tasks.new")}>
           <Symbol name="plus" size={20} />
         </button>
       </div>
@@ -674,7 +675,7 @@
         }}
       />
       <kbd class="tk-qa-kbd">Q</kbd>
-      <button type="button" class="tk-btn tk-btn-ghost tk-qa-submit" onclick={submitQuickAdd} disabled={busy || !qaText.trim()}>
+      <button type="button" class="btn btn-primaer btn-klein tk-qa-submit" onclick={submitQuickAdd} disabled={busy || !qaText.trim()}>
         {$t("tasks.add")}
       </button>
     </div>
@@ -701,9 +702,9 @@
 
     <div class="tk-list-head">
       <h2>{selectionLabel()}</h2>
-      <label class="tk-sort-inline">
-        <span>{$t("tasks.sortLabel")}</span>
-        <select value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
+      <div class="tk-sort-inline">
+        <label for="tk-sort">{$t("tasks.sortLabel")}</label>
+        <select id="tk-sort" class="input" value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
           <option value="work">{$t("tasks.sortWork")}</option>
           <option value="due">{$t("tasks.sortDue")}</option>
           <option value="priority">{$t("tasks.sortPriority")}</option>
@@ -711,11 +712,11 @@
           <option value="created">{$t("tasks.sortCreated")}</option>
           <option value="manual">{$t("tasks.sortManual")}</option>
         </select>
-      </label>
+      </div>
     </div>
 
     {#if nextSteps.length}
-      <div class="tk-next">
+      <div class="karte tk-next">
         <div class="tk-next-head">{$t("tasks.nextSteps")}</div>
         <ol class="tk-next-list">
           {#each nextSteps as task (task.uid)}
@@ -732,14 +733,12 @@
     {#if loading}
       <div class="tk-state">{$t("tasks.loading")}</div>
     {:else if error}
-      <div class="tk-state tk-state-error">
-        <p>{error}</p>
-        <button type="button" class="tk-btn tk-btn-ghost" onclick={loadAll}>{$t("tasks.reload")}</button>
+      <div class="tk-state">
+        <div class="hinweis" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{error}</span></div>
+        <button type="button" class="btn btn-sekundaer" onclick={loadAll}>{$t("tasks.reload")}</button>
       </div>
     {:else if visibleTodos.length === 0}
-      <div class="tk-state">
-        <p>{tkSearch ? $t("tasks.notFound") : $t("tasks.viewEmpty")}</p>
-      </div>
+      <EmptyState title={tkSearch ? $t("tasks.notFound") : $t("tasks.viewEmpty")} icon={tkSearch ? "suche" : "aufgabe"} />
     {:else}
       {#each groups as g (g.label ?? "_")}
         {#if g.label}<div class="tk-group-head">{g.label}</div>{/if}
@@ -809,117 +808,141 @@
   </main>
 </div>
 
-<!-- Detail panel (centred modal) -->
+<!-- Detail dialog (HB-DIALOG). Escape is also handled globally (onGlobalKey). -->
 {#if detail}
-  <div class="tk-detail-scrim" role="button" tabindex="0" aria-label={$t("tasks.closeDialog")} onclick={(e) => { if (e.target === e.currentTarget) closeDetail(); }} onkeydown={(e) => { if (e.key === "Escape") closeDetail(); }}>
-  <aside class="tk-detail" role="dialog" aria-modal="true" tabindex="-1" aria-label={$t("tasks.details")}>
-    <header class="tk-detail-head">
-      <h2>{$t("tasks.details")}</h2>
-      <button type="button" class="tk-icon-btn" onclick={closeDetail} aria-label={$t("tasks.closeDialog")}><Symbol name="schliessen" size={16} /></button>
-    </header>
+  <div
+    class="dialog-schicht"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tk-detail-title"
+    tabindex="-1"
+    onclick={(e) => { if ((e.target as HTMLElement).classList.contains("dialog-schicht")) closeDetail(); }}
+    onkeydown={(e) => { if (e.key === "Escape") closeDetail(); }}
+  >
+    <div class="karte dialog-karte" data-breite="normal">
+      <div class="dialog-kopf">
+        <h2 id="tk-detail-title">{$t("tasks.details")}</h2>
+        <button type="button" class="dialog-zu" onclick={closeDetail} aria-label={$t("tasks.closeDialog")} title={$t("tasks.closeDialog")}><Symbol name="schliessen" size={20} /></button>
+      </div>
 
-    <label class="tk-field">
-      <span>{$t("tasks.taskLabel")}</span>
-      <input type="text" bind:value={edit.summary} />
-    </label>
+      <div class="dialog-koerper">
+        <div class="feld">
+          <label for="tk-edit-summary">{$t("tasks.taskLabel")}</label>
+          <input id="tk-edit-summary" type="text" bind:value={edit.summary} />
+        </div>
 
-    <label class="tk-field">
-      <span>{$t("tasks.description")}</span>
-      <textarea rows="3" bind:value={edit.description} placeholder={$t("tasks.phOptional")}></textarea>
-    </label>
+        <div class="feld">
+          <label for="tk-edit-description">{$t("tasks.description")}</label>
+          <textarea id="tk-edit-description" rows="3" bind:value={edit.description} placeholder={$t("tasks.phOptional")}></textarea>
+        </div>
 
-    <div class="tk-field-row">
-      <label class="tk-field">
-        <span>{$t("tasks.dueDate")}</span>
-        <input type="date" bind:value={edit.due} />
-      </label>
-      <label class="tk-field">
-        <span>{$t("tasks.dueTime")}</span>
-        <input type="time" bind:value={edit.dueTime} />
-      </label>
+        <div class="feld-paar">
+          <div class="feld">
+            <label for="tk-edit-due">{$t("tasks.dueDate")}</label>
+            <input id="tk-edit-due" type="date" bind:value={edit.due} />
+          </div>
+          <div class="feld">
+            <label for="tk-edit-time">{$t("tasks.dueTime")}</label>
+            <input id="tk-edit-time" type="time" bind:value={edit.dueTime} />
+          </div>
+        </div>
+
+        <div class="feld">
+          <label for="tk-edit-priority">{$t("tasks.priorityLabel")}</label>
+          <select
+            id="tk-edit-priority"
+            value={edit.priority ?? ""}
+            onchange={(e) => {
+              const v = (e.currentTarget as HTMLSelectElement).value;
+              edit.priority = v === "" ? null : Number(v);
+            }}
+          >
+            <option value="">{$t("tasks.priorityNone")}</option>
+            {#each [1, 2, 3, 4, 5] as p}
+              <option value={p}>{PRIO_LABEL[p]}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="feld">
+          <label for="tk-edit-repeat">{$t("tasks.repeatLabel")}</label>
+          <select
+            id="tk-edit-repeat"
+            value={recurToken(edit.rrule)}
+            onchange={(e) => (edit.rrule = rruleFromToken((e.currentTarget as HTMLSelectElement).value))}
+          >
+            <option value="">{$t("tasks.repeatNone")}</option>
+            <option value="daily">{$t("tasks.repeatDaily")}</option>
+            <option value="weekly">{$t("tasks.repeatWeekly")}</option>
+            <option value="monthly">{$t("tasks.repeatMonthly")}</option>
+            <option value="yearly">{$t("tasks.repeatYearly")}</option>
+          </select>
+        </div>
+
+        <div class="feld">
+          <label for="tk-edit-project">{$t("tasks.projectLabel")}</label>
+          <select id="tk-edit-project" bind:value={edit.projectId}>
+            <option value={null}>{$t("tasks.viewInbox")}</option>
+            {#each projects as p (p.id)}
+              <option value={p.id}>{p.name}</option>
+            {/each}
+          </select>
+        </div>
+
+        <div class="feld">
+          <label for="tk-edit-labels">{$t("tasks.labelsLabel")}</label>
+          <input id="tk-edit-labels" type="text" bind:value={edit.labelsText} placeholder={$t("tasks.phLabels")} />
+        </div>
+
+        <div class="feld">
+          <label for="tk-edit-deps">{$t("tasks.dependsOnLabel")}</label>
+          <select id="tk-edit-deps" multiple bind:value={edit.dependencies} size={Math.min(5, Math.max(2, blockerOptions.length))}>
+            {#each blockerOptions as b (b.uid)}
+              <option value={b.uid}>{b.summary || $t("tasks.untitled")}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+
+      <div class="dialog-fuss">
+        <button type="button" class="btn btn-primaer" onclick={saveDetail} disabled={busy}>{busy ? $t("tasks.saving") : $t("common.save")}</button>
+        <button type="button" class="btn btn-sekundaer" onclick={() => openSubtaskFor(detail!)}>{$t("tasks.subtaskAdd")}</button>
+        <button type="button" class="btn btn-gefahr tk-delete" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
+      </div>
     </div>
-
-    <label class="tk-field">
-      <span>{$t("tasks.priorityLabel")}</span>
-      <select
-        value={edit.priority ?? ""}
-        onchange={(e) => {
-          const v = (e.currentTarget as HTMLSelectElement).value;
-          edit.priority = v === "" ? null : Number(v);
-        }}
-      >
-        <option value="">{$t("tasks.priorityNone")}</option>
-        {#each [1, 2, 3, 4, 5] as p}
-          <option value={p}>{PRIO_LABEL[p]}</option>
-        {/each}
-      </select>
-    </label>
-
-    <label class="tk-field">
-      <span>{$t("tasks.repeatLabel")}</span>
-      <select
-        value={recurToken(edit.rrule)}
-        onchange={(e) => (edit.rrule = rruleFromToken((e.currentTarget as HTMLSelectElement).value))}
-      >
-        <option value="">{$t("tasks.repeatNone")}</option>
-        <option value="daily">{$t("tasks.repeatDaily")}</option>
-        <option value="weekly">{$t("tasks.repeatWeekly")}</option>
-        <option value="monthly">{$t("tasks.repeatMonthly")}</option>
-        <option value="yearly">{$t("tasks.repeatYearly")}</option>
-      </select>
-    </label>
-
-    <label class="tk-field">
-      <span>{$t("tasks.projectLabel")}</span>
-      <select bind:value={edit.projectId}>
-        <option value={null}>{$t("tasks.viewInbox")}</option>
-        {#each projects as p (p.id)}
-          <option value={p.id}>{p.name}</option>
-        {/each}
-      </select>
-    </label>
-
-    <div class="tk-field-row">
-      <label class="tk-field">
-        <span>{$t("tasks.labelsLabel")}</span>
-        <input type="text" bind:value={edit.labelsText} placeholder={$t("tasks.phLabels")} />
-      </label>
-    </div>
-
-    <label class="tk-field">
-      <span>{$t("tasks.dependsOnLabel")}</span>
-      <select multiple bind:value={edit.dependencies} size={Math.min(5, Math.max(2, blockerOptions.length))}>
-        {#each blockerOptions as b (b.uid)}
-          <option value={b.uid}>{b.summary || $t("tasks.untitled")}</option>
-        {/each}
-      </select>
-    </label>
-
-    <div class="tk-detail-actions">
-      <button type="button" class="tk-btn tk-btn-ghost" onclick={() => openSubtaskFor(detail!)}>{$t("tasks.subtaskAdd")}</button>
-      <button type="button" class="tk-btn tk-btn-danger" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
-      <span class="tk-spacer"></span>
-      <button type="button" class="tk-btn tk-btn-primary" onclick={saveDetail} disabled={busy}>{busy ? $t("tasks.saving") : $t("common.save")}</button>
-    </div>
-  </aside>
   </div>
 {/if}
 
-<!-- Sub-task creation dialog -->
+<!-- Sub-task creation dialog (HB-DIALOG) -->
 {#if subtaskParent}
-  <div class="tk-modal-backdrop" role="button" tabindex="0" aria-label={$t("tasks.subtaskAdd")} onclick={(e) => { if (e.target === e.currentTarget && !busy) subtaskParent = null; }} onkeydown={(e) => { if (e.key === "Escape") subtaskParent = null; }}>
-    <div class="tk-modal" role="dialog" aria-modal="true" tabindex="-1">
-      <h2>{$t("tasks.subtaskAdd")}</h2>
-      <p class="tk-modal-sub">{subtaskParent.summary || $t("tasks.untitled")}</p>
-      <input
-        type="text"
-        bind:value={subtaskTitle}
-        placeholder={$t("tasks.phSubtask")}
-        onkeydown={(e) => { if (e.key === "Enter") void saveSubtask(); }}
-      />
-      <div class="tk-modal-actions">
-        <button type="button" class="tk-btn tk-btn-ghost" onclick={() => (subtaskParent = null)} disabled={busy}>{$t("common.cancel")}</button>
-        <button type="button" class="tk-btn tk-btn-primary" onclick={saveSubtask} disabled={busy || !subtaskTitle.trim()}>{$t("common.save")}</button>
+  <div
+    class="dialog-schicht"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tk-subtask-title"
+    tabindex="-1"
+    onclick={(e) => { if ((e.target as HTMLElement).classList.contains("dialog-schicht") && !busy) subtaskParent = null; }}
+    onkeydown={(e) => { if (e.key === "Escape") subtaskParent = null; }}
+  >
+    <div class="karte dialog-karte" data-breite="schmal">
+      <div class="dialog-kopf">
+        <h2 id="tk-subtask-title">{$t("tasks.subtaskAdd")}</h2>
+        <button type="button" class="dialog-zu" onclick={() => (subtaskParent = null)} disabled={busy} aria-label={$t("tasks.closeDialog")} title={$t("tasks.closeDialog")}><Symbol name="schliessen" size={20} /></button>
+      </div>
+      <div class="dialog-koerper">
+        <p class="tk-modal-sub">{subtaskParent.summary || $t("tasks.untitled")}</p>
+        <input
+          type="text"
+          class="input"
+          bind:value={subtaskTitle}
+          placeholder={$t("tasks.phSubtask")}
+          aria-label={$t("tasks.subtaskAdd")}
+          onkeydown={(e) => { if (e.key === "Enter") void saveSubtask(); }}
+        />
+      </div>
+      <div class="dialog-fuss">
+        <button type="button" class="btn btn-primaer" onclick={saveSubtask} disabled={busy || !subtaskTitle.trim()}>{$t("common.save")}</button>
+        <button type="button" class="btn btn-sekundaer" onclick={() => (subtaskParent = null)} disabled={busy}>{$t("common.cancel")}</button>
       </div>
     </div>
   </div>
@@ -941,6 +964,7 @@
 />
 
 <style>
+  /* ── Tasks shell and sidebar [RL-AUFGABEN] ────────────────────────────── */
   .tk-app {
     display: flex;
     height: 100vh;
@@ -1015,49 +1039,22 @@
     margin-top: 8px;
   }
 
-  /* Inline sort control in the list header. */
-  .tk-sort-inline {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: var(--fs-xs); color: var(--am-text-gedaempft); flex-shrink: 0;
-  }
-  .tk-sort-inline select {
-    font-family: inherit; font-size: var(--fs-xs);
-    padding: 4px 6px; border: 1px solid var(--am-rand); border-radius: var(--am-radius-klein);
-    background: var(--am-flaeche-1); color: var(--am-text-primaer);
-  }
-
-  /* "Next steps" strip (Today view). */
-  .tk-next {
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    padding: 10px 12px;
-    margin-bottom: 16px;
-    background: var(--am-flaeche-1);
-  }
-  .tk-next-head { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--am-text-gedaempft); margin-bottom: 8px; }
-  .tk-next-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-  .tk-next-item { display: flex; align-items: center; gap: 10px; }
-  .tk-next-title {
-    flex: 1; min-width: 0; text-align: left; background: none; border: none; cursor: pointer;
-    color: var(--am-text-primaer); font-size: var(--fs-sm); font-family: inherit;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .tk-next-title:hover { color: var(--am-handlung-ruhend); }
-
+  /* ── Quick capture [RL-AUFGABEN] ──────────────────────────────────────── */
   .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; min-width: 0; }
 
-  /* Quick Add */
+  /* A composite field (icon, input, key hint, button) and Relay's own;
+     surface, border and focus ring follow AM-FELD's .input. */
   .tk-quickadd {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 10px;
+    padding: 4px 4px 4px 12px;
     border: 1px solid var(--am-rand);
     border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
+    background: var(--am-seite);
     margin-bottom: 8px;
   }
-  .tk-quickadd.focused { border-color: var(--am-handlung-ruhend); }
+  .tk-quickadd.focused { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
   .tk-qa-plus { display: inline-flex; color: var(--am-handlung-ruhend); flex-shrink: 0; }
   .tk-qa-input {
     flex: 1;
@@ -1065,11 +1062,12 @@
     border: none;
     background: transparent;
     color: var(--am-text-primaer);
-    font-size: var(--fs-base);
-    font-family: inherit;
+    font-size: 0.9375rem;
+    font-family: var(--am-schrift-sans);
     outline: none;
     padding: 6px 0;
   }
+  .tk-qa-input::placeholder { color: var(--am-text-deaktiviert); }
   .tk-qa-kbd {
     font-size: 0.7rem;
     color: var(--am-text-gedaempft);
@@ -1097,6 +1095,7 @@
   .tk-prio-chip.prio-2 { background: var(--am-achtung); }
   .tk-prio-chip.prio-3 { background: var(--am-handlung-ruhend); }
 
+  /* ── List header, next steps and states [RL-AUFGABEN] ─────────────────── */
   .tk-list-head {
     display: flex;
     align-items: center;
@@ -1107,6 +1106,25 @@
   }
   .tk-list-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
 
+  /* Inline sort control: the select is an AM-FELD .input, sized to its text. */
+  .tk-sort-inline {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: var(--fs-xs); color: var(--am-text-gedaempft); flex-shrink: 0;
+  }
+  .tk-sort-inline select { width: auto; }
+
+  /* "Next steps" strip (Today view), an AM-KARTE. */
+  .tk-next { margin-bottom: 16px; }
+  .tk-next-head { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--am-text-gedaempft); margin-bottom: 8px; }
+  .tk-next-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .tk-next-item { display: flex; align-items: center; gap: 10px; }
+  .tk-next-title {
+    flex: 1; min-width: 0; text-align: left; background: none; border: none; cursor: pointer;
+    color: var(--am-text-primaer); font-size: var(--fs-sm); font-family: inherit;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tk-next-title:hover { color: var(--am-handlung-ruhend); }
+
   .tk-group-head {
     font-size: var(--fs-xs);
     text-transform: uppercase;
@@ -1115,6 +1133,7 @@
     padding: 14px 4px 6px;
   }
 
+  /* Loading and error: centred in the list area; HB-ZUSTAND draws the error. */
   .tk-state {
     display: flex;
     flex-direction: column;
@@ -1125,8 +1144,8 @@
     color: var(--am-text-gedaempft);
     font-size: var(--fs-base);
   }
-  .tk-state-error { color: var(--am-fehler); }
 
+  /* ── Task rows [RL-AUFGABEN] ──────────────────────────────────────────── */
   .tk-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; }
   .tk-item-wrap { display: flex; flex-direction: column; }
   /* Flat row, aligned with the mail inbox list (border-left + bottom divider). */
@@ -1145,8 +1164,9 @@
   .tk-item.overdue { border-left-color: var(--am-fehler); }
   .tk-item.done { opacity: 0.6; }
   .tk-item.done .tk-item-summary { text-decoration: line-through; }
-  .tk-item.done .tk-item-summary { text-decoration: line-through; }
 
+  /* The round completion check is part of the row, not an AM-HAKEN box:
+     it is a button that completes (or spawns the next occurrence). */
   .tk-check {
     width: 22px;
     height: 22px;
@@ -1185,7 +1205,6 @@
   .tk-item-due { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
   .tk-item-due.overdue { color: var(--am-fehler); font-weight: 600; }
   .tk-item-rep { display: inline-flex; align-items: center; color: var(--am-text-gedaempft); }
-  .tk-item-label { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
   /* Tag pill (no "@"), like the mail draft badge / quick-add chips. */
   .tk-tag {
     display: inline-flex;
@@ -1233,110 +1252,14 @@
   }
   .tk-subtask-title.done { text-decoration: line-through; opacity: 0.6; }
 
-  .tk-icon-btn {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--am-radius-mittel);
-    flex-shrink: 0;
-  }
-  .tk-icon-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
+  /* ── Task dialogs [RL-AUFGABEN] ───────────────────────────────────────── */
+  /* Frame, fields and buttons come from HB-DIALOG, AM-FELD and AM-KNOPF;
+     footer as in HB-DIALOG: "Speichern" first, the destructive step at the
+     far end. */
+  .tk-delete { margin-left: auto; }
+  .tk-modal-sub { margin: 0 0 var(--am-raum-3); font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
 
-  .tk-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-  }
-  .tk-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .tk-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
-  .tk-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
-  .tk-btn-ghost:hover { background: var(--am-flaeche-2); }
-  /* Secondary danger: the border and the word carry the red (CI R1). */
-  .tk-btn-danger { background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
-  .tk-btn-danger:hover:not(:disabled) { background: var(--am-fehler-flaeche); }
-
-  /* Detail panel — centred modal, matching Contacts/Calendar pattern */
-  .tk-detail-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-  .tk-detail {
-    width: 420px;
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
-    background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-gross);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .tk-detail-head { display: flex; align-items: center; justify-content: space-between; }
-  .tk-detail-head h2 { margin: 0; font-size: var(--fs-md); }
-  .tk-spacer { flex: 1; }
-  .tk-detail-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
-
-  .tk-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .tk-field-row { display: flex; gap: 10px; }
-  .tk-field-row .tk-field { flex: 1; }
-  .tk-field input, .tk-field textarea, .tk-field select, .tk-modal input {
-    padding: 8px 10px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-    font-family: inherit;
-  }
-  .tk-field input:focus, .tk-field textarea:focus, .tk-field select:focus, .tk-modal input:focus {
-    outline: none;
-    border-color: var(--am-handlung-ruhend);
-  }
-
-  .tk-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 90;
-  }
-  .tk-modal {
-    width: 420px;
-    max-width: calc(100vw - 32px);
-    background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-gross);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .tk-modal h2 { margin: 0; font-size: var(--fs-md); }
-  .tk-modal-sub { margin: 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .tk-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-
-  /* ── Narrow (mobile ≤768px) ── */
+  /* ── Narrow layout (mobile ≤768px) [RL-AUFGABEN] ──────────────────────── */
   .tk-app.narrow .tk-sidebar {
     position: fixed;
     top: 0; left: 0; bottom: 0;
@@ -1349,8 +1272,6 @@
   }
   .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
   .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: var(--am-deckschicht); z-index: 55; }
-  .tk-app.narrow .tk-sidebar-close,
-  .tk-app.narrow .tk-menu-toggle { display: inline-flex; }
   .tk-app:not(.narrow) .tk-sidebar-close,
   .tk-app:not(.narrow) .tk-menu-toggle { display: none; }
   .tk-app.narrow .resize-handle { display: none; }
@@ -1358,20 +1279,6 @@
   .tk-mobile-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .tk-mobile-header h1 { margin: 0; font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .tk-mobile-new { margin-left: auto; }
-  .tk-nav-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-    background: none;
-    border: none;
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    border-radius: var(--am-radius-mittel);
-    font-size: 1.25rem;
-  }
-  .tk-nav-btn:hover { background: var(--am-flaeche-2); }
   @media (prefers-reduced-motion: reduce) {
     .tk-app.narrow .tk-sidebar { transition: none; }
   }

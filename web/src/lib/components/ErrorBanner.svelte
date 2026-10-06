@@ -15,85 +15,32 @@
     }: Props = $props();
   </script>
 
-  <div class="error-banner" role="alert" aria-live="polite">
-    <div class="error-banner-body">
-      <span class="error-icon"><Symbol name="achtung" size={16} /></span>
-      <p class="error-text">{message}</p>
-    </div>
+  <!-- HB-ZUSTAND: the error notice line, sign and sentence. `error-banner`
+       is only the layout hook (and what other tests look for). -->
+  <div class="hinweis error-banner" data-art="fehler" role="alert" aria-live="polite">
+    <Symbol name="achtung" size={16} />
+    <span class="error-text">{message}</span>
     {#if onretry}
-      <button type="button" class="retry-btn" onclick={onretry}>
+      <button type="button" class="btn btn-sekundaer btn-klein retry-btn" onclick={onretry}>
         {retryLabel || $t("error.retry")}
       </button>
     {/if}
   </div>
 
   <style>
+    /* ── Error notice [RL-FEHLERHINWEIS] ────────────────────────────────────── */
     .error-banner {
-      display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 14px;
-      margin: 8px 12px;
-      background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
-      border: 1px solid color-mix(in srgb, var(--am-fehler) 25%, transparent);
-      border-radius: 8px;
-      animation: bannerIn 0.2s ease-out;
-    }
-
-    @keyframes bannerIn {
-      from {
-        opacity: 0;
-        transform: translateY(-6px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .error-banner-body {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .error-icon {
-      font-size: 0.875rem;
-      flex-shrink: 0;
-      line-height: 1.4;
+      margin: var(--am-raum-2) var(--am-raum-3);
     }
 
     .error-text {
-      font-size: 0.75rem;
-      color: var(--am-fehler);
-      line-height: 1.4;
+      flex: 1;
+      min-width: 0;
       word-break: break-word;
-      margin: 0;
     }
 
     .retry-btn {
       flex-shrink: 0;
-      padding: 5px 14px;
-      border: 1px solid var(--am-fehler);
-      border-radius: var(--am-radius-mittel);
-      background: var(--am-seite);
-      color: var(--am-fehler);
-      font-size: 0.6875rem;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all var(--am-dauer-schnell) var(--am-kurve);
-    }
-
-    .retry-btn:hover {
-      background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
-    }
-
-    .retry-btn:focus-visible {
-      outline: 2px solid var(--am-fehler);
-      outline-offset: 2px;
     }
   </style>

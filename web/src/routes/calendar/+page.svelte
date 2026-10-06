@@ -825,6 +825,13 @@
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || editable;
   }
 
+  // Focus into the editor's first field when it opens (CI HB-DIALOG), so
+  // the keyboard lands in the dialog and Escape reaches it.
+  let summaryInput = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (editorOpen && summaryInput) summaryInput.focus();
+  });
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && showDeleteConfirm) {
       cancelDeleteEvent();
@@ -908,7 +915,7 @@
   <aside class="cal-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="cal-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")} title={$t("calendar.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("calendar.title")} noHover />
     </div>
@@ -916,9 +923,9 @@
     <!-- Mini month for quick navigation -->
     <div class="cal-mini">
       <div class="cal-mini-head">
-        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(-1)} aria-label={$t("calendar.prevMonth")}>‹</button>
+        <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => shiftMini(-1)} aria-label={$t("calendar.prevMonth")} title={$t("calendar.prevMonth")}><Symbol name="chevron-links" size={16} /></button>
         <span class="cal-mini-label">{miniMonthLabel}</span>
-        <button type="button" class="cal-mini-nav" onclick={() => shiftMini(1)} aria-label={$t("calendar.nextMonth")}>›</button>
+        <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => shiftMini(1)} aria-label={$t("calendar.nextMonth")} title={$t("calendar.nextMonth")}><Symbol name="chevron-rechts" size={16} /></button>
       </div>
       <div class="cal-mini-grid">
         {#each gridDays as d (localDayKey(d))}
@@ -949,7 +956,7 @@
       {#if calendars.length === 0}
         <div class="cal-empty">
           <p>{$t("calendar.noCaldav")}</p>
-          <button type="button" class="cal-btn cal-btn-ghost" onclick={() => goto("/settings")}>
+          <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => goto("/settings")}>
             {$t("calendar.connectCaldav")}
           </button>
         </div>
@@ -972,7 +979,7 @@
             <div class="cal-inv-actions">
               <button
                 type="button"
-                class="cal-inv-draft"
+                class="btn btn-still btn-symbol btn-klein"
                 title={$t("calendar.aiDraft")}
                 aria-label={$t("calendar.aiDraft")}
                 disabled={invDraftBusy}
@@ -980,14 +987,14 @@
               ><Symbol name="ai" size={16} /></button>
               <button
                 type="button"
-                class="cal-inv-accept"
+                class="btn btn-sekundaer btn-klein"
                 title={$t("calendar.accept")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "ACCEPTED")}
               >{$t("calendar.accept")}</button>
               <button
                 type="button"
-                class="cal-inv-decline"
+                class="btn btn-still btn-klein"
                 title={$t("calendar.decline")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "DECLINED")}
@@ -995,8 +1002,8 @@
             </div>
           </div>
           {#if invDraft?.uid === inv.event_uid}
-            <div class="cal-inv-draftbox">
-              <textarea class="cal-input" rows="3" value={invDraft.text} oninput={(e) => (invDraft = { uid: inv.event_uid, text: e.currentTarget.value })}></textarea>
+            <div class="feld cal-inv-draftbox">
+              <textarea rows="3" aria-label={$t("calendar.aiDraft")} value={invDraft.text} oninput={(e) => (invDraft = { uid: inv.event_uid, text: e.currentTarget.value })}></textarea>
             </div>
           {/if}
         {/each}
@@ -1045,12 +1052,12 @@
     <header class="cal-toolbar">
       <div class="cal-toolbar-left">
         {#if isNarrow}
-          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+          <button type="button" class="btn btn-still btn-symbol cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")} title={$t("calendar.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         {/if}
         <h1 class="cal-month">{periodLabel}</h1>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")}>‹</button>
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={goToday}>{$t("calendar.today")}</button>
-        <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")}>›</button>
+        <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
+        <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
+        <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
       </div>
       <div class="cal-toolbar-center">
         <div class="cal-viewtoggle" role="tablist" aria-label={$t("calendar.view")}>
@@ -1062,20 +1069,20 @@
       <div class="cal-toolbar-right">
         <button
           type="button"
-          class="cal-btn cal-btn-ghost cal-nav"
+          class="btn btn-still btn-symbol"
           onclick={handleSync}
           disabled={syncing}
           title={syncing ? $t("common.syncing") : $t("common.refresh")}
-          aria-label={$t("common.refresh")}
+          aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}
         >
-          <Symbol name="neu-laden" size={16} />
+          <Symbol name="neu-laden" size={20} />
         </button>
-        <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
+        <button type="button" class="btn btn-primaer" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
       </div>
     </header>
 
     {#if error}
-      <div class="cal-alert">{error}</div>
+      <div class="hinweis cal-alert" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{error}</span></div>
     {/if}
 
     {#if viewMode === "month"}
@@ -1146,12 +1153,12 @@
     {:else}
       <div class="cal-dayview">
         <div class="cal-digest-bar">
-          <button type="button" class="cal-btn cal-btn-ghost" disabled={digestBusy} onclick={loadDigest}>
+          <button type="button" class="btn btn-sekundaer" disabled={digestBusy} onclick={loadDigest}>
             <Symbol name="ai" size={16} /> {digestBusy ? "…" : $t("calendar.morningDigest")}
           </button>
         </div>
         {#if digest}
-          <div class="cal-digest">
+          <div class="karte cal-digest">
             <p class="cal-digest-text">{digest.digest}</p>
             {#if digest.priorities.length > 0}
               <div class="cal-digest-section"><strong>{$t("calendar.priorities")}</strong><ul>{#each digest.priorities as p (p)}<li>{p}</li>{/each}</ul></div>
@@ -1162,7 +1169,7 @@
           </div>
         {/if}
         {#if dayEvents.length === 0}
-          <div class="cal-day-empty">{$t("calendar.noEventsToday")}</div>
+          <EmptyState title={$t("calendar.noEventsToday")} icon="kalender" />
         {:else}
           {#each dayEvents as ev (evKey(ev))}
             <button
@@ -1196,7 +1203,7 @@
             {#if cal}<span class="cal-cal-dot" style="background: {calColor(cal)}" aria-hidden="true"></span>{/if}
             {cal?.name ?? $t("calendar.title")}
           </span>
-          <button type="button" class="cal-detail-close" onclick={clearSelection} aria-label={$t("calendar.close")}>×</button>
+          <button type="button" class="btn btn-still btn-symbol" onclick={clearSelection} aria-label={$t("calendar.close")} title={$t("calendar.close")}><Symbol name="schliessen" size={20} /></button>
         </div>
         <h2 class="cal-detail-title">{ev.summary ?? $t("calendar.untitled")}</h2>
 
@@ -1244,9 +1251,10 @@
         {/if}
 
         <div class="cal-detail-actions">
-          <button type="button" class="cal-btn cal-btn-ghost" onclick={() => openEditEvent(ev)}>{$t("calendar.edit")}</button>
-          <button type="button" class="cal-btn cal-btn-ghost" onclick={() => handleExport(ev)}>ICS</button>
-          <button type="button" class="cal-btn cal-btn-danger" onclick={() => removeEvent(ev)}>{$t("calendar.delete")}</button>
+          <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => openEditEvent(ev)}>{$t("calendar.edit")}</button>
+          <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => handleExport(ev)}>ICS</button>
+          <!-- Destructive: the object goes in the word (AM-KNOPF btn-gefahr). -->
+          <button type="button" class="btn btn-gefahr btn-klein" onclick={() => removeEvent(ev)}>{$t("calendar.deleteEvent")}</button>
         </div>
       </div>
     {:else}
@@ -1255,138 +1263,158 @@
   </aside>
 </div>
 
-<!-- ─── Event editor dialog ─── -->
+<!-- ─── Event editor dialog (HB-DIALOG) ─── -->
 {#if editorOpen}
-  <div class="cal-modal-scrim" onclick={() => editorOpen = false}>
-    <div class="cal-modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{editingId === null ? $t("calendar.newEvent") : $t("calendar.editEvent")}</h2>
-
-      <label class="cal-field">
-        <span>{$t("calendar.titleLabel")}</span>
-        <input type="text" bind:value={form.summary} class="cal-input" placeholder={$t("calendar.phTitle")} />
-      </label>
-
-      <div class="cal-nl">
-        <input
-          type="text"
-          bind:value={nlText}
-          class="cal-input"
-          placeholder={$t("calendar.phNl")}
-          onkeydown={(e) => { if (e.key === "Enter") applyTimeExtraction(); }}
-        />
-        <button
-          type="button"
-          class="cal-btn cal-btn-ghost"
-          disabled={nlBusy || !nlText.trim()}
-          onclick={applyTimeExtraction}
-        ><Symbol name="ai" size={16} /> {nlBusy ? "…" : $t("calendar.extractTime")}</button>
+  <div
+    class="dialog-schicht"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="cal-editor-title"
+    tabindex="-1"
+    onclick={(e) => { if ((e.target as HTMLElement).classList.contains("dialog-schicht")) editorOpen = false; }}
+    onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); editorOpen = false; } }}
+  >
+    <div class="karte dialog-karte" data-breite="normal">
+      <div class="dialog-kopf">
+        <h2 id="cal-editor-title">{editingId === null ? $t("calendar.newEvent") : $t("calendar.editEvent")}</h2>
+        <button type="button" class="dialog-zu" onclick={() => editorOpen = false} aria-label={$t("calendar.close")} title={$t("calendar.close")}><Symbol name="schliessen" size={20} /></button>
       </div>
 
-      <div class="cal-field-row">
-        <label class="cal-field">
-          <span>{$t("calendar.start")}</span>
-          <input type={form.all_day ? "date" : "datetime-local"} bind:value={form.start} class="cal-input" />
-        </label>
-        <label class="cal-field">
-          <span>{$t("calendar.end")}</span>
-          <input type={form.all_day ? "date" : "datetime-local"} bind:value={form.end} class="cal-input" />
-        </label>
-      </div>
+      <div class="dialog-koerper">
+        <div class="feld">
+          <label for="cal-ev-summary">{$t("calendar.titleLabel")}</label>
+          <input id="cal-ev-summary" type="text" bind:this={summaryInput} bind:value={form.summary} placeholder={$t("calendar.phTitle")} />
+        </div>
 
-      {#if conflicts.length > 0}
-        <div class="cal-conflict">
-          <div class="cal-conflict-head">
-            <Symbol name="achtung" size={16} />
-            <span>{$t("calendar.conflict", { n: conflicts.length, unit: conflicts.length === 1 ? $t("calendar.conflictUnit") : $t("calendar.conflictUnitPlural") })}</span>
-            <button type="button" class="cal-btn cal-btn-ghost cal-conflict-ai" disabled={conflictBusy} onclick={loadAlternatives}>
-              <Symbol name="ai" size={16} /> {conflictBusy ? "…" : $t("calendar.aiAlternatives")}
-            </button>
+        <div class="cal-nl">
+          <input
+            type="text"
+            bind:value={nlText}
+            class="input"
+            placeholder={$t("calendar.phNl")}
+            aria-label={$t("calendar.phNl")}
+            onkeydown={(e) => { if (e.key === "Enter") applyTimeExtraction(); }}
+          />
+          <button
+            type="button"
+            class="btn btn-sekundaer"
+            disabled={nlBusy || !nlText.trim()}
+            onclick={applyTimeExtraction}
+          ><Symbol name="ai" size={16} /> {nlBusy ? "…" : $t("calendar.extractTime")}</button>
+        </div>
+
+        <div class="feld-paar">
+          <div class="feld">
+            <label for="cal-ev-start">{$t("calendar.start")}</label>
+            <input id="cal-ev-start" type={form.all_day ? "date" : "datetime-local"} bind:value={form.start} />
           </div>
-          <ul class="cal-conflict-list">
-            {#each conflicts as c (c.id)}
-              <li>{c.summary ?? $t("calendar.untitled")} · {fmtInvWhen(c.start)}</li>
-            {/each}
-          </ul>
-          {#if showAlternatives && aiSlots.length > 0}
-            <div class="cal-slots">
-              {#each aiSlots as slot (slot.start)}
-                <button type="button" class="cal-slot" onclick={() => applySlot(slot)}>
-                  <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
-                  {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
+          <div class="feld">
+            <label for="cal-ev-end">{$t("calendar.end")}</label>
+            <input id="cal-ev-end" type={form.all_day ? "date" : "datetime-local"} bind:value={form.end} />
+          </div>
+        </div>
+
+        {#if conflicts.length > 0}
+          <!-- HB-ZUSTAND "achtung" carries the colour; the body is Relay's own. -->
+          <div class="hinweis cal-conflict" data-art="achtung">
+            <Symbol name="achtung" size={16} />
+            <div class="cal-conflict-body">
+              <div class="cal-conflict-head">
+                <span>{$t("calendar.conflict", { n: conflicts.length, unit: conflicts.length === 1 ? $t("calendar.conflictUnit") : $t("calendar.conflictUnitPlural") })}</span>
+                <button type="button" class="btn btn-sekundaer btn-klein" disabled={conflictBusy} onclick={loadAlternatives}>
+                  <Symbol name="ai" size={16} /> {conflictBusy ? "…" : $t("calendar.aiAlternatives")}
                 </button>
-              {/each}
+              </div>
+              <ul class="cal-conflict-list">
+                {#each conflicts as c (c.id)}
+                  <li>{c.summary ?? $t("calendar.untitled")} · {fmtInvWhen(c.start)}</li>
+                {/each}
+              </ul>
+              {#if showAlternatives && aiSlots.length > 0}
+                <div class="cal-slots">
+                  {#each aiSlots as slot (slot.start)}
+                    <button type="button" class="cal-slot" onclick={() => applySlot(slot)}>
+                      <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
+                      {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+              {#if showAlternatives && aiSlots.length === 0 && !conflictBusy}
+                <p class="cal-conflict-none">{$t("calendar.noAlternatives")}</p>
+              {/if}
             </div>
-          {/if}
-          {#if showAlternatives && aiSlots.length === 0 && !conflictBusy}
-            <p class="cal-conflict-none">{$t("calendar.noAlternatives")}</p>
-          {/if}
-        </div>
-      {/if}
+          </div>
+        {/if}
 
-      <div class="cal-ai-row">
-        <button type="button" class="cal-btn cal-btn-ghost" disabled={prepBusy || !form.start} onclick={loadMeetingPrep}>
-          <Symbol name="ai" size={16} /> {prepBusy ? "…" : $t("calendar.meetingPrep")}
-        </button>
-        <button type="button" class="cal-btn cal-btn-ghost" disabled={smartBusy} onclick={loadSmartSchedule}>
-          <Symbol name="ai" size={16} /> {smartBusy ? "…" : $t("calendar.smartScheduling")}
-        </button>
+        <div class="btn-reihe cal-ai-row">
+          <button type="button" class="btn btn-sekundaer" disabled={prepBusy || !form.start} onclick={loadMeetingPrep}>
+            <Symbol name="ai" size={16} /> {prepBusy ? "…" : $t("calendar.meetingPrep")}
+          </button>
+          <button type="button" class="btn btn-sekundaer" disabled={smartBusy} onclick={loadSmartSchedule}>
+            <Symbol name="ai" size={16} /> {smartBusy ? "…" : $t("calendar.smartScheduling")}
+          </button>
+        </div>
+
+        {#if showSmart && smartSlots.length > 0}
+          <div class="cal-slots">
+            {#each smartSlots as slot (slot.start)}
+              <button type="button" class="cal-slot" onclick={() => applySmartSlot(slot)}>
+                <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
+                {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if showPrep && prepResult}
+          <div class="karte cal-prep">
+            <div class="cal-prep-title">{$t("calendar.meetingPrep")}</div>
+            {#if prepResult.attendees.length > 0}
+              <div class="cal-prep-section"><strong>{$t("calendar.attendees")}</strong><ul>{#each prepResult.attendees as a (a)}<li>{a}</li>{/each}</ul></div>
+            {/if}
+            {#if prepResult.agenda.length > 0}
+              <div class="cal-prep-section"><strong>{$t("calendar.agenda")}</strong><ul>{#each prepResult.agenda as a (a)}<li>{a}</li>{/each}</ul></div>
+            {/if}
+            {#if prepResult.prep_notes}
+              <div class="cal-prep-section"><strong>{$t("calendar.preparation")}</strong><p>{prepResult.prep_notes}</p></div>
+            {/if}
+          </div>
+        {/if}
+
+        <label class="cal-check">
+          <input type="checkbox" bind:checked={form.all_day} />
+          <span>{$t("calendar.allDay")}</span>
+        </label>
+
+        <div class="feld">
+          <label for="cal-ev-location">{$t("calendar.location")}</label>
+          <input id="cal-ev-location" type="text" bind:value={form.location} placeholder={$t("calendar.phLocation")} />
+        </div>
+
+        <!-- Recipient chips are a composite input and stay Relay's own: inside
+             .feld, AM-FELD would restyle its inner text input. -->
+        <div class="cal-attendees-field" role="group" aria-labelledby="cal-ev-attendees">
+          <span id="cal-ev-attendees" class="cal-attendees-label">{$t("calendar.attendees")}</span>
+          <RecipientInput bind:value={form.participants} accountId={undefined} />
+        </div>
+
+        <div class="feld">
+          <label for="cal-ev-description">{$t("calendar.description")}</label>
+          <textarea id="cal-ev-description" bind:value={form.description} rows="3"></textarea>
+        </div>
       </div>
 
-      {#if showSmart && smartSlots.length > 0}
-        <div class="cal-slots">
-          {#each smartSlots as slot (slot.start)}
-            <button type="button" class="cal-slot" onclick={() => applySmartSlot(slot)}>
-              <span class="cal-slot-when">{fmtInvWhen(slot.start)} – {fmtInvWhen(slot.end)}</span>
-              {#if slot.reason}<span class="cal-slot-reason">{slot.reason}</span>{/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if showPrep && prepResult}
-        <div class="cal-prep">
-          <div class="cal-prep-title">{$t("calendar.meetingPrep")}</div>
-          {#if prepResult.attendees.length > 0}
-            <div class="cal-prep-section"><strong>{$t("calendar.attendees")}</strong><ul>{#each prepResult.attendees as a (a)}<li>{a}</li>{/each}</ul></div>
-          {/if}
-          {#if prepResult.agenda.length > 0}
-            <div class="cal-prep-section"><strong>{$t("calendar.agenda")}</strong><ul>{#each prepResult.agenda as a (a)}<li>{a}</li>{/each}</ul></div>
-          {/if}
-          {#if prepResult.prep_notes}
-            <div class="cal-prep-section"><strong>{$t("calendar.preparation")}</strong><p>{prepResult.prep_notes}</p></div>
-          {/if}
-        </div>
-      {/if}
-
-      <label class="cal-check">
-        <input type="checkbox" bind:checked={form.all_day} />
-        <span>{$t("calendar.allDay")}</span>
-      </label>
-
-      <label class="cal-field">
-        <span>{$t("calendar.location")}</span>
-        <input type="text" bind:value={form.location} class="cal-input" placeholder={$t("calendar.phLocation")} />
-      </label>
-
-      <div class="cal-field">
-        <span>{$t("calendar.attendees")}</span>
-        <RecipientInput bind:value={form.participants} accountId={undefined} />
-      </div>
-
-      <label class="cal-field">
-        <span>{$t("calendar.description")}</span>
-        <textarea bind:value={form.description} class="cal-input cal-textarea" rows="3"></textarea>
-      </label>
-
-      {#if editingId !== null}
-        <button type="button" class="cal-btn cal-btn-danger" onclick={() => { const ev = events.find(x => x.id === editingId); if (ev) removeEvent(ev); editorOpen = false; }}>
-          {$t("calendar.deleteEvent")}
-        </button>
-      {/if}
-
-      <div class="cal-modal-actions">
-        <button type="button" class="cal-btn cal-btn-ghost" onclick={() => editorOpen = false}>{$t("common.cancel")}</button>
-        <button type="button" class="cal-btn cal-btn-primary" onclick={saveEvent}>{$t("common.save")}</button>
+      <!-- Footer as in HB-DIALOG: "Speichern" first, "Abbrechen" after it,
+           and the destructive step pushed away to the far end. -->
+      <div class="dialog-fuss">
+        <button type="button" class="btn btn-primaer" onclick={saveEvent}>{$t("common.save")}</button>
+        <button type="button" class="btn btn-sekundaer" onclick={() => editorOpen = false}>{$t("common.cancel")}</button>
+        {#if editingId !== null}
+          <button type="button" class="btn btn-gefahr cal-ev-delete" onclick={() => { const ev = events.find(x => x.id === editingId); if (ev) removeEvent(ev); editorOpen = false; }}>
+            {$t("calendar.deleteEvent")}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -1425,6 +1453,7 @@
   {/if}
 
 <style>
+  /* ── Calendar shell [RL-KALENDER] ─────────────────────────────────────── */
   .cal-app {
     display: flex;
     height: 100vh;
@@ -1432,7 +1461,7 @@
     color: var(--am-text-primaer);
   }
 
-  /* ── Sidebar ── */
+  /* Sidebar */
   .cal-sidebar {
     flex-shrink: 0;
     background: var(--am-flaeche-1);
@@ -1440,22 +1469,9 @@
     display: flex;
     flex-direction: column;
   }
-  .cal-icon-btn {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    font-size: 1.25rem;
-    min-width: 40px;
-    min-height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--am-radius-mittel);
-  }
-  .cal-icon-btn:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
 
-  /* ── Narrow (mobile ≤768px): sidebar collapses to a slide-in overlay ── */
+  /* ── Narrow layout (mobile ≤768px) [RL-KALENDER] ──────────────────────── */
+  /* The sidebar collapses to a slide-in overlay. */
   .cal-app.narrow .cal-sidebar {
     position: fixed;
     top: 0;
@@ -1475,8 +1491,6 @@
     background: var(--am-deckschicht);
     z-index: 55;
   }
-  .cal-app.narrow .cal-sidebar-close,
-  .cal-app.narrow .cal-menu-toggle { display: inline-flex; }
   .cal-app:not(.narrow) .cal-sidebar-close,
   .cal-app:not(.narrow) .cal-menu-toggle { display: none; }
   .cal-app.narrow .cal-toolbar {
@@ -1489,14 +1503,8 @@
   .cal-app.narrow .cal-toolbar-left { grid-area: left; gap: 4px; }
   .cal-app.narrow .cal-toolbar-center { grid-area: center; justify-self: start; }
   .cal-app.narrow .cal-toolbar-right { grid-area: right; gap: 6px; }
-  .cal-app.narrow .cal-btn { padding: 6px 8px; font-size: var(--fs-xs); }
   .cal-app.narrow .cal-viewtoggle .cal-vt { padding: 4px 8px; }
   .cal-app.narrow .cal-month { font-size: var(--fs-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-  .cal-app.narrow .cal-icon-btn {
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 1.5rem;
-  }
   /* Detail pane: hidden by default on mobile, full-screen overlay when an event is selected */
   .cal-app.narrow .cal-detail { display: none; }
   .cal-app.narrow.detail-open .cal-detail {
@@ -1508,6 +1516,8 @@
     z-index: 60;
     border-left: none;
   }
+
+  /* ── Sidebar lists [RL-KALENDER] ──────────────────────────────────────── */
   .cal-sidebar-header {
     height: var(--am-leistenhoehe);
     padding: 0 16px;
@@ -1518,16 +1528,6 @@
     flex-shrink: 0;
     margin-bottom: 16px;
   }
-  .cal-back {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: var(--am-radius-klein);
-  }
-  .cal-back:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-  .cal-brand { font-weight: 600; font-size: var(--fs-base); }
 
   .cal-cal-list { flex: 1; overflow-y: auto; padding: 8px; }
   .cal-upcoming { border-top: 1px solid var(--am-rand); padding: 10px 8px; max-height: 200px; overflow-y: auto; }
@@ -1552,38 +1552,22 @@
     background: var(--am-gold-500); color: var(--am-blau-900);
     border-radius: 999px; font-size: var(--fs-xs); font-weight: 700; padding: 1px 7px;
   }
+  /* The answer buttons have the full target size now, so they wrap under
+     the invitation text instead of squeezing it. */
   .cal-inv-item {
-    display: flex; align-items: center; gap: 8px; padding: 8px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px;
     border-radius: var(--am-radius-mittel);
   }
   .cal-inv-item:hover { background: var(--am-flaeche-2); }
-  .cal-inv-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; flex: 1; }
+  .cal-inv-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; flex: 1 1 100%; min-width: 0; }
   .cal-inv-title { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-inv-when { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
   .cal-inv-organizer {
     font-size: var(--fs-xs); color: var(--am-text-gedaempft);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .cal-inv-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .cal-inv-accept, .cal-inv-decline {
-    width: 26px; height: 26px; border-radius: var(--am-radius-klein);
-    border: 1px solid var(--am-rand); background: none; cursor: pointer;
-    font-size: var(--fs-sm); line-height: 1; display: flex; align-items: center; justify-content: center;
-  }
-  .cal-inv-accept { color: var(--am-erfolg); }
-  .cal-inv-decline { color: var(--am-fehler); }
-  .cal-inv-accept:hover, .cal-inv-decline:hover { background: var(--am-flaeche-2); }
-  .cal-inv-accept:disabled, .cal-inv-decline:disabled { opacity: 0.4; cursor: default; }
-  .cal-inv-draft {
-    width: 26px; height: 26px; border-radius: var(--am-radius-klein);
-    border: 1px solid var(--am-rand); background: none; cursor: pointer;
-    font-size: var(--fs-sm); line-height: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--am-text-gedaempft);
-  }
-  .cal-inv-draft:hover { background: var(--am-flaeche-2); }
-  .cal-inv-draft:disabled { opacity: 0.4; cursor: default; }
-  .cal-inv-draftbox { padding: 0 8px 8px; }
-  .cal-inv-draftbox .cal-input { font-size: var(--fs-xs); resize: vertical; }
+  .cal-inv-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cal-inv-draftbox { padding: 0 8px 8px; margin-bottom: 0; }
   .cal-empty {
     padding: 20px 12px;
     text-align: center;
@@ -1600,22 +1584,36 @@
     gap: 10px;
     width: 100%;
     padding: 9px 12px;
-    border: none;
-    background: none;
     color: var(--am-text-primaer);
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
     font-size: var(--fs-base);
-    text-align: left;
   }
   .cal-cal-item:hover { background: var(--am-flaeche-2); }
-  .cal-cal-item.active { background: var(--am-flaeche-2); font-weight: 600; }
   .cal-cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .cal-cal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Calendar list checkboxes: AM-HAKEN draws them; a hidden calendar fades. */
+  .cal-cal-item input[type="checkbox"] { margin: 0; }
+  .cal-cal-item:has(input[type="checkbox"]:not(:checked)) { opacity: 0.5; }
 
   .cal-file-input { display: none; }
 
-  /* ── Main ── */
+  /* ── Mini month (left pane) [RL-KALENDER] ─────────────────────────────── */
+  .cal-mini { padding: 12px 14px; border-bottom: 1px solid var(--am-rand); }
+  .cal-mini-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .cal-mini-label { font-size: var(--fs-sm); font-weight: 600; }
+  .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+  .cal-mini-day {
+    background: none; border: none; color: var(--am-text-primaer);
+    font-size: var(--fs-xs); padding: 4px 0; cursor: pointer; border-radius: var(--am-radius-klein);
+    font-variant-numeric: tabular-nums;
+  }
+  .cal-mini-day:hover { background: var(--am-flaeche-2); }
+  .cal-mini-day.other { color: var(--am-text-gedaempft); opacity: 0.5; }
+  .cal-mini-day.today { font-weight: 700; color: var(--am-handlung-ruhend); }
+  .cal-mini-day.sel { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); font-weight: 600; }
+
+  /* ── Toolbar [RL-KALENDER] ────────────────────────────────────────────── */
   .cal-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .cal-toolbar {
     display: grid;
@@ -1625,21 +1623,27 @@
     padding: 14px 20px;
     border-bottom: 1px solid var(--am-rand);
   }
-  .cal-month { font-size: var(--fs-xl); font-weight: 600; margin: 0; }
+  .cal-month { font-size: var(--fs-xl); font-weight: 600; margin: 0; white-space: nowrap; }
   .cal-toolbar-left { display: flex; align-items: center; gap: 8px; justify-self: start; }
   .cal-toolbar-center { justify-self: center; }
   .cal-toolbar-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
 
-  .cal-alert {
-    margin: 12px 20px 0;
-    padding: 10px 14px;
-    background: color-mix(in srgb, var(--am-fehler) 12%, transparent);
-    color: var(--am-fehler);
-    border-radius: var(--am-radius-mittel);
-    font-size: var(--fs-sm);
-  }
+  /* Error line: HB-ZUSTAND draws it, only its place is set here. */
+  .cal-alert { margin: 12px 20px 0; }
 
-  /* ── Grid ── */
+  /* View switcher Monat/Woche/Tag — Relay's own until HB-SEGMENT. */
+  .cal-viewtoggle {
+    display: inline-flex; background: var(--am-flaeche-1);
+    border: 1px solid var(--am-rand); border-radius: var(--am-radius-mittel); padding: 2px;
+  }
+  .cal-vt {
+    background: none; border: none; color: var(--am-text-gedaempft);
+    font-size: var(--fs-sm); padding: 5px 12px; cursor: pointer; border-radius: var(--am-radius-klein);
+  }
+  .cal-vt:hover { color: var(--am-text-primaer); }
+  .cal-vt.active { background: var(--am-seite); color: var(--am-text-primaer); font-weight: 600; }
+
+  /* ── Month grid [RL-KALENDER] ─────────────────────────────────────────── */
   .cal-grid {
     flex: 1;
     display: grid;
@@ -1712,152 +1716,7 @@
   .cal-event-time { color: var(--am-text-gedaempft); flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .cal-event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* ── Buttons ── */
-  .cal-btn {
-    padding: 7px 14px;
-    border-radius: var(--am-radius-mittel);
-    border: 1px solid var(--am-rand);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-    cursor: pointer;
-  }
-  .cal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .cal-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
-  .cal-btn-ghost:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
-  .cal-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); font-weight: 600; }
-  .cal-btn-primary:hover { background: var(--am-handlung-hover); }
-  .cal-btn-danger { border-color: var(--am-fehler); color: var(--am-fehler); background: transparent; }
-  .cal-btn-danger:hover { background: color-mix(in srgb, var(--am-fehler) 10%, transparent); }
-
-  /* ── Modal ── */
-  .cal-modal-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-  .cal-modal {
-    background: var(--am-seite);
-    border-radius: var(--am-radius-gross);
-    padding: 24px;
-    width: min(480px, 92vw);
-    max-height: 90vh;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    box-shadow: var(--am-schatten-1);
-  }
-  .cal-modal h2 { margin: 0 0 4px; font-size: var(--fs-lg); }
-  .cal-field { display: flex; flex-direction: column; gap: 5px; font-size: var(--fs-sm); color: var(--am-text-gedaempft); }
-  .cal-field-row { display: flex; gap: 12px; }
-  .cal-field-row .cal-field { flex: 1; }
-  .cal-nl { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
-  .cal-nl .cal-input { flex: 1; }
-  .cal-conflict {
-    border: 1px solid var(--am-gold-500);
-    border-radius: var(--am-radius-mittel);
-    padding: 10px 12px;
-    background: var(--am-flaeche-2);
-  }
-  .cal-conflict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); }
-  .cal-conflict-ai { font-size: var(--fs-xs); padding: 4px 10px; }
-  .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .cal-conflict-none { font-size: var(--fs-xs); color: var(--am-text-gedaempft); margin: 8px 0 0; }
-  .cal-slots { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .cal-ai-row { display: flex; gap: 8px; margin-top: 12px; }
-  .cal-prep {
-    margin-top: 12px;
-    padding: 12px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-  }
-  .cal-prep-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--am-handlung-ruhend);
-    margin-bottom: 8px;
-  }
-  .cal-prep-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--am-text-primaer); }
-  .cal-prep-section ul { margin: 4px 0 0; padding-left: 18px; }
-  .cal-prep-section p { margin: 4px 0 0; }
-  .cal-digest-bar { display: flex; gap: 8px; }
-  .cal-digest {
-    padding: 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-  }
-  .cal-digest-text { margin: 0 0 10px; font-size: 0.9rem; color: var(--am-text-primaer); }
-  .cal-digest-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--am-text-primaer); }
-  .cal-digest-section ul { margin: 4px 0 0; padding-left: 18px; }
-  .cal-slot {
-    display: flex; flex-direction: column; gap: 2px; text-align: left;
-    border: 1px solid var(--am-rand); border-radius: var(--am-radius-mittel);
-    background: none; padding: 8px 10px; cursor: pointer;
-  }
-  .cal-slot:hover { background: var(--am-flaeche-2); border-color: var(--am-gold-500); }
-  .cal-slot-when { font-size: var(--fs-sm); color: var(--am-text-primaer); }
-  .cal-slot-reason { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .cal-input {
-    padding: 8px 10px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-base);
-    font-family: inherit;
-  }
-  .cal-input:focus { outline: none; box-shadow: 0 0 0 2px var(--am-fokus-ring); }
-  .cal-textarea { resize: vertical; }
-  .cal-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--am-text-primaer); }
-  .cal-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
-
-  /* ── Mini month (left pane) ── */
-  .cal-mini { padding: 12px 14px; border-bottom: 1px solid var(--am-rand); }
-  .cal-mini-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .cal-mini-label { font-size: var(--fs-sm); font-weight: 600; }
-  .cal-mini-nav {
-    background: none; border: none; color: var(--am-text-gedaempft);
-    cursor: pointer; font-size: var(--fs-md); padding: 2px 8px; border-radius: var(--am-radius-klein);
-  }
-  .cal-mini-nav:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
-  .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-  .cal-mini-day {
-    background: none; border: none; color: var(--am-text-primaer);
-    font-size: var(--fs-xs); padding: 4px 0; cursor: pointer; border-radius: var(--am-radius-klein);
-    font-variant-numeric: tabular-nums;
-  }
-  .cal-mini-day:hover { background: var(--am-flaeche-2); }
-  .cal-mini-day.other { color: var(--am-text-gedaempft); opacity: 0.5; }
-  .cal-mini-day.today { font-weight: 700; color: var(--am-handlung-ruhend); }
-  .cal-mini-day.sel { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); font-weight: 600; }
-
-  /* Calendar list checkboxes */
-  .cal-cal-item input[type="checkbox"] { accent-color: var(--am-handlung-ruhend); margin: 0; }
-  .cal-cal-item:has(input[type="checkbox"]:not(:checked)) { opacity: 0.5; }
-
-  /* ── Toolbar additions ── */
-  .cal-nav { padding: 7px 11px; font-size: var(--fs-base); }
-  .cal-viewtoggle {
-    display: inline-flex; background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand); border-radius: var(--am-radius-mittel); padding: 2px;
-  }
-  .cal-vt {
-    background: none; border: none; color: var(--am-text-gedaempft);
-    font-size: var(--fs-sm); padding: 5px 12px; cursor: pointer; border-radius: var(--am-radius-klein);
-  }
-  .cal-vt:hover { color: var(--am-text-primaer); }
-  .cal-vt.active { background: var(--am-seite); color: var(--am-text-primaer); font-weight: 600; }
-
-  /* ── Week view ── */
+  /* ── Week view [RL-KALENDER] ──────────────────────────────────────────── */
   .cal-week { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   .cal-week-head { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--am-rand); }
   .cal-week-head-cell {
@@ -1874,9 +1733,8 @@
   .cal-week-col.is-today { background: color-mix(in srgb, var(--am-handlung-ruhend) 5%, transparent); }
   .cal-event-block { flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border-left: 3px solid var(--am-handlung-ruhend); background: var(--am-flaeche-1); }
 
-  /* ── Day view ── */
+  /* ── Day view and digest [RL-KALENDER] ────────────────────────────────── */
   .cal-dayview { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
-  .cal-day-empty { color: var(--am-text-gedaempft); font-size: var(--fs-base); padding: 40px 0; text-align: center; }
   .cal-day-item {
     display: flex; align-items: center; gap: 12px; text-align: left;
     padding: 12px 14px; border: 1px solid var(--am-rand); border-radius: var(--am-radius-mittel);
@@ -1890,8 +1748,13 @@
   .cal-day-info { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
   .cal-day-title { font-size: var(--fs-base); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-day-loc { font-size: var(--fs-xs); color: var(--am-text-gedaempft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-digest-bar { display: flex; gap: 8px; }
+  /* The digest is an AM-KARTE; only its text is set here. */
+  .cal-digest-text { margin: 0 0 10px; font-size: 0.9rem; color: var(--am-text-primaer); }
+  .cal-digest-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--am-text-primaer); }
+  .cal-digest-section ul { margin: 4px 0 0; padding-left: 18px; }
 
-  /* ── Detail pane (right) ── */
+  /* ── Detail pane (right) [RL-KALENDER] ────────────────────────────────── */
   .cal-detail {
     width: 300px; min-width: 300px; background: var(--am-flaeche-1);
     border-left: 1px solid var(--am-rand); overflow-y: auto;
@@ -1899,8 +1762,6 @@
   .cal-detail-inner { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .cal-detail-top { display: flex; align-items: center; justify-content: space-between; }
   .cal-detail-cal { display: inline-flex; align-items: center; gap: 6px; color: var(--am-text-primaer); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-  .cal-detail-close { background: none; border: none; color: var(--am-text-gedaempft); font-size: var(--fs-xl); cursor: pointer; padding: 0 6px; border-radius: var(--am-radius-mittel); line-height: 1; }
-  .cal-detail-close:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
   .cal-detail-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; }
   .cal-detail-rows { display: flex; flex-direction: column; gap: 10px; }
   .cal-detail-row { display: flex; align-items: flex-start; gap: 10px; font-size: var(--fs-sm); color: var(--am-text-primaer); }
@@ -1917,4 +1778,49 @@
   .cal-attendee-accepted .cal-attendee-status { color: var(--am-erfolg); background: var(--am-erfolg-flaeche); }
   .cal-attendee-declined .cal-attendee-status { color: var(--am-text-gedaempft); background: var(--am-flaeche-2); }
   .cal-attendee-tentative .cal-attendee-status { color: var(--am-achtung); background: var(--am-achtung-flaeche); }
+
+  /* ── Event editor dialog [RL-KALENDER] ────────────────────────────────── */
+  /* Frame, fields and buttons come from HB-DIALOG, AM-FELD and AM-KNOPF;
+     what remains is the spacing of Relay's own parts inside the body. */
+  .cal-nl { display: flex; gap: 8px; align-items: center; margin-bottom: var(--am-raum-4); }
+  .cal-nl .input { flex: 1; min-width: 0; }
+  .cal-conflict { margin-bottom: var(--am-raum-4); }
+  .cal-conflict-body { flex: 1; min-width: 0; }
+  .cal-conflict-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .cal-conflict-list { margin: 8px 0 0; padding-left: 18px; font-size: var(--fs-xs); }
+  .cal-conflict-none { font-size: var(--fs-xs); margin: 8px 0 0; }
+  .cal-ai-row { gap: 8px; margin-bottom: var(--am-raum-4); }
+  .cal-slots { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 var(--am-raum-4); }
+  /* Suggested slots are a choice list, not buttons in the AM-KNOPF sense. */
+  .cal-slot {
+    display: flex; flex-direction: column; gap: 2px; text-align: left;
+    border: 1px solid var(--am-rand); border-radius: var(--am-radius-mittel);
+    background: var(--am-seite); padding: 8px 10px; cursor: pointer;
+  }
+  .cal-slot:hover { background: var(--am-flaeche-2); border-color: var(--am-gold-500); }
+  .cal-slot-when { font-size: var(--fs-sm); color: var(--am-text-primaer); }
+  .cal-slot-reason { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
+  .cal-prep { margin-bottom: var(--am-raum-4); }
+  .cal-prep-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--am-handlung-ruhend);
+    margin-bottom: 8px;
+  }
+  .cal-prep-section { margin-bottom: 10px; font-size: 0.85rem; color: var(--am-text-primaer); }
+  .cal-prep-section ul { margin: 4px 0 0; padding-left: 18px; }
+  .cal-prep-section p { margin: 4px 0 0; }
+  .cal-check { display: flex; align-items: center; gap: 8px; margin-bottom: var(--am-raum-4); font-size: var(--fs-sm); }
+  /* Label of the recipient-chip field, set like an AM-FELD label. */
+  .cal-attendees-field { margin-bottom: var(--am-raum-4); }
+  .cal-attendees-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: var(--am-raum-2);
+  }
+  /* The destructive step stands apart at the far end of the footer. */
+  .cal-ev-delete { margin-left: auto; }
 </style>

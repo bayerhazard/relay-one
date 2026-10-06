@@ -4,7 +4,8 @@
   import type { ContactInfo } from '$lib/services/tauri';
   import { t } from '$lib/i18n';
 
-  let { value = $bindable([]), accountId, onchange }: { value: string[]; accountId: number | undefined; onchange?: (value: string[]) => void } = $props();
+  // `id` goes onto the inner input so a surrounding `<label for>` reaches it.
+  let { value = $bindable([]), accountId, onchange, id }: { value: string[]; accountId: number | undefined; onchange?: (value: string[]) => void; id?: string } = $props();
 
   let inputRef: HTMLInputElement;
   let query = $state('');
@@ -98,6 +99,9 @@
       }
     }
     if (e.key === 'Escape') {
+      // An open suggestion list takes the Escape; otherwise it reaches the
+      // dialog around the field and closes that.
+      if (showDropdown) e.stopPropagation();
       showDropdown = false;
     }
     if (e.key === 'Backspace' && query === '' && value.length > 0) {
@@ -129,10 +133,13 @@
     {#each value as email, i (email)}
       <span class="chip">
         {email}
-        <button type="button" class="chip-remove" onclick={() => removeRecipient(i)}>&times;</button>
+        <button type="button" class="chip-remove" onclick={() => removeRecipient(i)} title="{$t("mail.fmtRemove")}: {email}" aria-label="{$t("mail.fmtRemove")}: {email}">
+          <Symbol name="schliessen" size={16} />
+        </button>
       </span>
     {/each}
     <input
+      {id}
       type="text"
       autocomplete="new-password"
       spellcheck="false"
@@ -176,10 +183,13 @@
 </div>
 
 <style>
+  /* ── Recipient field with chips [RL-EMPFAENGER] ──────────────────────────────
+     A composite input (chips + free text + suggestions), Relay's own. The
+     box matches an AM-FELD input: same height, rand, radius and focus ring. */
   .recipient-input {
     position: relative;
-    border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     transition: all var(--am-dauer-schnell) var(--am-kurve);
     display: flex;
@@ -188,7 +198,8 @@
   }
 
   .recipient-input:focus-within {
-    border-color: var(--am-handlung-ruhend);
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
   }
 
   .chips {
@@ -196,11 +207,12 @@
     flex-wrap: wrap;
     gap: 6px;
     align-items: center;
-    padding: 5px 10px;
-    min-height: 38px;
+    padding: 4px 10px;
+    min-height: calc(var(--am-ziel-zeiger) - 2 * var(--am-rand-ruhend));
     box-sizing: border-box;
   }
 
+  /* ── Chips [RL-EMPFAENGER] ─────────────────────────────────────────────────── */
   .chip {
     display: inline-flex;
     align-items: center;
@@ -220,11 +232,11 @@
     background: color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
   }
 
+  /* Part of the chip, not an AM-KNOPF: a 40 px button would burst the chip. */
   .chip-remove {
     cursor: pointer;
     background: none;
     border: none;
-    font-size: 0.9375rem;
     line-height: 1;
     color: var(--am-handlung-ruhend);
     opacity: 0.5;
@@ -235,15 +247,25 @@
     transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
-  .chip-remove:hover {
+  .chip-remove:hover,
+  .chip-remove:focus-visible {
     opacity: 1;
-    transform: scale(1.1);
   }
 
+  .chip-remove:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 1px;
+  }
+
+  /* The free-text part is borderless inside the box. It sits inside `.feld`
+     in the compose window, so AM-FELD's input rules are reset here. */
   .chips input {
     flex: 1;
     min-width: 120px;
+    min-height: 0;
+    width: auto;
     border: none;
+    border-radius: 0;
     outline: none;
     font-size: 0.875rem;
     padding: 2px 0;
@@ -254,25 +276,27 @@
     -webkit-box-shadow: 0 0 0px 1000px var(--am-seite) inset !important;
     -webkit-text-fill-color: var(--am-text-primaer) !important;
   }
+  .chips input::placeholder { color: var(--am-text-deaktiviert); }
 
   .spinner {
-    font-size: 0.8em;
+    display: inline-flex;
     opacity: 0.6;
     margin-right: 4px;
   }
 
+  /* ── Contact suggestions [RL-EMPFAENGER] ───────────────────────────────────── */
   .suggestions {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
     right: 0;
     background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 8px;
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
     max-height: 200px;
     overflow-y: auto;
     z-index: 1000;
-    box-shadow: none;
+    box-shadow: var(--am-schatten-1);
     padding: 4px 0;
   }
 

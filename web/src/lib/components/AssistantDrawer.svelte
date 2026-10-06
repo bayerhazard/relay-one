@@ -430,7 +430,7 @@
   <aside class="assistant-pop" bind:this={popEl} role="dialog" aria-label={$t("assistant.title")}>
       <header class="assistant-header">
         <span class="assistant-title">{$t("assistant.title")}</span>
-        <button type="button" class="assistant-close" onclick={onclose} aria-label={$t("assistant.close")}><Symbol name="schliessen" size={16} /></button>
+        <button type="button" class="btn btn-still btn-symbol" onclick={onclose} aria-label={$t("assistant.close")} title={$t("assistant.close")}><Symbol name="schliessen" size={20} /></button>
       </header>
       <div class="assistant-body">
         {#if messages.length === 0}
@@ -447,8 +447,8 @@
               {#if m.role === "assistant" && ttsEnabled && m.text.trim()}
                 <button
                   type="button"
-                  class="chat-speak"
-                  class:speaking={speakingMsg === i}
+                  class="btn btn-still btn-symbol btn-klein chat-speak"
+                  aria-pressed={speakingMsg === i}
                   onclick={() => speakMessage(m.text, i)}
                   title={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
                   aria-label={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
@@ -506,14 +506,14 @@
           <input
             bind:this={inputEl}
             bind:value={input}
-            class="assistant-input"
+            class="input assistant-input"
             type="text"
             placeholder={$t("assistant.placeholder")}
             onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
           />
           <button
             type="button"
-            class="assistant-mic"
+            class="btn btn-still btn-symbol assistant-mic"
             class:recording={isRecording}
             class:voice-enabled={voiceEnabled}
             disabled={transcribing}
@@ -525,12 +525,12 @@
           </button>
         </div>
         {#if loading}
-          <button type="button" class="assistant-send assistant-stop" onclick={stop} aria-label={$t("assistant.stop")}>
+          <button type="button" class="btn btn-sekundaer" onclick={stop} aria-label={$t("assistant.stop")}>
             <Symbol name="stopp" size={16} />
             {$t("assistant.stop")}
           </button>
         {:else}
-          <button type="button" class="assistant-send" disabled={transcribing || !input.trim()} onclick={send}>
+          <button type="button" class="btn btn-primaer" disabled={transcribing || !input.trim()} onclick={send}>
             {transcribing ? "…" : $t("assistant.send")}
           </button>
         {/if}
@@ -542,6 +542,8 @@
 {/if}
 
 <style>
+  /* ── Popover shell [RL-ASSISTENT] ─────────────────────────────────────────
+     Relay's own until HB-ASSISTENT replaces it. */
   .assistant-pop {
     position: fixed;
     bottom: 80px;
@@ -580,24 +582,19 @@
       transform-origin: bottom center;
     }
   }
+  /* ── Header [RL-ASSISTENT] ────────────────────────────────────────────── */
   .assistant-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
+    padding: 8px 8px 8px 16px;
     border-bottom: 1px solid var(--am-rand);
   }
   .assistant-title {
     font-weight: 600;
     color: var(--am-text-primaer);
   }
-  .assistant-close {
-    border: none;
-    background: transparent;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    font-size: 1rem;
-  }
+  /* ── Conversation [RL-ASSISTENT] ──────────────────────────────────────── */
   .assistant-body {
     flex: 1;
     overflow-y: auto;
@@ -613,6 +610,8 @@
     font-size: 0.78rem;
     color: var(--am-text-gedaempft);
   }
+  /* ── Composer [RL-ASSISTENT] ──────────────────────────────────────────────
+     Input, mic and send come from AM-FELD and AM-KNOPF; only placement here. */
   .assistant-footer {
     display: flex;
     gap: 8px;
@@ -624,48 +623,22 @@
     flex: 1;
     display: flex;
   }
+  /* Room for the mic button that sits inside the input. */
   .assistant-input {
     flex: 1;
-    width: 100%;
-    height: 40px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
-    padding: 0 40px 0 12px;
-    font-family: inherit;
-    font-size: 0.875rem;
-    line-height: 1;
-    color: var(--am-text-primaer);
-    background: var(--am-flaeche-1);
+    padding-right: var(--am-ziel-zeiger);
   }
   .assistant-mic {
     position: absolute;
-    right: 5px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 30px;
-    height: 30px;
-    border: none;
-    border-radius: 50%;
-    background: var(--am-flaeche-1);
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
+    right: 0;
+    top: 0;
   }
-  .assistant-mic:hover {
-    color: var(--am-text-primaer);
-    background: var(--am-flaeche-2);
-  }
-  .assistant-mic.recording {
+  /* Recording is a live state, not a button style: red with a pulse. */
+  .assistant-mic.recording,
+  .assistant-mic.recording:hover {
     background: var(--am-fehler);
     color: var(--am-handlung-text);
     animation: micPulse 1.2s ease-in-out infinite;
-  }
-  .assistant-mic:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
   .assistant-voice-error {
     position: absolute;
@@ -684,23 +657,7 @@
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--am-fehler) 50%, transparent); }
     50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--am-fehler) 0%, transparent); }
   }
-  .assistant-send {
-    height: 40px;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    padding: 0 16px;
-    cursor: pointer;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .assistant-send:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+  /* ── Messages [RL-ASSISTENT] ──────────────────────────────────────────── */
   .chat-msg {
     max-width: 85%;
     padding: 10px 12px;
@@ -756,32 +713,12 @@
     border-left: 2px solid var(--am-rand);
   }
   .chat-speak {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     margin-top: 6px;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--am-radius-klein);
-    border: 1px solid var(--am-rand);
-    background: transparent;
-    color: var(--am-text-gedaempft);
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .chat-speak:hover {
-    background: var(--am-flaeche-2);
-    color: var(--am-text-primaer);
-  }
-  .chat-speak.speaking {
-    background: var(--am-handlung-ruhend);
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
   }
   .chat-typing {
     color: var(--am-text-gedaempft);
   }
+  /* ── Plans and trace [RL-ASSISTENT] ───────────────────────────────────── */
   .chat-plan {
     margin: 0 0 10px;
     animation: planIn 200ms cubic-bezier(0.2, 0, 0, 1);
@@ -809,14 +746,5 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-  }
-  .assistant-stop {
-    background: var(--am-fehler);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .assistant-stop:hover {
-    filter: brightness(1.08);
   }
 </style>
