@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
 import {
@@ -877,19 +878,14 @@ async function handleSaveCardDav() {
     <nav class="sidebar-menu">
       <button type="button" class="menu-item" class:active={activeTab === 'general'} onclick={() => selectTab('general')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <Symbol name="einstellungen" size={20} />
         </div>
         <span>{$t("settings.general")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'accounts'} onclick={() => selectTab('accounts')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0l-7.5-4.615a2.25 2.25 0 01-1.07-1.916V6.75" />
-          </svg>
+          <Symbol name="post" size={20} />
         </div>
         <span>{$t("settings.accounts")}</span>
         {#if accountList.length > 0}
@@ -899,54 +895,42 @@ async function handleSaveCardDav() {
 
       <button type="button" class="menu-item" class:active={activeTab === 'carddav'} onclick={() => selectTab('carddav')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.29-.792-3.07M15 19.128v.106A12.318 12.318 0 018.5 21c-2.191 0-4.22-.558-6-1.54v-.036a4.125 4.125 0 017.533-2.493c.505.78.967 1.659.967 2.638M8.25 3.75a4.125 4.125 0 100 8.25 4.125 4.125 0 000-8.25zM12.971 6.304a4.125 4.125 0 010 6.392m8.404-1.446a2.25 2.25 0 010 3.5" />
-          </svg>
+          <Symbol name="team" size={20} />
         </div>
         <span>{$t("settings.contacts")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'caldav'} onclick={() => selectTab('caldav')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-          </svg>
+          <Symbol name="kalender" size={20} />
         </div>
         <span>{$t("settings.calendar")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => selectTab('ai')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 21l-.813-5.096L3 15l5.187-.813L9 9l.813 5.187L15 15l-5.187.814zM18 10.5L17.25 15l-.75-4.5L12 10l4.5-.75.75-4.5.75 4.5L22 10l-4.5.75z" />
-          </svg>
+          <Symbol name="ai" size={20} />
         </div>
         <span>{$t("settings.ai")}</span>
       </button>
 
     <button type="button" class="menu-item" class:active={activeTab === 'voice'} onclick={() => selectTab('voice')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5a6 6 0 01-6-6v-1.5m6 7.5a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-          </svg>
+          <Symbol name="mikrofon" size={20} />
         </div>
         <span>{$t("settings.voice")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'cache'} onclick={() => selectTab('cache')}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-          </svg>
+          <Symbol name="datenbank" size={20} />
         </div>
         <span>{$t("settings.cache")}</span>
       </button>
 
       <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { selectTab('archive'); loadDeleteQueue(); loadBackups(); }}>
         <div class="menu-icon-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-          </svg>
+          <Symbol name="datensicherung" size={20} />
         </div>
         <span>{$t("settings.archive")}</span>
       </button>
@@ -959,9 +943,7 @@ async function handleSaveCardDav() {
     {#if isNarrow}
       <div class="mobile-content-header">
         <button type="button" class="back-btn" onclick={() => mobileContentOpen = false} title={$t("common.back")}>
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
+          <Symbol name="zurueck" size={16} />
           <span>{$t("settings.title")}</span>
         </button>
       </div>
@@ -1313,14 +1295,14 @@ async function handleSaveCardDav() {
 
             {#if acctError}
               <div class="alert-box error">
-                <div class="alert-icon">⚠️</div>
+                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
                 <div class="alert-text">{acctError}</div>
               </div>
             {/if}
             
             {#if acctSuccess}
               <div class="alert-box success">
-                <div class="alert-icon">✓</div>
+                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                 <div class="alert-text">{acctSuccess}</div>
               </div>
             {/if}
@@ -1424,14 +1406,14 @@ async function handleSaveCardDav() {
 
             {#if aiError}
               <div class="alert-box error">
-                <div class="alert-icon">⚠️</div>
+                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
                 <div class="alert-text">{aiError}</div>
               </div>
             {/if}
 
             <div class="form-actions-row">
               <button type="button" class="btn-submit" onclick={handleSaveAI}>
-                {aiSaved ? $t("settings.saved") : $t("settings.saveConnection")}
+                {#if aiSaved}<Symbol name="erfolg" size={16} />{/if} {aiSaved ? $t("settings.saved") : $t("settings.saveConnection")}
               </button>
             </div>
           </div>
@@ -1447,7 +1429,7 @@ async function handleSaveCardDav() {
           <div class="card-body">
             <div class="form-actions-row">
               <button type="button" class="btn-submit" onclick={handleResetCircuitBreaker}>
-                {cbResetDone ? $t("settings.aiResetDone") : $t("settings.aiReset")}
+                {#if cbResetDone}<Symbol name="erfolg" size={16} />{/if} {cbResetDone ? $t("settings.aiResetDone") : $t("settings.aiReset")}
               </button>
             </div>
           </div>
@@ -1499,14 +1481,14 @@ async function handleSaveCardDav() {
 
             {#if carddavError}
               <div class="alert-box error">
-                <div class="alert-icon">⚠️</div>
+                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
                 <div class="alert-text">{carddavError}</div>
               </div>
             {/if}
             
             {#if carddavSaved}
               <div class="alert-box success">
-                <div class="alert-icon">✓</div>
+                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                 <div class="alert-text">{$t("settings.carddavSaved")}</div>
               </div>
             {/if}
@@ -1522,7 +1504,7 @@ async function handleSaveCardDav() {
 
             {#if carddavSyncResult !== null}
               <div class="sync-success-pill">
-                <span class="sync-icon">🔄</span>
+                <span class="sync-icon"><Symbol name="neu-laden" size={16} /></span>
                 <span>{$t("settings.syncSuccess", { count: carddavSyncResult })}</span>
               </div>
             {/if}
@@ -1636,14 +1618,14 @@ async function handleSaveCardDav() {
 
               {#if caldavError}
                 <div class="alert-box error">
-                  <div class="alert-icon">⚠️</div>
+                  <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
                   <div class="alert-text">{caldavError}</div>
                 </div>
               {/if}
 
               {#if caldavSaved}
                 <div class="alert-box success">
-                  <div class="alert-icon">✓</div>
+                  <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                   <div class="alert-text">{$t("settings.caldavSaved")}</div>
                 </div>
               {/if}
@@ -1656,7 +1638,7 @@ async function handleSaveCardDav() {
 
             {#if caldavSyncResult !== null}
               <div class="sync-success-pill">
-                <span class="sync-icon">🔄</span>
+                <span class="sync-icon"><Symbol name="neu-laden" size={16} /></span>
                 <span>{$t("settings.syncSuccessCal", { count: caldavSyncResult })}</span>
               </div>
             {/if}
@@ -1807,14 +1789,14 @@ async function handleSaveCardDav() {
 
         {#if voiceError}
           <div class="alert-box error">
-            <div class="alert-icon">⚠️</div>
+            <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
             <div class="alert-text">{voiceError}</div>
           </div>
         {/if}
 
         <div class="form-actions-row">
           <button type="button" class="btn-submit" onclick={handleSaveVoice}>
-            {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
+            {#if voiceSaved}<Symbol name="erfolg" size={16} />{/if} {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
           </button>
         </div>
       {/if}
@@ -1958,7 +1940,7 @@ async function handleSaveCardDav() {
 
             {#if cacheCleanupResult !== null}
               <div class="alert-box success">
-                <div class="alert-icon">✓</div>
+                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                 <div class="alert-text">{$t("settings.cacheCleaned", { count: cacheCleanupResult })}</div>
               </div>
             {/if}
@@ -1984,7 +1966,7 @@ async function handleSaveCardDav() {
           <div class="card-body">
             {#if aiSummariesResult !== null}
               <div class="alert-box success">
-                <div class="alert-icon">✓</div>
+                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                 <div class="alert-text">{$t("settings.aiSummariesCleared", { count: aiSummariesResult })}</div>
               </div>
             {/if}
@@ -2007,7 +1989,7 @@ async function handleSaveCardDav() {
           <div class="card-body">
             {#if aiActionsResult !== null}
               <div class="alert-box success">
-                <div class="alert-icon">✓</div>
+                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
                 <div class="alert-text">{$t("settings.aiActionsCleared", { count: aiActionsResult })}</div>
               </div>
             {/if}
@@ -2126,10 +2108,6 @@ async function handleSaveCardDav() {
     background: var(--am-flaeche-2);
   }
 
-  .back-btn svg {
-    width: 14px;
-    height: 14px;
-  }
 
   .sidebar-header h2 {
     font-size: 1.25rem;
@@ -2184,10 +2162,6 @@ async function handleSaveCardDav() {
     height: 20px;
   }
 
-  .menu-icon-wrapper svg {
-    width: 18px;
-    height: 18px;
-  }
 
   .badge-pill {
     margin-left: auto;
@@ -2458,7 +2432,7 @@ async function handleSaveCardDav() {
     border-radius: 50%;
   }
 
-  .light-dot { background: var(--am-blau-800); }
+  .light-dot { background: var(--am-blau-800); box-shadow: 0 0 0 1px var(--am-rand-betont-farbe); }
   .dark-dot { background: var(--am-gold-500); }
   .system-dot { background: linear-gradient(90deg, var(--am-blau-800) 50%, var(--am-gold-500) 50%); }
   /* System: left half light, right half dark — the mock follows the light card. */

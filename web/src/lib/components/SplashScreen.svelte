@@ -1,4 +1,5 @@
   <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
     import { onMount, tick } from "svelte";
     import { connectAccount, deleteAccount, saveSettings, getOlaresMailStatus } from "$lib/services/tauri";
     import type { OlaresMailStatus } from "$lib/services/tauri";
@@ -272,6 +273,7 @@
 
             <div class="form-group span-2">
               <button type="button" class="btn-link" onclick={() => (splashAdvancedMail = !splashAdvancedMail)}>
+                {#if splashAdvancedMail}<Symbol name="chevron-hoch" size={16} />{:else}<Symbol name="chevron" size={16} />{/if}
                 {splashAdvancedMail ? $t("splash.hideAdvanced") : $t("splash.showAdvanced")}
               </button>
             </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   // AI-Assistent v2 (Concept §10.1): agentic drawer. Streams the agent loop via
   // SSE, renders confirmation cards (PlanCard), a live status line and a "what I
   // did" trace. Write actions never execute directly — they become plans the
@@ -429,7 +430,7 @@
   <aside class="assistant-pop" bind:this={popEl} role="dialog" aria-label={$t("assistant.title")}>
       <header class="assistant-header">
         <span class="assistant-title">{$t("assistant.title")}</span>
-        <button type="button" class="assistant-close" onclick={onclose} aria-label={$t("assistant.close")}>✕</button>
+        <button type="button" class="assistant-close" onclick={onclose} aria-label={$t("assistant.close")}><Symbol name="schliessen" size={16} /></button>
       </header>
       <div class="assistant-body">
         {#if messages.length === 0}
@@ -451,7 +452,7 @@
                   onclick={() => speakMessage(m.text, i)}
                   title={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
                   aria-label={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
-                >{speakingMsg === i ? "⏹" : "🔊"}</button>
+                >{#if speakingMsg === i}<Symbol name="stopp" size={16} />{:else}<Symbol name="vorlesen" size={16} />{/if}</button>
               {/if}
             </div>
             {#each m.plans as plan (plan.id)}
@@ -520,16 +521,12 @@
             title={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
             aria-label={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" width="18" height="18">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-            </svg>
+            <Symbol name="mikrofon" size={20} />
           </button>
         </div>
         {#if loading}
           <button type="button" class="assistant-send assistant-stop" onclick={stop} aria-label={$t("assistant.stop")}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
+            <Symbol name="stopp" size={16} />
             {$t("assistant.stop")}
           </button>
         {:else}

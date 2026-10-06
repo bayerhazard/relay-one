@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import type { Message } from "$lib/stores/mailbox";
   import SummaryLine from "./SummaryLine.svelte";
   import FraudWarning from "./FraudWarning.svelte";
@@ -326,28 +327,18 @@
             {#if bgDir(msg.uid) === "left"}
               <div class="swipe-bg-left">
                 <button type="button" class="swipe-action read" onclick={() => ontoggleRead?.(msg.uid)} tabindex="-1" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="swipe-icon">
-                    {#if msg.is_read}
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 9v.906a2.25 2.25 0 01-1.183 1.981l-6.478 3.488M2.25 9v.906a2.25 2.25 0 001.183 1.981l6.478 3.488m8.839 2.51l-4.66-2.51m0 0l-1.023-.55a2.25 2.25 0 00-2.134 0l-1.022.55m0 0l-4.661 2.51m16.5 1.615a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V8.844a2.25 2.25 0 011.183-1.98l7.5-4.04a2.25 2.25 0 012.134 0l7.5 4.04a2.25 2.25 0 011.183 1.98V19.5z" />
-                    {:else}
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0l-7.5-4.615a2.25 2.25 0 01-1.07-1.916V6.75" />
-                    {/if}
-                  </svg>
+                  {#if msg.is_read}<Symbol name="post" size={20} />{:else}<Symbol name="gelesen" size={20} />{/if}
                   <span class="swipe-label">{msg.is_read ? $t("mail.markUnread") : $t("mail.markRead")}</span>
                 </button>
               </div>
             {:else if bgDir(msg.uid) === "right"}
               <div class="swipe-bg-right">
                 <button type="button" class="swipe-action flag" onclick={() => { revealedUid = null; ontoggleFlag?.(msg.uid); }} tabindex="-1" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="swipe-icon">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
-                  </svg>
+                  <Symbol name="markieren" size={20} />
                   <span class="swipe-label">{$t("mail.flagOn")}</span>
                 </button>
                 <button type="button" class="swipe-action delete" onclick={() => { revealedUid = null; ondelete?.(msg.uid); }} tabindex="-1" aria-hidden="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" class="swipe-icon">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                  </svg>
+                  <Symbol name="loeschen" size={20} />
                   <span class="swipe-label">{$t("mail.delete")}</span>
                 </button>
               </div>
@@ -381,14 +372,12 @@
               <span class="sender">
                 {extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}
                 {#if msg.is_flagged}
-                  <svg class="flag-star" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Markiert">
-                    <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z" />
-                  </svg>
+                  <Symbol name="standard" size={16} class="flag-star" filled label="Markiert" />
                 {/if}
               </span>
               <span class="msg-header-right">
                 {#if msg.has_attachments}
-                  <span class="attach-indicator" title={$t("mail.attachmentTitle")} aria-label={$t("mail.attachment")}>&#x1F4CE;</span>
+                  <span class="attach-indicator" title={$t("mail.attachmentTitle")} aria-label={$t("mail.attachment")}><Symbol name="anhang" size={16} /></span>
                 {/if}
                 <span class="date">{formatDate(msg.date)}</span>
               </span>
@@ -422,9 +411,9 @@
     </div>
   {:else if messages.length === 0}
     {#if searchActive}
-      <EmptyState icon="&#x1F50D;" title={$t("mail.noResults")} subtitle={$t("mail.noResultsDesc")} />
+      <EmptyState icon="suche" title={$t("mail.noResults")} subtitle={$t("mail.noResultsDesc")} />
     {:else}
-      <EmptyState icon="&#x2709;" title={$t("mail.noMessages")} subtitle={$t("mail.noMessagesDesc")} />
+      <EmptyState icon="post" title={$t("mail.noMessages")} subtitle={$t("mail.noMessagesDesc")} />
     {/if}
   {/if}
   {#if contextMenu}
@@ -506,11 +495,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .sender .flag-star {
+  /* :global — the class sits on <Symbol>'s svg, outside this component's scope. */
+  .sender :global(.flag-star) {
     margin-left: 5px;
     vertical-align: -2px;
     flex-shrink: 0;
-    color: var(--am-gold-500);
+    color: var(--am-gold-beschriftung);
   }
   .msg-header-right {
     display: flex;
@@ -790,10 +780,6 @@
   }
   .swipe-container:not(.swiping):not(.revealed) .swipe-action {
     pointer-events: none;
-  }
-  .swipe-icon {
-    width: 20px;
-    height: 20px;
   }
   .swipe-label {
     font-size: 0.625rem;

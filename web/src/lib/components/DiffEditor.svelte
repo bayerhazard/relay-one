@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { computeDiff } from "$lib/utils/diff";
   import { t } from "$lib/i18n";
 
@@ -18,8 +19,8 @@
   <div class="diff-toolbar">
     <span class="diff-title">{$t("diff.title")}</span>
     <div class="diff-actions">
-      <button type="button" class="btn-reject" onclick={onreject}>&#x2715; {$t("diff.reject")}</button>
-      <button type="button" class="btn-accept" onclick={onaccept}>&#x2713; {$t("diff.accept")}</button>
+      <button type="button" class="btn-reject" onclick={onreject}>{$t("diff.reject")}</button>
+      <button type="button" class="btn-accept" onclick={onaccept}>{$t("diff.accept")}</button>
     </div>
   </div>
   <div class="diff-content">

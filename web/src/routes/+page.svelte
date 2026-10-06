@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onDestroy, onMount } from "svelte";
   import { untrack } from "svelte";
   import { goto } from "$app/navigation";
@@ -933,28 +934,6 @@ let sentFolderName = $state<string | null>(null);
     moveMenu = { x: pos.x, y: pos.y, sections };
   }
 
-  function getFolderIcon(name: string): string {
-    const lower = name.toLowerCase();
-    if (lower === "inbox") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.008 1.24l.885 1.77a2.25 2.25 0 002.007 1.24h1.98a2.25 2.25 0 002.007-1.24l.885-1.77a2.25 2.25 0 012.007-1.24h3.86m-18 0h18m-18 0v-7.5A2.25 2.25 0 014.5 4.5h15a2.25 2.25 0 012.25 2.25v7.5m-18 0v6a2.25 2.25 0 002.25 2.25h15a2.25 2.25 0 002.25-2.25v-6" /></svg>`;
-    }
-    if (lower === "sent") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>`;
-    }
-    if (lower === "drafts" || lower === "entwürfe") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>`;
-    }
-    if (lower === "trash" || lower === "gelöscht") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>`;
-    }
-    if (lower === "archive" || lower === "archiv") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>`;
-    }
-    if (lower === "spam" || lower === "junk" || lower === "spamverdacht") {
-      return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.249-8.25-3.286zm0 13.036h.008v.008H12v-.008z" /></svg>`;
-    }
-    return `<svg class="folder-svg-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-19.5 0A2.25 2.25 0 004.5 15h15a2.25 2.25 0 002.25-2.25m-19.5 0v.25A2.25 2.25 0 004.5 20.25h15a2.25 2.25 0 002.25-2.25v-.25m-18-10.5h4a1.5 1.5 0 001.108-.491L8.51 4.51A1.5 1.5 0 019.617 4H19.5a1.5 1.5 0 011.5 1.5v3" /></svg>`;
-  }
 
   function getInitials(name: string): string {
     if (!name) return "@";
@@ -1342,7 +1321,7 @@ let sentFolderName = $state<string | null>(null);
       processed = inner.replace(imgRe, (_m, before, _q, url, after) => {
         const safeUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
         const shortUrl = url.length > 60 ? url.slice(0, 57) + '...' : url;
-        return `<span class="img-placeholder" data-src="${safeUrl}" onclick="loadImage(this)">&#x1F5BC; ${shortUrl}<br><small>${translate('mail.loadImage')}</small></span>`;
+        return `<span class="img-placeholder" data-src="${safeUrl}" onclick="loadImage(this)">${iconSVG("image")} ${shortUrl}<br><small>${translate('mail.loadImage')}</small></span>`;
       });
     }
 
@@ -2791,7 +2770,7 @@ let sentFolderName = $state<string | null>(null);
                     oncontextmenu={(e) => handleAttachmentContextMenu(e, att)}
                     title={$t("mail.openAttachmentTitle")}
                   >
-                    <span class="attachment-icon" aria-hidden="true">&#x1F4CE;</span>
+                    <span class="attachment-icon" aria-hidden="true"><Symbol name="anhang" size={16} /></span>
                     <span class="attachment-meta">
                       <span class="attachment-name">{att.filename}</span>
                       <span class="attachment-size">{formatBytes(att.size)}</span>
@@ -2818,10 +2797,10 @@ let sentFolderName = $state<string | null>(null);
                   <span class="att-preview-name" title={attPreview.filename}>{attPreview.filename}</span>
                   <div class="att-preview-actions">
                     <button type="button" class="att-preview-btn" onclick={downloadAttPreview} title={$t("mail.downloadTitle")} aria-label={$t("mail.downloadTitle")}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+                      <Symbol name="herunterladen" size={16} />
                     </button>
                     <button type="button" class="att-preview-btn" onclick={closeAttPreview} title={$t("mail.closeShortcut")} aria-label={$t("mail.close")}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+                      <Symbol name="schliessen" size={16} />
                     </button>
                   </div>
                 </div>
@@ -2877,14 +2856,14 @@ let sentFolderName = $state<string | null>(null);
   {:else if initError}
     <EmptyState
       tone="error"
-      icon="&#x26A0;"
+      icon="achtung"
       title={$t("mail.noConnection")}
       subtitle={initError}
       actionLabel={$t("mail.retry")}
       onaction={retryInit}
     />
   {:else}
-    <EmptyState icon="&#x1F4ED;" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
+    <EmptyState icon="eingang" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
   {/if}
 {/snippet}
 
@@ -2944,9 +2923,7 @@ let sentFolderName = $state<string | null>(null);
               aria-label={$t("mail.flagOnly")}
               aria-pressed={flaggedSearchActive}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill={flaggedSearchActive ? "currentColor" : "none"} stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z" />
-              </svg>
+              <Symbol name="standard" size={16} filled={flaggedSearchActive} />
             </button>
           </SidebarSearch>
         </SidebarFooter>
@@ -2962,17 +2939,17 @@ let sentFolderName = $state<string | null>(null);
           <div class="list-title-area">
             {#if isNarrow}
               <button type="button" class="icon-btn menu-toggle" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.folders")} aria-label={$t("mail.toggleFolder")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+                <Symbol name="seitenleiste-auf" size={20} />
               </button>
             {/if}
             <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>
           </div>
           <div class="list-header-pill">
             <button type="button" class="pill-icon-btn" onclick={handleNewMail} title={$t("mail.newMail")}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5L20.5 7.5 8 20H4v-4L16.5 3.5z"/></svg>
+              <Symbol name="bearbeiten" size={16} />
             </button>
             <button type="button" class="pill-icon-btn" onclick={() => loadFolder(true)} title={$t("mail.refresh")}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 14.9-6.5L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-14.9 6.5L3 16"/></svg>
+              <Symbol name="neu-laden" size={16} />
             </button>
           </div>
         </div>
@@ -2993,8 +2970,8 @@ let sentFolderName = $state<string | null>(null);
             <button type="button" class="selection-btn danger" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
               {$t("mail.deleteMails")}
             </button>
-            <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")}>
-              &#x2715;
+            <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")} aria-label={$t("mail.clearSelectionTitle")}>
+              <Symbol name="schliessen" />
             </button>
           </div>
         </div>
@@ -3399,11 +3376,6 @@ let sentFolderName = $state<string | null>(null);
     height: 18px;
     color: currentColor;
     flex-shrink: 0;
-    pointer-events: none;
-  }
-  :global(.folder-svg-icon) {
-    width: 18px;
-    height: 18px;
     pointer-events: none;
   }
   :global(.folder-name-label) {
