@@ -78,11 +78,11 @@ export async function saveSettings(
   source?: string
 ): Promise<void> {
   return post("/settings", { url, api_key: apiKey, model, source },
-    "Die KI-Einstellungen konnten nicht gespeichert werden.");
+    "Die AI-Einstellungen konnten nicht gespeichert werden.");
 }
 
 export async function getSettings(): Promise<AISettings | null> {
-  return get("/settings", "Die KI-Einstellungen konnten nicht geladen werden.");
+  return get("/settings", "Die AI-Einstellungen konnten nicht geladen werden.");
 }
 
 export async function getMoveToTrash(): Promise<boolean> {
@@ -426,7 +426,7 @@ export async function getAttachmentCacheStats(): Promise<{
 export async function clearAiSummaries(accountId?: number): Promise<number> {
   const res = await post<{ cleared?: number }>("/cache/clear-ai-summaries",
     accountId != null ? { account_id: accountId } : {},
-    "Die KI-Zusammenfassungen konnten nicht gelöscht werden.");
+    "Die AI-Zusammenfassungen konnten nicht gelöscht werden.");
   return res?.cleared ?? 0;
 }
 
@@ -695,7 +695,7 @@ export async function aiGenerateReply(
     mail_chain: mailChain.map(m => m.text),
     user_input: userInput, recipient_email: recipientEmail, tone,
     sender_name: senderName, subject, recipient_name: recipientName,
-  }, "Die KI-Antwort konnte nicht generiert werden.");
+  }, "Die AI-Antwort konnte nicht generiert werden.");
 }
 
 export async function aiSummarize(body: string, accountId: number, uid: number): Promise<string> {
@@ -705,12 +705,12 @@ export async function aiSummarize(body: string, accountId: number, uid: number):
 
 export async function triggerFolderSummaries(accountId: number, folder: string): Promise<number> {
   return post("/ai/folder-summaries", { account_id: accountId, folder },
-    "Die KI-Zusammenfassungen konnten nicht angestoßen werden.");
+    "Die AI-Zusammenfassungen konnten nicht angestoßen werden.");
 }
 
 export async function resetCircuitBreaker(): Promise<void> {
   return post("/ai/reset-circuit-breaker", {},
-    "Der KI-Circuit-Breaker konnte nicht zurückgesetzt werden.");
+    "Die Sperre des Sprachmodells konnte nicht aufgehoben werden.");
 }
 
 export async function aiDraftFromBullets(
@@ -724,7 +724,7 @@ export async function aiDraftFromBullets(
     bullets,
     tone_freundlich: toneFreundlich, tone_professionell: toneProfessionell, tone_laenge: toneLaenge,
     sender_name: senderName,
-  }, "Der KI-Entwurf konnte nicht erstellt werden.");
+  }, "Der AI-Entwurf konnte nicht erstellt werden.");
 }
 
 export async function aiFormatText(text: string): Promise<string> {
@@ -765,7 +765,7 @@ export async function aiGenerateMail(
   return post("/ai/generate-mail", {
     account_id: accountId, to, subject, user_input: userInput, sender_name: senderName,
     seriousness, text_length: textLength, original_message: originalMessage,
-  }, "Der KI-Mailtext konnte nicht generiert werden.");
+  }, "Der AI-Mailtext konnte nicht generiert werden.");
 }
 
 export async function getToneProfile(
@@ -1072,7 +1072,7 @@ export async function getConflictAlternatives(
   return post(
     "/ai/conflict-alternatives",
     { summary, start, end, calendar_id: calendarId ?? null },
-    "Die KI-Alternativen konnten nicht geladen werden.",
+    "Die AI-Alternativen konnten nicht geladen werden.",
   );
 }
 
@@ -1101,7 +1101,7 @@ export async function rsvpDraft(
   return post(
     "/ai/rsvp-draft",
     { summary, start, organizer, decision, note: note ?? null },
-    "Der KI-Entwurf konnte nicht geladen werden.",
+    "Der AI-Entwurf konnte nicht geladen werden.",
   );
 }
 

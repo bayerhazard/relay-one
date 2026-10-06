@@ -89,7 +89,7 @@ fn get_client(state: &AppState) -> Result<Arc<AIClient>, String> {
     guard
         .as_ref()
         .cloned()
-        .ok_or_else(|| "KI-Client nicht konfiguriert".to_string())
+        .ok_or_else(|| "Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string())
 }
 
 /// A short, locale-aware status label for a tool (Concept §9.1 `status` event).
@@ -737,6 +737,6 @@ mod tests {
     async fn s6_not_configured_returns_error() {
         let state = test_state(); // ai_client is None
         let err = run_agent(&state, &req("hallo"), None).await.unwrap_err();
-        assert!(err.contains("KI-Client nicht konfiguriert"), "got: {err}");
+        assert!(err.contains("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text)."), "got: {err}");
     }
 }

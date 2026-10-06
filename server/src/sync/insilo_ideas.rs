@@ -606,7 +606,7 @@ async fn process_one(
 ) -> Result<IdeaPlan, String> {
     let client = {
         let guard = state.ai_client.read();
-        guard.as_ref().cloned().ok_or("KI-Client nicht konfiguriert")?
+        guard.as_ref().cloned().ok_or("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).")?
     };
 
     // Idempotency: if a previous (possibly aborted) run already produced a task
@@ -1073,10 +1073,10 @@ schema: 1
     #[test]
     fn infra_fehler_werden_erkannt() {
         assert!(is_infra_error("503 ServiceUnavailable: connect error"));
-        assert!(is_infra_error("KI-System temporär nicht verfügbar (Circuit Breaker offen, 15s verbleibend)"));
+        assert!(is_infra_error("Das Sprachmodell ist temporär nicht verfügbar (gesperrt nach mehreren Ausfällen, noch 15 s)."));
         assert!(is_infra_error("request timeout after 120s"));
         assert!(!is_infra_error("Plan nicht lesbar: erwartet create/append"));
-        assert!(!is_infra_error("KI-Client nicht konfiguriert"));
+        assert!(!is_infra_error("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text)."));
     }
 
     #[test]

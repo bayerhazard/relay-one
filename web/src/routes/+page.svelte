@@ -2971,7 +2971,7 @@ let sentFolderName = $state<string | null>(null);
       {#if !showCompose && followupsForUid === selectedMessage?.uid && (followupsLoading || followups.length > 0 || followupsError)}
         <div class="followups-footer">
           <div class="followups-footer-head">
-            <span class="followups-footer-title">KI-Vorschläge</span>
+            <span class="followups-footer-title">AI-Vorschläge</span>
             {#if followupsError}<span class="followups-footer-error">{followupsError}</span>{/if}
           </div>
           <div class="followups-footer-scroll">

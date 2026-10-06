@@ -63,7 +63,7 @@ impl CircuitBreaker {
                 } else {
                     let remaining = inner.reset_timeout - Instant::now().duration_since(opened_at);
                     Err(format!(
-                        "KI-System temporär nicht verfügbar (Circuit Breaker offen, {}s verbleibend)",
+                        "Das Sprachmodell ist temporär nicht verfügbar (gesperrt nach mehreren Ausfällen, noch {} s).",
                         remaining.as_secs()
                     ))
                 }
@@ -73,7 +73,7 @@ impl CircuitBreaker {
                     inner.half_open_permitted = false;
                     Ok(())
                 } else {
-                    Err("KI-System temporär nicht verfügbar (Testcall läuft)".to_string())
+                    Err("Das Sprachmodell ist temporär nicht verfügbar (Probeanfrage läuft).".to_string())
                 }
             }
         }

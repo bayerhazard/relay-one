@@ -186,7 +186,7 @@ pub async fn ai_generate_reply(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -243,7 +243,7 @@ pub async fn ai_summarize(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -358,7 +358,7 @@ pub async fn reset_circuit_breaker(State(state): State<AppState>) -> ApiResult<(
         let guard = state.ai_client.read();
         guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
     // record_success() resets the circuit breaker to closed state
@@ -408,7 +408,7 @@ pub async fn ai_draft_from_bullets(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -465,7 +465,7 @@ pub async fn ai_format_text(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -655,7 +655,7 @@ pub async fn ai_generate_mail(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -776,7 +776,7 @@ pub async fn ai_suggest_recipient(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -851,7 +851,7 @@ pub async fn ai_suggest_subject(
         let ai_guard = state.ai_client.read();
         ai_guard
             .as_ref()
-            .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))?
+            .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))?
             .clone()
     };
 
@@ -956,7 +956,7 @@ fn get_ai_client(state: &AppState) -> Result<std::sync::Arc<crate::ai::client::A
     let ai_guard = state.ai_client.read();
     ai_guard
         .as_ref()
-        .ok_or_else(|| ApiError("KI-Client nicht konfiguriert".to_string()))
+        .ok_or_else(|| ApiError("Kein Sprachmodell eingerichtet (Einstellungen → AI & Text).".to_string()))
         .cloned()
 }
 
@@ -1356,7 +1356,7 @@ pub async fn ai_followups_counter_email(
     let subject = obj.get("subject").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let body = obj.get("body").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     if body.is_empty() {
-        return Err(ApiError("KI lieferte keinen E-Mail-Text.".to_string()));
+        return Err(ApiError("Das Sprachmodell hat keinen E-Mail-Text geliefert.".to_string()));
     }
     Ok(Json(serde_json::json!({ "subject": subject, "body": body })))
 }
