@@ -2973,7 +2973,9 @@ let sentFolderName = $state<string | null>(null);
             <button type="button" class="btn btn-sekundaer btn-klein" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
               {$t("mail.move")}
             </button>
-            <button type="button" class="btn btn-gefahr btn-klein" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
+            <!-- Secondary, not red: with a mail open the reading pane already
+                 carries the one danger button (CI R1, Kai 06.10.2026). -->
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
               {$t("mail.deleteMails")}
             </button>
             <button type="button" class="btn btn-still btn-symbol" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")} aria-label={$t("mail.clearSelectionTitle")}>
