@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { untrack } from "svelte";
   import { goto } from "$app/navigation";
   import MessageList from "$lib/components/MessageList.svelte";
@@ -2465,20 +2465,64 @@ let sentFolderName = $state<string | null>(null);
 
   let pendingDeleteUids: number[] = $state([]);
 
+  // Deleting (CI RL-R2): a mail that goes to the trash can be brought back,
+  // so it asks nothing and offers "Rückgängig" instead. The server is only
+  // called after UNDO_MS — undo then simply cancels the timer (the trash
+  // would assign new UIDs, so moving back would be guesswork). Deleting from
+  // the trash, or with the trash switched off, is final and asks first.
+  const UNDO_MS = 5000;
+  let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  function deleteIsRecoverable(): boolean {
+    return moveToTrash && selectedFolder !== "Trash";
+  }
+
+  function requestDelete(uids: number[]) {
+    if (uids.length === 0 || showDeleteConfirm || isDeleting) return;
+    if (deleteIsRecoverable()) {
+      deferDelete(uids);
+    } else {
+      pendingDeleteUids = uids;
+      showDeleteConfirm = true;
+    }
+  }
+
   function handleDeleteMessage(uid: number, uids?: number[]) {
-    if (showDeleteConfirm || isDeleting) return;
     if (uids && !$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
-    pendingDeleteUids = uids ?? [uid];
-    showDeleteConfirm = true;
+    requestDelete(uids ?? [uid]);
   }
 
   function handleDeleteSelected() {
-    if (showDeleteConfirm || isDeleting) return;
-    const uids = $mailbox.selectedUids;
-    if (uids.length === 0) return;
-    pendingDeleteUids = uids;
-    showDeleteConfirm = true;
+    requestDelete($mailbox.selectedUids);
   }
+
+  function deferDelete(uids: number[]) {
+    flushPendingDelete();
+    const job = { uids, accountId: selectedAccountId, folder: selectedFolder };
+    for (const uid of uids) mailbox.removeMessage(uid);
+    undoDelete = { ...job, timer: setTimeout(() => flushPendingDelete(), UNDO_MS) };
+  }
+
+  /** Runs a pending trash move now (timer, a second delete, leaving the page). */
+  function flushPendingDelete() {
+    const job = undoDelete;
+    if (!job) return;
+    clearTimeout(job.timer);
+    undoDelete = null;
+    void executeDelete(job.uids, job.accountId, job.folder);
+  }
+
+  function undoPendingDelete() {
+    const job = undoDelete;
+    if (!job) return;
+    clearTimeout(job.timer);
+    undoDelete = null;
+    // Nothing reached the server yet — reloading brings the mails back.
+    invalidateFolderCache(job.accountId, job.folder);
+    if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder();
+  }
+
+  onDestroy(() => flushPendingDelete());
 
   // Phase C (Concept §9.4): a follow-up chip builds a pending plan
   // (origin=mail_followup) and hands it to the assistant drawer, where the T1
@@ -2570,24 +2614,28 @@ let sentFolderName = $state<string | null>(null);
     if (isDeleting) return;
     const uids = pendingDeleteUids;
     if (uids.length === 0) return;
-    isDeleting = true;
     pendingDeleteUids = [];
     showDeleteConfirm = false;
+    for (const uid of uids) mailbox.removeMessage(uid);
+    await executeDelete(uids, selectedAccountId, selectedFolder);
+  }
+
+  async function executeDelete(uids: number[], accountId: number, folder: string) {
+    isDeleting = true;
     try {
-      // Optimistic + parallel: the server applies local deletes instantly and
-      // replays the provider moves in the background.
-      for (const uid of uids) mailbox.removeMessage(uid);
+      // Parallel: the server applies local deletes instantly and replays the
+      // provider moves in the background.
       await Promise.all(
         uids.map(async (uid) => {
           try {
-            await deleteMessageCmd(selectedAccountId, uid, selectedFolder);
+            await deleteMessageCmd(accountId, uid, folder);
           } catch (e) {
             console.warn("Loeschen von uid", uid, "fehlgeschlagen", e);
           }
         }),
       );
-      invalidateFolderCache(selectedAccountId, selectedFolder);
-      await loadFolder();
+      invalidateFolderCache(accountId, folder);
+      if (accountId === selectedAccountId && folder === selectedFolder) await loadFolder();
     } finally {
       isDeleting = false;
     }
@@ -2676,11 +2724,11 @@ let sentFolderName = $state<string | null>(null);
           <span class="preview-from-email">{extractEmail(selectedMessage.from)}</span>
         </div>
         <div class="preview-header-actions">
-          <button type="button" class="action-btn-pill" onclick={() => handleReply(selectedMessage)}>
+          <button type="button" class="action-btn-pill primary" onclick={() => handleReply(selectedMessage)}>
             {$t("mail.reply")}
           </button>
           <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
-            {$t("mail.delete")}
+            {$t("mail.deleteMail")}
           </button>
         </div>
       </div>
@@ -2943,7 +2991,7 @@ let sentFolderName = $state<string | null>(null);
               {$t("mail.move")}
             </button>
             <button type="button" class="selection-btn danger" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
-              {$t("mail.delete")}
+              {$t("mail.deleteMails")}
             </button>
             <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")}>
               &#x2715;
@@ -3005,33 +3053,25 @@ let sentFolderName = $state<string | null>(null);
 {/if}
 
   {#if showDeleteConfirm}
-    {#if moveToTrash}
-      <ConfirmationDialog
-        open={showDeleteConfirm}
-        title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTrashTitle1") : $t("mail.deleteConfirmTrashTitleN")}
-        message={pendingDeleteUids.length === 1
-          ? $t("mail.deleteConfirmTrashMsg1")
-          : $t("mail.deleteConfirmTrashMsgN", { count: pendingDeleteUids.length })}
-        confirmLabel={$t("mail.toTrash")}
-        cancelLabel={$t("common.cancel")}
-        danger={true}
-        onconfirm={confirmDelete}
-        oncancel={cancelDelete}
-      />
-    {:else}
-      <ConfirmationDialog
-        open={showDeleteConfirm}
-        title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTitle1") : $t("mail.deleteConfirmTitleN")}
-        message={pendingDeleteUids.length === 1
-          ? $t("mail.deleteConfirmMsg1")
-          : $t("mail.deleteConfirmMsgN", { count: pendingDeleteUids.length })}
-        confirmLabel={$t("mail.delete")}
-        cancelLabel={$t("common.cancel")}
-        danger={true}
-        onconfirm={confirmDelete}
-        oncancel={cancelDelete}
-      />
-    {/if}
+    <ConfirmationDialog
+      open={showDeleteConfirm}
+      title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTitle1") : $t("mail.deleteConfirmTitleN")}
+      message={pendingDeleteUids.length === 1
+        ? $t("mail.deleteConfirmMsg1")
+        : $t("mail.deleteConfirmMsgN", { count: pendingDeleteUids.length })}
+      confirmLabel={pendingDeleteUids.length === 1 ? $t("mail.deleteFinal1") : $t("mail.deleteFinalN")}
+      cancelLabel={$t("common.cancel")}
+      danger={true}
+      onconfirm={confirmDelete}
+      oncancel={cancelDelete}
+    />
+  {/if}
+
+  {#if undoDelete}
+    <div class="undo-toast" role="status" aria-live="polite">
+      <span>{undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length })}</span>
+      <button type="button" class="undo-toast-btn" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
+    </div>
   {/if}
 
   {#if showDeleteFolderConfirm}
@@ -3039,7 +3079,7 @@ let sentFolderName = $state<string | null>(null);
       open={showDeleteFolderConfirm}
       title={$t("mail.deleteFolderTitle")}
       message={$t("mail.deleteFolderMsg", { name: pendingDeleteFolder ?? "" })}
-      confirmLabel={$t("mail.delete")}
+      confirmLabel={$t("mail.deleteFolderTitle")}
       cancelLabel={$t("common.cancel")}
       danger={true}
       onconfirm={confirmDeleteFolder}
@@ -3220,7 +3260,7 @@ let sentFolderName = $state<string | null>(null);
     padding: 12px;
     background: none;
     border: none;
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
     transition: background 0.15s ease-in-out;
@@ -3240,7 +3280,7 @@ let sentFolderName = $state<string | null>(null);
     padding: 12px;
     background: var(--am-seite);
     border: 1px solid var(--am-rand);
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
     transition: all 0.15s ease-in-out;
@@ -3400,7 +3440,7 @@ let sentFolderName = $state<string | null>(null);
     gap: 2px;
     padding: 4px;
     border: 1px solid var(--am-rand);
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
   }
   .list-header h1 {
@@ -3415,7 +3455,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-gedaempft);
     transition: all 0.15s ease;
     padding: 6px;
-    border-radius: 100px;
+    border-radius: var(--am-radius-mittel);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3437,7 +3477,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-primaer);
     cursor: pointer;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--am-radius-mittel);
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -3470,7 +3510,7 @@ let sentFolderName = $state<string | null>(null);
   .selection-btn {
     padding: 5px 12px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     color: var(--am-text-primaer);
     font-size: 0.75rem;
@@ -3487,9 +3527,12 @@ let sentFolderName = $state<string | null>(null);
     opacity: 0.5;
     cursor: default;
   }
-  .selection-btn.danger:hover {
+  .selection-btn.danger {
     border-color: var(--am-fehler);
     color: var(--am-fehler);
+  }
+  .selection-btn.danger:hover:not(:disabled) {
+    background: var(--am-fehler-flaeche);
   }
   .selection-btn.ghost {
     border-color: transparent;
@@ -3536,30 +3579,75 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     gap: 8px;
   }
+  /* Mail actions (CI R1/G2): reply is the one primary, delete is a
+     secondary danger — the border and the word carry the red. */
   .action-btn-pill {
     padding: 6px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: 100px;
+    min-height: var(--am-ziel-zeiger);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     color: var(--am-text-primaer);
     cursor: pointer;
     font-size: 0.75rem;
     font-weight: 500;
-    transition: all 0.15s ease-in-out;
+    transition: background-color var(--am-dauer-schnell) var(--am-kurve),
+      border-color var(--am-dauer-schnell) var(--am-kurve);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 100px;
   }
   .action-btn-pill:hover {
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-ruhend);
     background: var(--am-flaeche-2);
   }
-  .action-btn-pill.delete:hover {
+  .action-btn-pill.primary {
+    background: var(--am-handlung-ruhend);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
+  }
+  .action-btn-pill.primary:hover {
+    background: var(--am-handlung-hover);
+    border-color: var(--am-handlung-hover);
+  }
+  .action-btn-pill.delete {
     border-color: var(--am-fehler);
     color: var(--am-fehler);
-    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
+  }
+  .action-btn-pill.delete:hover {
+    background: var(--am-fehler-flaeche);
+  }
+  /* "In den Papierkorb verschoben · Rückgängig" — floats, so it carries the
+     one shadow and the emphasised border (CI R6). */
+  .undo-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--am-raum-8) + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: var(--am-ebene-menue);
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-4);
+    padding: var(--am-raum-2) var(--am-raum-2) var(--am-raum-2) var(--am-raum-4);
+    background: var(--am-flaeche-3);
+    color: var(--am-text-primaer);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
+    box-shadow: var(--am-schatten-1);
+    font-size: var(--fs-base);
+  }
+  .undo-toast-btn {
+    min-height: var(--am-ziel-zeiger);
+    padding: 0 var(--am-raum-4);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .undo-toast-btn:hover {
+    background: var(--am-flaeche-2);
   }
   .preview-scroll-wrapper {
     flex: 1;
@@ -3717,7 +3805,7 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 500;
     padding: 6px 12px;
     border: none;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
     cursor: pointer;
@@ -3922,7 +4010,7 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 600;
     padding: 10px 24px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     transition: all 0.15s ease-in-out;
   }
@@ -3940,7 +4028,7 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 20px;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     transition: all 0.15s ease-in-out;
   }
@@ -4135,7 +4223,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-gedaempft);
     font-size: 1rem;
     padding: 4px 8px;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     display: inline-flex;
     align-items: center;
     gap: 4px;

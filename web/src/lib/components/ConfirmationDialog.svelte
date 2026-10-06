@@ -31,7 +31,9 @@
       if (e.key === "Escape") {
         e.preventDefault();
         oncancel();
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" && !danger) {
+        // A destructive question must not confirm on Enter: focus starts on
+        // "Abbrechen" (CI HB-DIALOG), so Enter activates whatever is focused.
         e.preventDefault();
         onconfirm();
       }
@@ -155,7 +157,7 @@
     .btn-cancel {
       padding: 8px 18px;
       border: 1px solid var(--am-rand);
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-seite);
       color: var(--am-text-primaer);
       font-size: 0.8125rem;
@@ -177,7 +179,7 @@
     .btn-alt {
       padding: 8px 18px;
       border: 1px solid var(--am-rand);
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-seite);
       color: var(--am-text-primaer);
       font-size: 0.8125rem;
@@ -199,7 +201,7 @@
     .btn-confirm {
       padding: 8px 18px;
       border: none;
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-handlung-ruhend);
       color: var(--am-handlung-text);
       font-size: 0.8125rem;
@@ -222,6 +224,6 @@
     }
 
     .btn-confirm.danger:hover {
-      opacity: 0.85;
+      background: var(--am-fehler-hover);
     }
   </style>

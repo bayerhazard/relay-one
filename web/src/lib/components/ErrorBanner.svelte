@@ -77,7 +77,7 @@
       flex-shrink: 0;
       padding: 5px 14px;
       border: 1px solid var(--am-fehler);
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-seite);
       color: var(--am-fehler);
       font-size: 0.6875rem;

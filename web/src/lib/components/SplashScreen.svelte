@@ -372,7 +372,7 @@
     display: flex;
     gap: 4px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     padding: 2px;
     background: var(--am-flaeche-1);
   }
@@ -485,7 +485,7 @@
     font-weight: 600;
     padding: 10px 24px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     transition: all 0.15s ease-in-out;
   }
@@ -503,7 +503,7 @@
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 20px;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     transition: all 0.15s ease-in-out;
   }

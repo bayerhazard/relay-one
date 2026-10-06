@@ -26,7 +26,7 @@
     padding: 8px;
     background: none;
     border: none;
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
     color: var(--am-text-primaer);

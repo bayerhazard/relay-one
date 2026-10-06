@@ -785,9 +785,6 @@
                 {#if todo.priority}
                   <span class={`tk-prio ${prioClass(todo.priority)}`} title={$t("tasks.priority", { p: todo.priority })}>{PRIO_LABEL[todo.priority]}</span>
                 {/if}
-                <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => askDelete(todo)} title={$t("tasks.deleteBtn")}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                </button>
               </div>
 
               <!-- Sub-tasks -->
@@ -899,7 +896,7 @@
 
     <div class="tk-detail-actions">
       <button type="button" class="tk-btn tk-btn-ghost" onclick={() => openSubtaskFor(detail!)}>{$t("tasks.subtaskAdd")}</button>
-      <button type="button" class="tk-btn tk-btn-ghost tk-btn-danger" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
+      <button type="button" class="tk-btn tk-btn-danger" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
       <span class="tk-spacer"></span>
       <button type="button" class="tk-btn tk-btn-primary" onclick={saveDetail} disabled={busy}>{busy ? $t("tasks.saving") : $t("common.save")}</button>
     </div>
@@ -1241,11 +1238,10 @@
     color: var(--am-text-gedaempft);
     cursor: pointer;
     padding: 6px;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     flex-shrink: 0;
   }
   .tk-icon-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-  .tk-icon-btn-danger:hover { color: var(--am-fehler); }
 
   .tk-btn {
     display: inline-flex;
@@ -1254,7 +1250,7 @@
     gap: 6px;
     padding: 8px 14px;
     border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     font-size: var(--fs-sm);
@@ -1266,7 +1262,9 @@
   .tk-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
   .tk-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
   .tk-btn-ghost:hover { background: var(--am-flaeche-2); }
-  .tk-btn-danger { color: var(--am-fehler); }
+  /* Secondary danger: the border and the word carry the red (CI R1). */
+  .tk-btn-danger { background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
+  .tk-btn-danger:hover:not(:disabled) { background: var(--am-fehler-flaeche); }
 
   /* Detail panel — centred modal, matching Contacts/Calendar pattern */
   .tk-detail-scrim {
@@ -1369,7 +1367,7 @@
     border: none;
     color: var(--am-text-primaer);
     cursor: pointer;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     font-size: 1.25rem;
   }
   .tk-nav-btn:hover { background: var(--am-flaeche-2); }

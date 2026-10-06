@@ -1445,7 +1445,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
   }
   .cal-icon-btn:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
 
@@ -1893,7 +1893,7 @@
   .cal-detail-inner { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .cal-detail-top { display: flex; align-items: center; justify-content: space-between; }
   .cal-detail-cal { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-  .cal-detail-close { background: none; border: none; color: var(--am-text-gedaempft); font-size: var(--fs-xl); cursor: pointer; padding: 0 6px; border-radius: var(--am-radius-klein); line-height: 1; }
+  .cal-detail-close { background: none; border: none; color: var(--am-text-gedaempft); font-size: var(--fs-xl); cursor: pointer; padding: 0 6px; border-radius: var(--am-radius-mittel); line-height: 1; }
   .cal-detail-close:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
   .cal-detail-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; }
   .cal-detail-rows { display: flex; flex-direction: column; gap: 10px; }

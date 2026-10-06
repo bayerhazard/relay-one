@@ -64,26 +64,29 @@
   .btn-accept,
   .btn-reject {
     padding: 4px 12px;
-    border-radius: 6px;
+    min-height: var(--am-ziel-zeiger);
+    border-radius: var(--am-radius-mittel);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     border: 1px solid transparent;
   }
+  /* Accept is the primary action of the diff; rejecting a suggestion is not
+     destructive, so it is secondary — never green or red (CI R1/G2). */
   .btn-accept {
-    background: var(--am-erfolg);
+    background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
   }
   .btn-accept:hover {
-    opacity: 0.9;
+    background: var(--am-handlung-hover);
   }
   .btn-reject {
     background: var(--am-seite);
-    color: var(--am-fehler);
-    border-color: var(--am-fehler);
+    color: var(--am-text-primaer);
+    border-color: var(--am-rand-betont-farbe);
   }
   .btn-reject:hover {
-    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
+    background: var(--am-flaeche-2);
   }
   .diff-content {
     padding: 12px;

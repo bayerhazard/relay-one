@@ -269,9 +269,6 @@
               <button type="button" class="ct-icon-btn" onclick={() => openEdit(c)} title={$t("contacts.editBtn")}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
               </button>
-              <button type="button" class="ct-icon-btn ct-icon-btn-danger" onclick={() => askDelete(c)} title={$t("contacts.deleteBtn")}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-              </button>
             </div>
           </li>
         {/each}
@@ -309,6 +306,12 @@
           <input type="text" bind:value={form.organization} placeholder={$t("contacts.phOrg")} />
         </label>
         <div class="ct-modal-actions">
+          {#if editingUid}
+            {@const target = contacts.find((x) => x.vcard_uid === editingUid)}
+            {#if target}
+              <button type="button" class="ct-btn ct-btn-danger" onclick={() => { editorOpen = false; askDelete(target); }} disabled={busy}>{$t("contacts.deleteBtn")}</button>
+            {/if}
+          {/if}
           <button type="button" class="ct-btn ct-btn-ghost" onclick={() => editorOpen = false} disabled={busy}>{$t("common.cancel")}</button>
           <button type="button" class="ct-btn ct-btn-primary" onclick={saveContact} disabled={busy}>
             {busy ? $t("contacts.saving") : $t("common.save")}
@@ -444,10 +447,9 @@
     color: var(--am-text-gedaempft);
     cursor: pointer;
     padding: 6px;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
   }
   .ct-icon-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-  .ct-icon-btn-danger:hover { color: var(--am-fehler); }
 
   .ct-btn {
     display: inline-flex;
@@ -456,7 +458,7 @@
     gap: 6px;
     padding: 8px 14px;
     border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     font-size: var(--fs-sm);
@@ -467,6 +469,9 @@
   .ct-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
   .ct-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
   .ct-btn-ghost:hover { background: var(--am-flaeche-2); }
+  /* Secondary danger, left in the dialog footer, away from "Speichern" (CI R1/G2). */
+  .ct-btn-danger { margin-right: auto; background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
+  .ct-btn-danger:hover:not(:disabled) { background: var(--am-fehler-flaeche); }
 
   .ct-modal-backdrop {
     position: fixed;
@@ -553,7 +558,7 @@
     border: none;
     color: var(--am-text-primaer);
     cursor: pointer;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     font-size: 1.25rem;
   }
   .ct-nav-btn:hover { background: var(--am-flaeche-2); }

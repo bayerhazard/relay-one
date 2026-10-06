@@ -690,7 +690,7 @@
   .assistant-send {
     height: 40px;
     border: none;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
     padding: 0 16px;

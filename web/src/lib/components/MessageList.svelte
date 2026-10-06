@@ -445,7 +445,7 @@
         }}><span class="ctx-icon">{@html iconSVG("move")}</span>{$t("mail.move")}</button>
       {/if}
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
+      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.deleteMail")}</button>
     </div>
   {/if}
 </div>

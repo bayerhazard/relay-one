@@ -178,7 +178,7 @@
   .btn-cancel {
     padding: 8px 18px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     color: var(--am-text-primaer);
     font-size: 0.8125rem;
@@ -195,7 +195,7 @@
   .btn-confirm {
     padding: 8px 18px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
     font-size: 0.8125rem;

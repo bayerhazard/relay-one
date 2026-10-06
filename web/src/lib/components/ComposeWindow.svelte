@@ -707,7 +707,7 @@
   </div>
 
   <div class="editor-toolbar">
-    <button type="button" class="btn-ai primary" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
+    <button type="button" class="btn-ai" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
       <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? $t("compose.recordingStop") : $t("compose.dictationStart")}>
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
@@ -784,7 +784,7 @@
   .close-btn {
     background: none; border: none; cursor: pointer;
     font-size: 1rem; color: var(--am-text-gedaempft);
-    padding: 4px 8px; border-radius: 6px;
+    padding: 4px 8px; border-radius: var(--am-radius-mittel);
     transition: all 0.15s ease;
   }
   .close-btn:hover { background: var(--am-flaeche-1); color: var(--am-text-primaer); }
@@ -987,7 +987,7 @@
   .fmt-btn {
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--am-radius-mittel);
     color: var(--am-text-gedaempft);
     padding: 4px 5px;
     cursor: pointer;
@@ -1077,9 +1077,9 @@
     align-items: center;
     gap: 6px;
     padding: 5px 14px;
-    height: 34px;
-    border: 1px solid var(--am-rand);
-    border-radius: 10px;
+    min-height: var(--am-ziel-zeiger);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     color: var(--am-text-primaer);
     cursor: pointer;
@@ -1089,8 +1089,6 @@
     transition: all 0.15s ease;
   }
   .btn-ai:hover:not(:disabled) { border-color: var(--am-handlung-ruhend); }
-  .btn-ai.primary { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); border-color: var(--am-handlung-ruhend); }
-  .btn-ai.primary:hover:not(:disabled) { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); }
   .btn-ai:disabled { opacity: 0.45; cursor: default; }
   .btn-ai.recording { background: var(--am-fehler); border-color: var(--am-fehler); color: var(--am-handlung-text); animation: toolbarPulse 1.5s ease-in-out infinite; }
 
@@ -1100,14 +1098,13 @@
     justify-content: center;
     width: 24px;
     height: 24px;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     transition: all 0.12s ease;
     flex-shrink: 0;
   }
   .toggle-mic.voice-enabled { display: flex; }
   .toggle-mic:hover { background: transparent; }
-  .btn-ai.primary .toggle-mic:hover { background: transparent; }
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
   .toggle-mic svg { width: 14px; height: 14px; }
   /*
@@ -1135,18 +1132,18 @@
     align-items: center;
     justify-content: center;
     padding: 5px 18px;
-    height: 34px;
-    background: var(--am-erfolg);
+    min-height: var(--am-ziel-zeiger);
+    background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
     border: none;
-    border-radius: 10px;
+    border-radius: var(--am-radius-mittel);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s ease;
     font-family: inherit;
   }
-  .btn-send:hover:not(:disabled) { background: color-mix(in srgb, var(--am-erfolg) 85%, #000000); }
+  .btn-send:hover:not(:disabled) { background: var(--am-handlung-hover); }
   .btn-send:disabled { opacity: 0.5; cursor: default; }
 
   @keyframes toolbarPulse {
@@ -1238,7 +1235,7 @@
   .close-dialog {
     background: var(--am-seite);
     border: 1px solid var(--am-rand);
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     padding: 24px 28px;
     min-width: 280px;
     box-shadow: none;

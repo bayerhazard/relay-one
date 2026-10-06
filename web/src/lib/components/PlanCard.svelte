@@ -236,7 +236,7 @@
     font-size: 0.8125rem;
     font-weight: 600;
     padding: 7px 14px;
-    border-radius: var(--am-radius-klein, 6px);
+    border-radius: var(--am-radius-mittel);
     border: 1px solid var(--am-rand);
     cursor: pointer;
     transition: all 0.15s ease-in-out;

@@ -50,6 +50,13 @@ describe("ConfirmationDialog", () => {
     expect(defaultProps.onconfirm).toHaveBeenCalledOnce();
   });
 
+  it("does not confirm a destructive dialog on Enter (focus starts on cancel)", async () => {
+    render(ConfirmationDialog, { ...defaultProps, danger: true });
+    const overlay = screen.getByRole("alertdialog");
+    await fireEvent.keyDown(overlay, { key: "Enter" });
+    expect(defaultProps.onconfirm).not.toHaveBeenCalled();
+  });
+
   it("shows custom title", () => {
     render(ConfirmationDialog, {
       ...defaultProps,

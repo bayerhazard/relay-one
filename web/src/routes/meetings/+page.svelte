@@ -386,7 +386,7 @@
             <button type="button" class="mt-btn mt-btn-ghost" onclick={emailMinutes}>
               {$t("meetings.emailMinutes")}
             </button>
-            <button type="button" class="mt-btn mt-btn-ghost mt-btn-danger" onclick={handleDelete}>
+            <button type="button" class="mt-btn mt-btn-danger" onclick={handleDelete}>
               {$t("meetings.delete")}
             </button>
           </div>
@@ -508,7 +508,7 @@
     color: var(--am-text-gedaempft);
     cursor: pointer;
     padding: 4px;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     font-size: 1rem;
   }
   .mt-nav-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
@@ -521,7 +521,7 @@
     gap: 6px;
     padding: 8px 14px;
     border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     font-size: var(--fs-sm);
@@ -531,8 +531,9 @@
   .mt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .mt-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
   .mt-btn-ghost:hover { background: var(--am-flaeche-2); }
-  .mt-btn-danger { color: var(--am-fehler, #c0392b); }
-  .mt-btn-danger:hover { background: var(--am-flaeche-2); }
+  /* Secondary danger: border and word carry the red (CI R1). */
+  .mt-btn-danger { background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
+  .mt-btn-danger:hover { background: var(--am-fehler-flaeche); }
 
   .mt-list {
     flex: 1;

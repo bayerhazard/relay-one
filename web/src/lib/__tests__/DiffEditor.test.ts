@@ -11,7 +11,7 @@ describe("DiffEditor", () => {
       onaccept: vi.fn(),
       onreject: vi.fn(),
     });
-    expect(screen.getByText("KI-Vorschlag (Änderungen anzeigen)")).toBeTruthy();
+    expect(screen.getByText("AI-Vorschlag (Änderungen anzeigen)")).toBeTruthy();
   });
 
   it("renders accept and reject buttons", () => {
