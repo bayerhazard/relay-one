@@ -1,7 +1,9 @@
 <script lang="ts" module>
   export type Bereich = "mail" | "contacts" | "calendar" | "meetings" | "tasks";
 
-  /** What a page inside the shell may ask of it (getContext("huelle")). */
+  /** What components inside the shell may ask of it (getContext("huelle")).
+   * The page itself renders the shell and so cannot see this context — it
+   * binds `spalteOffen` instead. */
   export interface HuelleKontext {
     /** Closes the column sheet on the phone, e.g. after picking a folder. */
     schliesseSpalte: () => void;
@@ -39,20 +41,23 @@
     suchePlatzhalter?: string;
     /** The inside of the area, under the five areas in the column. */
     spalte?: Snippet;
+    /** Whether the column sheet is open on the phone; bind it to close the
+     * sheet after a choice in the column (`spalteOffen = false`). */
+    spalteOffen?: boolean;
     children: Snippet;
   }
 
-  let { bereich = null, suche = $bindable(""), suchePlatzhalter = "", spalte, children }: Props = $props();
+  let { bereich = null, suche = $bindable(""), suchePlatzhalter = "", spalte, spalteOffen = $bindable(false), children }: Props = $props();
 
-  const BEREICHE: { id: Bereich; href: string; text: string; zeichen: SymbolName }[] = [
-    { id: "mail", href: "/", text: "mail.title", zeichen: "post" },
-    { id: "contacts", href: "/contacts", text: "contacts.title", zeichen: "team" },
-    { id: "calendar", href: "/calendar", text: "calendar.title", zeichen: "kalender" },
-    { id: "meetings", href: "/meetings", text: "meetings.title", zeichen: "besprechung" },
-    { id: "tasks", href: "/tasks", text: "tasks.title", zeichen: "aufgabe" },
-  ];
+  // Translated here, literally, so the i18n guard sees the keys.
+  const BEREICHE: { id: Bereich; href: string; text: string; zeichen: SymbolName }[] = $derived([
+    { id: "mail", href: "/", text: $t("mail.title"), zeichen: "post" },
+    { id: "contacts", href: "/contacts", text: $t("contacts.title"), zeichen: "team" },
+    { id: "calendar", href: "/calendar", text: $t("calendar.title"), zeichen: "kalender" },
+    { id: "meetings", href: "/meetings", text: $t("meetings.title"), zeichen: "besprechung" },
+    { id: "tasks", href: "/tasks", text: $t("tasks.title"), zeichen: "aufgabe" },
+  ]);
 
-  let spalteOffen = $state(false);
   setContext<HuelleKontext>("huelle", { schliesseSpalte: () => (spalteOffen = false) });
 
   // A page change closes the sheet.
@@ -110,9 +115,9 @@
   <nav class="huelle-nav" aria-label={$t("huelle.bereiche")}>
     <div class="huelle-nav-gruppe">
       {#each BEREICHE as b (b.id)}
-        <a href={b.href} class="huelle-nav-item" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} title={$t(b.text)}>
+        <a href={b.href} class="huelle-nav-item" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} title={b.text}>
           <Symbol name={b.zeichen} size={20} />
-          <span>{$t(b.text)}</span>
+          <span>{b.text}</span>
         </a>
       {/each}
     </div>
@@ -120,9 +125,9 @@
     <!-- The narrow bar at the bottom: the five areas, all of them (G5). -->
     <div class="huelle-nav-mobil">
       {#each BEREICHE as b (b.id)}
-        <a href={b.href} class="huelle-nav-item" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} title={$t(b.text)}>
+        <a href={b.href} class="huelle-nav-item" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} title={b.text}>
           <Symbol name={b.zeichen} size={20} />
-          <span>{$t(b.text)}</span>
+          <span>{b.text}</span>
         </a>
       {/each}
     </div>

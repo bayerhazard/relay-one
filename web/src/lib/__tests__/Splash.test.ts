@@ -21,7 +21,6 @@ vi.mock("$lib/services/tauri", () => ({
   deleteMessageCmd: vi.fn(),
   moveMessageCmd: vi.fn(),
   getMoveToTrash: vi.fn().mockResolvedValue(true),
-  getOwnPhoto: vi.fn().mockResolvedValue(null),
   setMoveToTrash: vi.fn(),
   getUnreadCounts: vi.fn().mockResolvedValue({}),
   ping: vi.fn().mockResolvedValue("pong"),
@@ -139,8 +138,8 @@ describe("Splash Screen Integration in +page.svelte", () => {
     render(Page);
 
     await waitFor(() => {
-      // The app-container has the sidebar search input
-      expect(document.querySelector(".ss-input")).toBeTruthy();
+      // The mail page in the shell: its search sits in the header (HB-SUCHE)
+      expect(screen.getByRole("searchbox", { name: "E-Mails suchen..." })).toBeTruthy();
     });
 
     // Splash screen header should NOT be present

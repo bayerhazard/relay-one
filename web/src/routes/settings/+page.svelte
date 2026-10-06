@@ -1,12 +1,11 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
-import {
+  import {
     getSettings, saveSettings,
     connectAccount, listAccounts, deleteAccount, updateAccountSettings,
     getMoveToTrash, setMoveToTrash,
-    getCardDavSettings, setCardDavSettings, syncCardDav, getOwnPhoto, saveOwnPhoto,
+    getCardDavSettings, setCardDavSettings, syncCardDav,
     syncCalDav,
     listCalDavAccounts, createCalDavAccount, updateCalDavAccount, deleteCalDavAccount,
     type CalDavAccount,
@@ -22,41 +21,40 @@ import {
   import { settings, showDiffEnabled, ROUTER_BASE, ROUTER_CHAT_MODEL } from "$lib/stores/settings";
   import { clearFollowupMemory } from "$lib/utils/followupMemory";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
-  import { useSidebarResize } from "$lib/composables/useSidebarResize";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import EinstellungenSpalte, { type Abschnitt } from "./EinstellungenSpalte.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { appearance, type Appearance } from "$lib/stores/appearance";
 
-  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
-  $effect(() => () => destroyResize());
-
   // ─── Active Tab State ────────────────────────
-  let activeTab = $state("general"); // 'general' | 'accounts' | 'ai' | 'carddav' | 'voice'
+  let activeTab = $state("general"); // 'general' | 'accounts' | 'carddav' | 'caldav' | 'ai' | 'voice' | 'cache' | 'archive'
 
-  // ─── Mobile drill-down (iOS settings style) ──
-  // On phones (≤600px) the menu list fills the screen; tapping an item
-  // pushes the content view with a back button returning to the menu.
-  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
-  let isNarrow = $derived(viewportWidth <= 600);
-  let mobileContentOpen = $state(false);
-  $effect(() => { fabHidden.set(isNarrow && mobileContentOpen); });
+  // The sections in the shell's column (HB-UNTERNAV, RL-G2); the settings
+  // belong to no area, they are reached through the profile (HB-KONTO).
+  // On the phone the shell's sheet replaces the old menu/back drill-down.
+  // `titel` heads the page (HB-SEITENKOPF), `desc` is the line under it.
+  // The texts are translated here, literally, so the i18n guard sees them.
+  const ABSCHNITTE: (Abschnitt & { titel: string; desc: string })[] = $derived([
+    { id: "general", text: $t("settings.general"), zeichen: "einstellungen", titel: $t("settings.generalTitle"), desc: $t("settings.generalDesc") },
+    { id: "accounts", text: $t("settings.accounts"), zeichen: "post", titel: $t("settings.accounts"), desc: $t("settings.accountsDesc") },
+    { id: "carddav", text: $t("settings.contacts"), zeichen: "team", titel: $t("settings.contactsTitle"), desc: $t("settings.contactsDesc") },
+    { id: "caldav", text: $t("settings.calendar"), zeichen: "kalender", titel: $t("settings.calendarTitle"), desc: $t("settings.calendarDesc") },
+    { id: "ai", text: $t("settings.ai"), zeichen: "ai", titel: $t("settings.aiTitle"), desc: $t("settings.aiDesc") },
+    { id: "voice", text: $t("settings.voice"), zeichen: "mikrofon", titel: $t("settings.voiceTitle"), desc: $t("settings.voiceDesc") },
+    { id: "cache", text: $t("settings.cache"), zeichen: "datenbank", titel: $t("settings.cacheTitle"), desc: $t("settings.cacheDesc") },
+    { id: "archive", text: $t("settings.archive"), zeichen: "datensicherung", titel: $t("settings.archiveTitle"), desc: $t("settings.archiveDesc") },
+  ]);
+  let abschnitt = $derived(ABSCHNITTE.find((a) => a.id === activeTab) ?? ABSCHNITTE[0]);
 
-  $effect(() => {
-    if (typeof window === "undefined") return;
-    let raf = 0;
-    const onResize = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => { viewportWidth = window.innerWidth; });
-    };
-    window.addEventListener("resize", onResize);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
-  });
+  // The shell's sheet on the phone; a choice closes it.
+  let sheetOpen = $state(false);
 
   function selectTab(tab: string) {
     activeTab = tab;
-    if (isNarrow) mobileContentOpen = true;
+    sheetOpen = false;
+    if (tab === "archive") { loadDeleteQueue(); loadBackups(); }
   }
 
   // ─── Appearance ──────────────────────────────
@@ -109,7 +107,6 @@ import {
   let caldavSyncResult = $state<number | null>(null);
   let showDeleteCalDavConfirm = $state(false);
   let pendingDeleteCalDavId = $state<string | null>(null);
-  let ownPhoto = $state<{ data: string; type: string } | null>(null);
 
   // ─── Voice ───────────────────────────────────
   // Olares Router is the default source for STT + TTS; manual is opt-in.
@@ -255,11 +252,6 @@ import {
 
     // Load CalDAV accounts
     await loadCaldavAccounts();
-
-    // Load own photo
-    try {
-      ownPhoto = await getOwnPhoto();
-    } catch (e) { console.warn("Photo load failed", e); }
 
     // Load Voice settings
     try {
@@ -641,39 +633,6 @@ async function handleSaveCardDav() {
     }
   }
 
-  // ─── Photo Upload ──────────────────────────
-  async function handlePhotoUpload() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp,image/svg+xml';
-    input.onchange = async (e: Event) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const result = reader.result as string;
-        const base64 = result.split(',')[1];
-        try {
-          await saveOwnPhoto(base64, file.type);
-          ownPhoto = { data: base64, type: file.type };
-        } catch (e) {
-          console.error("Photo upload failed", e);
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  }
-
-  async function handleClearPhoto() {
-    try {
-      await saveOwnPhoto("", "");
-      ownPhoto = null;
-    } catch (e) {
-      console.error("Photo clear failed", e);
-    }
-  }
-
   // ─── E-Mail-Konto ───────────────────────────
   let acctName = $state("");
   let imapHost = $state("");
@@ -868,94 +827,34 @@ async function handleSaveCardDav() {
   }
 </script>
 
-<div class="settings-page" class:narrow={isNarrow} class:mobile-content={isNarrow && mobileContentOpen}>
-  <!-- 1. LEFT SIDEBAR (HubSpot-Style Navigation) -->
-  <aside class="settings-sidebar" style={`width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
-    <div class="sidebar-header">
-      <ModuleLogo to="/" label={$t("settings.title")} noHover />
-    </div>
+<svelte:head><title>{tabTitel(abschnitt.text)}</title></svelte:head>
 
-    <nav class="sidebar-menu">
-      <button type="button" class="menu-item" class:active={activeTab === 'general'} onclick={() => selectTab('general')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="einstellungen" size={20} />
-        </div>
-        <span>{$t("settings.general")}</span>
-      </button>
+<Huelle bereich={null} bind:spalteOffen={sheetOpen}>
+  {#snippet spalte()}
+    <EinstellungenSpalte
+      abschnitte={ABSCHNITTE.map((a) => (a.id === "accounts" ? { ...a, zahl: accountList.length } : a))}
+      aktiv={activeTab}
+      onwahl={selectTab}
+    />
+  {/snippet}
 
-      <button type="button" class="menu-item" class:active={activeTab === 'accounts'} onclick={() => selectTab('accounts')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="post" size={20} />
-        </div>
-        <span>{$t("settings.accounts")}</span>
-        {#if accountList.length > 0}
-          <span class="badge-pill">{accountList.length}</span>
-        {/if}
-      </button>
-
-      <button type="button" class="menu-item" class:active={activeTab === 'carddav'} onclick={() => selectTab('carddav')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="team" size={20} />
-        </div>
-        <span>{$t("settings.contacts")}</span>
-      </button>
-
-      <button type="button" class="menu-item" class:active={activeTab === 'caldav'} onclick={() => selectTab('caldav')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="kalender" size={20} />
-        </div>
-        <span>{$t("settings.calendar")}</span>
-      </button>
-
-      <button type="button" class="menu-item" class:active={activeTab === 'ai'} onclick={() => selectTab('ai')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="ai" size={20} />
-        </div>
-        <span>{$t("settings.ai")}</span>
-      </button>
-
-    <button type="button" class="menu-item" class:active={activeTab === 'voice'} onclick={() => selectTab('voice')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="mikrofon" size={20} />
-        </div>
-        <span>{$t("settings.voice")}</span>
-      </button>
-
-      <button type="button" class="menu-item" class:active={activeTab === 'cache'} onclick={() => selectTab('cache')}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="datenbank" size={20} />
-        </div>
-        <span>{$t("settings.cache")}</span>
-      </button>
-
-      <button type="button" class="menu-item" class:active={activeTab === 'archive'} onclick={() => { selectTab('archive'); loadDeleteQueue(); loadBackups(); }}>
-        <div class="menu-icon-wrapper">
-          <Symbol name="datensicherung" size={20} />
-        </div>
-        <span>{$t("settings.archive")}</span>
-      </button>
-    </nav>
-  </aside>
-  <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
-
-  <!-- 2. RIGHT MAIN CONTENT AREA -->
   <main class="settings-content-wrapper">
-    {#if isNarrow}
-      <div class="mobile-content-header">
-        <button type="button" class="btn btn-still back-btn" onclick={() => mobileContentOpen = false} title={$t("common.back")}>
-          <Symbol name="zurueck" size={16} />
-          <span>{$t("settings.title")}</span>
-        </button>
+    <!-- HB-SEITENKOPF: the chosen section's title at 28 px, its line under it. -->
+    <div class="seitenkopf">
+      <div class="einst-kopf">
+        <div class="seitenkopf-zeile">
+          <h1>{abschnitt.titel}</h1>
+          {#if activeTab === "accounts" && accountList.length > 0}
+            <span class="seitenkopf-zahl">{accountList.length}</span>
+          {/if}
+        </div>
+        <p class="tab-desc">{abschnitt.desc}</p>
       </div>
-    {/if}
+    </div>
     <div class="settings-content">
 
       <!-- ================= TAB: ALLGEMEIN ================= -->
       {#if activeTab === 'general'}
-        <header class="tab-header">
-          <h1>{$t("settings.generalTitle")}</h1>
-          <p class="tab-desc">{$t("settings.generalDesc")}</p>
-        </header>
 
         <!-- Card: Sprache -->
         <section class="karte settings-card">
@@ -1149,10 +1048,6 @@ async function handleSaveCardDav() {
 
       <!-- ================= TAB: E-MAIL-KONTEN ================= -->
       {#if activeTab === 'accounts'}
-        <header class="tab-header">
-          <h1>{$t("settings.accounts")}</h1>
-          <p class="tab-desc">{$t("settings.accountsDesc")}</p>
-        </header>
 
         <!-- Liste verbundener Konten -->
         {#if accountList.length > 0}
@@ -1344,10 +1239,6 @@ async function handleSaveCardDav() {
 
       <!-- ================= TAB: KI & TEXT ================= -->
       {#if activeTab === 'ai'}
-        <header class="tab-header">
-          <h1>{$t("settings.aiTitle")}</h1>
-          <p class="tab-desc">{$t("settings.aiDesc")}</p>
-        </header>
 
         <!-- Card: Textgenerierungs-Optionen -->
         <section class="karte settings-card">
@@ -1469,10 +1360,6 @@ async function handleSaveCardDav() {
 
        <!-- ================= TAB: CARDDAV ================= -->
       {#if activeTab === 'carddav'}
-        <header class="tab-header">
-          <h1>{$t("settings.contactsTitle")}</h1>
-          <p class="tab-desc">{$t("settings.contactsDesc")}</p>
-        </header>
 
         <!-- Card: CardDAV Settings -->
         <section class="karte settings-card">
@@ -1541,44 +1428,10 @@ async function handleSaveCardDav() {
             {/if}
           </div>
         </section>
-
-        <!-- Card: Profile Photo -->
-        <section class="karte settings-card">
-          <div class="card-header">
-            <h3>{$t("settings.profilePhoto")}</h3>
-            <p class="card-desc">{$t("settings.profilePhotoDesc")}</p>
-          </div>
-
-          <div class="card-body">
-            <div class="photo-upload-row">
-              <div class="photo-preview" class:has-photo={ownPhoto}>
-                {#if ownPhoto}
-                  <img src="data:{ownPhoto.type};base64,{ownPhoto.data}" alt={$t("settings.profilePhoto")} />
-                {:else}
-                  <div class="photo-placeholder">+</div>
-                {/if}
-              </div>
-              <div class="photo-actions">
-                <button type="button" class="btn btn-sekundaer" onclick={handlePhotoUpload}>
-                  {$t("settings.uploadImage")}
-                </button>
-                {#if ownPhoto}
-                  <button type="button" class="btn btn-sekundaer" onclick={handleClearPhoto}>
-                    {$t("settings.remove")}
-                  </button>
-                {/if}
-              </div>
-            </div>
-          </div>
-        </section>
       {/if}
 
       <!-- ================= TAB: CALDAV ================= -->
       {#if activeTab === 'caldav'}
-        <header class="tab-header">
-          <h1>{$t("settings.calendarTitle")}</h1>
-          <p class="tab-desc">{$t("settings.calendarDesc")}</p>
-        </header>
 
         <section class="karte settings-card">
           <div class="card-header">
@@ -1679,10 +1532,6 @@ async function handleSaveCardDav() {
 
       <!-- ================= TAB: VOICE ================= -->
       {#if activeTab === 'voice'}
-        <header class="tab-header">
-          <h1>{$t("settings.voiceTitle")}</h1>
-          <p class="tab-desc">{$t("settings.voiceDesc")}</p>
-        </header>
         <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.voice2mail")}</h3>
@@ -1854,10 +1703,6 @@ async function handleSaveCardDav() {
       {/if}
 
       {#if activeTab === 'archive'}
-        <header class="tab-header">
-          <h1>{$t("settings.archiveTitle")}</h1>
-          <p class="tab-desc">{$t("settings.archiveDesc")}</p>
-        </header>
 
         <!-- Card: Delete Queue Review -->
         <section class="karte settings-card">
@@ -1952,10 +1797,6 @@ async function handleSaveCardDav() {
       {/if}
 
       {#if activeTab === 'cache'}
-        <header class="tab-header">
-          <h1>{$t("settings.cacheTitle")}</h1>
-          <p class="tab-desc">{$t("settings.cacheDesc")}</p>
-        </header>
 
         <!-- Card: Cache Statistics -->
         <section class="karte settings-card">
@@ -2064,7 +1905,7 @@ async function handleSaveCardDav() {
 
     </div>
   </main>
-</div>
+</Huelle>
 
 <ConfirmationDialog
   open={showDeleteAccountConfirm}
@@ -2117,182 +1958,41 @@ async function handleSaveCardDav() {
   <AssistantFab module="settings" />
 
 <style>
-  /* ── Settings shell: sidebar and content [RL-EINSTELLUNGEN] ────────────── */
-  .settings-page {
-    display: flex;
-    height: 100vh;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    overflow: hidden;
-  }
-
-  .settings-sidebar {
-    background: var(--am-flaeche-1);
-    border-right: 1px solid var(--am-rand);
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-
-  .sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
-  }
-
-  .back-btn {
-    width: fit-content;
-  }
-
-  .sidebar-menu {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 0 16px;
-  }
-
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: var(--am-text-gedaempft);
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-    width: 100%;
-    font-family: inherit;
-  }
-
-  .menu-item:hover {
-    color: var(--am-text-primaer);
-    background: var(--am-flaeche-2);
-  }
-
-  .menu-item.active {
-    color: var(--am-handlung-ruhend);
-    background: var(--am-flaeche-2);
-    font-weight: 600;
-  }
-
-  .menu-icon-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-  }
-
-
-  .badge-pill {
-    margin-left: auto;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 20px;
-  }
-
+  /* ── Settings page inside the shell [RL-EINSTELLUNGEN] ────────────────────
+     The shell draws header, column and sections (EinstellungenSpalte); the
+     page is the scrolling main pane with the HB-SEITENKOPF on top and the
+     cards in the reading column (CI G1: forms and settings 720 px), aligned
+     with the title. */
   .settings-content-wrapper {
-    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     overflow-y: auto;
-    height: 100%;
     background: var(--am-seite);
   }
 
-  .settings-content {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 48px 40px 80px 40px;
-  }
-
-  /* ── Mobile drill-down (≤600px) [RL-EINSTELLUNGEN] ──────────────────────────
-     Menu list fills the screen; selecting an item pushes the content
-     view (with a back button). Sidebar and content never show at once. */
-  .mobile-content-header {
-    display: none;
-  }
-
-  @media (max-width: 600px) {
-    .settings-sidebar {
-      width: 100% !important;
-      min-width: 0 !important;
-      border-right: none;
-      overflow-y: auto;
-      padding-top: env(safe-area-inset-top, 0px);
-      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
-    }
-    .resize-handle {
-      display: none;
-    }
-    .settings-page.mobile-content .settings-sidebar {
-      display: none;
-    }
-    .settings-content-wrapper {
-      display: none;
-    }
-    .settings-page.mobile-content .settings-content-wrapper {
-      display: block;
-    }
-    .mobile-content-header {
-      display: block;
-      padding: 8px 12px;
-      padding-top: max(8px, env(safe-area-inset-top, 0px));
-      border-bottom: 1px solid var(--am-rand);
-      background: var(--am-seite);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    .settings-content {
-      max-width: none;
-      padding: 20px 16px 64px;
-    }
-    .tab-header {
-      margin-bottom: 20px;
-    }
-    .tab-header h1 {
-      font-size: 1.375rem;
-    }
-    .settings-card {
-      padding: var(--am-raum-4);
-    }
-    .menu-item {
-      min-height: 48px;
-      padding: 12px;
-      font-size: 1rem;
-    }
-  }
-
-
-  /* ── Tab header and cards [RL-EINSTELLUNGEN] ───────────────────────────── */
-  .tab-header {
-    margin-bottom: 28px;
-  }
-
-  .tab-header h1 {
-    font-size: 1.75rem;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    color: var(--am-text-primaer);
-    margin: 0 0 6px 0;
+  .einst-kopf {
+    display: flex;
+    flex-direction: column;
+    gap: var(--am-raum-1);
+    min-width: 0;
   }
 
   .tab-desc {
     font-size: 0.875rem;
     color: var(--am-text-gedaempft);
     margin: 0;
+  }
+
+  .settings-content {
+    width: 100%;
+    max-width: calc(var(--am-lesespalte) + 2 * var(--am-raum-8));
+    padding: var(--am-raum-6) var(--am-raum-8) var(--am-raum-16);
+  }
+
+  @media (max-width: 40rem) {
+    .settings-content { padding: var(--am-raum-4) var(--am-raum-4) var(--am-raum-16); }
+    .settings-card { padding: var(--am-raum-4); }
   }
 
   /* AM-KARTE draws the card; only the spacing between cards is ours. */
@@ -2904,43 +2604,6 @@ async function handleSaveCardDav() {
   .delete-queue-actions {
     display: flex;
     gap: 6px;
-  }
-
-  /* ── Profile photo [RL-EINSTELLUNGEN] ──────────────────────────────────── */
-  .photo-upload-row {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-  }
-
-  .photo-preview {
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--am-flaeche-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .photo-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .photo-placeholder {
-    font-size: 1.5rem;
-    font-weight: 300;
-    color: var(--am-text-gedaempft);
-  }
-
-  .photo-actions {
-    display: flex;
-    flex-direction: row;
-    gap: 8px;
   }
 
   /* ── CalDAV accounts [RL-EINSTELLUNGEN] ────────────────────────────────── */

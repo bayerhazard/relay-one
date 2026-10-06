@@ -159,6 +159,7 @@
   <div
     class="tree-row root-row"
     class:active={selectedFolder === "INBOX"}
+    aria-current={selectedFolder === "INBOX" ? "page" : undefined}
     class:drag-over={dragTarget === "INBOX"}
     onclick={() => handleRowClick("INBOX", true)}
     ondblclick={handleRootDblClick}
@@ -212,6 +213,7 @@
   <div
     class="tree-row"
     class:active={selectedFolder === node.name}
+    aria-current={selectedFolder === node.name ? "page" : undefined}
     class:drag-over={dragTarget === node.name}
     style={`padding-left: ${14 + (depth + 1) * 15}px`}
     data-folder={node.name}

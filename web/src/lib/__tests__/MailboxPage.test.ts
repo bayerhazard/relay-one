@@ -32,7 +32,6 @@ vi.mock("$lib/services/tauri", async (importOriginal) => {
     fetchMessageBody: vi.fn(),
     fetchRawMessage: vi.fn().mockResolvedValue(""),
     fetchAttachments: vi.fn().mockResolvedValue([]),
-    getOwnPhoto: vi.fn().mockResolvedValue(null),
     loadAttachmentContent: vi.fn().mockResolvedValue(""),
     sendMessage: vi.fn(),
     deleteMessageCmd: vi.fn().mockResolvedValue(undefined),
@@ -142,7 +141,8 @@ async function renderPageWithAccount(withMessages = true, selectUid: number | nu
   render(Page);
 
   await waitFor(() => {
-    expect(document.querySelector(".ss-input")).toBeTruthy();
+    // The mail search sits in the shell header now (HB-SUCHE).
+    expect(screen.getByRole("searchbox", { name: "E-Mails suchen..." })).toBeTruthy();
   });
 }
 
@@ -444,5 +444,44 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
     });
     const flagUids = vi.mocked(tauri.flagMessageCmd).mock.calls.map((c) => c[1]).sort();
     expect(flagUids).toEqual([101, 102]);
+  });
+});
+
+describe("Mailbox Page - in the shell (CI HB-SEITENKOPF, RL-G1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mailboxState.value = { messages: [], selectedUids: [], lastClickedUid: null, loading: false, error: null };
+    mailboxState.subscribers = [];
+  });
+
+  it("titles the list with the folder as the one h1", async () => {
+    await renderPageWithAccount();
+    const h1s = screen.getAllByRole("heading", { level: 1 });
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0].textContent).toBe("Posteingang");
+  });
+
+  it("the star in the list head filters to flagged mails (aria-pressed)", async () => {
+    vi.mocked(tauri.searchMessages).mockResolvedValue([]);
+    await renderPageWithAccount();
+    const star = screen.getByRole("button", { name: "Nur markierte E-Mails anzeigen" });
+    expect(star.getAttribute("aria-pressed")).toBe("false");
+    await fireEvent.click(star);
+    await waitFor(() => {
+      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "is:flagged", 200);
+    });
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+    // The header search shows the operator, as the column field did.
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("is:flagged");
+  });
+
+  it("typing in the header search runs the mail search", async () => {
+    vi.mocked(tauri.searchMessages).mockResolvedValue([]);
+    await renderPageWithAccount();
+    const box = screen.getByRole("searchbox", { name: "E-Mails suchen..." }) as HTMLInputElement;
+    await fireEvent.input(box, { target: { value: "rechnung" } });
+    await waitFor(() => {
+      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "rechnung", 200);
+    });
   });
 });
