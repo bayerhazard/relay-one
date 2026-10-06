@@ -39,6 +39,14 @@
       }
     }
 
+    // `autofocus` does not fire for a dialog that appears later, so focus
+    // moves to "Abbrechen" explicitly — keyboard and screen reader land in
+    // the dialog, and Enter never confirms by accident (CI HB-DIALOG).
+    let cancelButton = $state<HTMLButtonElement | null>(null);
+    $effect(() => {
+      if (open && cancelButton) cancelButton.focus();
+    });
+
     function handleBackdropClick(e: MouseEvent) {
       const target = e.target as HTMLElement;
       if (target.classList.contains("dialog-overlay")) {
@@ -48,7 +56,6 @@
   </script>
 
   {#if open}
-    <!-- svelte-ignore a11y_autofocus -->
     <div
       class="dialog-overlay"
       role="alertdialog"
@@ -73,7 +80,7 @@
               type="button"
               class="btn-cancel"
               onclick={oncancel}
-              autofocus
+              bind:this={cancelButton}
             >
               {cancelLabel || $t("common.cancel")}
             </button>
@@ -108,11 +115,12 @@
       to { opacity: 1; }
     }
 
+    /* A dialog floats: surface 3, emphasised border, the one shadow (CI R6). */
     .dialog-panel {
-      background: var(--am-seite);
-      border: 1px solid var(--am-rand);
-      border-radius: 12px;
-      box-shadow: none;
+      background: var(--am-flaeche-3);
+      border: 1px solid var(--am-rand-betont-farbe);
+      border-radius: var(--am-radius-gross);
+      box-shadow: var(--am-schatten-1);
       max-width: 400px;
       width: 90vw;
       animation: panelIn 0.15s ease-out;

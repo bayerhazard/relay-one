@@ -118,11 +118,12 @@
     to { opacity: 1; }
   }
 
+  /* A dialog floats: surface 3, emphasised border, the one shadow (CI R6). */
   .dialog-panel {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
-    box-shadow: none;
+    background: var(--am-flaeche-3);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-gross);
+    box-shadow: var(--am-schatten-1);
     max-width: 420px;
     width: 90vw;
     animation: panelIn 0.15s ease-out;
