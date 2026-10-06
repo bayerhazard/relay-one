@@ -18,75 +18,127 @@ pub struct SaveSettingsRequest {
     pub url: String,
     pub api_key: String,
     pub model: String,
+    /// `"router"` or `"manual"`. Absent (older clients) → inferred from the URL.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
-/// `POST /api/v1/settings` — persist AI settings.
+/// `POST /api/v1/settings` — persist AI settings (Router default or manual).
 pub async fn save_settings(
     State(state): State<AppState>,
     Json(req): Json<SaveSettingsRequest>,
 ) -> ApiResult<()> {
-    let config = AIConfig {
-        url: req.url,
-        api_key: req.api_key,
-        model: req.model,
-        ..Default::default()
+    let source = match req.source.as_deref() {
+        Some(s) => crate::ai::router::Source::parse(s),
+        None => {
+            if crate::ai::router::is_router_url(&req.url) {
+                crate::ai::router::Source::Router
+            } else {
+                crate::ai::router::Source::Manual
+            }
+        }
     };
-    *state.ai_config.write() = Some(config.clone());
-    *state.ai_client.write() = Some(std::sync::Arc::new(AIClient::new(config.clone())));
 
-    with_db(&state, |conn| {
-        cache::settings::set_setting(conn, "ai_url", &config.url)
-            .map_err(|e: rusqlite::Error| e.to_string())?;
-        cache::settings::set_setting(conn, "ai_model", &config.model)
-            .map_err(|e: rusqlite::Error| e.to_string())?;
-        let encrypted_key =
-            crypto::encrypt(&config.api_key).unwrap_or_else(|_| config.api_key.clone());
-        cache::settings::set_setting(conn, "api_key", &encrypted_key)
-            .map_err(|e: rusqlite::Error| e.to_string())?;
-        Ok(())
+    let config = with_db(&state, |conn| {
+        crate::ai::router::set_ai_source(conn, source).map_err(|e| e.to_string())?;
+        match source {
+            crate::ai::router::Source::Router => {
+                // A non-default URL is persisted as an explicit Router override.
+                let url = req.url.trim();
+                if !url.is_empty() && url != crate::ai::router::DEFAULT_ROUTER_BASE {
+                    crate::ai::router::set_router_url(conn, url).map_err(|e| e.to_string())?;
+                }
+                let zone = state.router_zone.read().clone();
+                let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+                Ok(crate::ai::router::chat_config(&base))
+            }
+            crate::ai::router::Source::Manual => {
+                let config = AIConfig {
+                    url: req.url.clone(),
+                    api_key: req.api_key.clone(),
+                    model: req.model.clone(),
+                    ..Default::default()
+                };
+                cache::settings::set_setting(conn, "ai_url", &config.url)
+                    .map_err(|e: rusqlite::Error| e.to_string())?;
+                cache::settings::set_setting(conn, "ai_model", &config.model)
+                    .map_err(|e: rusqlite::Error| e.to_string())?;
+                let encrypted_key =
+                    crypto::encrypt(&config.api_key).unwrap_or_else(|_| config.api_key.clone());
+                cache::settings::set_setting(conn, "api_key", &encrypted_key)
+                    .map_err(|e: rusqlite::Error| e.to_string())?;
+                Ok(config)
+            }
+        }
     })?;
 
+    *state.ai_config.write() = Some(config.clone());
+    *state.ai_client.write() = Some(std::sync::Arc::new(AIClient::new(config)));
     *state.cached_settings.lock() = None;
     Ok(Json(()))
 }
 
-/// `GET /api/v1/settings` — return AI settings.
-pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Option<AIConfig>> {
-    {
-        let cached = state.cached_settings.lock();
-        if let Some(ref config) = *cached {
-            return Ok(Json(Some(config.clone())));
-        }
-    }
-    {
-        let config_opt = state.ai_config.read().clone();
-        if config_opt.is_some() {
-            return Ok(Json(config_opt));
-        }
-    }
-    let loaded_opt = with_db(&state, |conn| {
-        if let Ok(Some(url)) = cache::settings::get_setting(conn, "ai_url") {
-            let model = cache::settings::get_setting(conn, "ai_model")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "llama3.2".into());
-            let stored_key = cache::settings::get_setting(conn, "api_key")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "ollama".into());
-            let api_key = crypto::decrypt(&stored_key).unwrap_or(stored_key);
-            let config = AIConfig { url, api_key, model, ..Default::default() };
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
+/// The AI settings as the UI needs them: effective connection values plus the
+/// active source and Router reachability.
+#[derive(serde::Serialize)]
+pub struct SettingsResponse {
+    pub url: String,
+    pub api_key: String,
+    pub model: String,
+    pub max_tokens: u32,
+    pub temperature: f32,
+    pub source: String,
+    pub router_available: bool,
+    pub router_url: String,
+    pub chat_model: String,
+}
+
+/// `GET /api/v1/settings` — effective AI settings (Router or manual).
+pub async fn get_settings(State(state): State<AppState>) -> ApiResult<SettingsResponse> {
+    let router_available = crate::ai::router::available_cached(&state).await;
+    let base = crate::ai::router::base_for_state(&state);
+
+    let (config, source) = with_db(&state, |conn| {
+        let source = crate::ai::router::ai_source(conn);
+        let config = match source {
+            crate::ai::router::Source::Router => {
+                let zone = state.router_zone.read().clone();
+                let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+                crate::ai::router::chat_config(&base)
+            }
+            crate::ai::router::Source::Manual => {
+                let url = cache::settings::get_setting(conn, "ai_url")
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default();
+                let model = cache::settings::get_setting(conn, "ai_model")
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_else(|| "llama3.2".into());
+                let stored_key = cache::settings::get_setting(conn, "api_key")
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default();
+                let api_key = crypto::decrypt(&stored_key).unwrap_or(stored_key);
+                AIConfig { url, api_key, model, ..Default::default() }
+            }
+        };
+        Ok((config, source))
     })?;
-    if let Some(ref config) = loaded_opt {
-        *state.ai_config.write() = Some(config.clone());
-        *state.ai_client.write() = Some(std::sync::Arc::new(AIClient::new(config.clone())));
-        *state.cached_settings.lock() = Some(config.clone());
-    }
-    Ok(Json(loaded_opt))
+
+    // Keep the live client in sync (cheap idempotent assignment).
+    *state.ai_config.write() = Some(config.clone());
+    *state.ai_client.write() = Some(std::sync::Arc::new(AIClient::new(config.clone())));
+    *state.cached_settings.lock() = Some(config.clone());
+
+    Ok(Json(SettingsResponse {
+        url: config.url,
+        api_key: config.api_key,
+        model: config.model,
+        max_tokens: config.max_tokens,
+        temperature: config.temperature,
+        source: source.as_str().to_string(),
+        router_available,
+        router_url: base,
+        chat_model: crate::ai::router::CHAT_MODEL.to_string(),
+    }))
 }
 
 /// `GET /api/v1/settings/move-to-trash`

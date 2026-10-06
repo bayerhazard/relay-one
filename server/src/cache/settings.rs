@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current settings schema version.
 /// Increment this when making backward-compatible schema changes.
 /// Migration functions must be added for each version increment.
-pub const SETTINGS_VERSION: u32 = 3;
+pub const SETTINGS_VERSION: u32 = 4;
 
 /// Key used to store the settings version in the settings table.
 const SETTINGS_VERSION_KEY: &str = "settings_version";
@@ -91,6 +91,7 @@ pub fn migrate_settings(conn: &Connection) -> Result<(), rusqlite::Error> {
             0 => migrate_v0_to_v1(conn)?,
             1 => migrate_v1_to_v2(conn)?,
             2 => migrate_v2_to_v3(conn)?,
+            3 => migrate_v3_to_v4(conn)?,
             _ => {
                 // Future migrations: add arms here as SETTINGS_VERSION is bumped.
                 // Each arm should be additive — never delete or rename existing keys.
@@ -140,6 +141,42 @@ fn migrate_v2_to_v3(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if get_setting(conn, REMOVAL_CHECK_KEY)?.is_none() {
         set_setting(conn, REMOVAL_CHECK_KEY, "false")?;
+    }
+    Ok(())
+}
+
+/// Migration from v3 to v4: Olares Router as the default AI/voice source.
+///
+/// A stored, non-Router endpoint means the user configured manually — that is
+/// preserved (`manual`). Otherwise the capability defaults to Router and STT +
+/// TTS are switched on, because Router serves `default-stt`/`default-tts`.
+fn migrate_v3_to_v4(conn: &Connection) -> Result<(), rusqlite::Error> {
+    use crate::ai::router::{self, KEY_AI_SOURCE, KEY_VOICE_SOURCE};
+    tracing::info!("Migrating settings from v3 to v4: Olares Router defaults");
+
+    let legacy_manual = |key: &str| -> bool {
+        get_setting(conn, key)
+            .ok()
+            .flatten()
+            .map(|u| !u.trim().is_empty() && !router::is_router_url(&u))
+            .unwrap_or(false)
+    };
+
+    if get_setting(conn, KEY_AI_SOURCE)?.is_none() {
+        let source = if legacy_manual("ai_url") { "manual" } else { "router" };
+        set_setting(conn, KEY_AI_SOURCE, source)?;
+    }
+    let voice_manual = router::voice_endpoints_are_manual(conn);
+    if get_setting(conn, KEY_VOICE_SOURCE)?.is_none() {
+        set_setting(conn, KEY_VOICE_SOURCE, if voice_manual { "manual" } else { "router" })?;
+    }
+    // Router provides both capabilities: enable them unless the user is on a
+    // manual endpoint (where an empty URL still means "not set up").
+    if !voice_manual {
+        conn.execute(
+            "UPDATE voice_settings SET enabled = 1, tts_enabled = 1 WHERE id = 1",
+            [],
+        )?;
     }
     Ok(())
 }
@@ -370,5 +407,46 @@ mod tests {
         // Existing settings preserved
         assert!(!get_move_to_trash(&conn).unwrap());
         assert_eq!(get_setting(&conn, "ai_url").unwrap(), Some("https://v2.local/v1".into()));
+    }
+
+    #[test]
+    fn test_migrate_v3_to_v4_router_default() {
+        let conn = setup_db();
+        // Simulate a v3 DB with no stored endpoint → Router default, voice on.
+        set_setting(&conn, SETTINGS_VERSION_KEY, "3").unwrap();
+
+        migrate_settings(&conn).unwrap();
+
+        use crate::ai::router::{KEY_AI_SOURCE, KEY_VOICE_SOURCE};
+        assert_eq!(get_setting(&conn, KEY_AI_SOURCE).unwrap().as_deref(), Some("router"));
+        assert_eq!(get_setting(&conn, KEY_VOICE_SOURCE).unwrap().as_deref(), Some("router"));
+        let (enabled, tts): (i64, i64) = conn
+            .query_row("SELECT enabled, tts_enabled FROM voice_settings WHERE id = 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((enabled, tts), (1, 1));
+    }
+
+    #[test]
+    fn test_migrate_v3_to_v4_preserves_manual() {
+        let conn = setup_db();
+        set_setting(&conn, SETTINGS_VERSION_KEY, "3").unwrap();
+        set_setting(&conn, "ai_url", "https://llm.example/v1").unwrap();
+        conn.execute(
+            "UPDATE voice_settings SET stt_url = 'https://stt.example/v1' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        migrate_settings(&conn).unwrap();
+
+        use crate::ai::router::{KEY_AI_SOURCE, KEY_VOICE_SOURCE};
+        assert_eq!(get_setting(&conn, KEY_AI_SOURCE).unwrap().as_deref(), Some("manual"));
+        assert_eq!(get_setting(&conn, KEY_VOICE_SOURCE).unwrap().as_deref(), Some("manual"));
+        let enabled: i64 = conn
+            .query_row("SELECT enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(enabled, 0, "manual mode must not auto-enable voice");
     }
 }

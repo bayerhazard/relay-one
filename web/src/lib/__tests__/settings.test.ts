@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
-import { settings, showDiffEnabled } from "$lib/stores/settings";
+import { settings, showDiffEnabled, ROUTER_BASE, ROUTER_CHAT_MODEL } from "$lib/stores/settings";
 import type { AISettings } from "$lib/stores/settings";
 
 const fetchMock = vi.hoisted(() => vi.fn());
@@ -23,11 +23,12 @@ describe("settings store", () => {
     (globalThis as any).fetch = fetchMock;
   });
 
-  it("has correct defaults", () => {
+  it("has correct defaults (Olares Router)", () => {
     const value = get(settings);
-    expect(value.url).toBe("https://llm.aimighty.de/v1");
-    expect(value.api_key).toBe("ollama");
-    expect(value.model).toBe("llama3.2");
+    expect(value.url).toBe(ROUTER_BASE);
+    expect(value.api_key).toBe("");
+    expect(value.model).toBe(ROUTER_CHAT_MODEL);
+    expect(value.source).toBe("router");
   });
 
   it("loads custom settings and persists to localStorage (without api_key)", () => {
@@ -54,13 +55,13 @@ describe("settings store", () => {
     });
     settings.reset();
     const value = get(settings);
-    expect(value.url).toBe("https://llm.aimighty.de/v1");
-    expect(value.api_key).toBe("ollama");
-    expect(value.model).toBe("llama3.2");
+    expect(value.url).toBe(ROUTER_BASE);
+    expect(value.api_key).toBe("");
+    expect(value.model).toBe(ROUTER_CHAT_MODEL);
 
     // Verify localStorage was updated with defaults
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-    expect(stored.url).toBe("https://llm.aimighty.de/v1");
+    expect(stored.url).toBe(ROUTER_BASE);
   });
 });
 
@@ -114,9 +115,9 @@ it("returns defaults when both backend and localStorage are unavailable", async 
 
     const result = await settings.init();
 
-    expect(result.url).toBe("https://llm.aimighty.de/v1");
-    expect(result.api_key).toBe("ollama");
-    expect(result.model).toBe("llama3.2");
+    expect(result.url).toBe(ROUTER_BASE);
+    expect(result.api_key).toBe("");
+    expect(result.model).toBe(ROUTER_CHAT_MODEL);
   });
 
   it("returns defaults when backend returns null", async () => {
@@ -126,9 +127,9 @@ it("returns defaults when both backend and localStorage are unavailable", async 
 
     const result = await settings.init();
 
-    expect(result.url).toBe("https://llm.aimighty.de/v1");
-    expect(result.api_key).toBe("ollama");
-    expect(result.model).toBe("llama3.2");
+    expect(result.url).toBe(ROUTER_BASE);
+    expect(result.api_key).toBe("");
+    expect(result.model).toBe(ROUTER_CHAT_MODEL);
   });
 
 it("handles corrupted localStorage JSON gracefully", async () => {
@@ -138,7 +139,7 @@ it("handles corrupted localStorage JSON gracefully", async () => {
     const result = await settings.init();
 
     // Should fall through to defaults
-    expect(result.url).toBe("https://llm.aimighty.de/v1");
+    expect(result.url).toBe(ROUTER_BASE);
   });
 
 it("handles localStorage with missing fields gracefully", async () => {
@@ -148,7 +149,7 @@ it("handles localStorage with missing fields gracefully", async () => {
     const result = await settings.init();
 
     // Should fall through to defaults since validation fails
-    expect(result.url).toBe("https://llm.aimighty.de/v1");
+    expect(result.url).toBe(ROUTER_BASE);
   });
 });
 
@@ -246,8 +247,8 @@ describe("settings.syncToBackend()", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        url: "https://llm.aimighty.de/v1",
-        model: "llama3.2",
+        url: ROUTER_BASE,
+        model: ROUTER_CHAT_MODEL,
       })
     );
 

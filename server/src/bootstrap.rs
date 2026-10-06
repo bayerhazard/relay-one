@@ -16,28 +16,42 @@ use crate::smtp::client::{SmtpClient, SmtpConfig};
 use crate::AppState;
 
 /// Load AI settings from the DB and populate `ai_config` + `ai_client`.
+///
+/// In `router` mode the config is synthesized from the Olares Router base
+/// (no manual `ai_url` needed); in `manual` mode the stored URL is required.
 pub fn load_ai_settings(state: &AppState) {
     let guard = state.cache_db.lock();
     let Some(conn) = guard.as_ref() else {
         return;
     };
-    let Ok(Some(url)) = cache::settings::get_setting(conn, "ai_url") else {
-        return;
-    };
-    let model = cache::settings::get_setting(conn, "ai_model")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "llama3.2".into());
-    let stored_key = cache::settings::get_setting(conn, "api_key")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "ollama".into());
-    let api_key = crypto::decrypt(&stored_key).unwrap_or(stored_key);
-    let config = AIConfig {
-        url,
-        api_key,
-        model,
-        ..Default::default()
+    let config = match crate::ai::router::ai_source(conn) {
+        crate::ai::router::Source::Router => {
+            let zone = state.router_zone.read().clone();
+            let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+            tracing::info!("AI source=router, using {}", base);
+            crate::ai::router::chat_config(&base)
+        }
+        crate::ai::router::Source::Manual => {
+            let Ok(Some(url)) = cache::settings::get_setting(conn, "ai_url") else {
+                tracing::info!("AI source=manual but no ai_url stored — AI disabled");
+                return;
+            };
+            let model = cache::settings::get_setting(conn, "ai_model")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "llama3.2".into());
+            let stored_key = cache::settings::get_setting(conn, "api_key")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "ollama".into());
+            let api_key = crypto::decrypt(&stored_key).unwrap_or(stored_key);
+            AIConfig {
+                url,
+                api_key,
+                model,
+                ..Default::default()
+            }
+        }
     };
     *state.ai_config.write() = Some(config.clone());
     *state.ai_client.write() = Some(Arc::new(AIClient::new(config)));

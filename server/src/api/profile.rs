@@ -93,6 +93,12 @@ pub async fn transcribe_voice(
         let enabled: i64 = conn
             .query_row("SELECT enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or(0);
+        if crate::ai::router::voice_source(conn) == crate::ai::router::Source::Router {
+            let zone = state.router_zone.read().clone();
+            let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+            let v = crate::ai::router::voice_endpoints(&base);
+            return Ok::<_, String>((enabled, v.stt_url, v.stt_key, v.stt_model));
+        }
         let stt_url: String = conn
             .query_row("SELECT stt_url FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or_default();
@@ -102,7 +108,7 @@ pub async fn transcribe_voice(
         let stt_model: String = conn
             .query_row("SELECT stt_model FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or_default();
-        Ok::<_, String>((enabled, stt_url, stt_key, stt_model))
+        Ok((enabled, stt_url, stt_key, stt_model))
     })?;
 
     if enabled == 0 {
@@ -206,6 +212,12 @@ pub async fn speak_voice(
         let tts_enabled: i64 = conn
             .query_row("SELECT tts_enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or(0);
+        if crate::ai::router::voice_source(conn) == crate::ai::router::Source::Router {
+            let zone = state.router_zone.read().clone();
+            let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+            let v = crate::ai::router::voice_endpoints(&base);
+            return Ok::<_, String>((tts_enabled, v.tts_url, v.tts_key, v.tts_model));
+        }
         let tts_url: String = conn
             .query_row("SELECT tts_url FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or_default();
@@ -215,7 +227,7 @@ pub async fn speak_voice(
         let tts_model: String = conn
             .query_row("SELECT tts_model FROM voice_settings WHERE id = 1", [], |r| r.get(0))
             .unwrap_or_default();
-        Ok::<_, String>((tts_enabled, tts_url, tts_key, tts_model))
+        Ok((tts_enabled, tts_url, tts_key, tts_model))
     })
     .unwrap_or((0, String::new(), String::new(), String::new()));
 
@@ -308,11 +320,29 @@ pub async fn speak_voice(
 
 /// `GET /api/v1/voice/config` — STT + TTS configuration (Phase D adds TTS).
 pub async fn get_voice_config(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
-    let (enabled, stt_url, stt_key, stt_model, tts_enabled, tts_url, tts_key, tts_model, tts_auto) =
+    let (source, enabled, stt_url, stt_key, stt_model, tts_enabled, tts_url, tts_key, tts_model, tts_auto) =
         with_db(&state, |conn| {
+            let source = crate::ai::router::voice_source(conn);
             let enabled: i64 = conn
                 .query_row("SELECT enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
                 .unwrap_or(0);
+            let tts_enabled: i64 = conn
+                .query_row("SELECT tts_enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
+                .unwrap_or(0);
+            let tts_auto: bool = crate::cache::settings::get_setting(conn, "assistant_tts_auto")
+                .ok()
+                .flatten()
+                .map(|v| v == "true")
+                .unwrap_or(false);
+            if source == crate::ai::router::Source::Router {
+                let zone = state.router_zone.read().clone();
+                let base = crate::ai::router::base_from_conn(conn, zone.as_deref());
+                let v = crate::ai::router::voice_endpoints(&base);
+                return Ok::<_, String>((
+                    source, enabled, v.stt_url, v.stt_key, v.stt_model,
+                    tts_enabled, v.tts_url, v.tts_key, v.tts_model, tts_auto,
+                ));
+            }
             let stt_url: String = conn
                 .query_row("SELECT stt_url FROM voice_settings WHERE id = 1", [], |r| r.get(0))
                 .unwrap_or_default();
@@ -322,9 +352,6 @@ pub async fn get_voice_config(State(state): State<AppState>) -> ApiResult<serde_
             let stt_model: String = conn
                 .query_row("SELECT stt_model FROM voice_settings WHERE id = 1", [], |r| r.get(0))
                 .unwrap_or_default();
-            let tts_enabled: i64 = conn
-                .query_row("SELECT tts_enabled FROM voice_settings WHERE id = 1", [], |r| r.get(0))
-                .unwrap_or(0);
             let tts_url: String = conn
                 .query_row("SELECT tts_url FROM voice_settings WHERE id = 1", [], |r| r.get(0))
                 .unwrap_or_default();
@@ -334,17 +361,13 @@ pub async fn get_voice_config(State(state): State<AppState>) -> ApiResult<serde_
             let tts_model: String = conn
                 .query_row("SELECT tts_model FROM voice_settings WHERE id = 1", [], |r| r.get(0))
                 .unwrap_or_default();
-            let tts_auto: bool = crate::cache::settings::get_setting(conn, "assistant_tts_auto")
-                .ok()
-                .flatten()
-                .map(|v| v == "true")
-                .unwrap_or(false);
-            Ok::<_, String>((
-                enabled, stt_url, stt_key, stt_model,
+            Ok((
+                source, enabled, stt_url, stt_key, stt_model,
                 tts_enabled, tts_url, tts_key, tts_model, tts_auto,
             ))
         })?;
     Ok(Json(serde_json::json!({
+        "source": source.as_str(),
         "enabled": enabled != 0,
         "sttUrl": stt_url,
         "sttKey": stt_key,
@@ -370,33 +393,35 @@ pub struct VoiceConfigRequest {
     pub tts_key: Option<String>,
     pub tts_model: Option<String>,
     pub tts_auto: Option<bool>,
+    /// `"router"` or `"manual"`. Absent → inferred from the supplied URLs.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 pub async fn save_voice_config(
     State(state): State<AppState>,
     Json(req): Json<VoiceConfigRequest>,
 ) -> ApiResult<serde_json::Value> {
+    use crate::ai::router::{is_router_url, Source};
+
     let tts_auto = req.tts_auto.unwrap_or(false);
+    let source = match req.source.as_deref() {
+        Some(s) => Source::parse(s),
+        None => {
+            let stt = req.stt_url.as_deref().unwrap_or("");
+            let tts = req.tts_url.as_deref().unwrap_or("");
+            let manual = (!stt.is_empty() && !is_router_url(stt))
+                || (!tts.is_empty() && !is_router_url(tts));
+            if manual { Source::Manual } else { Source::Router }
+        }
+    };
+
     with_db(&state, |conn| {
+        crate::ai::router::set_voice_source(conn, source).map_err(|e| e.to_string())?;
+        // Enable flags + TTS-auto apply in both modes.
         conn.execute(
-            "INSERT INTO voice_settings (id, enabled, stt_url, stt_key, stt_model,
-                                         tts_enabled, tts_url, tts_key, tts_model)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(id) DO UPDATE SET
-                enabled = excluded.enabled, stt_url = excluded.stt_url,
-                stt_key = excluded.stt_key, stt_model = excluded.stt_model,
-                tts_enabled = excluded.tts_enabled, tts_url = excluded.tts_url,
-                tts_key = excluded.tts_key, tts_model = excluded.tts_model",
-            rusqlite::params![
-                req.enabled as i32,
-                req.stt_url.unwrap_or_default(),
-                req.stt_key.unwrap_or_default(),
-                req.stt_model.unwrap_or_default(),
-                req.tts_enabled.unwrap_or(false) as i32,
-                req.tts_url.unwrap_or_default(),
-                req.tts_key.unwrap_or_default(),
-                req.tts_model.unwrap_or_default(),
-            ],
+            "UPDATE voice_settings SET enabled = ?1, tts_enabled = ?2 WHERE id = 1",
+            rusqlite::params![req.enabled as i32, req.tts_enabled.unwrap_or(false) as i32],
         )
         .map_err(|e| e.to_string())?;
         crate::cache::settings::set_setting(
@@ -405,6 +430,25 @@ pub async fn save_voice_config(
             if tts_auto { "true" } else { "false" },
         )
         .map_err(|e| e.to_string())?;
+
+        // In manual mode persist the connection fields; in Router mode they are
+        // synthesized, so leave any previously stored manual values untouched.
+        if source == Source::Manual {
+            conn.execute(
+                "UPDATE voice_settings SET stt_url = ?1, stt_key = ?2, stt_model = ?3,
+                                           tts_url = ?4, tts_key = ?5, tts_model = ?6
+                 WHERE id = 1",
+                rusqlite::params![
+                    req.stt_url.unwrap_or_default(),
+                    req.stt_key.unwrap_or_default(),
+                    req.stt_model.unwrap_or_default(),
+                    req.tts_url.unwrap_or_default(),
+                    req.tts_key.unwrap_or_default(),
+                    req.tts_model.unwrap_or_default(),
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
         Ok(())
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -523,6 +567,7 @@ mod tests {
                 tts_key: Some("k".into()),
                 tts_model: Some("tts-1".into()),
                 tts_auto: Some(true),
+                source: None,
             }),
         )
         .await

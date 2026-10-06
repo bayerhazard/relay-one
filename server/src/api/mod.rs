@@ -39,7 +39,7 @@ use crate::AppState;
 /// SEC-15: Large-payload routes (send, import, photo) get a 64 MB body limit
 /// via `route_layer`. All other routes inherit the 1 MB global limit from
 /// `main.rs`.
-pub fn router() -> Router<AppState> {
+pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
         // ── Large-payload routes (64 MB) ──────────────────────
         .route("/send", post(send::send_message))
@@ -205,6 +205,31 @@ pub fn router() -> Router<AppState> {
         // axum wraps them; protects against direct cluster-internal callers.
         // /health, /info and /events stay open (probes + browser SSE).
         .route_layer(axum::middleware::from_fn(relay_key_guard))
+        // Learn the Olares zone from the first public Host header so Router
+        // can be addressed at `router.<zone>` (outermost — runs on every call).
+        .layer(axum::middleware::from_fn_with_state(state, learn_router_zone))
+}
+
+/// Learn the Olares zone from a public request Host once (best-effort) and
+/// persist it. Internal Hosts (IPs, service DNS) yield no zone.
+async fn learn_router_zone(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if state.router_zone.read().is_none() {
+        let host = req
+            .headers()
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok());
+        if let Some(zone) = host.and_then(crate::ai::router::zone_from_host) {
+            *state.router_zone.write() = Some(zone.clone());
+            if let Some(conn) = state.cache_db.lock().as_ref() {
+                let _ = crate::ai::router::set_zone(conn, &zone);
+            }
+        }
+    }
+    next.run(req).await
 }
 
 /// X-Relay-Key guard (Concept §12 / F6).

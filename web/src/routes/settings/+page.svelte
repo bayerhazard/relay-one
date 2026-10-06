@@ -18,7 +18,7 @@ import {
   } from "$lib/services/tauri";
   import type { AccountInfo } from "$lib/stores/accounts";
   import { accounts } from "$lib/stores/accounts";
-  import { settings, showDiffEnabled } from "$lib/stores/settings";
+  import { settings, showDiffEnabled, ROUTER_BASE, ROUTER_CHAT_MODEL } from "$lib/stores/settings";
   import { clearFollowupMemory } from "$lib/utils/followupMemory";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ModuleLogo from "$lib/components/ModuleLogo.svelte";
@@ -85,9 +85,14 @@ import {
   }
 
   // ─── LLM ─────────────────────────────────────
-  let aiUrl = $state("https://llm.aimighty.de/v1");
-  let aiKey = $state("ollama");
-  let aiModel = $state("chat");
+  let aiUrl = $state(ROUTER_BASE);
+  let aiKey = $state("");
+  let aiModel = $state(ROUTER_CHAT_MODEL);
+  // Olares Router is the default source; manual entry is opt-in.
+  let aiSource = $state<"router" | "manual">("router");
+  let aiRouterAvailable = $state(false);
+  let aiRouterUrl = $state(ROUTER_BASE);
+  let aiChatModel = $state(ROUTER_CHAT_MODEL);
   let aiSaved = $state(false);
   let aiError = $state<string | null>(null);
   let cbResetDone = $state(false);
@@ -126,6 +131,8 @@ import {
   let ownPhoto = $state<{ data: string; type: string } | null>(null);
 
   // ─── Voice ───────────────────────────────────
+  // Olares Router is the default source for STT + TTS; manual is opt-in.
+  let voiceSource = $state<"router" | "manual">("router");
   let voiceEnabled = $state(false);
   let voiceSttUrl = $state("");
   let voiceSttKey = $state("");
@@ -244,6 +251,10 @@ import {
       aiUrl = s.url;
       aiKey = s.api_key;
       aiModel = s.model;
+      aiSource = s.source === "manual" ? "manual" : "router";
+      aiRouterAvailable = s.router_available ?? false;
+      aiRouterUrl = s.router_url || ROUTER_BASE;
+      aiChatModel = s.chat_model || ROUTER_CHAT_MODEL;
     } catch (e) { console.warn("Settings load failed, using defaults", e); }
     try {
       moveToTrash = await getMoveToTrash();
@@ -273,6 +284,7 @@ import {
     try {
       const vs = await getVoiceSettings();
       if (vs) {
+        voiceSource = vs.source === "manual" ? "manual" : "router";
         voiceEnabled = vs.enabled;
         voiceSttUrl = vs.sttUrl;
         voiceSttKey = vs.sttKey;
@@ -367,12 +379,21 @@ import {
   async function handleSaveAI() {
     aiError = null;
     try {
-      await settings.save(aiUrl, aiKey, aiModel);
+      if (aiSource === "router") {
+        await settings.save(ROUTER_BASE, "", ROUTER_CHAT_MODEL, "router");
+      } else {
+        await settings.save(aiUrl, aiKey, aiModel, "manual");
+      }
       aiSaved = true;
       setTimeout(() => (aiSaved = false), 2000);
     } catch (e: unknown) {
       aiError = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  function setAiSource(source: "router" | "manual") {
+    aiSource = source;
+    aiError = null;
   }
 
   async function handleResetCircuitBreaker() {
@@ -450,8 +471,8 @@ async function handleSaveCardDav() {
   async function handleSaveVoice() {
     voiceError = null;
     voiceSaved = false;
-    // Validate before saving — garbage in, "saved" out is misleading.
-    if (voiceEnabled) {
+    // Validate manual endpoints only — Router values are managed centrally.
+    if (voiceSource === "manual" && voiceEnabled) {
       if (!voiceSttUrl.trim()) {
         voiceError = translate("settings.voiceUrlRequired");
         return;
@@ -472,7 +493,7 @@ async function handleSaveCardDav() {
       }
     }
     // Phase D: validate TTS (independent of STT being enabled).
-    if (voiceTtsEnabled) {
+    if (voiceSource === "manual" && voiceTtsEnabled) {
       if (!voiceTtsUrl.trim()) {
         voiceError = translate("settings.ttsUrlRequired");
         return;
@@ -496,7 +517,7 @@ async function handleSaveCardDav() {
       await saveVoiceSettings(
         voiceEnabled, voiceSttUrl.trim(), voiceSttKey.trim(), voiceSttModel.trim(),
         voiceTtsEnabled, voiceTtsUrl.trim(), voiceTtsKey.trim(), voiceTtsModel.trim(),
-        voiceTtsAuto,
+        voiceTtsAuto, voiceSource,
       );
       voiceSaved = true;
       setTimeout(() => (voiceSaved = false), 2000);
@@ -1334,31 +1355,60 @@ async function handleSaveCardDav() {
           </div>
         </section>
 
-        <!-- Card: API Endpunkt -->
+        <!-- Card: Anbindung (Olares Router default / manual) -->
         <section class="settings-card">
           <div class="card-header">
-            <h3>{$t("settings.aiEndpoint")}</h3>
-            <p class="card-desc">{$t("settings.aiEndpointDesc")}</p>
+            <h3>{$t("settings.sourceTitle")}</h3>
+            <p class="card-desc">{$t("settings.sourceDesc")}</p>
           </div>
 
           <div class="card-body">
-            <div class="form-grid-1">
-              <div class="form-group">
-                <label for="ai-url">{$t("settings.apiUrl")}</label>
-                <input id="ai-url" type="url" bind:value={aiUrl} placeholder="https://llm.aimighty.de/v1" class="form-control" />
-              </div>
+            <div class="lang-toggle" role="group" aria-label={$t("settings.sourceTitle")}>
+              <button type="button" class:active={aiSource === "router"} onclick={() => setAiSource("router")}>
+                {$t("settings.sourceRouter")}
+              </button>
+              <button type="button" class:active={aiSource === "manual"} onclick={() => setAiSource("manual")}>
+                {$t("settings.sourceManual")}
+              </button>
             </div>
 
-            <div class="form-grid-2">
-              <div class="form-group">
-                <label for="ai-key">{$t("settings.apiKey")}</label>
-                <input id="ai-key" type="password" bind:value={aiKey} placeholder="ollama" class="form-control" />
+            {#if aiSource === "router"}
+              <div class="router-status" class:ok={aiRouterAvailable}>
+                <span class="status-dot"></span>
+                <span class="status-text">
+                  {aiRouterAvailable ? $t("settings.routerDetected") : $t("settings.routerDown")}
+                  &middot; {$t("settings.routerModel")}: {aiChatModel}
+                </span>
               </div>
-              <div class="form-group">
-                <label for="ai-model">{$t("settings.modelId")}</label>
-                <input id="ai-model" type="text" bind:value={aiModel} placeholder="llama3.2" class="form-control" />
+              <p class="hint-text">{$t("settings.routerHint")}</p>
+              <div class="form-grid-1">
+                <div class="form-group">
+                  <label for="ai-router-url">{$t("settings.routerBase")}</label>
+                  <input id="ai-router-url" type="text" value={aiRouterUrl} class="form-control" readonly />
+                </div>
               </div>
-            </div>
+              {#if !aiRouterAvailable}
+                <p class="text-xs text-red-500 mt-2">{$t("settings.routerUnavailable")}</p>
+              {/if}
+            {:else}
+              <div class="form-grid-1">
+                <div class="form-group">
+                  <label for="ai-url">{$t("settings.apiUrl")}</label>
+                  <input id="ai-url" type="url" bind:value={aiUrl} placeholder="https://llm.aimighty.de/v1" class="form-control" />
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="ai-key">{$t("settings.apiKey")}</label>
+                  <input id="ai-key" type="password" bind:value={aiKey} placeholder="ollama" class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label for="ai-model">{$t("settings.modelId")}</label>
+                  <input id="ai-model" type="text" bind:value={aiModel} placeholder="llama3.2" class="form-control" />
+                </div>
+              </div>
+            {/if}
 
             {#if aiError}
               <div class="alert-box error">
@@ -1628,6 +1678,35 @@ async function handleSaveCardDav() {
           </div>
         </section>
 
+        <!-- Card: Sprach-Anbindung (Olares Router default / manual) -->
+        <section class="settings-card">
+          <div class="card-header">
+            <h3>{$t("settings.sourceTitle")}</h3>
+            <p class="card-desc">{$t("settings.sourceDesc")}</p>
+          </div>
+
+          <div class="card-body">
+            <div class="lang-toggle" role="group" aria-label={$t("settings.sourceTitle")}>
+              <button type="button" class:active={voiceSource === "router"} onclick={() => (voiceSource = "router")}>
+                {$t("settings.sourceRouter")}
+              </button>
+              <button type="button" class:active={voiceSource === "manual"} onclick={() => (voiceSource = "manual")}>
+                {$t("settings.sourceManual")}
+              </button>
+            </div>
+
+            {#if voiceSource === "router"}
+              <div class="router-status" class:ok={aiRouterAvailable}>
+                <span class="status-dot"></span>
+                <span class="status-text">
+                  {aiRouterAvailable ? $t("settings.routerDetected") : $t("settings.routerDown")}
+                </span>
+              </div>
+              <p class="hint-text">{$t("settings.voiceRouterStatus", { stt: "default-stt", tts: "default-tts" })}</p>
+            {/if}
+          </div>
+        </section>
+
         <!-- Card: STT Endpoint -->
         <section class="settings-card">
           <div class="card-header">
@@ -1636,24 +1715,27 @@ async function handleSaveCardDav() {
           </div>
 
           <div class="card-body">
-            <div class="form-grid-1">
-              <div class="form-group">
-                <label for="voice-stt-url">{$t("settings.apiUrl")}</label>
-                <input id="voice-stt-url" type="url" bind:value={voiceSttUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceEnabled} />
+            {#if voiceSource === "manual"}
+              <div class="form-grid-1">
+                <div class="form-group">
+                  <label for="voice-stt-url">{$t("settings.apiUrl")}</label>
+                  <input id="voice-stt-url" type="url" bind:value={voiceSttUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceEnabled} />
+                </div>
               </div>
-            </div>
 
-            <div class="form-grid-2">
-              <div class="form-group">
-                <label for="voice-stt-key">{$t("settings.apiKey")}</label>
-                <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceEnabled} />
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="voice-stt-key">{$t("settings.apiKey")}</label>
+                  <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceEnabled} />
+                </div>
+                <div class="form-group">
+                  <label for="voice-stt-model">{$t("settings.modelId")}</label>
+                  <input id="voice-stt-model" type="text" bind:value={voiceSttModel} placeholder="Systran/faster-whisper-small" class="form-control" disabled={!voiceEnabled} />
+                </div>
               </div>
-              <div class="form-group">
-                <label for="voice-stt-model">{$t("settings.modelId")}</label>
-                <input id="voice-stt-model" type="text" bind:value={voiceSttModel} placeholder="Systran/faster-whisper-small" class="form-control" disabled={!voiceEnabled} />
-              </div>
-            </div>
-
+            {:else}
+              <p class="hint-text">{$t("settings.routerHint")}</p>
+            {/if}
           </div>
         </section>
 
@@ -1676,23 +1758,27 @@ async function handleSaveCardDav() {
               </label>
             </div>
 
-            <div class="form-grid-1">
-              <div class="form-group">
-                <label for="voice-tts-url">{$t("settings.apiUrl")}</label>
-                <input id="voice-tts-url" type="url" bind:value={voiceTtsUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceTtsEnabled} />
+            {#if voiceSource === "manual"}
+              <div class="form-grid-1">
+                <div class="form-group">
+                  <label for="voice-tts-url">{$t("settings.apiUrl")}</label>
+                  <input id="voice-tts-url" type="url" bind:value={voiceTtsUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceTtsEnabled} />
+                </div>
               </div>
-            </div>
 
-            <div class="form-grid-2">
-              <div class="form-group">
-                <label for="voice-tts-key">{$t("settings.apiKey")}</label>
-                <input id="voice-tts-key" type="password" bind:value={voiceTtsKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceTtsEnabled} />
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="voice-tts-key">{$t("settings.apiKey")}</label>
+                  <input id="voice-tts-key" type="password" bind:value={voiceTtsKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceTtsEnabled} />
+                </div>
+                <div class="form-group">
+                  <label for="voice-tts-model">{$t("settings.modelId")}</label>
+                  <input id="voice-tts-model" type="text" bind:value={voiceTtsModel} placeholder="tts-1" class="form-control" disabled={!voiceTtsEnabled} />
+                </div>
               </div>
-              <div class="form-group">
-                <label for="voice-tts-model">{$t("settings.modelId")}</label>
-                <input id="voice-tts-model" type="text" bind:value={voiceTtsModel} placeholder="tts-1" class="form-control" disabled={!voiceTtsEnabled} />
-              </div>
-            </div>
+            {:else}
+              <p class="hint-text">{$t("settings.voiceRouterStatus", { stt: "default-stt", tts: "default-tts" })}</p>
+            {/if}
 
             <div class="switch-row">
               <label class="switch-container">
@@ -2382,6 +2468,26 @@ async function handleSaveCardDav() {
   .lang-toggle button:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 1px;
+  }
+
+  /* ─── ROUTER STATUS (Olares Router reachability) ─── */
+  .router-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+  .router-status .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-text-secondary);
+    flex: none;
+  }
+  .router-status.ok .status-dot {
+    background: #2e9e5b;
   }
 
   /* ─── SWITCH CONTROL (iOS / HubSpot Style) ─── */

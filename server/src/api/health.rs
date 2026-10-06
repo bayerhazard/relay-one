@@ -24,14 +24,25 @@ pub async fn health(State(state): State<AppState>) -> (axum::http::StatusCode, J
             .map_err(|e| e.to_string())
             .is_ok();
         // Phase D: report TTS readiness (S5: "not_configured" when off/empty).
-        let tts_configured = conn
-            .query_row(
+        // In Router mode the endpoint is synthesized, so only the enable flag
+        // matters; manual mode additionally requires a URL.
+        let tts_configured = if crate::ai::router::voice_source(conn)
+            == crate::ai::router::Source::Router
+        {
+            conn.query_row("SELECT tts_enabled FROM voice_settings WHERE id = 1", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|enabled| enabled != 0)
+            .unwrap_or(false)
+        } else {
+            conn.query_row(
                 "SELECT tts_enabled, tts_url FROM voice_settings WHERE id = 1",
                 [],
                 |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )
             .map(|(enabled, url)| enabled != 0 && !url.trim().is_empty())
-            .unwrap_or(false);
+            .unwrap_or(false)
+        };
         Ok((db_ok, tts_configured))
     })
     .unwrap_or((false, false));

@@ -401,9 +401,10 @@ impl AIClient {
             };
 
             'retry: for attempt in 0..=max_retries {
-                let resp = match http
-                    .post(&url)
-                    .bearer_auth(&config.api_key)
+                // B1: only send a bearer header when a key is present. Router
+                // (empty key) relies on the platform-injected caller identity,
+                // and `Bearer ` (empty) is rejected by strict gateways.
+                let resp = match with_auth(http.post(&url), &config.api_key)
                     .json(&body)
                     .send()
                     .await

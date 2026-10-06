@@ -1,5 +1,6 @@
 pub mod circuit_breaker;
 pub mod client;
+pub mod router;
 pub mod language;
 pub mod prompts;
 pub mod audit;

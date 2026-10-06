@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.1
+  version: 26.10.2
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.1
+  versionName: 26.10.2
   upgradeDescription: |
+    v26.10.2: Relay now defaults to the Olares Router. Chat, speech-to-text and text-to-speech are served automatically through the system models default-chat, default-stt and default-tts — no manual endpoint setup. A custom endpoint stays available per capability in Settings. Requires Olares 1.12.7+; older versions keep the manual configuration. Built for Olares 1.12.6.
     v26.10.1: Initial Release for AImighty
 
   fullDescription: |

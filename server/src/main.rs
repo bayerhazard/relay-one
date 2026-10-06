@@ -135,7 +135,7 @@ async fn main() {
     // (send, import) override with 64 MB via route_layer in api/mod.rs.
     // SEC-16: Max 50 concurrent requests (prevents resource exhaustion).
     let app = Router::new()
-        .nest("/api/v1", api::router())
+        .nest("/api/v1", api::router((*state).clone()))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(ConcurrencyLimitLayer::new(50))
         .layer(TraceLayer::new_for_http())

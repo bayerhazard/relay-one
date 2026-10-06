@@ -5,14 +5,27 @@ export interface AISettings {
   url: string;
   api_key: string;
   model: string;
+  /** "router" (Olares Router, default) or "manual". */
+  source?: string;
+  /** Router reachability as reported by the backend. */
+  router_available?: boolean;
+  /** Effective Router base URL. */
+  router_url?: string;
+  /** System routing name for chat (default-chat). */
+  chat_model?: string;
 }
 
 const STORAGE_KEY = "relay_settings";
 
+/** Olares Router is the default; manual entry is opt-in. */
+export const ROUTER_BASE = "https://router.aimighty.olares.de/v1";
+export const ROUTER_CHAT_MODEL = "default-chat";
+
 const DEFAULTS: AISettings = {
-  url: "https://llm.aimighty.de/v1",
-  api_key: "ollama",
-  model: "llama3.2",
+  url: ROUTER_BASE,
+  api_key: "",
+  model: ROUTER_CHAT_MODEL,
+  source: "router",
 };
 
 function saveToLocalStorage(value: AISettings): void {
@@ -39,7 +52,12 @@ function loadFromLocalStorage(): AISettings | null {
         typeof parsed.model === "string"
       ) {
         // api_key is intentionally not loaded from localStorage
-        return { url: parsed.url, api_key: "", model: parsed.model };
+        return {
+          url: parsed.url,
+          api_key: "",
+          model: parsed.model,
+          source: typeof parsed.source === "string" ? parsed.source : undefined,
+        };
       }
     }
   } catch (e) {
@@ -92,14 +110,14 @@ function createSettingsStore() {
      * Save settings to both IPC (primary) and localStorage (fallback).
      * If IPC fails, data is preserved in localStorage for later sync.
      */
-    save: async (url: string, apiKey: string, model: string): Promise<void> => {
-      const value: AISettings = { url, api_key: apiKey, model };
+    save: async (url: string, apiKey: string, model: string, source?: string): Promise<void> => {
+      const value: AISettings = { url, api_key: apiKey, model, source };
       // Save to localStorage immediately (always works)
       saveToLocalStorage(value);
       set(value);
       // Save to backend (IPC) — may throw if backend unavailable
       try {
-        await saveSettingsIpc(url, apiKey, model);
+        await saveSettingsIpc(url, apiKey, model, source);
       } catch (e) {
         console.warn("Settings IPC save failed, data preserved in localStorage", e);
         throw e;
@@ -124,7 +142,7 @@ function createSettingsStore() {
       }
       try {
         // Use the store's api_key (in-memory) since localStorage doesn't have it
-        await saveSettingsIpc(local.url, current.api_key, local.model);
+        await saveSettingsIpc(local.url, current.api_key, local.model, local.source);
         set(local);
         return true;
       } catch (e) {

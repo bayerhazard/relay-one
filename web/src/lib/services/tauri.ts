@@ -74,9 +74,10 @@ function del<T>(path: string, msg: string): Promise<T> {
 export async function saveSettings(
   url: string,
   apiKey: string,
-  model: string
+  model: string,
+  source?: string
 ): Promise<void> {
-  return post("/settings", { url, api_key: apiKey, model },
+  return post("/settings", { url, api_key: apiKey, model, source },
     "Die KI-Einstellungen konnten nicht gespeichert werden.");
 }
 
@@ -1107,6 +1108,8 @@ export async function rsvpDraft(
 // ─── Voice ────────────────────────────────────────────────────────
 
 export interface VoiceSettings {
+  /** "router" (Olares Router, default) or "manual". */
+  source?: string;
   enabled: boolean;
   sttUrl: string;
   sttKey: string;
@@ -1137,11 +1140,12 @@ export async function saveVoiceSettings(
   tts_key: string,
   tts_model: string,
   tts_auto: boolean,
+  source?: string,
 ): Promise<void> {
   return post("/voice/config", {
     enabled, sttUrl: stt_url, sttKey: stt_key, sttModel: stt_model,
     ttsEnabled: tts_enabled, ttsUrl: tts_url, ttsKey: tts_key, ttsModel: tts_model,
-    ttsAuto: tts_auto,
+    ttsAuto: tts_auto, source,
   }, "Die Voice-Einstellungen konnten nicht gespeichert werden.");
 }
 

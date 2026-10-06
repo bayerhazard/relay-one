@@ -73,6 +73,11 @@ pub struct AppState {
     /// history drains in hours instead of days. Cleared once an account is
     /// caught up (a partial batch is fetched).
     pub backfill_active: Arc<parking_lot::RwLock<std::collections::HashSet<u32>>>,
+    /// Olares zone learned from the first public request Host (e.g.
+    /// `aimighty.olares.de`), used to address Router at `router.<zone>`.
+    pub router_zone: Arc<parking_lot::RwLock<Option<String>>>,
+    /// Cached Router reachability probe: `(available, when)`.
+    pub router_status: Arc<parking_lot::Mutex<Option<(bool, std::time::Instant)>>>,
 }
 
 impl AppState {
@@ -104,6 +109,8 @@ impl AppState {
                 crate::cache::FolderListCache::new(),
             )),
             backfill_active: Arc::new(parking_lot::RwLock::new(std::collections::HashSet::new())),
+            router_zone: Arc::new(parking_lot::RwLock::new(None)),
+            router_status: Arc::new(parking_lot::Mutex::new(None)),
         }
     }
 
