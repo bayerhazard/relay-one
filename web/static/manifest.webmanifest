@@ -1,13 +1,13 @@
 {
   "name": "Relay",
   "short_name": "Relay",
-  "description": "Selbst gehosteter E-Mail-Client — IMAP/SMTP mit KI-Unterstützung.",
+  "description": "Selbst gehosteter E-Mail-Client — IMAP/SMTP mit AI-Unterstützung.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0a55c7",
-  "theme_color": "#0a55c7",
+  "background_color": "#051729",
+  "theme_color": "#051729",
   "icons": [
     {
       "src": "/icon.png",
