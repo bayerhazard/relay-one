@@ -26,6 +26,7 @@ import {
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
   import { fabHidden } from "$lib/stores/fabHidden";
+  import { appearance, type Appearance } from "$lib/stores/appearance";
 
   const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
   $effect(() => () => destroyResize());
@@ -57,31 +58,10 @@ import {
     if (isNarrow) mobileContentOpen = true;
   }
 
-  // ─── Theme ───────────────────────────────────
-  let theme = $state("blue");
-  try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
-
-  $effect(() => {
-    if (typeof document !== 'undefined') {
-      if (theme === "dark") {
-        document.documentElement.classList.add("theme-dark");
-      } else {
-        document.documentElement.classList.remove("theme-dark");
-      }
-      localStorage.setItem("relay_theme", theme);
-      // macOS: the web-app titlebar uses theme-color — match it to the theme.
-      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
-      if (!meta) {
-        meta = document.createElement("meta");
-        meta.name = "theme-color";
-        document.head.appendChild(meta);
-      }
-      meta.content = theme === "dark" ? "#0a2238" : "#f4f7fa";
-    }
-  });
-
-  function handleThemeChange(newTheme: string) {
-    theme = newTheme;
+  // ─── Appearance ──────────────────────────────
+  // Stored and applied by lib/stores/appearance.ts (CI RL-T2).
+  function handleThemeChange(next: Appearance) {
+    appearance.set(next);
   }
 
   // ─── LLM ─────────────────────────────────────
@@ -1009,8 +989,8 @@ async function handleSaveCardDav() {
             <button
               type="button"
               class="theme-card-option"
-              class:active={theme === 'blue'}
-              onclick={() => handleThemeChange('blue')}
+              class:active={$appearance === 'light'}
+              onclick={() => handleThemeChange('light')}
             >
               <div class="theme-preview light">
                 <div class="theme-window-mock">
@@ -1030,7 +1010,7 @@ async function handleSaveCardDav() {
             <button
               type="button"
               class="theme-card-option dark-option"
-              class:active={theme === 'dark'}
+              class:active={$appearance === 'dark'}
               onclick={() => handleThemeChange('dark')}
             >
               <div class="theme-preview dark">
@@ -1045,6 +1025,27 @@ async function handleSaveCardDav() {
               <div class="theme-option-info">
                 <span class="theme-dot dark-dot"></span>
                 <span class="theme-label">{$t("settings.darkMode")}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              class="theme-card-option"
+              class:active={$appearance === 'system'}
+              onclick={() => handleThemeChange('system')}
+            >
+              <div class="theme-preview system">
+                <div class="theme-window-mock">
+                  <div class="mock-sidebar"></div>
+                  <div class="mock-content">
+                    <div class="mock-line short"></div>
+                    <div class="mock-line"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="theme-option-info">
+                <span class="theme-dot system-dot"></span>
+                <span class="theme-label">{$t("settings.systemMode")}</span>
               </div>
             </button>
           </div>
@@ -2053,27 +2054,27 @@ async function handleSaveCardDav() {
   .settings-page {
     display: flex;
     height: 100vh;
-    background: var(--color-preview);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
     overflow: hidden;
   }
 
   /* ─── SIDEBAR ─── */
   .settings-sidebar {
-    background: var(--color-sidebar);
-    border-right: 1px solid var(--color-border);
+    background: var(--am-flaeche-1);
+    border-right: 1px solid var(--am-rand);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
   }
 
   .sidebar-header {
-    height: var(--am-header-h);
+    height: var(--am-leistenhoehe);
     padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
     flex-shrink: 0;
     margin-bottom: 16px;
   }
@@ -2087,7 +2088,7 @@ async function handleSaveCardDav() {
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     padding: 6px 12px 6px 4px;
     border-radius: 6px;
     transition: all 0.15s ease;
@@ -2095,8 +2096,8 @@ async function handleSaveCardDav() {
   }
 
   .back-btn:hover {
-    color: var(--color-text);
-    background: var(--color-active-wash);
+    color: var(--am-text-primaer);
+    background: var(--am-flaeche-2);
   }
 
   .back-btn svg {
@@ -2108,7 +2109,7 @@ async function handleSaveCardDav() {
     font-size: 1.25rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin: 0;
     padding-left: 4px;
   }
@@ -2128,7 +2129,7 @@ async function handleSaveCardDav() {
     background: transparent;
     border: none;
     border-radius: 8px;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.875rem;
     font-weight: 500;
     text-align: left;
@@ -2139,13 +2140,13 @@ async function handleSaveCardDav() {
   }
 
   .menu-item:hover {
-    color: var(--color-text);
-    background: var(--color-active-wash);
+    color: var(--am-text-primaer);
+    background: var(--am-flaeche-2);
   }
 
   .menu-item.active {
-    color: var(--color-accent);
-    background: var(--color-active-wash);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
     font-weight: 600;
   }
 
@@ -2164,8 +2165,8 @@ async function handleSaveCardDav() {
 
   .badge-pill {
     margin-left: auto;
-    background: var(--color-accent);
-    color: #fff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     font-size: 0.75rem;
     font-weight: 700;
     padding: 2px 8px;
@@ -2177,7 +2178,7 @@ async function handleSaveCardDav() {
     flex: 1;
     overflow-y: auto;
     height: 100%;
-    background: var(--color-preview);
+    background: var(--am-seite);
   }
 
   .settings-content {
@@ -2218,8 +2219,8 @@ async function handleSaveCardDav() {
       display: block;
       padding: 8px 12px;
       padding-top: max(8px, env(safe-area-inset-top, 0px));
-      border-bottom: 1px solid var(--color-border);
-      background: var(--color-list);
+      border-bottom: 1px solid var(--am-rand);
+      background: var(--am-seite);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -2260,20 +2261,20 @@ async function handleSaveCardDav() {
     font-size: 1.75rem;
     font-weight: 700;
     letter-spacing: -0.03em;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin: 0 0 6px 0;
   }
 
   .tab-desc {
     font-size: 0.875rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin: 0;
   }
 
   /* ─── CARDS ─── */
   .settings-card {
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
     padding: 24px;
     margin-bottom: 20px;
@@ -2288,13 +2289,13 @@ async function handleSaveCardDav() {
     font-size: 1rem;
     font-weight: 600;
     letter-spacing: -0.01em;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin: 0 0 4px 0;
   }
 
   .card-desc {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin: 0;
     line-height: 1.5;
   }
@@ -2307,13 +2308,13 @@ async function handleSaveCardDav() {
   /* ─── THEME GRID SELECTION ─── */
   .theme-selection-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 16px;
   }
 
   .theme-card-option {
     background: transparent;
-    border: 1.5px solid var(--color-border);
+    border: 1.5px solid var(--am-rand);
     border-radius: 10px;
     padding: 12px;
     cursor: pointer;
@@ -2325,32 +2326,32 @@ async function handleSaveCardDav() {
   }
 
   .theme-card-option:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--am-text-gedaempft);
   }
 
   .theme-card-option.active {
-    border-color: var(--color-accent);
-    background: var(--color-active-wash);
-    box-shadow: 0 0 0 1px var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
+    box-shadow: 0 0 0 1px var(--am-handlung-ruhend);
   }
 
   .theme-card-option.dark-option {
-    background: var(--b-150);
-    border-color: var(--b-300);
+    background: var(--am-blau-800);
+    border-color: var(--am-blau-600);
   }
 
   .theme-card-option.dark-option .theme-label {
-    color: var(--b-800);
+    color: var(--am-blau-200);
   }
 
   .theme-card-option.dark-option:hover {
-    border-color: var(--b-400);
+    border-color: var(--am-blau-500);
   }
 
   .theme-card-option.dark-option.active {
-    background: var(--b-200);
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 1px var(--color-accent);
+    background: var(--am-blau-700);
+    border-color: var(--am-handlung-ruhend);
+    box-shadow: 0 0 0 1px var(--am-handlung-ruhend);
   }
 
   .theme-preview {
@@ -2360,7 +2361,7 @@ async function handleSaveCardDav() {
     display: flex;
     align-items: stretch;
     overflow: hidden;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
   }
 
   .theme-preview.light {
@@ -2368,12 +2369,12 @@ async function handleSaveCardDav() {
   }
 
   .theme-preview.dark {
-    background: var(--b-150);
-    border-color: var(--b-300);
+    background: var(--am-blau-800);
+    border-color: var(--am-blau-600);
   }
 
   .theme-preview.dark .theme-window-mock {
-    border-color: var(--b-300);
+    border-color: var(--am-blau-600);
   }
 
   .theme-window-mock {
@@ -2381,18 +2382,18 @@ async function handleSaveCardDav() {
     display: flex;
     border-radius: 4px;
     overflow: hidden;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     box-shadow: none;
   }
 
   .mock-sidebar {
     width: 25%;
-    background: var(--color-sidebar);
-    border-right: 1px solid var(--color-border);
+    background: var(--am-flaeche-1);
+    border-right: 1px solid var(--am-rand);
   }
 
-  .light .mock-sidebar { background: var(--b-900); border-right: 1px solid var(--b-800); }
-  .dark .mock-sidebar { background: var(--b-100); border-right: 1px solid var(--b-300); }
+  .light .mock-sidebar { background: var(--am-blau-50); border-right: 1px solid var(--am-blau-200); }
+  .dark .mock-sidebar { background: var(--am-blau-900); border-right: 1px solid var(--am-blau-600); }
 
   .mock-content {
     flex: 1;
@@ -2400,20 +2401,20 @@ async function handleSaveCardDav() {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    background: var(--color-list);
+    background: var(--am-seite);
   }
 
   .light .mock-content { background: #FFFFFF; }
-  .dark .mock-content { background: var(--b-150); }
+  .dark .mock-content { background: var(--am-blau-800); }
 
   .mock-line {
     height: 4px;
     border-radius: 2px;
-    background: var(--color-border);
+    background: var(--am-rand);
   }
 
-  .light .mock-line { background: var(--b-800); }
-  .dark .mock-line { background: var(--b-300); }
+  .light .mock-line { background: var(--am-blau-200); }
+  .dark .mock-line { background: var(--am-blau-600); }
 
   .mock-line.short {
     width: 60%;
@@ -2431,29 +2432,32 @@ async function handleSaveCardDav() {
     border-radius: 50%;
   }
 
-  .light-dot { background: var(--color-accent); }
-  .dark-dot { background: var(--gold); }
+  .light-dot { background: var(--am-blau-800); }
+  .dark-dot { background: var(--am-gold-500); }
+  .system-dot { background: linear-gradient(90deg, var(--am-blau-800) 50%, var(--am-gold-500) 50%); }
+  /* System: left half light, right half dark — the mock follows the light card. */
+  .theme-preview.system { background: linear-gradient(90deg, #ffffff 50%, var(--am-blau-800) 50%); }
 
   .theme-label {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   /* ─── LANGUAGE TOGGLE ─── */
   .lang-toggle {
     display: inline-flex;
     gap: 4px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 6px;
     padding: 2px;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
     width: fit-content;
   }
   .lang-toggle button {
     background: transparent;
     border: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.8125rem;
     font-weight: 600;
     padding: 6px 14px;
@@ -2462,11 +2466,11 @@ async function handleSaveCardDav() {
     transition: all 0.15s ease-in-out;
   }
   .lang-toggle button.active {
-    background: var(--color-accent);
-    color: #ffffff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .lang-toggle button:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--am-handlung-ruhend);
     outline-offset: 1px;
   }
 
@@ -2477,13 +2481,13 @@ async function handleSaveCardDav() {
     gap: 8px;
     margin-top: 12px;
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .router-status .status-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--color-text-secondary);
+    background: var(--am-text-gedaempft);
     flex: none;
   }
   .router-status.ok .status-dot {
@@ -2513,7 +2517,7 @@ async function handleSaveCardDav() {
     display: inline-block;
     width: 44px;
     height: 24px;
-    background-color: var(--color-border);
+    background-color: var(--am-rand);
     border-radius: 24px;
     transition: background-color 0.2s ease;
     flex-shrink: 0;
@@ -2534,7 +2538,7 @@ async function handleSaveCardDav() {
   }
 
   input:checked + .switch-slider {
-    background-color: var(--color-accent);
+    background-color: var(--am-handlung-ruhend);
   }
 
   input:checked + .switch-slider::before {
@@ -2550,12 +2554,12 @@ async function handleSaveCardDav() {
   .switch-title {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   .switch-desc {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     line-height: 1.5;
   }
 
@@ -2591,29 +2595,29 @@ async function handleSaveCardDav() {
   .form-group label {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .form-control {
     width: 100%;
     padding: 10px 14px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     font-size: 0.875rem;
-    background: var(--color-list);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
     box-sizing: border-box;
     transition: all 0.15s ease;
   }
 
   .form-control::placeholder {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     opacity: 0.5;
   }
 
   .form-control:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+    border-color: var(--am-handlung-ruhend);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
   }
 
   /* Form row and helper layouts */
@@ -2632,19 +2636,19 @@ async function handleSaveCardDav() {
 
   .divider {
     height: 1px;
-    background: var(--color-border);
+    background: var(--am-rand);
     margin: 16px 0;
   }
 
   .form-section-title {
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin: 24px 0 12px 0;
     padding-bottom: 4px;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
   }
 
   .input-with-badge {
@@ -2662,18 +2666,18 @@ async function handleSaveCardDav() {
     right: 12px;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     text-transform: uppercase;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
     padding: 4px 8px;
     border-radius: 4px;
     pointer-events: none;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
   }
 
   .hint-text {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     line-height: 1.5;
     margin: 0;
   }
@@ -2697,7 +2701,7 @@ async function handleSaveCardDav() {
     width: 34px;
     height: 20px;
     border-radius: 999px;
-    background: var(--color-border);
+    background: var(--am-rand);
     transition: background 0.2s ease;
     flex-shrink: 0;
     display: inline-block;
@@ -2715,18 +2719,18 @@ async function handleSaveCardDav() {
     transition: transform 0.2s ease;
   }
   .toggle-label .toggle:checked + .toggle-track {
-    background: var(--color-accent);
+    background: var(--am-handlung-ruhend);
   }
   .toggle-label .toggle:checked + .toggle-track::after {
     transform: translateX(14px);
   }
   .toggle-label .toggle:focus-visible + .toggle-track {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 20%, transparent);
   }
   .toggle-text {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     line-height: 1;
   }
 
@@ -2742,15 +2746,15 @@ async function handleSaveCardDav() {
   }
 
   .alert-box.error {
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
-    color: var(--color-danger);
+    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--am-fehler) 30%, transparent);
+    color: var(--am-fehler);
   }
 
   .alert-box.success {
-    background: color-mix(in srgb, var(--color-success) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
-    color: var(--color-success);
+    background: color-mix(in srgb, var(--am-erfolg) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--am-erfolg) 30%, transparent);
+    color: var(--am-erfolg);
   }
 
   .alert-icon {
@@ -2780,13 +2784,13 @@ async function handleSaveCardDav() {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .stat-value {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   /* ─── BUTTONS ─── */
@@ -2799,8 +2803,8 @@ async function handleSaveCardDav() {
 
   .btn-submit {
     padding: 10px 24px;
-    background: var(--color-accent);
-    color: #FFFFFF;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     border: none;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -2810,7 +2814,7 @@ async function handleSaveCardDav() {
   }
 
   .btn-submit:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    background: var(--am-handlung-hover);
   }
 
   .btn-submit:disabled {
@@ -2821,8 +2825,8 @@ async function handleSaveCardDav() {
   .btn-cancel {
     padding: 10px 20px;
     background: transparent;
-    border: 1.5px solid var(--color-border);
-    color: var(--color-text-secondary);
+    border: 1.5px solid var(--am-rand);
+    color: var(--am-text-gedaempft);
     border-radius: 8px;
     font-size: 0.875rem;
     font-weight: 600;
@@ -2831,17 +2835,17 @@ async function handleSaveCardDav() {
   }
 
   .btn-cancel:hover {
-    background: var(--color-sidebar);
-    color: var(--color-text);
-    border-color: var(--color-text-secondary);
+    background: var(--am-flaeche-1);
+    color: var(--am-text-primaer);
+    border-color: var(--am-text-gedaempft);
   }
 
   /* Primary action button (Backup erstellen) — same visual language as
      .btn-submit so the Archiv tab matches the other tabs. */
   .btn-action {
     padding: 10px 24px;
-    background: var(--color-accent);
-    color: #FFFFFF;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     border: none;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -2851,7 +2855,7 @@ async function handleSaveCardDav() {
   }
 
   .btn-action:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    background: var(--am-handlung-hover);
   }
 
   .btn-action:disabled {
@@ -2863,8 +2867,8 @@ async function handleSaveCardDav() {
      löschen) — theme-aware danger variant of .btn-submit. */
   .btn-danger {
     padding: 10px 24px;
-    background: var(--color-danger);
-    color: #FFFFFF;
+    background: var(--am-fehler);
+    color: var(--am-handlung-text);
     border: none;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -2874,7 +2878,7 @@ async function handleSaveCardDav() {
   }
 
   .btn-danger:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-danger) 85%, #000000);
+    background: color-mix(in srgb, var(--am-fehler) 85%, #000000);
   }
 
   .btn-danger:disabled {
@@ -2894,22 +2898,22 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: 16px;
     padding: 16px;
-    background: var(--color-sidebar);
-    border: 1px solid var(--color-border);
+    background: var(--am-flaeche-1);
+    border: 1px solid var(--am-rand);
     border-radius: 10px;
     transition: border-color 0.15s ease;
   }
 
   .account-card-item:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--am-text-gedaempft);
   }
 
   .account-avatar {
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    background: var(--color-accent);
-    color: #FFFFFF;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2935,7 +2939,7 @@ async function handleSaveCardDav() {
   .account-title-name {
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   .status-indicator-badge {
@@ -2946,37 +2950,37 @@ async function handleSaveCardDav() {
     border-radius: 20px;
     font-size: 0.6875rem;
     font-weight: 600;
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-    color: var(--color-danger);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 20%, transparent);
+    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
+    color: var(--am-fehler);
+    border: 1px solid color-mix(in srgb, var(--am-fehler) 20%, transparent);
   }
 
   .status-indicator-badge.connected {
-    background: color-mix(in srgb, var(--color-success) 8%, transparent);
-    color: var(--color-success);
-    border: 1px solid color-mix(in srgb, var(--color-success) 20%, transparent);
+    background: color-mix(in srgb, var(--am-erfolg) 8%, transparent);
+    color: var(--am-erfolg);
+    border: 1px solid color-mix(in srgb, var(--am-erfolg) 20%, transparent);
   }
 
   .indicator-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--color-danger);
+    background: var(--am-fehler);
   }
 
   .connected .indicator-dot {
-    background: var(--color-success);
+    background: var(--am-erfolg);
   }
 
   .account-sub-info {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin: 0;
   }
 
   .account-tech-info {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin: 2px 0 0 0;
     display: flex;
     gap: 6px;
@@ -2995,7 +2999,7 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: 12px;
     padding: 8px 12px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     font-size: 0.8rem;
   }
@@ -3006,7 +3010,7 @@ async function handleSaveCardDav() {
   }
 
   .backup-size {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .export-row {
@@ -3042,9 +3046,9 @@ async function handleSaveCardDav() {
     justify-content: space-between;
     gap: 12px;
     padding: 10px 12px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 10px;
-    background: var(--color-list);
+    background: var(--am-seite);
   }
 
   .delete-queue-info {
@@ -3060,24 +3064,24 @@ async function handleSaveCardDav() {
   }
 
   .delete-queue-folder {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .delete-queue-state {
     font-size: 0.7rem;
     padding: 2px 8px;
     border-radius: 999px;
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
 
   .delete-queue-state.failed {
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-    color: var(--color-danger);
+    background: color-mix(in srgb, var(--am-fehler) 12%, transparent);
+    color: var(--am-fehler);
   }
 
   .delete-queue-error {
     font-size: 0.72rem;
-    color: var(--color-danger);
+    color: var(--am-fehler);
     max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3099,26 +3103,26 @@ async function handleSaveCardDav() {
 
   .sync-mode-label {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .sync-mode-select {
     font-size: 0.78rem;
     padding: 4px 8px;
     border-radius: 8px;
-    border: 1px solid var(--color-border, rgba(127,127,127,0.35));
-    background: var(--color-surface, #fff);
-    color: var(--color-text);
+    border: 1px solid var(--am-rand, rgba(127,127,127,0.35));
+    background: var(--am-flaeche-1);
+    color: var(--am-text-primaer);
     cursor: pointer;
   }
 
   .sync-mode-hint {
     font-size: 0.7rem;
-    color: var(--color-text-tertiary, var(--color-text-secondary));
+    color: var(--am-text-gedaempft);
   }
 
   .bullet-separator {
-    color: var(--color-border);
+    color: var(--am-rand);
   }
 
   .account-actions {
@@ -3128,8 +3132,8 @@ async function handleSaveCardDav() {
 
   .btn-action-ghost {
     background: transparent;
-    border: 1.5px solid var(--color-border);
-    color: var(--color-text);
+    border: 1.5px solid var(--am-rand);
+    color: var(--am-text-primaer);
     padding: 10px 20px;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -3139,8 +3143,8 @@ async function handleSaveCardDav() {
   }
 
   .btn-action-ghost:hover {
-    background: var(--color-list);
-    border-color: var(--color-accent);
+    background: var(--am-seite);
+    border-color: var(--am-handlung-ruhend);
   }
 
   .olares-import-row {
@@ -3153,13 +3157,13 @@ async function handleSaveCardDav() {
 
   .olares-import-hint {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .btn-action-danger-ghost {
     background: transparent;
-    border: 1.5px solid var(--color-border);
-    color: var(--color-danger);
+    border: 1.5px solid var(--am-rand);
+    color: var(--am-fehler);
     padding: 10px 20px;
     border-radius: 8px;
     font-size: 0.875rem;
@@ -3169,8 +3173,8 @@ async function handleSaveCardDav() {
   }
 
   .btn-action-danger-ghost:hover {
-    background: color-mix(in srgb, var(--color-danger) 6%, transparent);
-    border-color: var(--color-danger);
+    background: color-mix(in srgb, var(--am-fehler) 6%, transparent);
+    border-color: var(--am-fehler);
   }
 
   /* ─── CARDDAV SPECIFIC ─── */
@@ -3179,9 +3183,9 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: 8px;
     padding: 8px 14px;
-    background: var(--color-active-wash);
-    color: var(--color-accent);
-    border: 1px solid var(--color-border);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
+    border: 1px solid var(--am-rand);
     border-radius: 20px;
     font-size: 0.8125rem;
     margin-top: 16px;
@@ -3203,7 +3207,7 @@ async function handleSaveCardDav() {
     height: 72px;
     border-radius: 50%;
     overflow: hidden;
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3219,7 +3223,7 @@ async function handleSaveCardDav() {
   .photo-placeholder {
     font-size: 1.5rem;
     font-weight: 300;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   .photo-actions {
@@ -3230,7 +3234,7 @@ async function handleSaveCardDav() {
 
   /* ─── CalDAV multi-account list ─────────────── */
   .caldav-empty {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.875rem;
     margin: 0 0 var(--am-raum-4);
   }
@@ -3246,9 +3250,9 @@ async function handleSaveCardDav() {
     justify-content: space-between;
     gap: var(--am-raum-4);
     padding: var(--am-raum-4) var(--am-raum-8);
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 10px;
-    background: var(--color-list);
+    background: var(--am-seite);
   }
   .caldav-row--disabled {
     opacity: 0.55;
@@ -3262,11 +3266,11 @@ async function handleSaveCardDav() {
   .caldav-row-name {
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .caldav-row-meta {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3285,8 +3289,8 @@ async function handleSaveCardDav() {
     width: 38px;
     height: 22px;
     border-radius: 11px;
-    border: 1px solid var(--color-border);
-    background: var(--color-border);
+    border: 1px solid var(--am-rand);
+    background: var(--am-rand);
     position: relative;
     cursor: pointer;
     padding: 0;
@@ -3300,12 +3304,12 @@ async function handleSaveCardDav() {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: var(--color-list);
+    background: var(--am-seite);
     transition: transform 0.15s ease;
   }
   .caldav-toggle--on {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
+    background: var(--am-handlung-ruhend);
+    border-color: var(--am-handlung-ruhend);
   }
   .caldav-toggle--on::after {
     transform: translateX(16px);

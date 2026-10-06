@@ -9,6 +9,7 @@
   import { selection } from "$lib/stores/selection";
   import { t } from "$lib/i18n";
   import { assistantAction } from "$lib/stores/assistantAction";
+  import { applyAppearance } from "$lib/stores/appearance";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -18,20 +19,11 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  // Theme (T1, Review 2026-09-13): Mail/Settings setzen `theme-dark`
-  // jeweils nur bei eigenem Mount — Deep-Links auf die anderen vier
-  // Module starteten dadurch im Light-Mode. Das Layout wendet das
-  // Theme einmalig beim Start an; Mail/Settings bleiben funktional
-  // (sie schreiben denselben localStorage-Key).
-  function applyThemeFromStorage(): void {
-    let theme = "blue";
-    try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
-    if (theme === "dark") document.documentElement.classList.add("theme-dark");
-    else document.documentElement.classList.remove("theme-dark");
-  }
+  // Appearance is applied in one place for every module (CI RL-T2); the
+  // inline script in app.html has already set the class before first paint.
+  onMount(() => applyAppearance());
 
   onMount(async () => {
-    applyThemeFromStorage();
     try {
       await cacheInit();
     } catch (e: unknown) {
@@ -93,8 +85,8 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    color: var(--color-danger);
-    font-family: "Geist", sans-serif;
+    color: var(--am-fehler);
+    font-family: var(--am-schrift-sans);
   }
   .fatal-error h2 { margin-bottom: 8px; }
 
@@ -103,7 +95,7 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    background: var(--color-list);
+    background: var(--am-seite);
   }
   .loading-dots {
     display: flex;
@@ -113,7 +105,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--color-accent);
+    background: var(--am-handlung-ruhend);
     animation: pulse 1.4s ease-in-out infinite;
   }
   .dot:nth-child(2) { animation-delay: 0.2s; }
@@ -133,7 +125,7 @@
     background: #1a1a2e;
     color: #f0c040;
     font-size: 12px;
-    font-family: "Geist", sans-serif;
+    font-family: var(--am-schrift-sans);
     text-align: center;
     border-bottom: 1px solid #2a2a3e;
   }

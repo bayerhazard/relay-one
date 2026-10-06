@@ -29,11 +29,11 @@
     border-radius: 12px;
     cursor: pointer;
     width: 100%;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     transition: background 0.15s ease-in-out;
   }
   .ml-logo-btn:hover {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
   .ml-logo-btn.no-hover:hover {
     background: none;

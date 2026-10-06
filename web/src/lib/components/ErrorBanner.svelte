@@ -34,8 +34,8 @@
       gap: 12px;
       padding: 10px 14px;
       margin: 8px 12px;
-      background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-      border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+      background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--am-fehler) 25%, transparent);
       border-radius: 8px;
       animation: bannerIn 0.2s ease-out;
     }
@@ -67,7 +67,7 @@
 
     .error-text {
       font-size: 0.75rem;
-      color: var(--color-danger);
+      color: var(--am-fehler);
       line-height: 1.4;
       word-break: break-word;
       margin: 0;
@@ -76,10 +76,10 @@
     .retry-btn {
       flex-shrink: 0;
       padding: 5px 14px;
-      border: 1px solid var(--color-danger);
+      border: 1px solid var(--am-fehler);
       border-radius: 6px;
-      background: var(--color-list);
-      color: var(--color-danger);
+      background: var(--am-seite);
+      color: var(--am-fehler);
       font-size: 0.6875rem;
       font-weight: 600;
       cursor: pointer;
@@ -88,11 +88,11 @@
     }
 
     .retry-btn:hover {
-      background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+      background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
     }
 
     .retry-btn:focus-visible {
-      outline: 2px solid var(--color-danger);
+      outline: 2px solid var(--am-fehler);
       outline-offset: 2px;
     }
   </style>

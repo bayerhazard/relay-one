@@ -39,7 +39,7 @@
   <svg viewBox="40.46 30.4 79.08 99.2" width="52" height="52" aria-hidden="true" focusable="false">
     <path
       d="M80 129.6C68.551 126.707 59.0993 120.114 51.6451 109.822C44.1909 99.5299 40.4638 88.1012 40.4638 75.5359V45.2799L80 30.3999L119.536 45.2799V75.5359C119.536 88.1012 115.809 99.5299 108.355 109.822C100.901 120.114 91.449 126.707 80 129.6Z"
-      fill="var(--gold)"
+      fill="var(--am-gold-500)"
     />
   </svg>
 </button>
@@ -73,7 +73,7 @@
     opacity: 1;
   }
   .assistant-fab:focus-visible {
-    outline: var(--fokus-ring);
+    outline: 2px solid var(--am-fokus-ring);
     outline-offset: 2px;
     border-radius: 8px;
     opacity: 1;

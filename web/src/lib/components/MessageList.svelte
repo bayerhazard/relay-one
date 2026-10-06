@@ -470,26 +470,26 @@
     background: transparent;
   }
   .message-list::-webkit-scrollbar-thumb {
-    background: var(--color-border);
+    background: var(--am-rand);
     border-radius: 3px;
   }
   .message-list::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-secondary);
+    background: var(--am-text-gedaempft);
   }
   .message-item {
     padding: 10px 16px;
     border-left: 3px solid transparent;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
     cursor: pointer;
     contain: layout style paint;
     transition: all 0.15s ease-in-out;
   }
   .message-item:hover {
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
   }
   .message-item.selected {
-    background: var(--color-active-wash);
-    border-left-color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    border-left-color: var(--am-handlung-ruhend);
   }
   .msg-header {
     display: flex;
@@ -501,7 +501,7 @@
   .sender {
     font-weight: 600;
     font-size: 0.875rem;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -510,7 +510,7 @@
     margin-left: 5px;
     vertical-align: -2px;
     flex-shrink: 0;
-    color: var(--gold);
+    color: var(--am-gold-500);
   }
   .msg-header-right {
     display: flex;
@@ -525,7 +525,7 @@
   }
   .date {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .msg-subject {
     font-size: 0.8125rem;
@@ -533,34 +533,34 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .unread .sender {
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .unread .msg-subject {
     font-weight: 500;
   }
   .unread {
-    background: var(--color-unread-wash);
-    border-left-color: var(--color-unread);
+    background: var(--am-flaeche-1);
+    border-left-color: var(--am-handlung-ruhend);
   }
   .unread:hover {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
   /* Urgent: same marking as unread, in red (AI-detected or manually marked).
      Declared after .unread so it wins when both apply. */
   .urgent {
-    background: var(--color-urgent-wash);
-    border-left-color: var(--color-urgent);
+    background: var(--am-fehler-flaeche);
+    border-left-color: var(--am-fehler);
   }
   .urgent:hover {
-    background: var(--color-urgent-wash);
+    background: var(--am-fehler-flaeche);
   }
   .urgent .sender {
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .urgent .msg-subject {
     font-weight: 500;
@@ -568,7 +568,7 @@
   .loading-indicator {
     text-align: center;
     padding: 16px;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 
   /* ─── Skeleton Loading ─── */
@@ -578,7 +578,7 @@
   .skeleton-row {
     height: 88px;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -589,10 +589,10 @@
     border-radius: 6px;
     background: linear-gradient(
       90deg,
-      var(--color-border) 0%,
-      var(--color-active-wash) 40%,
-      var(--color-active-wash) 60%,
-      var(--color-border) 100%
+      var(--am-rand) 0%,
+      var(--am-flaeche-2) 40%,
+      var(--am-flaeche-2) 60%,
+      var(--am-rand) 100%
     );
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
@@ -613,8 +613,8 @@
     display: inline-block;
     font-size: 0.625rem;
     font-weight: 700;
-    color: var(--color-accent);
-    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    color: var(--am-handlung-ruhend);
+    background: color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
     padding: 1px 6px;
     border-radius: 4px;
     margin-right: 6px;
@@ -635,8 +635,8 @@
     position: fixed;
     z-index: 1001;
     min-width: 170px;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     box-shadow: none;
     padding: 6px;
@@ -655,7 +655,7 @@
     border-radius: 6px;
     font-size: 0.875rem;
     line-height: 1.45;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
@@ -667,25 +667,25 @@
     width: 16px;
     height: 16px;
     flex: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .ctx-menu-item:hover .ctx-icon {
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
   .ctx-menu-item.danger .ctx-icon {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu-item:hover {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
   }
   .ctx-menu-item.danger {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu-separator {
     height: 1px;
     margin: 4px 8px;
-    background: var(--color-border);
+    background: var(--am-rand);
   }
 
   /* iOS-style bottom sheet (touch devices): slides up from the bottom edge,
@@ -719,11 +719,11 @@
     border-radius: 10px;
   }
   .ctx-menu.sheet .ctx-menu-item:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   .ctx-menu.sheet .ctx-menu-item.danger:hover {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu.sheet .ctx-menu-separator {
     margin: 4px 16px;
@@ -747,7 +747,7 @@
   .message-item {
     position: relative;
     z-index: 2;
-    background: var(--color-list);
+    background: var(--am-seite);
     transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
     touch-action: pan-y;
   }
@@ -778,7 +778,7 @@
   .swipe-bg-right { margin-left: auto; }
   .swipe-action {
     border: none;
-    color: #fff;
+    color: var(--am-handlung-text);
     width: 76px;
     display: flex;
     flex-direction: column;
@@ -802,9 +802,9 @@
     white-space: nowrap;
   }
   /* iOS system colours (Mail.app conventions). */
-  .swipe-action.flag { background: var(--color-warning); }
-  .swipe-action.read { background: var(--color-accent); }
-  .swipe-action.delete { background: var(--color-danger); }
+  .swipe-action.flag { background: var(--am-achtung); }
+  .swipe-action.read { background: var(--am-handlung-ruhend); }
+  .swipe-action.delete { background: var(--am-fehler); }
 
   @media (pointer: coarse) {
     .message-item {

@@ -119,7 +119,7 @@
     height: 100%;
     padding: 48px 32px;
     text-align: center;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     gap: 8px;
   }
   .empty-state.offset-header {
@@ -132,8 +132,8 @@
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
     margin-bottom: 12px;
     transition: all 0.2s ease-in-out;
   }
@@ -143,8 +143,8 @@
     stroke-width: 1.5;
   }
   .empty-state.error .empty-state-icon-wrapper {
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    color: var(--color-danger);
+    background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
+    color: var(--am-fehler);
   }
   .empty-state-icon {
     font-size: 2.5rem;
@@ -155,12 +155,12 @@
   .empty-state-title {
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin: 0;
   }
   .empty-state-subtitle {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin: 0;
     max-width: 280px;
     line-height: 1.5;
@@ -168,10 +168,10 @@
   .empty-state-action {
     margin-top: 16px;
     padding: 8px 18px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
-    background: var(--color-list);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
     font-size: 0.8125rem;
     font-weight: 600;
     font-family: inherit;
@@ -179,12 +179,12 @@
     transition: all 0.15s ease-in-out;
   }
   .empty-state-action:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    background: var(--color-active-wash);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
   }
   .empty-state.error .empty-state-action:hover {
-    border-color: var(--color-danger);
-    color: var(--color-danger);
+    border-color: var(--am-fehler);
+    color: var(--am-fehler);
   }
 </style>

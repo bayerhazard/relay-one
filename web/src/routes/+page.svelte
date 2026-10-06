@@ -39,6 +39,7 @@ import {
   import { cacheBody, getCachedBody } from "$lib/offline/bodyCache";
   import { queueDraft, getQueuedDrafts, removeQueuedDraft } from "$lib/offline/draftQueue";
   import { isOnline, initOnlineListener } from "$lib/offline/online";
+  import { isDark, tokenValue } from "$lib/stores/appearance";
 
   let sidebarWidth = $state(220);
   let listWidth = $state(380);
@@ -377,8 +378,6 @@ import {
     }
   }
   let selectedFolder = $state("INBOX");
-  let theme = $state("blue");
-  try { theme = localStorage.getItem("relay_theme") || "blue"; } catch {}
   let showDeleteConfirm = $state(false);
   let showDeleteFolderConfirm = $state(false);
   let pendingDeleteFolder = $state<string | null>(null);
@@ -934,26 +933,6 @@ let sentFolderName = $state<string | null>(null);
     moveMenu = { x: pos.x, y: pos.y, sections };
   }
 
-  $effect(() => {
-    if (typeof document !== 'undefined') {
-      if (theme === "dark") {
-        document.documentElement.classList.add("theme-dark");
-      } else {
-        document.documentElement.classList.remove("theme-dark");
-      }
-      localStorage.setItem("relay_theme", theme);
-      // macOS: the web-app titlebar uses theme-color — match it to the theme
-      // (was a fixed medium blue that looked wrong in both themes).
-      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
-      if (!meta) {
-        meta = document.createElement("meta");
-        meta.name = "theme-color";
-        document.head.appendChild(meta);
-      }
-      meta.content = theme === "dark" ? "#0a2238" : "#f4f7fa";
-    }
-  });
-
   function getFolderIcon(name: string): string {
     const lower = name.toLowerCase();
     if (lower === "inbox") {
@@ -1278,12 +1257,14 @@ let sentFolderName = $state<string | null>(null);
     const inner = html ?? (text ? textToSafeHtml(text) : null);
     if (!inner) return null;
 
-    const isDark = theme === "dark";
-    const bg = isDark ? "#0a2238" : "#ffffff";
-    const fg = isDark ? "#d3dae1" : "#0a2238";
-    const muted = isDark ? "#6683a2" : "#6683a2";
-    const linkColor = isDark ? "#caa960" : "#3f6082";
-    const quoteBar = isDark ? "#294766" : "#d3dae1";
+    // The iframe document cannot read CSS variables, so the CI token values
+    // are resolved here; reading $isDark re-renders it when the mode flips.
+    const isDarkMode = $isDark;
+    const bg = tokenValue("--am-seite") || (isDarkMode ? "#051729" : "#ffffff");
+    const fg = tokenValue("--am-text-primaer") || (isDarkMode ? "#eef2f6" : "#051729");
+    const muted = tokenValue("--am-text-gedaempft") || (isDarkMode ? "#afc0d2" : "#4f6c8a");
+    const linkColor = tokenValue("--am-handlung-ruhend") || (isDarkMode ? "#caa960" : "#002f56");
+    const quoteBar = tokenValue("--am-rand") || (isDarkMode ? "#142e47" : "#cfdbe7");
 
     // Check auto-download images setting
     const autoDownload = localStorage.getItem("relay_auto_download_images") !== "false";
@@ -1299,10 +1280,10 @@ let sentFolderName = $state<string | null>(null);
       `script-src 'unsafe-inline'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">`;
 
     // Placeholder styling for blocked images
-    const phBg = isDark ? "#142e47" : "#E8E8E8";
-    const phBorder = isDark ? "#294766" : "#D0D0D0";
-    const phText = isDark ? "#6683a2" : "#718096";
-    const phHoverBg = isDark ? "#294766" : "#E0E0E0";
+    const phBg = tokenValue("--am-flaeche-2") || (isDarkMode ? "#142e47" : "#eff4f9");
+    const phBorder = tokenValue("--am-rand") || (isDarkMode ? "#142e47" : "#cfdbe7");
+    const phText = muted;
+    const phHoverBg = tokenValue("--am-flaeche-3") || (isDarkMode ? "#142e47" : "#e3eaf3");
 
     const baseStyle = `
       ${cspMeta}
@@ -1487,12 +1468,12 @@ let sentFolderName = $state<string | null>(null);
       const msg = $mailbox.messages.find(m => m.uid === uid);
       if (msg) {
         const ghost = document.createElement("div");
-        ghost.style.cssText = `position:absolute;left:-9999px;width:200px;padding:6px 10px;background:var(--color-list);color:var(--color-text);border-radius:8px;font-size:12px;box-shadow:none;line-height:1.4;`;
+        ghost.style.cssText = `position:absolute;left:-9999px;width:200px;padding:6px 10px;background:var(--am-seite);color:var(--am-text-primaer);border-radius:8px;font-size:12px;box-shadow:none;line-height:1.4;`;
         const sender = document.createElement("div");
         sender.style.cssText = "font-weight:600;margin-bottom:2px;";
         sender.textContent = extractName(msg.from) || translate("mail.unknown");
         const subject = document.createElement("div");
-        subject.style.cssText = "font-weight:400;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+        subject.style.cssText = "font-weight:400;color:var(--am-text-gedaempft);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
         subject.textContent = msg.subject || translate("mail.noSubject");
         ghost.appendChild(sender);
         ghost.appendChild(subject);
@@ -3175,9 +3156,9 @@ let sentFolderName = $state<string | null>(null);
   }
   .sidebar-pane {
     flex-shrink: 0;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
     /* Trennlinie unsichtbar: gleiche Farbe wie der Sidebar-Hintergrund */
-    border-right: 1px solid var(--color-sidebar);
+    border-right: 1px solid var(--am-flaeche-1);
     contain: layout style paint;
   }
   .resize-handle {
@@ -3188,13 +3169,13 @@ let sentFolderName = $state<string | null>(null);
     z-index: 10;
   }
   .resize-handle:hover {
-    background: var(--color-accent);
+    background: var(--am-handlung-ruhend);
     opacity: 0.3;
   }
   .list-pane {
     flex-shrink: 0;
-    background: var(--color-list);
-    border-right: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border-right: 1px solid var(--am-rand);
     /* NOTE: contain: layout/paint/strict would create a containing block for
        position:fixed descendants — the context menu (rendered inside the
        message list) would be positioned relative to this pane instead of the
@@ -3205,7 +3186,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .preview-pane {
     flex: 1;
-    background: var(--color-preview);
+    background: var(--am-seite);
     /* contain: layout would create a containing block for position:fixed
        descendants — the attachment context menu would be misplaced. */
     contain: style;
@@ -3219,12 +3200,12 @@ let sentFolderName = $state<string | null>(null);
     padding: 0;
   }
   .sidebar-header {
-    height: var(--am-header-h);
+    height: var(--am-leistenhoehe);
     padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
     flex-shrink: 0;
     margin-bottom: 16px;
   }
@@ -3245,7 +3226,7 @@ let sentFolderName = $state<string | null>(null);
     transition: background 0.15s ease-in-out;
   }
   .logo-btn:hover {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
   .logo-aimighty {
     display: block;
@@ -3257,23 +3238,23 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 12px;
     padding: 12px;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
     cursor: pointer;
     width: 100%;
     transition: all 0.15s ease-in-out;
   }
   .account-header-btn:hover {
-    background: var(--color-active-wash);
-    border-color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    border-color: var(--am-handlung-ruhend);
   }
   .account-header-avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: var(--color-accent);
-    color: #ffffff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3300,7 +3281,7 @@ let sentFolderName = $state<string | null>(null);
   .account-header-name {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3308,7 +3289,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .account-header-sub {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     line-height: 1.2;
     display: flex;
     align-items: center;
@@ -3321,12 +3302,12 @@ let sentFolderName = $state<string | null>(null);
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--color-border);
+    background: var(--am-rand);
     flex-shrink: 0;
     display: inline-block;
   }
   .account-header-dot.connected {
-    background: var(--color-success);
+    background: var(--am-erfolg);
     box-shadow: none;
   }
 
@@ -3347,27 +3328,27 @@ let sentFolderName = $state<string | null>(null);
     background: none;
     font-size: var(--fs-base);
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     cursor: pointer;
-    border-radius: var(--radius-m);
+    border-radius: var(--am-radius-mittel);
     font-family: inherit;
     transition: all 0.15s ease-in-out;
   }
   :global(.folder-item:hover) {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   :global(.folder-item.active) {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
     font-weight: 600;
   }
   :global(.folder-item.indent) {
     padding-left: 34px;
   }
   :global(.folder-item.drag-over) {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
     font-weight: 600;
   }
   :global(.folder-icon-wrapper) {
@@ -3395,18 +3376,18 @@ let sentFolderName = $state<string | null>(null);
   .list-header-container {
     display: flex;
     flex-direction: column;
-    background: var(--color-list);
+    background: var(--am-seite);
     flex-shrink: 0;
   }
   .list-header {
-    height: var(--am-header-h);
+    height: var(--am-leistenhoehe);
     padding: 0 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     background: transparent;
     flex-shrink: 0;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
   }
   .list-title-area {
     display: flex;
@@ -3418,20 +3399,20 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 2px;
     padding: 4px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
-    background: var(--color-list);
+    background: var(--am-seite);
   }
   .list-header h1 {
     font-size: 1.125rem;
     font-weight: 700;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .pill-icon-btn {
     background: none;
     border: none;
     cursor: pointer;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     transition: all 0.15s ease;
     padding: 6px;
     border-radius: 100px;
@@ -3440,8 +3421,8 @@ let sentFolderName = $state<string | null>(null);
     justify-content: center;
   }
   .pill-icon-btn:hover {
-    color: var(--color-accent);
-    background: var(--color-active-wash);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
   }
   .search-bar {
     display: flex;
@@ -3453,7 +3434,7 @@ let sentFolderName = $state<string | null>(null);
   .flag-filter-btn {
     border: none;
     background: none;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 4px;
@@ -3464,7 +3445,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .flag-filter-btn:hover,
   .flag-filter-btn.active {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
     opacity: 1;
   }
   .selection-toolbar {
@@ -3473,14 +3454,14 @@ let sentFolderName = $state<string | null>(null);
     justify-content: space-between;
     gap: 12px;
     padding: 8px 16px;
-    background: var(--color-active-wash);
-    border-bottom: 1px solid var(--color-border);
+    background: var(--am-flaeche-2);
+    border-bottom: 1px solid var(--am-rand);
     flex-shrink: 0;
   }
   .selection-count {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
   .selection-actions {
     display: flex;
@@ -3488,10 +3469,10 @@ let sentFolderName = $state<string | null>(null);
   }
   .selection-btn {
     padding: 5px 12px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 6px;
-    background: var(--color-list);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
     font-size: 0.75rem;
     font-weight: 600;
     font-family: inherit;
@@ -3499,16 +3480,16 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease-in-out;
   }
   .selection-btn:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
   }
   .selection-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }
   .selection-btn.danger:hover {
-    border-color: var(--color-danger);
-    color: var(--color-danger);
+    border-color: var(--am-fehler);
+    color: var(--am-fehler);
   }
   .selection-btn.ghost {
     border-color: transparent;
@@ -3527,14 +3508,14 @@ let sentFolderName = $state<string | null>(null);
     min-height: 0;
   }
   .preview-pane-header {
-    height: var(--am-header-h);
+    height: var(--am-leistenhoehe);
     padding: 0 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     /* Linie unter dem Vorschau-Header unsichtbar (gleiche Farbe wie Hintergrund) */
-    border-bottom: 1px solid var(--color-preview);
-    background: var(--color-preview);
+    border-bottom: 1px solid var(--am-seite);
+    background: var(--am-seite);
     flex-shrink: 0;
   }
   .preview-header-meta {
@@ -3545,11 +3526,11 @@ let sentFolderName = $state<string | null>(null);
   .preview-from-name {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .preview-from-email {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .preview-header-actions {
     display: flex;
@@ -3557,10 +3538,10 @@ let sentFolderName = $state<string | null>(null);
   }
   .action-btn-pill {
     padding: 6px 14px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 100px;
-    background: var(--color-list);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
     cursor: pointer;
     font-size: 0.75rem;
     font-weight: 500;
@@ -3571,14 +3552,14 @@ let sentFolderName = $state<string | null>(null);
     min-width: 100px;
   }
   .action-btn-pill:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    background: var(--color-active-wash);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
   }
   .action-btn-pill.delete:hover {
-    border-color: var(--color-danger);
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: var(--am-fehler);
+    color: var(--am-fehler);
+    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
   }
   .preview-scroll-wrapper {
     flex: 1;
@@ -3592,11 +3573,11 @@ let sentFolderName = $state<string | null>(null);
     background: transparent;
   }
   .preview-scroll-wrapper::-webkit-scrollbar-thumb {
-    background: var(--color-border);
+    background: var(--am-rand);
     border-radius: 3px;
   }
   .preview-scroll-wrapper::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-secondary);
+    background: var(--am-text-gedaempft);
   }
   .preview-content-area {
     padding: 32px 24px 24px 24px;
@@ -3606,12 +3587,12 @@ let sentFolderName = $state<string | null>(null);
     font-size: 1.5rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     line-height: 1.3;
   }
 .preview-date-line {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .preview-recipients {
     display: flex;
@@ -3619,14 +3600,14 @@ let sentFolderName = $state<string | null>(null);
     gap: 2px;
     margin: 8px 0 4px;
     font-size: 0.78rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .preview-recipient-line strong {
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     font-weight: 600;
   }
   .mail-iframe-container {
-    background: var(--color-list);
+    background: var(--am-seite);
     /* Umrandung der Mail-Vorschau unsichtbar */
     border: 1px solid transparent;
     border-radius: 8px;
@@ -3652,18 +3633,18 @@ let sentFolderName = $state<string | null>(null);
     white-space: pre-wrap;
     word-break: break-word;
     margin: 0;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .mail-body-empty {
     font-size: 0.875rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-style: italic;
   }
   .followups-footer {
     flex-shrink: 0;
     margin-top: auto;
-    border-top: 1px solid var(--color-border);
-    background: var(--color-card);
+    border-top: 1px solid var(--am-rand);
+    background: var(--am-flaeche-1);
     display: flex;
     flex-direction: column;
     /* Gleiche Hoehe wie der untere Sidebar-Block (.sidebar-footer):
@@ -3685,11 +3666,11 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
   .followups-footer-error {
     font-size: 0.78rem;
-    color: var(--color-danger);
+    color: var(--am-fehler);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3715,7 +3696,7 @@ let sentFolderName = $state<string | null>(null);
     min-width: 0;
     flex: 0 1 auto;
     font-size: 0.85rem;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .followups-footer-label > span:first-child {
     overflow: hidden;
@@ -3724,11 +3705,11 @@ let sentFolderName = $state<string | null>(null);
   }
   .followups-footer-conflict {
     font-size: 0.76rem;
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .followups-footer-muted {
     font-size: 0.85rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .followups-footer-btn {
     flex-shrink: 0;
@@ -3736,9 +3717,9 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 500;
     padding: 6px 12px;
     border: none;
-    border-radius: var(--radius-s);
-    background: var(--color-accent);
-    color: #fff;
+    border-radius: var(--am-radius-klein);
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     cursor: pointer;
   }
   .followups-footer-btn:hover {
@@ -3754,36 +3735,36 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.74rem;
     font-weight: 500;
     padding: 4px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-s);
-    background: var(--color-card);
-    color: var(--color-text);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
+    background: var(--am-flaeche-1);
+    color: var(--am-text-primaer);
     cursor: pointer;
   }
   .followups-footer-alt:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
   }
   .followups-footer-alt--picked {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: #fff;
+    border-color: var(--am-handlung-ruhend);
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .followups-footer-alt--picked:hover {
-    color: #fff;
+    color: var(--am-handlung-text);
     filter: brightness(1.1);
   }
   .attachments {
     margin-top: 20px;
     padding-top: 16px;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
   }
   .attachments-title {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-bottom: 10px;
   }
   .attachments-list {
@@ -3796,9 +3777,9 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
-    background: var(--color-list);
+    background: var(--am-seite);
     cursor: pointer;
     font-family: inherit;
     text-align: left;
@@ -3806,8 +3787,8 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease-in-out;
   }
   .attachment-chip:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    background: var(--color-active-wash);
+    border-color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
   }
   .attachment-chip:disabled {
     opacity: 0.6;
@@ -3825,19 +3806,19 @@ let sentFolderName = $state<string | null>(null);
   .attachment-name {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .attachment-size {
     font-size: 0.6875rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 .preview-body {
     font-size: 0.875rem;
     line-height: 1.7;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .mail-body {
     font-family: inherit;
@@ -3853,7 +3834,7 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .empty-icon {
     font-size: 3rem;
@@ -3867,7 +3848,7 @@ let sentFolderName = $state<string | null>(null);
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3876,8 +3857,8 @@ let sentFolderName = $state<string | null>(null);
     padding: 24px;
   }
   .splash-card {
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
     padding: 48px;
     width: 100%;
@@ -3901,11 +3882,11 @@ let sentFolderName = $state<string | null>(null);
     font-size: 1.875rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .splash-subtitle {
     font-size: 0.9375rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-bottom: 48px;
     max-width: 500px;
   }
@@ -3917,7 +3898,7 @@ let sentFolderName = $state<string | null>(null);
     margin-bottom: 48px;
   }
   .feature-card {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
     padding-top: 16px;
     text-align: left;
     display: flex;
@@ -3926,17 +3907,17 @@ let sentFolderName = $state<string | null>(null);
   .feature-card h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin-bottom: 8px;
   }
   .feature-card p {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     line-height: 1.5;
   }
   .btn-splash-primary {
-    background: var(--color-accent);
-    color: #ffffff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 24px;
@@ -3946,7 +3927,7 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease-in-out;
   }
   .btn-splash-primary:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    background: var(--am-handlung-hover);
   }
   .btn-splash-primary:disabled {
     opacity: 0.5;
@@ -3954,8 +3935,8 @@ let sentFolderName = $state<string | null>(null);
   }
   .btn-splash-secondary {
     background: transparent;
-    border: 1px solid var(--color-border);
-    color: var(--color-text);
+    border: 1px solid var(--am-rand);
+    color: var(--am-text-primaer);
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 20px;
@@ -3964,7 +3945,7 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease-in-out;
   }
   .btn-splash-secondary:hover {
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
   }
   .splash-form-view {
     display: flex;
@@ -3974,7 +3955,7 @@ let sentFolderName = $state<string | null>(null);
     font-size: 1.375rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .splash-form {
     display: grid;
@@ -4004,7 +3985,7 @@ let sentFolderName = $state<string | null>(null);
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     user-select: none;
     height: 100%;
   }
@@ -4013,9 +3994,9 @@ let sentFolderName = $state<string | null>(null);
     -webkit-appearance: none;
     width: 16px;
     height: 16px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 4px;
-    background: var(--color-list);
+    background: var(--am-seite);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -4026,8 +4007,8 @@ let sentFolderName = $state<string | null>(null);
     margin: 0;
   }
   .check-label input[type="checkbox"]:checked {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
+    background: var(--am-handlung-ruhend);
+    border-color: var(--am-handlung-ruhend);
   }
   .check-label input[type="checkbox"]:checked::after {
     content: "";
@@ -4041,14 +4022,14 @@ let sentFolderName = $state<string | null>(null);
     left: 5px;
   }
   .check-label input[type="checkbox"]:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
+    border-color: var(--am-handlung-ruhend);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
   }
   .splash-form .form-group label:not(.check-label) {
     display: block;
     font-size: 0.6875rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-bottom: 6px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -4056,25 +4037,25 @@ let sentFolderName = $state<string | null>(null);
   .splash-form .form-group input {
     width: 100%;
     padding: 10px 14px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 6px;
     font-size: 0.875rem;
-    color: var(--color-text);
-    background: var(--color-list);
+    color: var(--am-text-primaer);
+    background: var(--am-seite);
     box-shadow: none;
     transition: all 0.15s ease-in-out;
   }
   .splash-form .form-group input:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
-    background: var(--color-list);
+    border-color: var(--am-handlung-ruhend);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
+    background: var(--am-seite);
   }
   .splash-actions {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-top: 12px;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
     padding-top: 24px;
   }
   .splash-actions.span-2 {
@@ -4108,10 +4089,10 @@ let sentFolderName = $state<string | null>(null);
     border-radius: 6px;
     background: linear-gradient(
       90deg,
-      var(--color-border) 0%,
-      var(--color-active-wash) 40%,
-      var(--color-active-wash) 60%,
-      var(--color-border) 100%
+      var(--am-rand) 0%,
+      var(--am-flaeche-2) 40%,
+      var(--am-flaeche-2) 60%,
+      var(--am-rand) 100%
     );
     background-size: 200% 100%;
     animation: previewShimmer 1.8s ease-in-out infinite;
@@ -4151,7 +4132,7 @@ let sentFolderName = $state<string | null>(null);
     border: none;
     background: none;
     cursor: pointer;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 1rem;
     padding: 4px 8px;
     border-radius: 6px;
@@ -4162,8 +4143,8 @@ let sentFolderName = $state<string | null>(null);
     transition: all 0.15s ease;
   }
   .icon-btn:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   .menu-toggle {
     font-size: 1.125rem;
@@ -4172,8 +4153,8 @@ let sentFolderName = $state<string | null>(null);
   .preview-back-bar {
     flex-shrink: 0;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-preview);
+    border-bottom: 1px solid var(--am-rand);
+    background: var(--am-seite);
   }
   .sidebar-scrim {
     position: fixed;
@@ -4230,7 +4211,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .app-container.narrow .list-header-container {
     padding-top: env(safe-area-inset-top, 0px);
-    background: var(--color-list);
+    background: var(--am-seite);
   }
   .app-container.narrow .preview-back-bar {
     padding-top: max(8px, env(safe-area-inset-top, 0px));
@@ -4295,8 +4276,8 @@ let sentFolderName = $state<string | null>(null);
     max-width: 320px;
     max-height: min(70vh, 560px);
     overflow-y: auto;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     box-shadow: none;
     padding: 6px;
@@ -4316,7 +4297,7 @@ let sentFolderName = $state<string | null>(null);
     border-radius: 6px;
     font-size: 0.875rem;
     line-height: 1.45;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
@@ -4330,13 +4311,13 @@ let sentFolderName = $state<string | null>(null);
     width: 16px;
     height: 16px;
     flex: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .ctx-menu-item:hover .ctx-icon {
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
   .ctx-menu-item.danger .ctx-icon {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu-header {
     padding: 6px 12px 2px;
@@ -4344,19 +4325,19 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     user-select: none;
   }
   .ctx-menu-item:hover {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
   }
   .ctx-menu-item.danger {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu-item.danger:hover {
     background: rgba(220, 38, 38, 0.10);
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
 
   /* ── Attachment preview overlay ─────────────────────────── */
@@ -4378,8 +4359,8 @@ let sentFolderName = $state<string | null>(null);
     position: relative;
     width: min(920px, 100%);
     max-height: 90vh;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
     box-shadow: none;
     display: flex;
@@ -4392,14 +4373,14 @@ let sentFolderName = $state<string | null>(null);
     justify-content: space-between;
     gap: 12px;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-list);
+    border-bottom: 1px solid var(--am-rand);
+    background: var(--am-seite);
     flex-shrink: 0;
   }
   .att-preview-name {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -4415,16 +4396,16 @@ let sentFolderName = $state<string | null>(null);
     justify-content: center;
     width: 34px;
     height: 34px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     background: none;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     cursor: pointer;
     transition: all 0.15s ease;
   }
   .att-preview-btn:hover {
-    background: var(--color-active-wash);
-    border-color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    border-color: var(--am-handlung-ruhend);
   }
   .att-preview-body {
     flex: 1;
@@ -4451,7 +4432,7 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 14px;
     padding: 40px;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.875rem;
     text-align: center;
   }
@@ -4459,8 +4440,8 @@ let sentFolderName = $state<string | null>(null);
     padding: 9px 22px;
     border: none;
     border-radius: 8px;
-    background: var(--color-accent);
-    color: white;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     font-size: 0.875rem;
     font-weight: 600;
     font-family: inherit;
@@ -4512,11 +4493,11 @@ let sentFolderName = $state<string | null>(null);
     border-radius: 10px;
   }
   .ctx-menu.sheet .ctx-menu-item:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   .ctx-menu.sheet .ctx-menu-item.danger:hover {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .ctx-menu.sheet .ctx-menu-separator {
     margin: 4px 16px;
@@ -4524,6 +4505,6 @@ let sentFolderName = $state<string | null>(null);
   .ctx-menu-separator {
     height: 1px;
     margin: 4px 8px;
-    background: var(--color-border);
+    background: var(--am-rand);
   }
 </style>

@@ -1,52 +1,286 @@
 /* ============================================================
-   Relay — Design-System (AImighty)
-   Farbsystem extrahiert aus dem AImighty-Hero:
-   - Hell: Hanseatenblau trägt die Fläche, Blau-Tiefe für Akzente
-   - Dunkel: Hanseatenblau-Dunkel als Fläche, Gold trägt das Signal
-   Typo: Geist / Geist Mono (selbst gehostet, OFL)
+   Relay — global styles
+   Typo: Geist / Geist Mono (self-hosted, OFL)
    ============================================================ */
 
-/* --- Geist / Geist Mono (lokal, Variable Fonts, font-display:swap) --- */
+/* --- Geist / Geist Mono (local variable fonts, font-display: swap) --- */
 @font-face{font-family:'Geist';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/Geist.woff2') format('woff2')}
 @font-face{font-family:'Geist Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/GeistMono.woff2') format('woff2')}
 
-/* ============================================================
-   Helles Theme (Default) — Hanseatenblau
-   ============================================================ */
+/* ═══════════════════════════════════════════════════════════════════════
+   AImighty design system — source of values [AM-TOKEN]
+   This block is an unmodified copy of tokens/app.css from the CI repo
+   (ska1walker/aimighty-ci), stand ci-26.10.14. The CI is the source
+   (ABGLEICH T1, RL-T1): to change a value, change it there and copy it
+   here. Check with
+   `python3 werkzeug/app-abgleich.py …/web/src/styles/global.css`.
+
+   The fonts are loaded above and handed in as --font-geist-*.
+   ═══════════════════════════════════════════════════════════════════════ */
+
 :root {
-  /* Brand-Rampe (OKLCH 250°) */
-  --b-100:#051729; --b-150:#0a2238; --b-200:#142e47;
-  --b-300:#294766; --b-400:#3f6082; --b-500:#6683a2;
-  --b-600:#8ca1b7; --b-700:#b2bfcd; --b-800:#d3dae1; --b-900:#ebeff3;
-  --gold:#caa960; --gold-hell:#d8bd7d; --gold-tief:#8c6c1f;
+  /* ── Schrift ─────────────────────────────────────────────────────── */
+  --am-schrift-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --am-schrift-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
-  /* App-Flächen */
-  --color-sidebar: #f4f7fa;
-  --color-list: #ffffff;
-  --color-preview: #ffffff;
-  --color-border: var(--b-800);
-  --color-accent: var(--b-150);
-  --color-accent-hover: var(--b-200);
-  --color-text: var(--b-150);
-  --color-text-secondary: var(--b-500);
-  --color-danger: #ad3f38;
-  --color-warning: #9f5100;
-  --color-success: #007e46;
-  --color-unread: var(--b-400);
-  --color-unread-badge-text: #ffffff;
-  --color-urgent: #cc0000;
-  --color-active-wash: var(--b-900);
-  --color-unread-wash: rgba(63, 96, 130, 0.10);
-  --color-urgent-wash: rgba(204, 0, 0, 0.08);
+  /* ── Dichte — ein Hebel, keine zweite Wertetabelle ──────────────────
+     weit (Vorgabe) 1,1 · normal 1,0 · kompakt 0,9.
+     Auf Berührung greift automatisch `normal`. */
+  --am-skalierung: 1.1;
+  --am-einheit: 0.25rem; /* 4px */
 
-  /* Layout / Geometrie */
-  --radius-s: 3px;
-  --radius-m: 8px;
-  --radius-l: 12px;
-  --fokus-ring: 2px solid var(--color-accent);
-  --fokus-offset: 3px;
+  /* ── Abstandsstufen — 4·8·12·16·24·32·48·64, an die Dichte gebunden ─ */
+  --am-raum-1: calc(var(--am-einheit) * 1 * var(--am-skalierung));
+  --am-raum-2: calc(var(--am-einheit) * 2 * var(--am-skalierung));
+  --am-raum-3: calc(var(--am-einheit) * 3 * var(--am-skalierung));
+  --am-raum-4: calc(var(--am-einheit) * 4 * var(--am-skalierung));
+  --am-raum-6: calc(var(--am-einheit) * 6 * var(--am-skalierung));
+  --am-raum-8: calc(var(--am-einheit) * 8 * var(--am-skalierung));
+  --am-raum-12: calc(var(--am-einheit) * 12 * var(--am-skalierung));
+  --am-raum-16: calc(var(--am-einheit) * 16 * var(--am-skalierung));
 
-  /* Typo-Skala (rem, root 16px) */
+  /* ── Lesespalte — App-Profil, hergeleitet, nicht gesetzt ──────────── */
+  --am-spur-inhalt: 27.75rem; /* 444px — 60 Zeichen bei 16px Grundgrad */
+
+  /* ── Zielgrößen ──────────────────────────────────────────────────── */
+  --am-ziel-zeiger: 2.5rem;      /* 40px */
+  --am-ziel-beruehrung: 2.75rem; /* 44px, ohne Ausnahme */
+  --am-ziel-abstand: 0.5rem;
+  --am-ziel-abstand-beruehrung: 0.75rem;
+
+  /* ── Zeilenhöhe Tabellen, an Dichte gebunden: 56·48·40 ────────────── */
+  --am-zeile-tabelle: 3.5rem;
+
+  /* Die Höhe der Kopfzeile — **beide Spalten teilen sie sich**. Links
+     endet darauf die Linie unter der Wortmarke, rechts die unter dem
+     Seitentitel. Vorher rechnete jede Seite ihre Höhe aus ihrem Inhalt
+     aus, und die beiden Linien lagen 27 px auseinander: ein Versatz, den
+     man nicht benennen kann und trotzdem sieht. Wer hier etwas ändert,
+     verschiebt beide Linien gemeinsam — das ist der Zweck. */
+  --am-kopfhoehe: 5rem;
+  --am-leistenhoehe: 3.5rem;
+  /* Breite der Navigation am Desktop — für alle Anwendungen gleich, damit
+     die Kante beim Wechsel zwischen ihnen nicht springt (ABGLEICH R9). */
+  --am-navigation-breite: 15rem; /* 240px */
+  /* Lesespalte: Formulare, Einstellungen und Ansichten mit einer Hauptsache
+     stehen höchstens so breit, mittig oder links im Inhalt. Listen, Board,
+     Post und Kalender bleiben fließend (ABGLEICH G1). */
+  --am-lesespalte: 45rem; /* 720px */
+  /* Seitentitel in jeder Anwendung gleich groß: 22 px war kaum mehr als ein
+     Abschnittstitel, 40 px kostet in Listen eine Zeile (ABGLEICH G1). */
+  --am-seitentitel: 1.75rem; /* 28px */
+
+  /* ── Ebenen — wer über wem liegt (ABGLEICH R9) ────────────────────── */
+  --am-ebene-tabellenkopf: 10;
+  --am-ebene-seitenkopf: 20;
+  --am-ebene-navigation: 40;
+  --am-ebene-kopfleiste: 50;
+  --am-ebene-menue: 60;
+  --am-ebene-suche: 70;
+  --am-ebene-assistent: 90;
+  --am-ebene-dialog: 100;
+  --am-ebene-ueber-dialog: 200; /* Palette, Klappliste in einem Dialog */
+
+  /* ── Radien — Vorschlag, siehe Paket-README "Was noch fehlt" ──────── */
+  --am-radius-klein: 0.25rem;
+  --am-radius-mittel: 0.5rem;
+  --am-radius-gross: 0.75rem;
+  --am-radius-voll: 999px;
+
+  /* ── Randstärken ─────────────────────────────────────────────────── */
+  --am-rand-ruhend: 1px;
+  --am-rand-betont: 2px;
+
+  /* ── Bewegung — nur die dokumentierten Ausnahmen ──────────────────── */
+  /* Dieselbe Leiter und Kurve wie im Auftritt (kern/bewegung.md,
+     ABGLEICH T6, Kai 01.10.2026). Bis dahin trug die App --am-dauer-kurz
+     und --am-dauer-lang; sie entfallen. */
+  --am-dauer-schnell: 120ms;  /* Hover, Fokus, Farbwechsel */
+  --am-dauer-mittel: 200ms;   /* Aufklappen, Einblenden */
+  --am-dauer-langsam: 320ms;  /* Menü, Overlay */
+  --am-kurve: cubic-bezier(0.2, 0, 0, 1); /* kein Federn, kein Überschwingen */
+
+  /* ── Hanseatenblau — Flächenleiter, Farbton 249,9 ─────────────────── */
+  --am-blau-25: #f5f9fc;
+  --am-blau-50: #eff4f9;
+  --am-blau-100: #e3eaf3;
+  --am-blau-200: #cfdbe7;
+  --am-blau-300: #afc0d2;
+  --am-blau-400: #819bb7;
+  --am-blau-500: #587898; /* Wendepunkt — als Text in beiden Modi lesbar */
+  --am-blau-600: #335578;
+  --am-blau-700: #142e47;
+  --am-blau-800: #0a2238;
+  --am-blau-900: #051729; /* Grundfläche */
+  --am-blau-950: #010c1a;
+
+  /* ── Gold — Auszeichnung, Farbton 85,7 ────────────────────────────── */
+  --am-gold-200: #ebddbd;
+  --am-gold-300: #dfc896;
+  --am-gold-400: #d7ba7b;
+  --am-gold-500: #caa960; /* das eine Markengold */
+  --am-gold-600: #b7974e;
+  --am-gold-700: #a4843a;
+  --am-gold-800: #8c6c1f; /* Gold als Text auf Weiß, 4,91:1 — derselbe Wert
+                              wie --am-gold-text im Auftritt (ABGLEICH T3) */
+  --am-gold-900: #71560f;
+
+  /* ── Zustandsfarben — Text und Rand, keine Fläche außer im Formular ─ */
+  --am-erfolg: #007e46;
+  --am-hinweis: #066bb8;
+  --am-achtung: #9f5100;
+  --am-fehler: #ad3f38;
+  --am-erfolg-flaeche: #e7f6eb;
+  --am-erfolg-rand: #b5dcc1;
+  --am-hinweis-flaeche: #e8f3ff;
+  --am-hinweis-rand: #b6d5f4;
+  --am-achtung-flaeche: #feeee4;
+  --am-achtung-rand: #eec8af;
+  --am-fehler-flaeche: #ffedeb;
+  --am-fehler-rand: #f3c4be;
+  /* Lösch-Knopf beim Überfahren — heller wie die Handlung, nicht dunkler
+     (ABGLEICH R1). Weiß darauf 4,59:1; weiter aufhellen hieße durchfallen. */
+  --am-fehler-hover: #b9584f;
+
+  /* ── Halbsemantische Ebene, Hellmodus (Vorgabe) ───────────────────── */
+  --am-seite: #ffffff;
+  --am-flaeche-1: var(--am-blau-25);   /* Karte, Tafel */
+  --am-flaeche-2: var(--am-blau-50);   /* Menü, Aufklapper */
+  --am-flaeche-3: var(--am-blau-100);  /* Dialog, Popover */
+  --am-trennlinie: var(--am-blau-200);
+  --am-rand: var(--am-blau-200);
+  /* Der Rand, an dem man ein Bedienelement erkennt (sekundärer Knopf,
+     offenes Auswahlfeld) — WCAG 1.4.11 verlangt 3:1. Blau 300 kam auf
+     1,86:1 (ABGLEICH T9). Blau 500, der Wendepunkt: Weiß 4,61 ·
+     Fläche 1 4,36 · Fläche 3 3,80:1. */
+  --am-rand-betont-farbe: var(--am-blau-500);
+
+  --am-text-primaer: var(--am-blau-900);
+  --am-text-sekundaer: var(--am-blau-600);
+  /* Eine eigene Rolle, keine Leiterstufe (ABGLEICH T9, Kai 01.10.2026).
+     #4f6c8a trägt auf jeder hellen Fläche: Weiß 5,46 · Fläche 1 5,16 ·
+     Fläche 2 4,94 · Fläche 3 4,51:1. Fläche 2 ist jede Zeile unter dem
+     Zeiger — dort fiel #567595 auf 4,34:1, im Dialog auf 3,96:1.
+     Blau 500 bleibt, wie es ist: Es ist der Wendepunkt für Zeichen, die in
+     beiden Modi tragen müssen (Pfeil im Auswahlfeld, Balken). */
+  --am-text-gedaempft: #4f6c8a;
+  --am-text-deaktiviert: var(--am-blau-400);
+
+  --am-handlung-ruhend: #002f56;
+  --am-handlung-hover: #104472;
+  --am-handlung-aktiv: #002140;
+  --am-handlung-text: #ffffff;
+
+  /* Der eine Schatten: nur für das, was schwebt — Klappmenü, Suchtreffer,
+     Popover, Dialog, Assistent —, immer zusammen mit dem betonten Rand.
+     Karten, Tafeln, Spalten und Knöpfe tragen nie einen (ABGLEICH R6,
+     Kai 01.10.2026). */
+  --am-schatten-1: 0 8px 24px rgb(5 23 41 / 12%), 0 1px 2px rgb(5 23 41 / 8%);
+  /* Das schwebende Schild des Assistenten unten rechts. */
+  --am-schatten-schild: 0 6px 16px rgb(5 23 41 / 28%);
+
+  /* Schrift auf einer satten Fläche, die in beiden Modi dunkel bleibt
+     (Blau 600/900, Fehlerrot) — dort ist Weiß richtig, auch im Dunkeln.
+     Auf der Handlungsfläche gilt dagegen --am-handlung-text. */
+  --am-text-auf-farbe: #ffffff;
+  /* Trennlinie innerhalb eines Handlungsknopfs (Knopfmenü). */
+  --am-trenner-auf-handlung: rgb(255 255 255 / 0.25);
+
+  --am-gold-auszeichnung: var(--am-gold-500);
+  --am-fokus-ring: #002f56;
+  --am-deckschicht: rgb(5 23 41 / 60%);
+
+  /* Gold als Beschriftung — Sprecher-Namen, aktiver Navigationseintrag,
+     Aufnahme-Pille. Eigene Stufe, weil --am-gold-800 laut Paket für Text
+     *auf Weiß* gerechnet ist: auf der dunklen Fläche kommt es nur auf
+     3,3:1 und fällt damit unter die Lesbarkeitsschwelle. Der Dunkelmodus
+     setzt darum weiter unten den helleren Ton. */
+  --am-gold-beschriftung: var(--am-gold-800);
+
+  /* Fläche eines ausgewählten Eintrags (Vorlage, Sprache, Sprecher).
+     Im Hellmodus trägt die goldene Tönung die Auszeichnung. Im
+     Dunkelmodus wäre dieselbe helle Fläche ein Loch, auf dem der helle
+     Text verschwindet — dort hebt eine dunklere Blaustufe den Eintrag,
+     und die Auszeichnung übernimmt der goldene Rand. */
+  --am-auswahl-flaeche: var(--am-gold-200);
+}
+
+/* ── Dunkelmodus — Gold handelt, Blau trägt die Fläche ────────────────
+   Die dokumentierte Ausnahme: Blau auf Blau trägt nicht. */
+html.dunkel {
+  --am-seite: var(--am-blau-900);
+  --am-flaeche-1: var(--am-blau-800);
+  --am-flaeche-2: var(--am-blau-700);
+  --am-flaeche-3: var(--am-blau-700);
+  /* Blau 600 kam im Dunkeln auf 2,34:1 (ABGLEICH T9). Blau 400: Seite
+     6,29 · Fläche 3 4,83:1. */
+  --am-rand-betont-farbe: var(--am-blau-400);
+  --am-trennlinie: var(--am-blau-700);
+  --am-rand: var(--am-blau-700);
+
+  /* Gebrochenes Weiß wie im Auftritt: reines Weiß überstrahlt auf
+     Hanseatenblau beim langen Lesen. 16,08:1 auf der Seite, 12,35:1 auf
+     Fläche 3 (ABGLEICH T3, Kai 01.10.2026). Weiß bleibt nur auf satten
+     Flächen: --am-text-auf-farbe. */
+  --am-text-primaer: #eef2f6;
+  --am-text-sekundaer: var(--am-blau-200);
+  --am-text-gedaempft: var(--am-blau-300);
+  --am-text-deaktiviert: var(--am-blau-400);
+
+  --am-handlung-ruhend: var(--am-gold-500);
+  --am-handlung-hover: var(--am-gold-400);
+  --am-handlung-aktiv: var(--am-gold-600);
+  --am-handlung-text: var(--am-blau-900);
+  --am-schatten-1: 0 8px 24px rgb(0 0 0 / 40%), 0 1px 2px rgb(0 0 0 / 30%);
+  --am-schatten-schild: 0 6px 16px rgb(0 0 0 / 45%);
+
+  --am-erfolg: #55c483;
+  --am-hinweis: #60b0ff;
+  --am-achtung: #ed914c;
+  --am-fehler: #f6857a;
+  --am-erfolg-flaeche: #102a1a;
+  --am-erfolg-rand: #1f4d31;
+  --am-hinweis-flaeche: #122539;
+  --am-hinweis-rand: #234566;
+  --am-achtung-flaeche: #351e0d;
+  --am-achtung-rand: #5f371a;
+  --am-fehler-flaeche: #371b18;
+  --am-fehler-rand: #62332e;
+  --am-fehler-hover: #f9948a; /* Blau 900 darauf 8,30:1 */
+
+  /* Der Ring folgt der Handlung wie im Auftritt (kern/schaltflaechen.md):
+     Gold 500, 8,06:1 auf der Seite, 6,19:1 auf Fläche 3. Gold 900 kam
+     auf 2,62:1 (ABGLEICH T9). */
+  --am-fokus-ring: var(--am-gold-500);
+
+  /* Auf Hanseatenblau trägt das Markengold: 7,2:1 auf der Navigationsfläche,
+     8,1:1 auf der Grundfläche. Es ist zugleich die Handlungsfarbe im
+     Dunkelmodus, also bleibt die Sprache geschlossen. */
+  --am-gold-beschriftung: var(--am-gold-500);
+  --am-auswahl-flaeche: var(--am-blau-700);
+}
+
+/* ── Dichte — Zeiger vs. Berührung ─────────────────────────────────── */
+@media (pointer: coarse) {
+  :root {
+    --am-skalierung: 1; /* normal — die Ziele stehen ohnehin auf 44px */
+  }
+}
+
+/* Dichte-Hebel für die spätere Einstellung am <html data-dichte="…"> */
+html[data-dichte="normal"] { --am-skalierung: 1; }
+html[data-dichte="kompakt"] { --am-skalierung: 0.9; }
+
+/* ============================================================
+   Relay — what the CI does not (yet) define
+   ============================================================ */
+
+:root {
+  /* Fonts for --am-schrift-sans / --am-schrift-mono */
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+
+  /* Type scale (rem, root 16px) — until Relay adopts HB-TEXT */
   --fs-xs: 0.75rem;    /* 12 */
   --fs-sm: 0.8125rem;  /* 13 */
   --fs-base: 0.875rem; /* 14 */
@@ -54,50 +288,10 @@
   --fs-lg: 1.125rem;   /* 18 */
   --fs-xl: 1.25rem;    /* 20 */
 
-  /* AImighty-Raster (Designguide): Grundeinheit 4 px, Dichte-Hebel */
-  --am-skalierung: 1; /* kompakt 0,9 · weit 1,1 */
-  --am-einheit: 0.25rem;
-  --am-raum-2: calc(var(--am-einheit) * 2 * var(--am-skalierung));
-  --am-raum-4: calc(var(--am-einheit) * 4 * var(--am-skalierung));
-  --am-raum-8: calc(var(--am-einheit) * 8 * var(--am-skalierung));
-  --am-raum-12: calc(var(--am-einheit) * 12 * var(--am-skalierung));
-  --am-raum-16: calc(var(--am-einheit) * 16 * var(--am-skalierung));
-  --am-raum-24: calc(var(--am-einheit) * 24 * var(--am-skalierung));
-  --am-raum-32: calc(var(--am-einheit) * 32 * var(--am-skalierung));
-  --am-raum-48: calc(var(--am-einheit) * 48 * var(--am-skalierung));
-  --am-raum-64: calc(var(--am-einheit) * 64 * var(--am-skalierung));
-
-  /* Header-Hoehe aller Modul-Spalten — Trennlinien sitzen immer auf gleicher Y */
-  --am-header-h: calc(var(--am-einheit) * 15 * var(--am-skalierung)); /* ~56px */
-
   color-scheme: light;
 }
 
-/* ============================================================
-   Dunkles Theme (Einstellungen → Erscheinungsbild)
-   Hanseatenblau-Dunkel + Gold-Akzent
-   ============================================================ */
-:root.theme-dark {
-  --color-sidebar: var(--b-100);
-  --color-list: var(--b-150);
-  --color-preview: var(--b-150);
-  --color-border: var(--b-300);
-  --color-accent: var(--gold);
-  --color-accent-hover: var(--gold-hell);
-  --color-text: var(--b-800);
-  --color-text-secondary: var(--b-500);
-  --color-danger: #f6857a;
-  --color-warning: #ed914c;
-  --color-success: #55c483;
-  --color-unread: var(--gold);
-  --color-unread-badge-text: var(--b-100);
-  --color-urgent: #cc0000;
-  --color-active-wash: rgba(202, 169, 96, 0.10);
-  --color-unread-wash: rgba(202, 169, 96, 0.07);
-  --color-urgent-wash: rgba(204, 0, 0, 0.18);
-
-  --fokus-ring: 2px solid var(--color-accent);
-
+html.dunkel {
   color-scheme: dark;
 }
 
@@ -112,19 +306,19 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: "Geist", "Geist Sans", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 15px;
-  color: var(--color-text);
-  background: var(--color-preview);
+  font-family: var(--am-schrift-sans);
+  font-size: 16px;
+  color: var(--am-text-primaer);
+  background: var(--am-seite);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color .25s ease, color .25s ease;
+  transition: background-color var(--am-dauer-mittel) var(--am-kurve),
+    color var(--am-dauer-mittel) var(--am-kurve);
 }
 
-/* Mono-Text (UIDs, Meta, technische Werte) */
+/* Mono text (UIDs, meta, technical values) */
 .mono, code, kbd {
-  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--am-schrift-mono);
 }
 
 input,
@@ -137,12 +331,12 @@ button {
 input:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--color-accent);
+  border-color: var(--am-fokus-ring);
 }
 
 :focus-visible {
-  outline: var(--fokus-ring);
-  outline-offset: var(--fokus-offset);
+  outline: 2px solid var(--am-fokus-ring);
+  outline-offset: 2px;
 }
 
 /* Resizable sidebar/list divider (shared by all modules) */
@@ -154,6 +348,6 @@ textarea:focus {
   z-index: 10;
 }
 .resize-handle:hover {
-  background: var(--color-accent);
+  background: var(--am-handlung-ruhend);
   opacity: 0.3;
 }

@@ -30,8 +30,8 @@
     display: flex;
     gap: 8px;
     padding: 6px 8px;
-    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+    background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--am-fehler) 25%, transparent);
     border-radius: 6px;
     margin-top: 4px;
   }
@@ -44,11 +44,11 @@
   }
   .fraud-title {
     font-weight: 600;
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .fraud-list {
     margin: 2px 0 0 14px;
     padding: 0;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 </style>

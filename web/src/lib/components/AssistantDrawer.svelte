@@ -551,8 +551,8 @@
     right: 20px;
     width: 380px;
     height: min(520px, calc(100vh - 100px));
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 14px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
     display: flex;
@@ -588,16 +588,16 @@
     align-items: center;
     justify-content: space-between;
     padding: 14px 16px;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--am-rand);
   }
   .assistant-title {
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .assistant-close {
     border: none;
     background: transparent;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     cursor: pointer;
     font-size: 1rem;
   }
@@ -607,20 +607,20 @@
     padding: 16px;
   }
   .assistant-hint {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.85rem;
   }
   .assistant-thinking {
     display: block;
     margin-top: 4px;
     font-size: 0.78rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .assistant-footer {
     display: flex;
     gap: 8px;
     padding: 12px;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
   }
   .assistant-input-wrap {
     position: relative;
@@ -631,14 +631,14 @@
     flex: 1;
     width: 100%;
     height: 40px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-s);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
     padding: 0 40px 0 12px;
     font-family: inherit;
     font-size: 0.875rem;
     line-height: 1;
-    color: var(--color-text);
-    background: var(--color-card);
+    color: var(--am-text-primaer);
+    background: var(--am-flaeche-1);
   }
   .assistant-mic {
     position: absolute;
@@ -649,8 +649,8 @@
     height: 30px;
     border: none;
     border-radius: 50%;
-    background: var(--color-card);
-    color: var(--color-text-secondary);
+    background: var(--am-flaeche-1);
+    color: var(--am-text-gedaempft);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -658,12 +658,12 @@
     padding: 0;
   }
   .assistant-mic:hover {
-    color: var(--color-text);
-    background: var(--color-active-wash);
+    color: var(--am-text-primaer);
+    background: var(--am-flaeche-2);
   }
   .assistant-mic.recording {
-    background: var(--color-danger);
-    color: #fff;
+    background: var(--am-fehler);
+    color: var(--am-handlung-text);
     animation: micPulse 1.2s ease-in-out infinite;
   }
   .assistant-mic:disabled {
@@ -676,10 +676,10 @@
     left: 12px;
     right: 12px;
     padding: 8px 10px;
-    background: var(--color-active-wash);
-    color: var(--color-danger);
-    border: 1px solid var(--color-danger);
-    border-radius: var(--radius-s);
+    background: var(--am-flaeche-2);
+    color: var(--am-fehler);
+    border: 1px solid var(--am-fehler);
+    border-radius: var(--am-radius-klein);
     font-size: 0.8rem;
     z-index: 1;
   }
@@ -690,9 +690,9 @@
   .assistant-send {
     height: 40px;
     border: none;
-    border-radius: var(--radius-s);
-    background: var(--color-accent);
-    color: #fff;
+    border-radius: var(--am-radius-klein);
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     padding: 0 16px;
     cursor: pointer;
     font-weight: 500;
@@ -707,7 +707,7 @@
   .chat-msg {
     max-width: 85%;
     padding: 10px 12px;
-    border-radius: var(--radius-m);
+    border-radius: var(--am-radius-mittel);
     margin-bottom: 10px;
     font-size: 0.9rem;
     line-height: 1.4;
@@ -721,11 +721,11 @@
   .chat-text :global(ul), .chat-text :global(ol) { margin: 0.35em 0; padding-left: 1.3em; }
   .chat-text :global(li) { margin: 0.2em 0; }
   .chat-text :global(code) {
-    background: var(--color-active-wash);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-s);
+    background: var(--am-flaeche-2);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
     padding: 1px 5px;
-    font-family: "Geist Mono", ui-monospace, monospace;
+    font-family: var(--am-schrift-mono);
     font-size: 0.85em;
   }
   .chat-msg.user .chat-text :global(code) {
@@ -734,29 +734,29 @@
   }
   .chat-msg.user {
     margin-left: auto;
-    background: var(--color-accent);
-    color: #fff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .chat-msg.assistant {
     margin-right: auto;
-    background: var(--color-card);
-    border: 1px solid var(--color-border);
-    color: var(--color-text);
+    background: var(--am-flaeche-1);
+    border: 1px solid var(--am-rand);
+    color: var(--am-text-primaer);
   }
   .chat-msg.error {
-    background: var(--color-active-wash);
-    color: var(--color-danger);
-    border: 1px solid var(--color-danger);
+    background: var(--am-flaeche-2);
+    color: var(--am-fehler);
+    border: 1px solid var(--am-fehler);
   }
   .chat-msg.outcome {
     margin-right: auto;
     max-width: 100%;
     padding: 6px 10px;
     font-size: 0.8rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     background: transparent;
     border: none;
-    border-left: 2px solid var(--color-border);
+    border-left: 2px solid var(--am-rand);
   }
   .chat-speak {
     display: inline-flex;
@@ -765,25 +765,25 @@
     margin-top: 6px;
     width: 28px;
     height: 28px;
-    border-radius: var(--radius-s);
-    border: 1px solid var(--color-border);
+    border-radius: var(--am-radius-klein);
+    border: 1px solid var(--am-rand);
     background: transparent;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.85rem;
     cursor: pointer;
     transition: background 120ms ease, color 120ms ease;
   }
   .chat-speak:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   .chat-speak.speaking {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: #fff;
+    background: var(--am-handlung-ruhend);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .chat-typing {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .chat-plan {
     margin: 0 0 10px;
@@ -799,7 +799,7 @@
   .chat-steps {
     margin: 0 0 10px;
     font-size: 0.78rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .chat-steps summary {
     cursor: pointer;
@@ -814,7 +814,7 @@
     gap: 2px;
   }
   .assistant-stop {
-    background: var(--color-danger);
+    background: var(--am-fehler);
     display: flex;
     align-items: center;
     gap: 6px;
