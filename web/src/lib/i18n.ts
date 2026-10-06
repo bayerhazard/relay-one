@@ -6,6 +6,16 @@ type Dict = Record<string, string>;
 
 export const translations: Record<Lang, Dict> = {
   de: {
+    // Shell and profile (CI AM-HUELLE, HB-KONTO)
+    "huelle.bereiche": "Bereiche",
+    "huelle.start": "Relay – zur Mail",
+    "huelle.spalteAuf": "Spalte öffnen",
+    "huelle.spalteZu": "Spalte schließen",
+    "konto.knopf": "Konto: {name}",
+    "konto.menue": "Konto",
+    "konto.einstellungen": "Einstellungen",
+    "konto.darstellung": "Darstellung",
+    "konto.sprache": "Sprache",
     // Common
     "common.back": "Zurück",
     "common.next": "Weiter",
@@ -715,6 +725,16 @@ export const translations: Record<Lang, Dict> = {
     "calendar.currently": "aktuell",
   },
   en: {
+    // Shell and profile (CI AM-HUELLE, HB-KONTO)
+    "huelle.bereiche": "Areas",
+    "huelle.start": "Relay – to the mail",
+    "huelle.spalteAuf": "Open column",
+    "huelle.spalteZu": "Close column",
+    "konto.knopf": "Account: {name}",
+    "konto.menue": "Account",
+    "konto.einstellungen": "Settings",
+    "konto.darstellung": "Appearance",
+    "konto.sprache": "Language",
     // Common
     "common.back": "Back",
     "common.next": "Next",

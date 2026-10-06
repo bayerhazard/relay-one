@@ -81,4 +81,11 @@
     border-radius: var(--am-radius-mittel);
     opacity: 1;
   }
+  /* Above the bottom bar on the phone (AM-HUELLE, G5): the bar is a touch
+     target plus its padding high, plus the safe area. */
+  @media (max-width: 1023px) {
+    .assistant-fab {
+      bottom: calc(var(--am-ziel-beruehrung) + 2 * var(--am-raum-2) + var(--am-raum-3) + env(safe-area-inset-bottom));
+    }
+  }
 </style>
