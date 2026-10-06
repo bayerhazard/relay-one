@@ -476,7 +476,7 @@
   .ct-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -518,14 +518,14 @@
     max-width: 320px;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
+    box-shadow: var(--am-schatten-1);
   }
   .ct-app.narrow.sidebar-open .ct-sidebar { transform: translateX(0); }
   .ct-app.narrow .ct-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
     z-index: 55;
   }
   .ct-app.narrow .ct-sidebar-close,

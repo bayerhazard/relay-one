@@ -1270,7 +1270,7 @@
   .tk-detail-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1314,7 +1314,7 @@
   .tk-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1343,11 +1343,11 @@
     max-width: 320px;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
+    box-shadow: var(--am-schatten-1);
   }
   .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
-  .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 55; }
+  .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: var(--am-deckschicht); z-index: 55; }
   .tk-app.narrow .tk-sidebar-close,
   .tk-app.narrow .tk-menu-toggle { display: inline-flex; }
   .tk-app:not(.narrow) .tk-sidebar-close,

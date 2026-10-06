@@ -3263,7 +3263,7 @@ let sentFolderName = $state<string | null>(null);
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
-    transition: background 0.15s ease-in-out;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
   .logo-btn:hover {
     background: var(--am-flaeche-2);
@@ -3283,7 +3283,7 @@ let sentFolderName = $state<string | null>(null);
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .account-header-btn:hover {
     background: var(--am-flaeche-2);
@@ -3372,7 +3372,7 @@ let sentFolderName = $state<string | null>(null);
     cursor: pointer;
     border-radius: var(--am-radius-mittel);
     font-family: inherit;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   :global(.folder-item:hover) {
     background: var(--am-flaeche-2);
@@ -3453,7 +3453,7 @@ let sentFolderName = $state<string | null>(null);
     border: none;
     cursor: pointer;
     color: var(--am-text-gedaempft);
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     padding: 6px;
     border-radius: var(--am-radius-mittel);
     display: inline-flex;
@@ -3517,7 +3517,7 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 600;
     font-family: inherit;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .selection-btn:hover:not(:disabled) {
     border-color: var(--am-handlung-ruhend);
@@ -3872,7 +3872,7 @@ let sentFolderName = $state<string | null>(null);
     font-family: inherit;
     text-align: left;
     max-width: 260px;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .attachment-chip:hover:not(:disabled) {
     border-color: var(--am-handlung-ruhend);
@@ -4012,7 +4012,7 @@ let sentFolderName = $state<string | null>(null);
     border: none;
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-splash-primary:hover:not(:disabled) {
     background: var(--am-handlung-hover);
@@ -4030,7 +4030,7 @@ let sentFolderName = $state<string | null>(null);
     padding: 10px 20px;
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-splash-secondary:hover {
     background: var(--am-flaeche-1);
@@ -4089,7 +4089,7 @@ let sentFolderName = $state<string | null>(null);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.1s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     position: relative;
     outline: none;
     margin: 0;
@@ -4131,7 +4131,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-primaer);
     background: var(--am-seite);
     box-shadow: none;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .splash-form .form-group input:focus {
     border-color: var(--am-handlung-ruhend);
@@ -4228,7 +4228,7 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 4px;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .icon-btn:hover {
     background: var(--am-flaeche-2);
@@ -4247,7 +4247,7 @@ let sentFolderName = $state<string | null>(null);
   .sidebar-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
     z-index: 40;
   }
 
@@ -4280,7 +4280,7 @@ let sentFolderName = $state<string | null>(null);
     max-width: none;
     z-index: 50;
     transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
   }
   .app-container.narrow.sidebar-open .sidebar-pane {
     transform: translateX(0);
@@ -4355,7 +4355,7 @@ let sentFolderName = $state<string | null>(null);
     z-index: 1000;
   }
   .ctx-menu-scrim.sheet-scrim {
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
   }
   .ctx-menu {
     position: fixed;
@@ -4424,7 +4424,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-fehler);
   }
   .ctx-menu-item.danger:hover {
-    background: rgba(220, 38, 38, 0.10);
+    background: var(--am-fehler-flaeche);
     color: var(--am-fehler);
   }
 
@@ -4441,7 +4441,7 @@ let sentFolderName = $state<string | null>(null);
   .att-preview-scrim {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--am-deckschicht);
   }
   .att-preview-modal {
     position: relative;
@@ -4489,7 +4489,7 @@ let sentFolderName = $state<string | null>(null);
     background: none;
     color: var(--am-text-primaer);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .att-preview-btn:hover {
     background: var(--am-flaeche-2);
@@ -4501,7 +4501,7 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #1b1e24;
+    background: var(--am-blau-950);
   }
   .att-preview-frame {
     width: 100%;

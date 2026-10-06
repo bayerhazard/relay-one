@@ -588,7 +588,7 @@
     color: var(--am-text-gedaempft);
     text-align: center;
   }
-  .mt-state-error { color: var(--am-fehler, #c0392b); }
+  .mt-state-error { color: var(--am-fehler); }
   .mt-state-error .mt-btn { margin-top: 10px; }
 
   .mt-main {
@@ -722,14 +722,14 @@
       min-width: 0 !important;
       z-index: 40;
       transform: translateX(-100%);
-      transition: transform 0.2s ease-in-out;
+      transition: transform var(--am-dauer-mittel) var(--am-kurve);
     }
     .mt-app.sidebar-open .mt-sidebar { transform: translateX(0); }
     .mt-app.sidebar-open .mt-scrim {
       display: block;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.4);
+      background: var(--am-deckschicht);
       z-index: 30;
     }
     .mt-detail { padding: 20px 16px 48px; }

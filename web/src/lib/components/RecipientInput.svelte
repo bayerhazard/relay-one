@@ -180,7 +180,7 @@
     border: 1px solid var(--am-rand);
     border-radius: 8px;
     background: var(--am-seite);
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -212,7 +212,7 @@
     font-weight: 500;
     color: var(--am-handlung-ruhend);
     user-select: none;
-    transition: all 0.12s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .chip:hover {
@@ -231,7 +231,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.12s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .chip-remove:hover {
@@ -282,7 +282,7 @@
     flex-direction: column;
     gap: 2px;
     background: transparent;
-    transition: background 0.1s ease;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .suggestion:hover,

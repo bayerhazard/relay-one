@@ -40,7 +40,7 @@
     background: var(--am-seite);
     font-size: 0.75rem;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     max-width: 280px;
     white-space: nowrap;
     overflow: hidden;

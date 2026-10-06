@@ -785,7 +785,7 @@
     background: none; border: none; cursor: pointer;
     font-size: 1rem; color: var(--am-text-gedaempft);
     padding: 4px 8px; border-radius: var(--am-radius-mittel);
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .close-btn:hover { background: var(--am-flaeche-1); color: var(--am-text-primaer); }
   .close-icon-mobile { display: none; }
@@ -812,7 +812,7 @@
     padding: 9px 14px; font-size: 0.875rem;
     background: var(--am-seite);
     color: var(--am-text-primaer);
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .field input:focus {
     outline: none;
@@ -846,7 +846,7 @@
     font-family: inherit;
     cursor: pointer;
     padding: 6px 1px;
-    transition: color 0.12s ease;
+    transition: color var(--am-dauer-schnell) var(--am-kurve);
   }
   .ccbcc-toggle:hover {
     color: var(--am-handlung-ruhend);
@@ -871,7 +871,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.12s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .ccbcc-clear-btn:hover {
     opacity: 1;
@@ -940,7 +940,7 @@
     overflow: visible;
     display: flex;
     flex-direction: column;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .editor-preview:focus-within {
     border-color: var(--am-handlung-ruhend);
@@ -1086,7 +1086,7 @@
     font-size: 0.8125rem;
     font-weight: 500;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-ai:hover:not(:disabled) { border-color: var(--am-handlung-ruhend); }
   .btn-ai:disabled { opacity: 0.45; cursor: default; }
@@ -1100,7 +1100,7 @@
     height: 24px;
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    transition: all 0.12s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     flex-shrink: 0;
   }
   .toggle-mic.voice-enabled { display: flex; }
@@ -1140,7 +1140,7 @@
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     font-family: inherit;
   }
   .btn-send:hover:not(:disabled) { background: var(--am-handlung-hover); }
@@ -1191,7 +1191,7 @@
     border-radius: 6px;
     font-size: 0.75rem;
     color: var(--am-text-primaer);
-    transition: all 0.12s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .attachment-pill:hover {
     border-color: color-mix(in srgb, var(--am-handlung-ruhend) 30%, transparent);
@@ -1212,7 +1212,7 @@
     line-height: 1;
     opacity: 0;
     padding: 0;
-    transition: all 0.12s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     flex-shrink: 0;
   }
   .attachment-pill:hover .attachment-remove {
@@ -1225,7 +1225,7 @@
   .close-dialog-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1263,7 +1263,7 @@
     font-size: 0.8125rem;
     font-weight: 500;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-discard:hover {
     border-color: var(--am-handlung-ruhend);
@@ -1279,7 +1279,7 @@
     font-size: 0.8125rem;
     font-weight: 500;
     font-family: inherit;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-save:hover {
     background: var(--am-handlung-hover);

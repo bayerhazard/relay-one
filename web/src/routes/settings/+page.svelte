@@ -2117,7 +2117,7 @@ async function handleSaveCardDav() {
     color: var(--am-text-gedaempft);
     padding: 6px 12px 6px 4px;
     border-radius: var(--am-radius-mittel);
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     width: fit-content;
   }
 
@@ -2160,7 +2160,7 @@ async function handleSaveCardDav() {
     font-weight: 500;
     text-align: left;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     width: 100%;
     font-family: inherit;
   }
@@ -2345,7 +2345,7 @@ async function handleSaveCardDav() {
     padding: 12px;
     cursor: pointer;
     text-align: left;
-    transition: all 0.2s ease;
+    transition: all var(--am-dauer-mittel) var(--am-kurve);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -2489,7 +2489,7 @@ async function handleSaveCardDav() {
     padding: 6px 14px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .lang-toggle button.active {
     background: var(--am-handlung-ruhend);
@@ -2517,7 +2517,7 @@ async function handleSaveCardDav() {
     flex: none;
   }
   .router-status.ok .status-dot {
-    background: #2e9e5b;
+    background: var(--am-erfolg);
   }
 
   /* ─── SWITCH CONTROL (iOS / HubSpot Style) ─── */
@@ -2545,7 +2545,7 @@ async function handleSaveCardDav() {
     height: 24px;
     background-color: var(--am-rand);
     border-radius: 24px;
-    transition: background-color 0.2s ease;
+    transition: background-color var(--am-dauer-mittel) var(--am-kurve);
     flex-shrink: 0;
     margin-top: 2px;
   }
@@ -2557,9 +2557,9 @@ async function handleSaveCardDav() {
     width: 18px;
     left: 3px;
     bottom: 3px;
-    background-color: #FFFFFF;
+    background-color: var(--am-text-auf-farbe);
     border-radius: 50%;
-    transition: transform 0.2s ease;
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
     box-shadow: none;
   }
 
@@ -2633,7 +2633,7 @@ async function handleSaveCardDav() {
     background: var(--am-seite);
     color: var(--am-text-primaer);
     box-sizing: border-box;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .form-control::placeholder {
@@ -2728,7 +2728,7 @@ async function handleSaveCardDav() {
     height: 20px;
     border-radius: 999px;
     background: var(--am-rand);
-    transition: background 0.2s ease;
+    transition: background var(--am-dauer-mittel) var(--am-kurve);
     flex-shrink: 0;
     display: inline-block;
   }
@@ -2740,9 +2740,9 @@ async function handleSaveCardDav() {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--am-text-auf-farbe);
     box-shadow: none;
-    transition: transform 0.2s ease;
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
   }
   .toggle-label .toggle:checked + .toggle-track {
     background: var(--am-handlung-ruhend);
@@ -2836,7 +2836,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-submit:hover:not(:disabled) {
@@ -2857,7 +2857,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-cancel:hover {
@@ -2877,7 +2877,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-action:hover:not(:disabled) {
@@ -2907,7 +2907,7 @@ async function handleSaveCardDav() {
     background: var(--am-flaeche-1);
     border: 1px solid var(--am-rand);
     border-radius: 10px;
-    transition: border-color 0.15s ease;
+    transition: border-color var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .account-card-item:hover {
@@ -3116,7 +3116,7 @@ async function handleSaveCardDav() {
     font-size: 0.78rem;
     padding: 4px 8px;
     border-radius: 8px;
-    border: 1px solid var(--am-rand, rgba(127,127,127,0.35));
+    border: 1px solid var(--am-rand);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     cursor: pointer;
@@ -3146,7 +3146,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-action-ghost:hover {
@@ -3285,7 +3285,7 @@ async function handleSaveCardDav() {
     position: relative;
     cursor: pointer;
     padding: 0;
-    transition: background 0.15s ease;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
   .caldav-toggle::after {
     content: "";
@@ -3296,7 +3296,7 @@ async function handleSaveCardDav() {
     height: 16px;
     border-radius: 50%;
     background: var(--am-seite);
-    transition: transform 0.15s ease;
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
   }
   .caldav-toggle--on {
     background: var(--am-handlung-ruhend);

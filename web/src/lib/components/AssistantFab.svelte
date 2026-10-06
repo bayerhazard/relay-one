@@ -64,7 +64,7 @@
     cursor: pointer;
     z-index: 900;
     opacity: 0.55;
-    transition: opacity 150ms ease;
+    transition: opacity var(--am-dauer-schnell) var(--am-kurve);
   }
   .assistant-fab.hidden {
     display: none;

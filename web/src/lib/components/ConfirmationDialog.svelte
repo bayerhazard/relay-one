@@ -99,7 +99,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.35);
+      background: var(--am-deckschicht);
       animation: fadeIn 0.15s ease-out;
     }
 
@@ -163,7 +163,7 @@
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-cancel:hover {
@@ -185,7 +185,7 @@
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-alt:hover {
@@ -207,7 +207,7 @@
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-confirm:hover {

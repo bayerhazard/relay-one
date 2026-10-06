@@ -31,7 +31,7 @@
   // Synthetic built-in "Feiertage" calendar (German public holidays).
   const HOLIDAY_CAL_ID = -1;
   const HOLIDAY_CAL: CalendarInfo = {
-    id: HOLIDAY_CAL_ID, name: "Feiertage", color: "#caa960",
+    id: HOLIDAY_CAL_ID, name: "Feiertage", color: "var(--am-kalender-1)",
     read_only: true, last_synced_at: null,
   };
   // ─── State ───────────────────────────────────
@@ -292,8 +292,10 @@
     }
   });
 
-  // Fixed palette for calendar colors (index by position).
-  const CAL_COLORS = ["#caa960", "#4f83b3", "#7ba05b", "#b3564f", "#8a6fb3", "#4fb3a5"];
+  // Fixed palette for calendar colors, indexed by position (CI RL-R5): six
+  // tones from the blue and gold ladders, each 3:1 as a graphic in both
+  // modes. Holidays keep tone 1, so connected calendars start at tone 2.
+  const CAL_COLORS = [2, 3, 4, 5, 6, 1].map((n) => `var(--am-kalender-${n})`);
   function calColor(cal: CalendarInfo | undefined): string {
     if (!cal) return CAL_COLORS[0];
     if (cal.id === HOLIDAY_CAL_ID) return cal.color ?? CAL_COLORS[0];
@@ -1188,7 +1190,8 @@
       {@const cal = calById(ev.calendar_id)}
       <div class="cal-detail-inner">
         <div class="cal-detail-top">
-          <span class="cal-detail-cal" style="color: {cal ? calColor(cal) : 'var(--am-text-primaer)'}">
+          <span class="cal-detail-cal">
+            {#if cal}<span class="cal-cal-dot" style="background: {calColor(cal)}" aria-hidden="true"></span>{/if}
             {cal?.name ?? $t("calendar.title")}
           </span>
           <button type="button" class="cal-detail-close" onclick={clearSelection} aria-label={$t("calendar.close")}>×</button>
@@ -1459,14 +1462,14 @@
     max-width: 320px;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
+    box-shadow: var(--am-schatten-1);
   }
   .cal-app.narrow.sidebar-open .cal-sidebar { transform: translateX(0); }
   .cal-app.narrow .cal-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
     z-index: 55;
   }
   .cal-app.narrow .cal-sidebar-close,
@@ -1728,7 +1731,7 @@
   .cal-modal-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1744,7 +1747,7 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--am-schatten-1);
   }
   .cal-modal h2 { margin: 0 0 4px; font-size: var(--fs-lg); }
   .cal-field { display: flex; flex-direction: column; gap: 5px; font-size: var(--fs-sm); color: var(--am-text-gedaempft); }
@@ -1849,7 +1852,7 @@
     font-size: var(--fs-sm); padding: 5px 12px; cursor: pointer; border-radius: var(--am-radius-klein);
   }
   .cal-vt:hover { color: var(--am-text-primaer); }
-  .cal-vt.active { background: var(--am-seite); color: var(--am-text-primaer); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .cal-vt.active { background: var(--am-seite); color: var(--am-text-primaer); font-weight: 600; }
 
   /* ── Week view ── */
   .cal-week { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -1892,7 +1895,7 @@
   }
   .cal-detail-inner { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .cal-detail-top { display: flex; align-items: center; justify-content: space-between; }
-  .cal-detail-cal { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-detail-cal { display: inline-flex; align-items: center; gap: 6px; color: var(--am-text-primaer); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
   .cal-detail-close { background: none; border: none; color: var(--am-text-gedaempft); font-size: var(--fs-xl); cursor: pointer; padding: 0 6px; border-radius: var(--am-radius-mittel); line-height: 1; }
   .cal-detail-close:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
   .cal-detail-title { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; }
@@ -1906,7 +1909,9 @@
   .cal-attendee-name { color: var(--am-text-primaer); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-attendee-status { font-size: var(--fs-xs); flex-shrink: 0; padding: 1px 8px; border-radius: 10px; }
   .cal-attendee-needsaction .cal-attendee-status { color: var(--am-text-gedaempft); background: var(--am-flaeche-1); }
-  .cal-attendee-accepted .cal-attendee-status { color: #16a34a; background: #16a34a18; }
-  .cal-attendee-declined .cal-attendee-status { color: #dc2626; background: #dc262618; }
-  .cal-attendee-tentative .cal-attendee-status { color: #ca8a04; background: #ca8a0418; }
+  /* RSVP states (CI R7): red is for "needs action" only — a decline is
+     information, so it stays neutral; the word always carries the state. */
+  .cal-attendee-accepted .cal-attendee-status { color: var(--am-erfolg); background: var(--am-erfolg-flaeche); }
+  .cal-attendee-declined .cal-attendee-status { color: var(--am-text-gedaempft); background: var(--am-flaeche-2); }
+  .cal-attendee-tentative .cal-attendee-status { color: var(--am-achtung); background: var(--am-achtung-flaeche); }
 </style>

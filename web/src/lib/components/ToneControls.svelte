@@ -260,7 +260,8 @@
     height: 4px;
     border-radius: 2px;
     background: var(--am-handlung-ruhend);
-    transition: width 0.05s linear;
+    /* The fill follows the drag directly — any duration would lag. */
+    transition: none;
     pointer-events: none;
     z-index: 1;
   }
@@ -271,7 +272,7 @@
     height: 18px;
     margin-left: -9px;
     z-index: 2;
-    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
     pointer-events: none;
   }
 
@@ -279,12 +280,12 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #fff;
-    box-shadow:
-0 0 0 1px rgba(0, 0, 0, 0.04);
+    background: var(--am-seite);
+    /* A ring, not a shadow: the thumb sits in the page, it does not float (CI R6). */
+    box-shadow: 0 0 0 2px var(--am-rand-betont-farbe);
     transition:
-      transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
-      box-shadow 0.15s ease;
+      transform var(--am-dauer-schnell) var(--am-kurve),
+      box-shadow var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .track:hover .thumb-ring,
@@ -304,7 +305,7 @@
 
   .track:focus-visible .thumb-ring {
     box-shadow:
-0 0 0 2px var(--am-handlung-ruhend);
+0 0 0 2px var(--am-fokus-ring);
   }
 
   @container (max-width: 480px) {

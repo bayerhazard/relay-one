@@ -81,7 +81,7 @@
     background: var(--am-seite);
     border: 1px solid var(--am-rand);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--am-schatten-1);
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -100,5 +100,5 @@
     font-family: inherit;
   }
   .ctx-item:hover { background: var(--am-flaeche-2); }
-  .ctx-item.danger { color: var(--am-fehler, #c0392b); }
+  .ctx-item.danger { color: var(--am-fehler); }
 </style>

@@ -84,7 +84,7 @@
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .retry-btn:hover {

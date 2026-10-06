@@ -30,7 +30,7 @@
     cursor: pointer;
     width: 100%;
     color: var(--am-text-primaer);
-    transition: background 0.15s ease-in-out;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
   .ml-logo-btn:hover {
     background: var(--am-flaeche-2);

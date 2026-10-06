@@ -554,7 +554,7 @@
     background: var(--am-seite);
     border: 1px solid var(--am-rand);
     border-radius: 14px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--am-schatten-1);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -684,8 +684,8 @@
     z-index: 1;
   }
   @keyframes micPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 80, 80, 0.5); }
-    50% { box-shadow: 0 0 0 6px rgba(220, 80, 80, 0); }
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--am-fehler) 50%, transparent); }
+    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--am-fehler) 0%, transparent); }
   }
   .assistant-send {
     height: 40px;
@@ -729,7 +729,7 @@
     font-size: 0.85em;
   }
   .chat-msg.user .chat-text :global(code) {
-    background: rgba(255, 255, 255, 0.18);
+    background: color-mix(in srgb, var(--am-handlung-text) 18%, transparent);
     border-color: transparent;
   }
   .chat-msg.user {
@@ -771,7 +771,7 @@
     color: var(--am-text-gedaempft);
     font-size: 0.85rem;
     cursor: pointer;
-    transition: background 120ms ease, color 120ms ease;
+    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
   }
   .chat-speak:hover {
     background: var(--am-flaeche-2);
