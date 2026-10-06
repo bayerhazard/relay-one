@@ -46,7 +46,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/import/mbox", post(import::import_mbox))
         .route("/import/mbox-dir", post(import::import_mbox_dir))
         .route("/import/attachments-backfill", post(import::attachments_backfill))
-        .route("/profile/photo", get(profile::get_own_photo).post(profile::save_own_photo))
         .route_layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         // ── Standard routes (1 MB from main.rs) ───────────────
         // Health / meta
