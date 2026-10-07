@@ -12,38 +12,18 @@
 // icon); "voll" fills the square without corners and rim — iOS and Android
 // round it themselves, an own rounding would leave black corners.
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { WEB as web, ZIELE, form } from "./app-symbole-formen.mjs";
 
 const { chromium } = await import(process.env.RELAY_PLAYWRIGHT ? pathToFileURL(process.env.RELAY_PLAYWRIGHT).href : "playwright");
-
-const web = join(dirname(fileURLToPath(import.meta.url)), "..");
-const quelle = readFileSync(join(web, "..", "docs", "icon", "relay.svg"), "utf8");
-const tab = readFileSync(join(web, "static", "favicon.svg"), "utf8");
-
-function form(art) {
-  if (art === "rund") return quelle;
-  if (art === "tab") return tab.replace(/<style>[\s\S]*?<\/style>/, "").replace("<g ", '<g stroke="#b08a3e" ');
-  const voll = quelle.replace('<g clip-path="url(#kachel)">', "<g>").replace(/<rect x="1" y="1" width="158"[^>]*\/>/, "");
-  if (voll === quelle) throw new Error("relay.svg has changed — check the replacements");
-  return voll;
-}
-
-const ZIELE = [
-  ["static/favicon-32.png", "tab", 32],
-  ["static/apple-touch-icon.png", "voll", 180],
-  ["static/icon.png", "rund", 512],
-  ["static/maskable-icon.png", "voll", 512],
-  // The market icon (OlaresManifest: icon) — the same tile.
-  ["../icon.png", "rund", 512],
-];
 
 const browser = await chromium.launch({ executablePath: process.env.RELAY_CHROMIUM || undefined });
 const seite = await browser.newPage();
 for (const [ziel, art, groesse] of ZIELE) {
   await seite.setViewportSize({ width: groesse, height: groesse });
-  const svg = form(art).replace(/width="(512|32)" height="(512|32)"/, `width="${groesse}" height="${groesse}"`);
+  const svg = form(art, groesse);
   await seite.setContent(`<style>html,body{margin:0;background:transparent}svg{display:block}</style>${svg}`);
   const bild = await seite.locator("svg").screenshot({ omitBackground: true });
   writeFileSync(join(web, ziel), bild);

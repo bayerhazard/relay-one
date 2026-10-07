@@ -10,7 +10,10 @@
 
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { lagePruefen } from "./lage";
+import { WEB, ZIELE, form } from "../scripts/app-symbole-formen.mjs";
 
 // With RELAY_DATEN=1 the tour runs against a Relay filled by
 // e2e/testserver/befuellen.py: every page must then show its dummy data, and
@@ -165,6 +168,45 @@ test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page })
     expect(antwort.status(), pfad).toBe(200);
     expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
   }
+});
+
+// The right picture in every icon (Kai, 7.10.2026: "always make sure the PWA
+// icon and the sign in the browser tab are the right ones"). Each delivered
+// PNG is compared with the picture drawn fresh from docs/icon/relay.svg —
+// a mean difference, not bytes, so another Chromium does not fail it; a
+// wrong picture (another app's icon, the tile in the tab) is far above it.
+test("Web-App-Symbole zeigen das richtige Bild", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  await page.goto("/contacts");
+  const abstand = (png: string, svg: string, groesse: number) =>
+    page.evaluate(async ({ png, svg, groesse }) => {
+      const laden = (src: string) => new Promise<HTMLImageElement>((ok, nein) => {
+        const bild = new Image();
+        bild.onload = () => ok(bild);
+        bild.onerror = nein;
+        bild.src = src;
+      });
+      const pixel = (bild: HTMLImageElement) => {
+        const c = document.createElement("canvas");
+        c.width = c.height = groesse;
+        const k = c.getContext("2d")!;
+        k.drawImage(bild, 0, 0, groesse, groesse);
+        return k.getImageData(0, 0, groesse, groesse).data;
+      };
+      const a = pixel(await laden("data:image/png;base64," + png));
+      const b = pixel(await laden("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)));
+      let summe = 0;
+      for (let i = 0; i < a.length; i++) summe += Math.abs(a[i] - b[i]);
+      return summe / a.length;
+    }, { png, svg, groesse });
+
+  for (const [ziel, art, groesse] of ZIELE as [string, string, number][]) {
+    const png = readFileSync(join(WEB, ziel)).toString("base64");
+    expect(await abstand(png, form(art, groesse), groesse), `${ziel} zeigt nicht ${art}`).toBeLessThan(4);
+  }
+  // The check tells pictures apart: the tile is not the sign of the tab.
+  const kachel = readFileSync(join(WEB, "static/icon.png")).toString("base64");
+  expect(await abstand(kachel, form("tab", 512), 512), "Gegenprobe").toBeGreaterThan(20);
 });
 
 // "Abo beenden" (List-Unsubscribe): only where the sender offers it. The test
