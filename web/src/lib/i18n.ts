@@ -8,6 +8,7 @@ export const translations: Record<Lang, Dict> = {
   de: {
     // Shell and profile (CI AM-HUELLE, HB-KONTO)
     "huelle.bereiche": "Bereiche",
+    "huelle.navigation": "Navigation",
     "huelle.start": "Relay – zur Mail",
     "huelle.spalteAuf": "Spalte öffnen",
     "huelle.spalteZu": "Spalte schließen",
@@ -731,6 +732,7 @@ export const translations: Record<Lang, Dict> = {
   en: {
     // Shell and profile (CI AM-HUELLE, HB-KONTO)
     "huelle.bereiche": "Areas",
+    "huelle.navigation": "Navigation",
     "huelle.start": "Relay – to the mail",
     "huelle.spalteAuf": "Open column",
     "huelle.spalteZu": "Close column",
