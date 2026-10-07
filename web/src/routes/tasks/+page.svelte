@@ -690,7 +690,7 @@
         <ol class="tk-next-list">
           {#each nextSteps as task (task.uid)}
             <li class="tk-next-item">
-              <button type="button" class="tk-check tk-check-sm" onclick={() => onToggle(task)} aria-label={$t("tasks.markDone")}></button>
+              <button type="button" class="tk-check tk-check-sm" onclick={() => onToggle(task)} aria-label={$t("tasks.markDone")} title={$t("tasks.markDone")}></button>
               <button type="button" class="tk-next-title" onclick={() => openDetail(task)}>{task.summary || $t("tasks.untitled")}</button>
               {#if task.due_at}<span class="tk-item-due" class:overdue={isOverdue(task)}>{dueLabel(task)}</span>{/if}
             </li>
@@ -732,6 +732,7 @@
                   class:checked={isDone(todo)}
                   onclick={() => onToggle(todo)}
                   aria-label={isDone(todo) ? $t("tasks.reopen") : $t("tasks.markDone")}
+                  title={isDone(todo) ? $t("tasks.reopen") : $t("tasks.markDone")}
                 >
                   {#if isDone(todo)}<Symbol name="erfolg" size={16} />{/if}
                 </button>
@@ -765,7 +766,7 @@
                 <ul class="tk-subtasks">
                   {#each subtasksOf.get(todo.uid) ?? [] as sub (sub.uid)}
                     <li class="tk-subtask">
-                      <button type="button" class="tk-check tk-check-sm" class:checked={isDone(sub)} onclick={() => onToggle(sub)} aria-label={isDone(sub) ? $t("tasks.reopen") : $t("tasks.markDone")}>
+                      <button type="button" class="tk-check tk-check-sm" class:checked={isDone(sub)} onclick={() => onToggle(sub)} aria-label={isDone(sub) ? $t("tasks.reopen") : $t("tasks.markDone")} title={isDone(sub) ? $t("tasks.reopen") : $t("tasks.markDone")}>
                         {#if isDone(sub)}<Symbol name="erfolg" size={16} />{/if}
                       </button>
                       <button type="button" class="tk-subtask-title" class:done={isDone(sub)} onclick={() => openDetail(sub)}>{sub.summary || $t("tasks.untitled")}</button>

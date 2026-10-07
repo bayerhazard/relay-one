@@ -92,12 +92,26 @@ impl RequestBuilder {
             return Ok(resp);
         }
 
-        let auth_header = match resp.headers().get("www-authenticate") {
-            Some(v) => match v.to_str() {
-                Ok(s) if s.trim().to_lowercase().starts_with("digest") => s.to_string(),
-                _ => return Ok(resp),
-            },
-            None => return Ok(resp),
+        // Answer the scheme the server asks for. Digest is preferred when a
+        // server offers both; Basic covers Radicale, Nextcloud and most
+        // hosted DAV servers, which only speak Basic.
+        let challenges: Vec<String> = resp
+            .headers()
+            .get_all("www-authenticate")
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(|s| s.trim().to_string()))
+            .collect();
+        let digest = challenges.iter().find(|s| s.to_lowercase().starts_with("digest"));
+        let basic = challenges.iter().any(|s| s.to_lowercase().starts_with("basic"));
+        let auth_header = match (digest, basic) {
+            (Some(d), _) => d.clone(),
+            (None, true) => {
+                return cloned
+                    .basic_auth(&self.username, Some(&self.password))
+                    .send()
+                    .await;
+            }
+            (None, false) => return Ok(resp),
         };
 
         let mut parsed = match parse_digest(&auth_header) {
@@ -122,5 +136,56 @@ impl RequestBuilder {
         };
 
         cloned.header("Authorization", &answer).send().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// A server that asks for Basic once, then answers 207 and hands back
+    /// the Authorization header of the second request.
+    async fn basic_server() -> (String, tokio::task::JoinHandle<Option<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/dav/", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let mut seen = None;
+            for answer in [
+                "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"dav\"\r\nContent-Length: 0\r\n\r\n",
+                "HTTP/1.1 207 Multi-Status\r\nContent-Length: 0\r\n\r\n",
+            ] {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 4096];
+                let n = sock.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                seen = req
+                    .lines()
+                    .find(|l| l.to_lowercase().starts_with("authorization:"))
+                    .map(|l| l["authorization:".len()..].trim().to_string());
+                sock.write_all(answer.as_bytes()).await.unwrap();
+            }
+            seen
+        });
+        (url, handle)
+    }
+
+    #[tokio::test]
+    async fn answers_a_basic_challenge() {
+        let (url, server) = basic_server().await;
+        let client = ClientBuilder::new(ReqwestClient::new())
+            .username("erika".into())
+            .password("geheim".into())
+            .build();
+        let resp = client
+            .request(Method::from_bytes(b"PROPFIND").unwrap(), &url)
+            .body("<propfind/>")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 207);
+        // base64("erika:geheim")
+        assert_eq!(server.await.unwrap().as_deref(), Some("Basic ZXJpa2E6Z2VoZWlt"));
     }
 }

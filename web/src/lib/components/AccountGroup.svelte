@@ -182,7 +182,7 @@
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleInboxClick(); }
     }}
   >
-    <span class="tree-icon">{@html iconSVG("inbox")}</span>
+    <span class="tree-icon">{@html iconSVG("inbox", 20)}</span>
     <span class="tree-label">{account.name}</span>
     {#if unreadCount > 0}
       <span
@@ -242,7 +242,7 @@
     }}
     ondrop={(e) => handleDrop(e, node.name)}
   >
-    <span class="tree-icon">{@html folderIconFor(node.name)}</span>
+    <span class="tree-icon">{@html folderIconFor(node.name, 20)}</span>
     <span class="tree-label">{node.label}</span>
     {#if node.children.length > 0}
       <span
@@ -284,8 +284,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    /* 20 px signs in the column, as HB-UNTERNAV. */
+    width: 20px;
+    height: 20px;
     flex: none;
     color: var(--am-text-gedaempft);
   }

@@ -316,14 +316,24 @@
   });
 </script>
 
-<div class="message-list" bind:this={scrollElement} onscroll={handleScroll}>
-  <div style="height: {totalHeight}px; position: relative;">
-    <div style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({offsetY}px);">
+<!-- The scroll area is the listbox: named, reachable by keyboard (it
+     scrolls), the layout wrappers in between carry no role (axe). -->
+<div
+  class="message-list"
+  bind:this={scrollElement}
+  onscroll={handleScroll}
+  role="listbox"
+  aria-label={$t("mail.liste")}
+  aria-multiselectable="true"
+  tabindex="0"
+>
+  <div role="none" style="height: {totalHeight}px; position: relative;">
+    <div role="none" style="position: absolute; top: 0; left: 0; width: 100%; transform: translateY({offsetY}px);">
       {#each visibleItems as msg, i (msg.uid)}
-        <div class="swipe-container" class:swiping={hasSwipe(msg.uid)} class:revealed={revealedUid === msg.uid}>
+        <div role="none" class="swipe-container" class:swiping={hasSwipe(msg.uid)} class:revealed={revealedUid === msg.uid}>
           <!-- Behind-actions (iOS look): right swipe → read (left edge);
                left swipe → flag + trash (right edge). -->
-          <div class="swipe-bg" class:visible={bgDir(msg.uid) !== null}>
+          <div role="none" class="swipe-bg" class:visible={bgDir(msg.uid) !== null}>
             {#if bgDir(msg.uid) === "left"}
               <div class="swipe-bg-left">
                 <button type="button" class="swipe-action read" onclick={() => ontoggleRead?.(msg.uid)} tabindex="-1" aria-hidden="true">

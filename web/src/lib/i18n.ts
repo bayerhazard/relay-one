@@ -290,6 +290,7 @@ export const translations: Record<Lang, Dict> = {
 
     // Mail / Main view
     "mail.title": "Mail",
+    "mail.liste": "Nachrichten",
     "mail.unknown": "Unbekannt",
     "mail.noSubject": "(Kein Betreff)",
     "mail.noContent": "(Kein Inhalt)",
@@ -1014,6 +1015,7 @@ export const translations: Record<Lang, Dict> = {
 
     // Mail / Main view
     "mail.title": "Mail",
+    "mail.liste": "Messages",
     "mail.unknown": "Unknown",
     "mail.noSubject": "(No subject)",
     "mail.noContent": "(No content)",

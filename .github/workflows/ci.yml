@@ -64,11 +64,12 @@ jobs:
         run: npm run build
 
   # The browser tour (CI ABGLEICH Etappe 7): every page in light and dark, on
-  # desktop and phone, against the real server with an empty data dir.
+  # desktop and phone, against the real server — once with an empty data
+  # dir, once filled from the test servers (web/e2e/testserver/).
   oberflaeche:
     name: Oberfläche (Rundgang)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -115,6 +116,24 @@ jobs:
         working-directory: web
         run: npm run e2e
 
+      - name: test servers with dummy data
+        run: |
+          web/e2e/testserver/starten.sh
+          mkdir -p "$RUNNER_TEMP/relay-daten"
+          RELAY_DATA_DIR="$RUNNER_TEMP/relay-daten" \
+          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
+          RELAY_BIND=127.0.0.1:3800 \
+          RELAY_OLARES_FIRSTNAME=Erika RELAY_OLARES_LASTNAME=Muster \
+            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-daten.log" 2>&1 &
+          python3 web/e2e/testserver/befuellen.py --relay http://127.0.0.1:3800
+
+      - name: tour with data
+        working-directory: web
+        env:
+          RELAY_DATEN: "1"
+          RELAY_URL: http://127.0.0.1:3800
+        run: npm run e2e
+
       - name: upload report
         if: failure()
         uses: actions/upload-artifact@v4
@@ -124,4 +143,6 @@ jobs:
             web/e2e-bericht/
             web/test-results/
             ${{ runner.temp }}/relay-server.log
+            ${{ runner.temp }}/relay-daten.log
+            web/e2e/testserver/.lauf/*.log
           retention-days: 7

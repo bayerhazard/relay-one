@@ -37,13 +37,14 @@ fi
 # A fresh Radicale storage on every start, so the seed is always the same.
 rm -rf "$LAUF/radicale"
 mkdir -p "$LAUF/radicale/sammlung"
+printf 'erika:geheim\n' > "$LAUF/radicale/benutzer"
 cat > "$LAUF/radicale/config" <<EOF
 [server]
 hosts = 127.0.0.1:5232
 [auth]
-# No login: Relay's DAV client answers Digest challenges only, and Radicale
-# speaks Basic. Any user name works; the seed uses erika.
-type = none
+type = htpasswd
+htpasswd_filename = $LAUF/radicale/benutzer
+htpasswd_encryption = plain
 [storage]
 filesystem_folder = $LAUF/radicale/sammlung
 [logging]

@@ -23,7 +23,7 @@ füllt das Skript nur die Testserver.
 |---|---|---|
 | IMAP | `127.0.0.1:3143`, ohne TLS | `erika` / `geheim` |
 | SMTP | `127.0.0.1:3025`, ohne TLS | `erika` / `geheim` |
-| CalDAV/CardDAV | `http://127.0.0.1:5232/erika/` | keine |
+| CalDAV/CardDAV | `http://127.0.0.1:5232/erika/` | `erika` / `geheim` |
 
 ## Was drin ist
 
@@ -39,6 +39,3 @@ Alle Daten sind erfunden, die Termine liegen relativ zu heute.
 Jeder Neustart beginnt leer: GreenMail hält die Mails nur im Speicher,
 Radicales Ablage wird beim Start gelöscht. Downloads (GreenMail-Jar,
 Radicale) und Protokolle liegen in `.lauf/`.
-
-Radicale läuft ohne Anmeldung, weil Relays Kalender- und Kontaktabgleich
-heute nur Digest-Anmeldung beherrscht und Radicale Basic spricht.
