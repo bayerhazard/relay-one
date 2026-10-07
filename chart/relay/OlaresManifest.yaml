@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.6
+  version: 26.10.7
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.6
+  versionName: 26.10.7
   upgradeDescription: |
+    v26.10.7: Relay can be installed as an app in Chrome and Edge again: the browser now fetches the app manifest with your sign-in to the box, so it gets the manifest and not the login page. Open Relay at its own address, not inside the Olares desktop, and choose "Install" in the address bar.
     v26.10.6: The mail list is calmer: an unread mail has a dot, the open one a full coloured surface, urgent mail the word "Urgent" before the subject; the bar on the left is gone. Relay works as an installed app: it opens without a network, has a sharp icon on every home screen, offers "New email", "Calendar" and "Contacts" on its app icon and shows pictures in the install dialog. "Undo" brings deleted or moved mail back at once.
     v26.10.5: Folders sit in a fixed order: Drafts, Sent and Archive at the top, your own folders in between, Spam and the trash at the bottom. In Gmail accounts the "[Google Mail]" folder is gone and its system folders take these places; All Mail, Starred and Important are hidden and no longer fetched, as they only show mail kept elsewhere. Backspace deletes the open mail and opens the next one, so several can go one after the other; deleting for good no longer asks but offers "Undo" for five seconds. Shift with the arrow keys selects several mails at once.
     v26.10.4: The header now follows the columns below it. Next to the mail list the search sits exactly above the list, from the folder name to its last icon, and grows when the list is dragged wider; the five areas start above the open mail. The magnifier sits centred in the search field, and the app checks on every build that its icons on the home screen and in the browser tab show the right picture.

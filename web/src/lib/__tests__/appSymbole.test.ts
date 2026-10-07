@@ -75,7 +75,7 @@ describe("app icons", () => {
     expect(html).toContain('rel="icon" href="%sveltekit.assets%/favicon.svg"');
     expect(html).toContain('rel="icon" href="%sveltekit.assets%/favicon-32.png"');
     expect(html).toContain('rel="apple-touch-icon"');
-    expect(html).toContain('rel="manifest"');
+    expect(html).toMatch(/rel="manifest"[^>]*crossorigin="use-credentials"/);
     expect(pngGroesse(lesen("static/apple-touch-icon.png"))).toEqual([180, 180]);
     expect(pngGroesse(lesen("static/favicon-32.png"))).toEqual([32, 32]);
   });
