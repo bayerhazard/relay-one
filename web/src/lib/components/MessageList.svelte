@@ -209,7 +209,10 @@
   });
 
   let scrollElement: HTMLDivElement;
-  let itemHeight = 88;
+  // Room for sender, subject and a two-line AI summary with the same 10 px
+  // below as above (Kai, 7.10.2026: the summary sat on the line). The
+  // skeleton and the swipe rows use the same height.
+  let itemHeight = 96;
   let overscan = 5;
   let totalHeight = $derived(messages.length * itemHeight);
   let scrollTop = $state(0);
@@ -667,7 +670,7 @@
     padding-top: 0;
   }
   .skeleton-row {
-    height: 88px;
+    height: 96px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--am-rand);
     display: flex;
@@ -840,7 +843,7 @@
   .swipe-container {
     position: relative;
     overflow: hidden;
-    height: 88px;
+    height: 96px;
   }
   .swipe-container.swiping .message-item {
     touch-action: pan-y;
