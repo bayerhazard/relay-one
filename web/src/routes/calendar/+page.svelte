@@ -1026,10 +1026,10 @@
           <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
           <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
         </div>
-        <div class="cal-viewtoggle" role="tablist" aria-label={$t("calendar.view")}>
-          <button type="button" class="cal-vt" class:active={viewMode === "month"} onclick={() => setViewMode("month")}>{$t("calendar.viewMonth")}</button>
-          <button type="button" class="cal-vt" class:active={viewMode === "week"} onclick={() => setViewMode("week")}>{$t("calendar.viewWeek")}</button>
-          <button type="button" class="cal-vt" class:active={viewMode === "day"} onclick={() => setViewMode("day")}>{$t("calendar.viewDay")}</button>
+        <div class="cal-viewtoggle" role="group" aria-label={$t("calendar.view")}>
+          <button type="button" class="cal-vt" class:active={viewMode === "month"} aria-pressed={viewMode === "month"} onclick={() => setViewMode("month")}>{$t("calendar.viewMonth")}</button>
+          <button type="button" class="cal-vt" class:active={viewMode === "week"} aria-pressed={viewMode === "week"} onclick={() => setViewMode("week")}>{$t("calendar.viewWeek")}</button>
+          <button type="button" class="cal-vt" class:active={viewMode === "day"} aria-pressed={viewMode === "day"} onclick={() => setViewMode("day")}>{$t("calendar.viewDay")}</button>
         </div>
         <button
           type="button"
@@ -1547,7 +1547,7 @@
     font-variant-numeric: tabular-nums;
   }
   .cal-mini-day:hover { background: var(--am-flaeche-2); }
-  .cal-mini-day.other { color: var(--am-text-gedaempft); opacity: 0.5; }
+  .cal-mini-day.other { color: var(--am-text-gedaempft); }
   .cal-mini-day.today { font-weight: 700; color: var(--am-handlung-ruhend); }
   .cal-mini-day.sel { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); font-weight: 600; }
 
@@ -1614,7 +1614,9 @@
     gap: 3px;
   }
   .cal-cell:hover { background: var(--am-flaeche-2); }
-  .cal-cell.other-month { opacity: 0.45; }
+  /* Other months: muted numbers, not a faded cell — opacity broke the
+     contrast (axe, Etappe 7). */
+  .cal-cell.other-month .cal-cell-num { color: var(--am-text-gedaempft); }
   .cal-cell.is-today .cal-cell-num {
     background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);

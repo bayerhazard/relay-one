@@ -1,0 +1,144 @@
+// The tour: every page once, on the desktop and on the phone, light and dark
+// (CI Etappe 7, after Rocket's frontend/e2e/rundgang.spec.ts).
+//
+// Checked is what found real faults in Rocket's GUI review of 30.9.2026: an
+// API answer 4xx/5xx, a script error, a page wider than the screen, not
+// exactly one h1, something sticking out of the page head, the layout check
+// (lage.ts), sign-only buttons without a name or tooltip (CI G4), signs off
+// 16/20/24/40 or a stroke other than 1.5 px (CI R2), and axe findings of the
+// levels "critical" and "serious", contrast included.
+
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Page } from "@playwright/test";
+import { lagePruefen } from "./lage";
+
+/** A page of the tour: its path and, for settings, the section to choose. */
+const SEITEN: [string, string, string?][] = [
+  ["Mail (Einrichtung)", "/"],
+  ["Kontakte", "/contacts"],
+  ["Kalender", "/calendar"],
+  ["Meetings", "/meetings"],
+  ["Aufgaben", "/tasks"],
+  ["Einstellungen Allgemein", "/settings", "Allgemein"],
+  ["Einstellungen E-Mail-Konten", "/settings", "E-Mail-Konten"],
+  ["Einstellungen Kontakte", "/settings", "Kontakte"],
+  ["Einstellungen Kalender", "/settings", "Kalender"],
+  ["Einstellungen AI & Text", "/settings", "AI & Text"],
+  ["Einstellungen Voice", "/settings", "Voice"],
+  ["Einstellungen Cache", "/settings", "Cache"],
+  ["Einstellungen Archiv", "/settings", "Archiv"],
+];
+
+/** Choose a settings section in the column — on the phone the column is a
+ * sheet opened from the header. */
+async function abschnitt(page: Page, name: string) {
+  const spalte = page.locator("#relay-spalte");
+  if (!(await spalte.isVisible())) await page.getByRole("button", { name: "Spalte öffnen" }).click();
+  await spalte.getByRole("button", { name, exact: true }).click();
+  await page.waitForTimeout(300);
+}
+
+for (const thema of ["light", "dark"] as const)
+for (const [name, pfad, teil] of SEITEN) {
+  test(`${name} ${thema === "light" ? "hell" : "dunkel"}`, async ({ page, context }) => {
+    await context.addInitScript((t) => {
+      localStorage.setItem("relay_appearance", t);
+      localStorage.setItem("relay_onboarding_done", "1");
+    }, thema);
+    const fehler: string[] = [];
+    page.on("pageerror", (e) => fehler.push(`Skriptfehler: ${e.message}`));
+    page.on("response", (r) => {
+      if (r.url().includes("/api/") && r.status() >= 400) {
+        fehler.push(`API ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+      }
+    });
+
+    // Not "networkidle": mail and meetings keep a connection open.
+    await page.goto(pfad);
+    await page.locator("h1").first().waitFor();
+    await page.waitForTimeout(500);
+    if (teil) await abschnitt(page, teil);
+
+    const lage = await page.evaluate(() => {
+      const kopf = document.querySelector(".seitenkopf");
+      const k = kopf?.getBoundingClientRect();
+      const heraus = kopf
+        ? [...kopf.querySelectorAll("*")]
+            .filter((e) => {
+              const r = e.getBoundingClientRect();
+              return r.width > 0 && (r.bottom > k!.bottom + 1 || r.right > k!.right + 1 || r.left < k!.left - 1);
+            })
+            .map((e) => `${e.tagName.toLowerCase()}.${String(e.className).split(" ")[0]}`)
+        : [];
+      return {
+        ueberlauf: document.documentElement.scrollWidth - window.innerWidth,
+        ueberschriften: document.querySelectorAll("h1").length,
+        heraus: [...new Set(heraus)],
+        titel: document.title,
+      };
+    });
+
+    const lageFunde = await page.evaluate(lagePruefen);
+
+    const symbolknoepfe = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("button, a[href], [role=button]")]
+        .filter((e) => e.checkVisibility() && e.innerText.trim() === "")
+        // The word mark is an image with a name, not a sign button.
+        .filter((e) => e.getAttribute("role") !== "switch" && !e.closest("label") && !e.querySelector("img"))
+        .filter((e) => !(e.getAttribute("aria-label") || e.getAttribute("aria-labelledby")) || !e.getAttribute("title"))
+        .map((e) => `${e.tagName.toLowerCase()}.${String(e.className).split(" ")[0]} „${e.getAttribute("aria-label") ?? ""}“`),
+    );
+
+    const zeichen = await page.evaluate(() =>
+      [...document.querySelectorAll<SVGSVGElement>("svg[data-symbol]")]
+        .filter((s) => s.getBoundingClientRect().width > 0)
+        .flatMap((s) => {
+          const breite = Math.round(s.getBoundingClientRect().width);
+          const strich = (parseFloat(getComputedStyle(s).strokeWidth) * breite) / 24;
+          const n = s.getAttribute("data-symbol");
+          return [16, 20, 24, 40].includes(breite) && Math.abs(strich - 1.5) < 0.05 ? [] : [`${n}: ${breite} px, Strich ${strich.toFixed(2)}`];
+        }),
+    );
+
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "best-practice"]).analyze();
+    const schwer = axe.violations
+      .filter((v) => v.impact === "critical" || v.impact === "serious")
+      .map((v) => `axe ${v.id}: ${v.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(" ; ")}`);
+
+    expect(fehler, "Fehler beim Laden").toEqual([]);
+    expect(lage.ueberlauf, "Seite breiter als der Bildschirm").toBeLessThanOrEqual(1);
+    expect(lage.ueberschriften, "genau eine h1").toBe(1);
+    expect(lage.heraus, "ragt aus dem Seitenkopf").toEqual([]);
+    expect(lage.titel, "Tab-Titel „Seite · Relay“ (CI G7)").toMatch(/(^| · )Relay$/);
+    expect(lageFunde, "Rand, Abstand, Mitte (e2e/lage.ts)").toEqual([]);
+    expect([...new Set(symbolknoepfe)], "Symbolknopf ohne Namen oder Tooltip").toEqual([]);
+    expect([...new Set(zeichen)], "Zeichen außerhalb 16/20/24/40 oder Strich nicht 1,5").toEqual([]);
+    expect(schwer, "axe critical/serious").toEqual([]);
+  });
+}
+
+// The icons of the web app (Etappe 3): favicon as SVG and PNG with only the
+// paper plane (CI G7), apple-touch icon and manifest icons as PNG.
+test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page }) => {
+  await page.goto("/contacts");
+  const tab = await page.evaluate(() => [...document.querySelectorAll('link[rel="icon"]')].map((l) => l.getAttribute("href")!));
+  const arten: string[] = [];
+  for (const pfad of tab) {
+    const antwort = await page.request.get(pfad);
+    expect(antwort.status(), pfad).toBe(200);
+    arten.push(antwort.headers()["content-type"].split(";")[0]);
+  }
+  expect(arten.sort(), "Tab-Zeichen als SVG und PNG").toEqual(["image/png", "image/svg+xml"]);
+  const [touch, manifestPfad] = await page.evaluate(() => [
+    document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute("href") ?? null,
+    document.querySelector('link[rel="manifest"]')?.getAttribute("href") ?? null,
+  ]);
+  expect(touch && manifestPfad, "Link-Tags im Kopf").toBeTruthy();
+  const manifest = await (await page.request.get(manifestPfad!)).json();
+  expect(manifest.short_name).toBe("Relay");
+  for (const pfad of [touch!, ...manifest.icons.map((i: { src: string }) => i.src)]) {
+    const antwort = await page.request.get(pfad);
+    expect(antwort.status(), pfad).toBe(200);
+    expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
+  }
+});

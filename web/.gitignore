@@ -4,3 +4,7 @@ core
 .svelte-kit/
 *.log
 coverage/
+
+# Playwright tour (npm run e2e)
+e2e-bericht/
+test-results/
