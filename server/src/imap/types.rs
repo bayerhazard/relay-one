@@ -89,6 +89,30 @@ pub struct FolderEntry {
     pub attributes: Vec<String>,
 }
 
+/// The role of a folder from its special-use attributes (RFC 6154; Gmail's
+/// `\Important` as an extension), as the imap crate prints them ("Drafts",
+/// "Sent", `Extension("\\Important")` …). "sammel" are Gmail's views —
+/// All Mail, Starred, Important — that only show mails kept elsewhere: Relay
+/// hides them and does not fetch them (Kai, 7.10.2026).
+pub fn rolle_aus_attributen(attrs: &[String]) -> Option<&'static str> {
+    let hat = |n: &str| attrs.iter().any(|a| a == n);
+    if attrs.iter().any(|a| a.contains("Important")) || hat("All") || hat("Flagged") {
+        Some("sammel")
+    } else if hat("Trash") {
+        Some("papierkorb")
+    } else if hat("Junk") {
+        Some("spam")
+    } else if hat("Drafts") {
+        Some("entwuerfe")
+    } else if hat("Sent") {
+        Some("gesendet")
+    } else if hat("Archive") {
+        Some("archiv")
+    } else {
+        None
+    }
+}
+
 impl FolderEntry {
     pub fn has_attribute(&self, attr: &str) -> bool {
         self.attributes.iter().any(|a| a.eq_ignore_ascii_case(attr))
@@ -133,6 +157,20 @@ mod tests {
         assert!(f.has_attribute("\\Seen"));
         assert!(f.has_attribute("\\seen"));
         assert!(!f.has_attribute("\\Sent"));
+    }
+
+    #[test]
+    fn roles_from_special_use() {
+        let r = |a: &[&str]| rolle_aus_attributen(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(r(&["HasNoChildren", "All"]), Some("sammel"));
+        assert_eq!(r(&["Flagged"]), Some("sammel"));
+        assert_eq!(r(&["Extension(\"\\\\Important\")"]), Some("sammel"));
+        assert_eq!(r(&["HasNoChildren", "Trash"]), Some("papierkorb"));
+        assert_eq!(r(&["Junk"]), Some("spam"));
+        assert_eq!(r(&["Drafts"]), Some("entwuerfe"));
+        assert_eq!(r(&["Sent"]), Some("gesendet"));
+        assert_eq!(r(&["Archive"]), Some("archiv"));
+        assert_eq!(r(&["HasNoChildren"]), None);
     }
 
     #[test]

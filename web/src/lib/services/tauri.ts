@@ -273,7 +273,7 @@ export async function fetchFromImap(accountId: number, folder?: string, limit?: 
   return get(`/messages?${q}`, "Die E-Mails konnten nicht vom Server abgerufen werden.");
 }
 
-export async function listImapFolders(accountId: number): Promise<Array<{name: string; raw_name: string; delimiter: string; tag: string; attributes?: string[]; local_only?: boolean}>> {
+export async function listImapFolders(accountId: number): Promise<Array<{name: string; raw_name: string; delimiter: string; tag: string; attributes?: string[]; local_only?: boolean; rolle?: string | null}>> {
   return get(`/folders?account_id=${accountId}`, "Die Ordnerliste konnte nicht geladen werden.");
 }
 

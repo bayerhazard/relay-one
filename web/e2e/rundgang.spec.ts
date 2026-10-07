@@ -262,6 +262,31 @@ test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, i
   await expect(zeilen).toHaveCount(vorher);
 });
 
+// Backspace deletes and moves on (Kai, 7.10.2026): the next mail opens at
+// once, "Rückgängig" brings the deleted one back. Undone, so the dummy
+// data stays the same.
+test("Backspace löscht und öffnet die nächste Mail", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Tastatur");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const vorher = await zeilen.count();
+  await zeilen.nth(1).click();
+  const naechste = (await zeilen.nth(2).locator(".sender").innerText()).trim();
+  await page.locator(".message-list").focus();
+  await page.keyboard.press("Backspace");
+  await expect(page.getByRole("status")).toContainText("Mail in den Papierkorb verschoben");
+  await expect(zeilen).toHaveCount(vorher - 1);
+  await expect(page.locator(".preview-from-name")).toHaveText(naechste);
+  await expect(page.getByRole("alertdialog"), "keine Rückfrage").toHaveCount(0);
+  await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+  await expect(zeilen).toHaveCount(vorher);
+});
+
 test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request }) => {
   test.skip(!DATEN, "braucht die Beispieldaten");
   await context.addInitScript(() => {

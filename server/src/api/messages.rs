@@ -258,6 +258,9 @@ async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_
                 serde_json::json!({
                     "name": f.name, "raw_name": f.raw_name, "delimiter": f.delimiter, "tag": f.tag, "attributes": f.attributes,
                     "local_only": false,
+                    // Drafts, Sent, Archive, Spam, Trash or Gmail's views:
+                    // the client orders and hides by it, whatever the name.
+                    "rolle": crate::imap::types::rolle_aus_attributen(&f.attributes),
                 })
             })
             .collect(),
