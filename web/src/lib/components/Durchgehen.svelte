@@ -112,7 +112,7 @@
 
       <div class="durchgehen-knoepfe">
         <button type="button" class="btn btn-still" onclick={zurueck} disabled={index === 0}>{$t("mail.zurueck")}</button>
-        <button type="button" class="btn btn-sekundaer" onclick={() => handeln("papierkorb")}>{$t("mail.deleteMail")}</button>
+        <button type="button" class="btn btn-sekundaer" onclick={() => handeln("papierkorb")}>{$t("mail.inPapierkorb")}</button>
         {#if !istSpamOrdner}
           <button type="button" class="btn btn-sekundaer" onclick={() => handeln("spam")}>{$t("mail.spam")}</button>
         {/if}
