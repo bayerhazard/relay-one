@@ -64,6 +64,25 @@ fn save_message_inner(conn: &Connection, account_id: i64, msg: &CachedMessage, f
         Err(e) => return Err(e),
     };
 
+    // Restore guard (Kai, 7.10.2026): while a restore out of Relay's trash
+    // waits for the provider ("move_mid" from "Trash"), the provider's trash
+    // still lists the mail; mirrored back into the local Trash it would block
+    // the mail's return to its folder for good (the re-fetch guard below).
+    if folder_name == "Trash" && !msg.envelope.message_id.is_empty() {
+        let wird_zurueckgeholt: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM provider_ops
+                 WHERE account_id = ?1 AND kind = 'move_mid' AND folder = 'Trash'
+                   AND flag = ?2 AND state IN ('pending', 'failed'))",
+                params![account_id, msg.envelope.message_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if wird_zurueckgeholt {
+            return Ok(());
+        }
+    }
+
     // Re-fetch guard: if this message_id already lives in the LOCAL Trash
     // folder (user deleted it; the provider copy may still linger), do NOT
     // re-insert it into another folder. Without this the sync would
@@ -100,12 +119,21 @@ ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             to_addr = excluded.to_addr,
             cc_addr = excluded.cc_addr,
             date = excluded.date,
-            body_text = COALESCE(excluded.body_text, messages.body_text),
-            body_html = COALESCE(excluded.body_html, messages.body_html),
+            message_id = excluded.message_id,
+            -- A provisional row (moved locally, synced = 0) that the server
+            -- now fills with ANOTHER mail takes that mail's content whole;
+            -- keeping the old body mixed two mails (Kai, 7.10.2026).
+            body_text = CASE WHEN messages.synced = 0 AND messages.message_id IS NOT excluded.message_id
+                             THEN excluded.body_text ELSE COALESCE(excluded.body_text, messages.body_text) END,
+            body_html = CASE WHEN messages.synced = 0 AND messages.message_id IS NOT excluded.message_id
+                             THEN excluded.body_html ELSE COALESCE(excluded.body_html, messages.body_html) END,
             flags = excluded.flags,
-            ai_summary = COALESCE(excluded.ai_summary, messages.ai_summary),
-            ai_priority = COALESCE(excluded.ai_priority, messages.ai_priority),
-            ai_fraud_score = COALESCE(excluded.ai_fraud_score, messages.ai_fraud_score),
+            ai_summary = CASE WHEN messages.synced = 0 AND messages.message_id IS NOT excluded.message_id
+                              THEN excluded.ai_summary ELSE COALESCE(excluded.ai_summary, messages.ai_summary) END,
+            ai_priority = CASE WHEN messages.synced = 0 AND messages.message_id IS NOT excluded.message_id
+                               THEN excluded.ai_priority ELSE COALESCE(excluded.ai_priority, messages.ai_priority) END,
+            ai_fraud_score = CASE WHEN messages.synced = 0 AND messages.message_id IS NOT excluded.message_id
+                                  THEN excluded.ai_fraud_score ELSE COALESCE(excluded.ai_fraud_score, messages.ai_fraud_score) END,
             is_read = excluded.is_read,
             is_flagged = excluded.is_flagged,
             has_attachments = excluded.has_attachments,
@@ -133,6 +161,16 @@ ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
         ],
     )?;
     
+    // The server's row of a mail moved locally has arrived: the provisional
+    // row (synced = 0, the old number) gives way.
+    if !msg.envelope.message_id.is_empty() {
+        conn.execute(
+            "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND message_id = ?3
+             AND synced = 0 AND uid <> ?4",
+            params![account_id, folder_id, msg.envelope.message_id, msg.uid],
+        )?;
+    }
+
     // Save attachment metadata. Reconcile on (message_id, part_index) instead
     // of the historical DELETE + re-INSERT: ids stay stable across re-syncs and
     // stale rows are removed even when the fresh BODYSTRUCTURE list is empty.
@@ -752,13 +790,15 @@ pub fn restore_message(
 
 /// Returns the highest known UID for a given account+folder combination.
 /// Used by the sync scheduler for incremental IMAP fetching.
-/// Returns 0 if no messages exist for this folder yet.
+/// Returns 0 if no messages exist for this folder yet. Only rows the server
+/// confirmed count: a row moved here locally keeps its old folder's number,
+/// often a higher one, and new mail below it would never be fetched.
 pub fn get_max_uid_for_folder(conn: &Connection, account_id: i64, folder_name: &str) -> Result<i64, rusqlite::Error> {
     conn.query_row(
         "SELECT COALESCE(MAX(m.uid), 0)
          FROM messages m
          JOIN folders f ON f.id = m.folder_id
-         WHERE m.account_id = ?1 AND f.name = ?2",
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.synced = 1",
         params![account_id, folder_name],
         |row| row.get(0),
     )
@@ -1109,8 +1149,10 @@ pub fn update_folder_from(
             )
             .unwrap_or(false);
         if !occupied {
+            // Provisional until the target folder's sync brings the server's
+            // row (synced = 0): its number is the old folder's.
             conn.execute(
-                "UPDATE messages SET folder_id = ?1, uid = ?2, updated_at = datetime('now')
+                "UPDATE messages SET folder_id = ?1, uid = ?2, synced = 0, updated_at = datetime('now')
                  WHERE id = ?3",
                 params![target_folder_id, new_uid, source_id],
             )?;

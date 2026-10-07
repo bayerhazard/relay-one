@@ -1244,3 +1244,66 @@ fn test_unread_inbox_counts_per_account() {
     assert_eq!(counts.remove(&acct_b), Some(2), "B: 2 unread INBOX");
     assert!(counts.is_empty(), "no other accounts should report counts");
 }
+
+// ── A mail moved locally (Kai, 7.10.2026) ──────────────────────────────────
+// Its row keeps the number of the folder it came from until the target
+// folder's sync brings the server's row. It must not hold back the sync, it
+// gives way to the server's row of the same mail, and another mail that
+// lands on its number takes the row whole.
+
+fn ordner_zeilen(conn: &Connection, account: i64, ordner: &str) -> Vec<(i64, String, Option<String>, i64)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.uid, COALESCE(m.message_id, ''), m.body_text, m.synced FROM messages m
+             JOIN folders f ON f.id = m.folder_id WHERE m.account_id = ?1 AND f.name = ?2 ORDER BY m.uid",
+        )
+        .unwrap();
+    stmt.query_map(params![account, ordner], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+}
+
+#[test]
+fn moved_row_is_provisional_and_does_not_hold_back_the_sync() {
+    use crate::cache::messages::{get_max_uid_for_folder, update_folder_from};
+    let conn = setup_db();
+    let a = create_test_account(&conn, "v");
+    for uid in 1..=3 {
+        save_message(&conn, a, &make_cached_message(uid, "Archiv", "a@b.de", "Text"), "Archiv").unwrap();
+    }
+    save_message(&conn, a, &make_cached_message(500, "Hoch", "a@b.de", "Inhalt 500"), "INBOX").unwrap();
+    update_folder_from(&conn, a, 500, "INBOX", "Archiv").unwrap();
+    // The moved row is there, provisional, and the sync still asks from 3.
+    assert_eq!(ordner_zeilen(&conn, a, "Archiv").last().unwrap().0, 500);
+    assert_eq!(ordner_zeilen(&conn, a, "Archiv").last().unwrap().3, 0);
+    assert_eq!(get_max_uid_for_folder(&conn, a, "Archiv").unwrap(), 3);
+
+    // The server's row of the same mail (new number 4) replaces it.
+    save_message(&conn, a, &make_cached_message_mit_id(4, "<msg500@example.com>", "Inhalt 500"), "Archiv").unwrap();
+    let zeilen = ordner_zeilen(&conn, a, "Archiv");
+    assert_eq!(zeilen.iter().map(|z| z.0).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
+    assert_eq!(get_max_uid_for_folder(&conn, a, "Archiv").unwrap(), 4);
+}
+
+#[test]
+fn another_mail_on_a_provisional_number_takes_the_row_whole() {
+    use crate::cache::messages::update_folder_from;
+    let conn = setup_db();
+    let a = create_test_account(&conn, "v");
+    save_message(&conn, a, &make_cached_message(7, "Alt", "a@b.de", "Inhalt A"), "INBOX").unwrap();
+    update_folder_from(&conn, a, 7, "INBOX", "Archiv").unwrap();
+    // On the server, number 7 in Archiv is a different mail.
+    save_message(&conn, a, &make_cached_message_mit_id(7, "<andere@example.com>", "Inhalt B"), "Archiv").unwrap();
+    let zeilen = ordner_zeilen(&conn, a, "Archiv");
+    assert_eq!(zeilen.len(), 1);
+    assert_eq!(zeilen[0].1, "<andere@example.com>");
+    assert_eq!(zeilen[0].2.as_deref(), Some("Inhalt B"), "kein Gemisch aus zwei Mails");
+    assert_eq!(zeilen[0].3, 1);
+}
+
+fn make_cached_message_mit_id(uid: u32, message_id: &str, body: &str) -> CachedMessage {
+    let mut m = make_cached_message(uid, "Betreff", "a@b.de", body);
+    m.envelope.message_id = message_id.to_string();
+    m
+}
