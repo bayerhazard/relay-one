@@ -19,10 +19,13 @@
   //   it leads to the mail, not to the settings.
   // - In the header the search of the area the page is in (HB-SUCHE), far
   //   right the profile (HB-KONTO) — the only way to the settings.
-  // - Column 240 px, fixed: on top the five areas as navigation rows with
-  //   sign and word, the chosen one with the gold edge (G1); below them the
-  //   inside of the area (folders, views, settings sections) as the page
-  //   hands it in. Nothing at the bottom (G8).
+  // - The five areas as signs in the header, right of the search (Kai
+  //   7.10.2026, replaces the rows in the column of RL-G2): the chosen one
+  //   with a gold sign and a gold edge below, no surface (G1); name and
+  //   tooltip on each (G4).
+  // - Column 240 px, fixed, all of it for the inside of the area (folders,
+  //   views, settings sections) as the page hands it in. Nothing at the
+  //   bottom (G8). A page without an inside has no column on the desktop.
   // - On the phone the five areas are the bottom bar (G5); the inside of the
   //   area opens as a sheet from the header.
   import { setContext, type Snippet } from "svelte";
@@ -39,7 +42,7 @@
     /** The area's search, shown in the header when a placeholder is given. */
     suche?: string;
     suchePlatzhalter?: string;
-    /** The inside of the area, under the five areas in the column. */
+    /** The inside of the area: the column on the desktop, a sheet on the phone. */
     spalte?: Snippet;
     /** Whether the column sheet is open on the phone; bind it to close the
      * sheet after a choice in the column (`spalteOffen = false`). */
@@ -73,7 +76,7 @@
 
 <svelte:window onkeydown={taste} />
 
-<div class="huelle relay-huelle" class:spalte-offen={spalteOffen}>
+<div class="huelle relay-huelle" class:spalte-offen={spalteOffen} class:ohne-spalte={!spalte}>
   <header class="kopfleiste">
     {#if spalte}
       <button
@@ -109,18 +112,18 @@
         </div>
       </div>
     {/if}
+    <!-- The five areas, signs only, right of the search (desktop). -->
+    <nav class="relay-bereiche" aria-label={$t("huelle.bereiche")}>
+      {#each BEREICHE as b (b.id)}
+        <a href={b.href} class="relay-bereich" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} aria-label={b.text} title={b.text}>
+          <Symbol name={b.zeichen} size={20} />
+        </a>
+      {/each}
+    </nav>
     <Profil />
   </header>
 
-  <nav class="huelle-nav" aria-label={$t("huelle.bereiche")}>
-    <div class="huelle-nav-gruppe">
-      {#each BEREICHE as b (b.id)}
-        <a href={b.href} class="huelle-nav-item" class:aktiv={bereich === b.id} aria-current={bereich === b.id ? "page" : undefined} title={b.text}>
-          <Symbol name={b.zeichen} size={20} />
-          <span>{b.text}</span>
-        </a>
-      {/each}
-    </div>
+  <nav class="huelle-nav" aria-label={$t("huelle.navigation")}>
 
     <!-- The narrow bar at the bottom: the five areas, all of them (G5). -->
     <div class="huelle-nav-mobil">
@@ -133,8 +136,8 @@
     </div>
 
     {#if spalte}
-      <!-- The inside of the area (RL-G2). Rendered once: in the column on
-           the desktop, as a sheet over the content on the phone. -->
+      <!-- The inside of the area. Rendered once: the column on the desktop,
+           a sheet over the content on the phone. -->
       <div class="relay-spalte" id="relay-spalte">
         {@render spalte()}
       </div>
@@ -171,21 +174,55 @@
     min-height: 0;
   }
 
+  /* ── The five areas in the header [RL-BEREICHSWECHSEL] ──────────────────
+     Signs only, 40 px targets, right of the search (Kai 7.10.2026). Chosen:
+     gold sign and a 2 px gold edge below, no surface — G1's gold edge,
+     turned to the bar it sits in. Hover as every quiet button. Hidden on
+     the phone, where the bottom bar carries the areas. */
+  .relay-bereiche {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-1);
+    flex: none;
+  }
+  .relay-bereich {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--am-ziel-zeiger);
+    height: var(--am-ziel-zeiger);
+    border-radius: var(--am-radius-mittel);
+    color: var(--am-text-sekundaer);
+    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
+  }
+  .relay-bereich:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
+  .relay-bereich.aktiv {
+    color: var(--am-gold-beschriftung);
+    box-shadow: inset 0 -2px 0 var(--am-gold-auszeichnung);
+    border-radius: var(--am-radius-mittel) var(--am-radius-mittel) 0 0;
+  }
+  .relay-bereich:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+
   /* ── The inside of the area [RL-SPALTE] ──────────────────────────────────
-     Desktop: below the five areas, separated by a line, scrolling with the
-     column. Phone: a sheet from the left under the header, floating over the
-     content (betonter Rand, the one shadow, R6), opened from the header. */
+     Desktop: the whole column, scrolling with it. Phone: a sheet from the
+     left under the header, floating over the content (betonter Rand, the
+     one shadow, R6), opened from the header. Without an inside the column
+     goes on the desktop; the bottom bar on the phone stays. */
   .relay-spalte {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-top: 1px solid var(--am-trennlinie);
-    margin: var(--am-raum-2) calc(-1 * var(--am-raum-4)) 0;
-    padding-top: var(--am-raum-2);
+    margin: 0 calc(-1 * var(--am-raum-4));
+  }
+  @media (min-width: 1024px) {
+    .ohne-spalte { grid-template-columns: minmax(0, 1fr); }
+    .ohne-spalte :global(.huelle-nav) { display: none; }
+    .ohne-spalte :global(.huelle-inhalt) { grid-column: 1; }
   }
   .relay-spalte-knopf { display: none; }
 
   @media (max-width: 1023px) {
+    .relay-bereiche { display: none; }
     .relay-spalte-knopf { display: inline-flex; }
     .relay-spalte {
       display: none;
@@ -198,7 +235,6 @@
       padding: 0;
       overflow-y: auto;
       background: var(--am-flaeche-1);
-      border-top: none;
       border-right: 1px solid var(--am-rand-betont-farbe);
       box-shadow: var(--am-schatten-1);
       z-index: var(--am-ebene-menue);
