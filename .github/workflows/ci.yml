@@ -142,6 +142,12 @@ jobs:
           RELAY_URL: http://127.0.0.1:3800
         run: npm run e2e
 
+      # Deleting in Relay must reach the mail server (Kai, 7.10.2026): a mail
+      # of its own is deleted, then deleted for good from the trash, and the
+      # test server is asked until it is really gone from both.
+      - name: deleting reaches the mail server
+        run: timeout 1800 python3 web/e2e/testserver/loeschprobe.py --relay http://127.0.0.1:3800
+
       - name: upload report
         if: failure()
         uses: actions/upload-artifact@v4

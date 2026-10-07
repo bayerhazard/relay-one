@@ -813,6 +813,30 @@ impl ImapClient {
         .await
     }
 
+    /// The numbers of the mails in `folder` with this Message-ID.
+    pub async fn uids_by_message_id(&self, folder: &str, message_id: &str) -> Result<Vec<u32>, AppError> {
+        let folder = folder.to_string();
+        let mid = message_id.trim().replace('\\', "\\\\").replace('"', "\\\"");
+        if mid.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[cfg(test)]
+        if self.test_override.is_some() {
+            return Ok(vec![1]);
+        }
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "uids_by_message_id", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let uids = session
+                .uid_search(&format!("HEADER Message-ID \"{}\"", mid))
+                .map_err(|e| AppError::imap(format!("UID SEARCH Message-ID fehlgeschlagen: {}", e), "uid_search_mid"))?;
+            let mut v: Vec<u32> = uids.into_iter().collect();
+            v.sort_unstable();
+            Ok(v)
+        })
+        .await
+    }
+
     /// Expunge all messages flagged \Deleted in `folder` (sync connection).
     pub async fn expunge_folder_sync(&self, folder: &str) -> Result<(), AppError> {
         let folder = folder.to_string();

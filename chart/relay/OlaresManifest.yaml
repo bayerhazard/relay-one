@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.9
+  version: 26.10.10
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.9
+  versionName: 26.10.10
   upgradeDescription: |
+    v26.10.10: Deleting reaches your mail server reliably. Mail deleted in Relay goes into the provider's real trash (on Gmail into "Trash" instead of only being archived); deleting it for good from Relay's trash removes it there too, found by its Message-ID — before, it never reached the server. A delete still within its five seconds of "Undo" is sent when the tab closes, a restart no longer leaves mail marked for deletion on the server, and should the server refuse after five tries, the mail list says so and offers "Try again". The retry buttons for deletions in the settings work again.
     v26.10.9: The calendar fits on a phone: the month in compact days with a dot per event and the chosen day's events as a list below, the head in two short lines with "+" for a new event, refresh and import under "More"; the weekday row is slim on every screen. On iPhone, "Add to Home Screen" shows the Relay icon instead of an "R". The profile circle shows your initials even where the box sets no name. The mail search looks in the open folder, as every action works there — a hit from another folder could have hit the wrong mail. Gmail's empty "Chats" folder is hidden, so "[Google Mail]" no longer stays in the folder list, and mail rows with an AI summary have room below it again.
     v26.10.8: "Similar emails" in a mail's context menu shows, in the open folder, all mails from the same sender, from the same domain or with a similar subject; "Select all" then moves them to the trash, the archive or spam in one go, with "Undo" as always. A running folder refresh no longer replaces the results of a search.
     v26.10.7: Relay can be installed as an app in Chrome and Edge again: the browser now fetches the app manifest with your sign-in to the box, so it gets the manifest and not the login page. Open Relay at its own address, not inside the Olares desktop, and choose "Install" in the address bar.
