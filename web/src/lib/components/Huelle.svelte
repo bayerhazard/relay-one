@@ -211,6 +211,22 @@
     .relay-huelle:not(.ohne-spalte):has(:global(.mail-kopf)) .kopfleiste-marke {
       width: calc(var(--am-navigation-breite) - var(--am-raum-3));
     }
+    /* Beside the mail list the header follows the three columns below it
+       (Kai, 07.10.2026): the search spans exactly the list — from
+       "Posteingang" to the list's last sign, growing when the list is
+       dragged wider (the page sets --relay-liste-breite) — and the areas
+       start over the reading pane, their first sign over the sender. */
+    .relay-huelle:not(.ohne-spalte):has(:global(.mail-kopf)) .kopfleiste-suche {
+      flex: none;
+      max-width: none;
+      width: calc(var(--relay-liste-breite, 380px) - 2 * var(--am-raum-4));
+    }
+    .relay-huelle:not(.ohne-spalte):has(:global(.mail-kopf)) .relay-bereiche {
+      /* From the search's end (list edge less its padding) to the sender's
+         text: the resize handle (5) and the reading pane's padding (24),
+         less the gap and half of the sign's empty target. */
+      margin-left: calc(29px + var(--am-raum-4) - var(--am-raum-3) - (var(--am-ziel-zeiger) - 20px) / 2);
+    }
   }
 
   /* ── The inside of the area [RL-SPALTE] ──────────────────────────────────
