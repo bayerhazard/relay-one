@@ -40,14 +40,14 @@ export function iconSVG(name: string, size: Symbolgroesse = 16): string {
 
 // Map an IMAP folder path to its semantic icon (Gmail prefixes, German and
 // English names, Yahoo conventions all covered via substring matching).
-export function folderIconFor(name: string): string {
+export function folderIconFor(name: string, size: Symbolgroesse = 16): string {
   const leaf = (name.split("/").pop() ?? name).toLowerCase();
-  if (leaf === "inbox" || leaf === "posteingang") return iconSVG("inbox");
-  if (/(sent|gesendet|postausgang|outbox)/.test(leaf)) return iconSVG("sent");
-  if (/(draft|entwurf)/.test(leaf)) return iconSVG("draft");
-  if (/(trash|papierkorb|deleted|l[oö]schen|m[üu]ll|gel[oö]scht)/.test(leaf)) return iconSVG("trash");
-  if (/(junk|spam|unerwünscht|unerwunscht)/.test(leaf)) return iconSVG("junk");
-  if (/(archive|archiv)/.test(leaf)) return iconSVG("archive");
-  if (/(starred|favorit|wichtig)/.test(leaf)) return iconSVG("starred");
-  return iconSVG("folder");
+  if (leaf === "inbox" || leaf === "posteingang") return iconSVG("inbox", size);
+  if (/(sent|gesendet|postausgang|outbox)/.test(leaf)) return iconSVG("sent", size);
+  if (/(draft|entwurf)/.test(leaf)) return iconSVG("draft", size);
+  if (/(trash|papierkorb|deleted|l[oö]schen|m[üu]ll|gel[oö]scht)/.test(leaf)) return iconSVG("trash", size);
+  if (/(junk|spam|unerwünscht|unerwunscht)/.test(leaf)) return iconSVG("junk", size);
+  if (/(archive|archiv)/.test(leaf)) return iconSVG("archive", size);
+  if (/(starred|favorit|wichtig)/.test(leaf)) return iconSVG("starred", size);
+  return iconSVG("folder", size);
 }

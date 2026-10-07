@@ -12,21 +12,33 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { lagePruefen } from "./lage";
 
-/** A page of the tour: its path and, for settings, the section to choose. */
-const SEITEN: [string, string, string?][] = [
-  ["Mail (Einrichtung)", "/"],
-  ["Kontakte", "/contacts"],
-  ["Kalender", "/calendar"],
-  ["Meetings", "/meetings"],
-  ["Aufgaben", "/tasks"],
-  ["Einstellungen Allgemein", "/settings", "Allgemein"],
-  ["Einstellungen E-Mail-Konten", "/settings", "E-Mail-Konten"],
-  ["Einstellungen Kontakte", "/settings", "Kontakte"],
-  ["Einstellungen Kalender", "/settings", "Kalender"],
-  ["Einstellungen AI & Text", "/settings", "AI & Text"],
-  ["Einstellungen Voice", "/settings", "Voice"],
-  ["Einstellungen Cache", "/settings", "Cache"],
-  ["Einstellungen Archiv", "/settings", "Archiv"],
+// With RELAY_DATEN=1 the tour runs against a Relay filled by
+// e2e/testserver/befuellen.py: every page must then show its dummy data, and
+// the mail page opens the newest mail.
+const DATEN = !!process.env.RELAY_DATEN;
+
+/** A page of the tour: its path, for settings the section to choose, and
+ * what it must show with data (text, and a row to open first). */
+interface Seite {
+  name: string;
+  pfad: string;
+  teil?: string;
+  inhalt?: string;
+  oeffnen?: string;
+}
+
+const SEITEN: Seite[] = [
+  { name: DATEN ? "Mail" : "Mail (Einrichtung)", pfad: "/", oeffnen: ".message-item", inhalt: "Angebot Messestand Frühjahr" },
+  { name: "Kontakte", pfad: "/contacts", inhalt: "Jonas Weber" },
+  // The phone shows only the time in a month cell.
+  { name: "Kalender", pfad: "/calendar", inhalt: "12:30" },
+  { name: "Meetings", pfad: "/meetings" },
+  { name: "Aufgaben", pfad: "/tasks", inhalt: "Angebot Messestand prüfen" },
+  ...["Allgemein", "E-Mail-Konten", "Kontakte", "Kalender", "AI & Text", "Voice", "Cache", "Archiv"].map((teil) => ({
+    name: `Einstellungen ${teil}`,
+    pfad: "/settings",
+    teil,
+  })),
 ];
 
 /** Choose a settings section in the column — on the phone the column is a
@@ -34,21 +46,28 @@ const SEITEN: [string, string, string?][] = [
 async function abschnitt(page: Page, name: string) {
   const spalte = page.locator("#relay-spalte");
   if (!(await spalte.isVisible())) await page.getByRole("button", { name: "Spalte öffnen" }).click();
-  await spalte.getByRole("button", { name, exact: true }).click();
+  // A row may end in a count ("E-Mail-Konten 1").
+  await spalte.getByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\d+)?$`) }).click();
   await page.waitForTimeout(300);
 }
 
 for (const thema of ["light", "dark"] as const)
-for (const [name, pfad, teil] of SEITEN) {
+for (const { name, pfad, teil, inhalt, oeffnen } of SEITEN) {
   test(`${name} ${thema === "light" ? "hell" : "dunkel"}`, async ({ page, context }) => {
     await context.addInitScript((t) => {
-      localStorage.setItem("relay_appearance", t);
-      localStorage.setItem("relay_onboarding_done", "1");
+      // Also runs in the sandboxed mail frame, which has no storage.
+      try {
+        localStorage.setItem("relay_appearance", t);
+        localStorage.setItem("relay_onboarding_done", "1");
+      } catch {
+        /* sandboxed frame */
+      }
     }, thema);
     const fehler: string[] = [];
     page.on("pageerror", (e) => fehler.push(`Skriptfehler: ${e.message}`));
     page.on("response", (r) => {
-      if (r.url().includes("/api/") && r.status() >= 400) {
+      // The tour has no language model; the AI answers are not its subject.
+      if (r.url().includes("/api/") && !r.url().includes("/api/v1/ai/") && r.status() >= 400) {
         fehler.push(`API ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
       }
     });
@@ -58,6 +77,11 @@ for (const [name, pfad, teil] of SEITEN) {
     await page.locator("h1").first().waitFor();
     await page.waitForTimeout(500);
     if (teil) await abschnitt(page, teil);
+    if (DATEN && oeffnen) {
+      await page.locator(oeffnen).first().click();
+      await page.waitForTimeout(800);
+    }
+    if (DATEN && inhalt) await expect(page.getByText(inhalt).first(), "Beispieldaten sichtbar").toBeVisible();
 
     const lage = await page.evaluate(() => {
       const kopf = document.querySelector(".seitenkopf");

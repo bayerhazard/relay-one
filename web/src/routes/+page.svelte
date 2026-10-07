@@ -125,6 +125,9 @@ import {
   let followups = $state<FollowupSuggestion[]>([]);
   let followupsLoading = $state(false);
   let followupsError = $state<string | null>(null);
+  // The background analysis failed (model unreachable): a quiet line, not a
+  // red error — nobody asked for it (CI HB-ZUSTAND). Red stays for a click.
+  let followupsUnavailable = $state(false);
   let followupsForUid = $state<number | null>(null);
   let followupsInFlight: number | null = null; // nicht reaktiv, nur Duplikat-Guard
   const followupsCache = new Map<number, FollowupSuggestion[]>();
@@ -161,6 +164,7 @@ import {
       followups = filterDoneFollowups(uid, followupsCache.get(uid)!);
       followupsLoading = false;
       followupsError = null;
+      followupsUnavailable = false;
       return;
     }
     // Instant path: the list payload may already carry pre-generated followup
@@ -171,6 +175,7 @@ import {
       followups = filterDoneFollowups(uid, cachedActions);
       followupsLoading = false;
       followupsError = null;
+      followupsUnavailable = false;
       return;
     }
     // Auf geladenen Mailtext warten, sonst body_preview als Fallback.
@@ -178,6 +183,7 @@ import {
       followupsLoading = true;
       followups = [];
       followupsError = null;
+      followupsUnavailable = false;
       return;
     }
     if (followupsInFlight === uid) return;
@@ -186,6 +192,7 @@ import {
     followupsInFlight = uid;
     followupsLoading = true;
     followupsError = null;
+    followupsUnavailable = false;
     followups = [];
     const body = parsedContent.text || msg.body_preview || "";
     getFollowups(msg.subject || "", msg.from || "", body, {
@@ -198,9 +205,9 @@ import {
         followupsCache.set(uid, res.actions);
         followups = filterDoneFollowups(uid, res.actions);
       })
-      .catch((e) => {
+      .catch(() => {
         if (followupsForUid !== uid) return;
-        followupsError = localizeError(String(e));
+        followupsUnavailable = true;
         followups = [];
       })
       .finally(() => {
@@ -2500,7 +2507,7 @@ let sentFolderName = $state<string | null>(null);
       });
       assistantCommand.showPlan(plan);
     } catch (e) {
-      followupsError = localizeError(String(e));
+      followupsError = localizeError(e instanceof Error ? e.message : String(e));
     } finally {
       followupPlanBusy = false;
     }
@@ -2982,7 +2989,7 @@ let sentFolderName = $state<string | null>(null);
         </div>
       {/if}
       {@render preview()}
-      {#if !showCompose && followupsForUid === selectedMessage?.uid && (followupsLoading || followups.length > 0 || followupsError)}
+      {#if !showCompose && followupsForUid === selectedMessage?.uid && (followupsLoading || followups.length > 0 || followupsError || followupsUnavailable)}
         <div class="followups-footer">
           <div class="followups-footer-head">
             <span class="followups-footer-title">AI-Vorschläge</span>
@@ -2993,6 +3000,8 @@ let sentFolderName = $state<string | null>(null);
           <div class="followups-footer-scroll">
             {#if followupsLoading}
               <div class="followups-footer-row"><span class="followups-footer-muted">Analysiere E-Mail…</span></div>
+            {:else if followupsUnavailable}
+              <div class="followups-footer-row"><span class="followups-footer-muted">AI-Vorschläge sind gerade nicht verfügbar.</span></div>
             {:else if followups.length === 0}
               <div class="followups-footer-row"><span class="followups-footer-muted">Keine Vorschläge.</span></div>
             {:else}

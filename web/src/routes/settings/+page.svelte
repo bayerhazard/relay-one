@@ -2481,6 +2481,12 @@ async function handleSaveCardDav() {
     display: flex;
     gap: 8px;
   }
+  /* Phone: the buttons go below the details instead of to the edge. */
+  @media (max-width: 40rem) {
+    .account-card-item { flex-wrap: wrap; align-items: flex-start; }
+    .account-details { flex: 1 1 0; min-width: 0; }
+    .account-actions { flex: 1 0 100%; justify-content: flex-end; }
+  }
 
   .olares-import-row {
     display: flex;
@@ -2535,15 +2541,17 @@ async function handleSaveCardDav() {
 
   .export-account {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 8px 4px;
   }
 
+  /* Takes the line on a phone, the buttons wrap below (tour with data). */
   .export-account-name {
+    flex: 1 1 180px;
     font-size: 0.85rem;
     font-weight: 600;
-    min-width: 180px;
   }
 
   .delete-queue-list {

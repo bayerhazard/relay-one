@@ -831,6 +831,11 @@ impl ImapClient {
             ensure_selected(session, &tracker, &folder)?;
             let mut handle = session.idle();
             handle.timeout(timeout);
+            // Return on timeout instead of silently re-issuing IDLE: the
+            // imap crate's default keepalive would wait until the inbox
+            // changes, so the scheduler's regular poll never ran on a quiet
+            // mailbox (servers that send no "still here" never returned).
+            handle.keepalive(false);
             let outcome = handle
                 .wait_while(imap::extensions::idle::stop_on_any)
                 .map_err(|e| AppError::imap(format!("IDLE wait: {}", e), "idle_wait"))?;
