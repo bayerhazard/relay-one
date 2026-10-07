@@ -292,8 +292,15 @@ function createMailboxStore() {
         updated[idx] = { ...updated[idx], ...changes };
         return { ...s, messages: updated };
       }),
+    // A removed mail also leaves the selection — otherwise the next
+    // Backspace would act on a mail that is no longer in the list.
     removeMessage: (uid: number) =>
-      update((s) => ({ ...s, messages: s.messages.filter((m) => m.uid !== uid) })),
+      update((s) => ({
+        ...s,
+        messages: s.messages.filter((m) => m.uid !== uid),
+        selectedUids: s.selectedUids.filter((u) => u !== uid),
+        lastClickedUid: s.lastClickedUid === uid ? null : s.lastClickedUid,
+      })),
     setFolderId: (folderId: string) => update((s) => ({ ...s, folderId })),
     setLoading: (loading: boolean) => update((s) => ({ ...s, loading })),
     setError: (error: string | null) => update((s) => ({ ...s, error })),

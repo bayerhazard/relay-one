@@ -247,8 +247,12 @@ impl ImapClient {
                     let is_trash = attrs.iter().any(|a| {
                         format!("{:?}", a).contains("Trash")
                     });
+                    let attr_texte: Vec<String> = attrs.iter().map(|a| format!("{:?}", a)).collect();
                     let tag = if has_no_select {
                         "noselect"
+                    } else if crate::imap::types::rolle_aus_attributen(&attr_texte) == Some("sammel") {
+                        // Gmail's views of mails kept elsewhere — never fetched.
+                        "sammel"
                     } else if is_trash {
                         "trash"
                     } else {

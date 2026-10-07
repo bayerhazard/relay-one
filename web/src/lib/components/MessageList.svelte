@@ -29,12 +29,14 @@
     accountId: number;
     isDraftFolder?: boolean;
     isSentFolder?: boolean;
+    /** The mail the keyboard is on — kept in view when it moves. */
+    fokusUid?: number | null;
     /** Deleting here is final (the trash itself, or no trash): red, with a question. */
     loeschenEndgueltig?: boolean;
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, loeschenEndgueltig = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, loeschenEndgueltig = false, searchActive = false, fokusUid = null }: Props = $props();
 
   // Urgent = manually marked OR detected by the AI (high priority, no fraud
   // suspicion). Shown with the unread-style marking in red.
@@ -223,6 +225,21 @@
   });
 
   let lastClickedIndex = $state<number | null>(null);
+
+  // Arrow keys (with or without Shift) move a mail out of the visible rows:
+  // scroll just enough to show it again.
+  $effect(() => {
+    const uid = fokusUid;
+    if (uid == null || !scrollElement) return;
+    const idx = messages.findIndex((m) => m.uid === uid);
+    if (idx < 0) return;
+    const oben = idx * itemHeight;
+    const unten = oben + itemHeight;
+    const sicht = scrollElement.clientHeight;
+    if (sicht <= 0) return; // not laid out (hidden, or a test without layout)
+    if (oben < scrollElement.scrollTop) scrollElement.scrollTop = oben;
+    else if (unten > scrollElement.scrollTop + sicht) scrollElement.scrollTop = unten - sicht;
+  });
 
   function handleScroll() {
     if (scrollElement) {

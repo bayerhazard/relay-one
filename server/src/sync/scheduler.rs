@@ -350,7 +350,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
         };
 
         for (folder_name, _raw_name, _, tag) in &folders {
-            if tag == "noselect" {
+            if tag == "noselect" || tag == "sammel" {
                 continue;
             }
             // Provider trash folders are stored under the local "Trash".
@@ -779,7 +779,7 @@ async fn find_provider_trash_folder(
         "deleted messages", "corbeille",
     ];
     for (name, _raw, _delim, tag) in &folders {
-        if tag == "noselect" {
+        if tag == "noselect" || tag == "sammel" {
             continue;
         }
         let lower = name.to_lowercase();
@@ -837,7 +837,7 @@ async fn run_removal_check(state: &AppState) {
         };
 
         for (folder_name, _raw_name, _, tag) in &folders {
-            if tag == "noselect" {
+            if tag == "noselect" || tag == "sammel" {
                 continue;
             }
             // Decoded name — select_folder() re-encodes to UTF-7 internally
@@ -1158,7 +1158,7 @@ async fn process_sync_task(
             // flag the account as still-backfilling so the next cycle polls fast.
             let mut did_backfill = false;
             for (folder_name, _raw_name, _, tag) in &folders {
-                if tag == "noselect" {
+                if tag == "noselect" || tag == "sammel" {
                     continue;
                 }
 

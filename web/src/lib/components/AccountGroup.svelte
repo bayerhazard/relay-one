@@ -15,6 +15,7 @@
     label: string;
     children: FolderNode[];
     local_only?: boolean;
+    huelle?: boolean;
   }
 
   interface Props {
@@ -219,14 +220,14 @@
     data-folder={node.name}
     role="button"
     tabindex="0"
-    onclick={() => handleRowClick(node.name, false)}
+    onclick={() => node.huelle ? onToggleFolder(account.id, node.name) : handleRowClick(node.name, false)}
     ondblclick={(e) => {
       if (node.children.length > 0) {
         e.preventDefault();
         onToggleFolder(account.id, node.name);
       }
     }}
-    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectFolder(account.id, node.name); } }}
+    onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (node.huelle) onToggleFolder(account.id, node.name); else onSelectFolder(account.id, node.name); } }}
     onmousedown={(e) => onFolderMouseDown?.(e, node.name)}
     oncontextmenu={(e) => onContextMenu?.(e, node.name)}
     ontouchstart={(e) => handleTouchStart(e, node.name)}

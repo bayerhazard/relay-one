@@ -267,48 +267,37 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3, CI RL-R2)", () => {
     });
   });
 
-  describe("final (trash switched off): asks first", () => {
+  // Kai, 7.10.2026 (option C): for good, too, no question — five seconds
+  // of "Rückgängig" before anything reaches the server.
+  describe("final (trash switched off): no question, undo instead", () => {
     beforeEach(() => {
       vi.mocked(tauri.getMoveToTrash).mockResolvedValue(false);
     });
 
-    function getConfirmButton() {
-      return within(getDialog()).getByRole("button", { name: "Mail endgültig löschen" });
-    }
-
-    function getCancelButton() {
-      return within(getDialog()).getByRole("button", { name: "Abbrechen" });
-    }
-
-    it("shows a confirmation that names the object", async () => {
+    it("says it is for good and offers Rückgängig", async () => {
       await renderPageWithAccount(true, 42);
       await clickDeleteButton();
-      expect(getDialog().textContent).toContain("Mail endgültig löschen?");
-    });
-
-    it("calls deleteMessageCmd after confirming", async () => {
-      await renderPageWithAccount(true, 42);
-      await clickDeleteButton();
-      await fireEvent.click(getConfirmButton());
-      expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42, expect.stringMatching(/INBOX|.*/));
-      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not call deleteMessageCmd when cancelled, and closes the dialog", async () => {
-      await renderPageWithAccount(true, 42);
-      await clickDeleteButton();
-      await fireEvent.click(getCancelButton());
-      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
       expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(screen.getByRole("status").textContent).toContain("Mail endgültig gelöscht");
+      expect(screen.getByRole("button", { name: "Rückgängig" })).toBeTruthy();
     });
 
-    it("isDeleting guard prevents second delete while first is in-flight", async () => {
-      const neverResolve = new Promise<never>(() => {});
-      vi.mocked(tauri.deleteMessageCmd).mockResolvedValueOnce(neverResolve as any);
+    it("deletes on the server only after the undo window", async () => {
       await renderPageWithAccount(true, 42);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       await clickDeleteButton();
-      await fireEvent.click(getConfirmButton());
+      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(5000);
       expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    });
+
+    it("Rückgängig keeps the mail", async () => {
+      await renderPageWithAccount(true, 42);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await clickDeleteButton();
+      await fireEvent.click(screen.getByRole("button", { name: "Rückgängig" }));
+      vi.advanceTimersByTime(10000);
+      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
     });
   });
 

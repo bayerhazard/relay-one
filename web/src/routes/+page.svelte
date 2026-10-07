@@ -17,6 +17,7 @@
   import Durchgehen from "$lib/components/Durchgehen.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import type { SymbolName } from "$lib/symbole";
+  import { ordnerSichten, rolleVon, ROLLE_RANG, type Rolle } from "$lib/ordner";
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -361,6 +362,9 @@ import {
   function getAccountFolders(accountId: number): AccountFolders {
     return foldersByAccount[accountId] ?? { names: [], local: new Set(), raw: {}, delim: {} };
   }
+  // Folder roles (lib/ordner.ts): fixed places, Gmail's views hidden.
+  let rollenByAccount = $state<Record<number, Record<string, Rolle>>>({});
+
   function setAccountFolders(accountId: number, f: AccountFolders) {
     foldersByAccount = { ...foldersByAccount, [accountId]: f };
     if (accountId === selectedAccountId) {
@@ -395,7 +399,6 @@ import {
     }
   }
   let selectedFolder = $state("INBOX");
-  let showDeleteConfirm = $state(false);
   let showDeleteFolderConfirm = $state(false);
   let pendingDeleteFolder = $state<string | null>(null);
   let pendingDeleteUid = $state<number | null>(null);
@@ -488,8 +491,9 @@ let sentFolderName = $state<string | null>(null);
         archiveFolderName = null;
         const draftFallbacks = ["drafts", "entwürfe", "inbox.drafts"];
         const sentFallbacks = ["sent", "sent messages", "gesendet", "inbox.sent", "inbox.gesendet"];
-        for (const x of f) {
-          if (x.tag === "noselect") continue;
+        const { eintraege, rollen } = ordnerSichten(f);
+        rollenByAccount = { ...rollenByAccount, [accountId]: rollen };
+        for (const x of eintraege) {
           if (!x.name || typeof x.name !== "string" || x.name.length === 0) continue;
           const key = x.name.toLowerCase();
           if (seen.has(key)) continue;
@@ -669,8 +673,9 @@ let sentFolderName = $state<string | null>(null);
       const rawMap: Record<string, string> = {};
       const delimMap: Record<string, string> = {};
       const localSet = new Set<string>();
-      for (const x of f) {
-        if (x.tag === "noselect") continue;
+      const { eintraege, rollen } = ordnerSichten(f);
+      rollenByAccount = { ...rollenByAccount, [selectedAccountId]: rollen };
+      for (const x of eintraege) {
         if (!x.name || typeof x.name !== "string" || x.name.length === 0) continue;
         const key = x.name.toLowerCase();
         if (seen.has(key)) continue;
@@ -978,6 +983,9 @@ let sentFolderName = $state<string | null>(null);
     label: string;
     children: FolderNode[];
     local_only?: boolean;
+    /** A shell that only holds folders (Gmail's "[Gmail]", IMAP \\NoSelect):
+     *  a click opens or closes it, there is nothing to show inside. */
+    huelle?: boolean;
   }
 
    function getLeafName(fullName: string, delimiter: string): string {
@@ -991,7 +999,7 @@ let sentFolderName = $state<string | null>(null);
     return ["inbox", "posteingang", "e-mails", "bpostin", "postan", "mailbox", "mail"].includes(lower);
   }
 
-  function buildFolderTree(names: string[], delimMap: Record<string, string>): FolderNode {
+  function buildFolderTree(names: string[], delimMap: Record<string, string>, rollen?: Record<string, Rolle>): FolderNode {
     const root: FolderNode = { name: "INBOX", label: "", children: [] };
     const level1Map = new Map<string, FolderNode>();
 
@@ -1019,7 +1027,9 @@ let sentFolderName = $state<string | null>(null);
       const leafLower = getLeafName(name, delimiter).toLowerCase();
       if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
       const parts = name.split(delimiter);
-      if (parts.length === 1) {
+      const rolle = rolleVon(name, rollen, delimiter);
+      if (rolle === "sammel") continue;
+      if (parts.length === 1 || rolle) {
         const leafName = getLeafName(name, delimiter);
         const label = customFolderNames[name] || customFolderNames[leafName] || translate(translateFolder(leafName));
         const node: FolderNode = { name, label, children: [], local_only: localFolderNames.has(name) };
@@ -1035,7 +1045,7 @@ let sentFolderName = $state<string | null>(null);
       const leafLower = getLeafName(name, delimiter).toLowerCase();
       if (isInboxAlias(lowerName) || isInboxAlias(leafLower) || hiddenFolderNames.includes(name)) continue;
       const parts = name.split(delimiter);
-      if (parts.length < 2) continue;
+      if (parts.length < 2 || rolleVon(name, rollen, delimiter)) continue;
       const leafName = getLeafName(name, delimiter);
       const label = customFolderNames[name] || customFolderNames[leafName] || translate(translateFolder(leafName));
       const parentName = parts[0];
@@ -1045,18 +1055,27 @@ let sentFolderName = $state<string | null>(null);
         // prefix) — synthesize it so the hierarchy stays intact.
         const parentLeaf = getLeafName(parentName, delimiter);
         const parentLabel = customFolderNames[parentName] || customFolderNames[parentLeaf] || translate(translateFolder(parentLeaf));
-        parent = { name: parentName, label: parentLabel, children: [] };
+        parent = { name: parentName, label: parentLabel, children: [], huelle: true };
         root.children.push(parent);
         level1Map.set(parentName.toLowerCase(), parent);
       }
       parent.children.push({ name, label, children: [], local_only: localFolderNames.has(name) });
     }
 
+    // System folders at fixed places; own folders keep their order between.
+    const rang = (n: FolderNode) => {
+      const r = rolleVon(n.name, rollen, delimFor(n.name));
+      return r ? ROLLE_RANG[r] : 10;
+    };
+    root.children = root.children
+      .map((n, i) => ({ n, i }))
+      .sort((a, b) => rang(a.n) - rang(b.n) || a.i - b.i)
+      .map(({ n }) => n);
     return root;
   }
 
   let folderTree = $derived(
-    buildFolderTree(folderNames, folderDelimiters)
+    buildFolderTree(folderNames, folderDelimiters, rollenByAccount[selectedAccountId])
   );
 
   // Per-account folder tree so every account group renders independently.
@@ -1064,7 +1083,7 @@ let sentFolderName = $state<string | null>(null);
     const out: Record<number, FolderNode> = {};
     for (const acct of accountList) {
       const f = getAccountFolders(acct.id);
-      out[acct.id] = buildFolderTree(f.names, f.delim);
+      out[acct.id] = buildFolderTree(f.names, f.delim, rollenByAccount[acct.id]);
     }
     return out;
   });
@@ -1825,11 +1844,15 @@ let sentFolderName = $state<string | null>(null);
     mailbox.toggleSelect(uid);
   }
 
+  // Where a Shift + arrow selection began; a plain arrow or click forgets it.
+  let auswahlAnker = $state<number | null>(null);
+
   function handleSelectRange(fromIdx: number, toIdx: number) {
     mailbox.selectRange(fromIdx, toIdx, $mailbox.messages);
   }
 
   async function handleSelectMessage(uid: number) {
+    auswahlAnker = null;
     mailbox.selectSingle(uid);
     lastClickedUid = uid;
     loadingBodyUid = uid;
@@ -2173,10 +2196,6 @@ let sentFolderName = $state<string | null>(null);
         closeCompose();
         return;
       }
-      if (showDeleteConfirm) {
-        cancelDelete();
-        return;
-      }
       if ($mailbox.selectedUids.length > 1) {
         mailbox.clearSelection();
         return;
@@ -2189,8 +2208,27 @@ let sentFolderName = $state<string | null>(null);
     // Arrow navigation through the message list (↑/↓)
     if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !showCompose) {
       const msgs = $mailbox.messages;
+      if (msgs.length > 0 && e.shiftKey) {
+        // Shift + arrow grows or shrinks the selection from where it began
+        // (Kai, 7.10.2026), as in Finder and Apple Mail; nothing opens.
+        e.preventDefault();
+        const fokus = $mailbox.lastClickedUid;
+        const fokusIdx = fokus != null ? msgs.findIndex((m) => m.uid === fokus) : -1;
+        if (fokusIdx === -1) {
+          const start = e.key === "ArrowDown" ? 0 : msgs.length - 1;
+          auswahlAnker = msgs[start].uid;
+          mailbox.selectRange(start, start, msgs);
+          return;
+        }
+        if (auswahlAnker == null || !msgs.some((m) => m.uid === auswahlAnker)) auswahlAnker = fokus;
+        const ankerIdx = msgs.findIndex((m) => m.uid === auswahlAnker);
+        const ziel = e.key === "ArrowDown" ? Math.min(fokusIdx + 1, msgs.length - 1) : Math.max(fokusIdx - 1, 0);
+        mailbox.selectRange(ankerIdx, ziel, msgs);
+        return;
+      }
       if (msgs.length > 0) {
         e.preventDefault();
+        auswahlAnker = null;
         const curUid = $mailbox.lastClickedUid;
         const curIdx = curUid != null ? msgs.findIndex((m) => m.uid === curUid) : -1;
         let nextIdx: number;
@@ -2481,7 +2519,6 @@ let sentFolderName = $state<string | null>(null);
     };
   });
 
-  let pendingDeleteUids: number[] = $state([]);
 
   // Deleting (CI RL-R2): a mail that goes to the trash can be brought back,
   // so it asks nothing and offers "Rückgängig" instead. The server is only
@@ -2546,20 +2583,41 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
-  let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; endgueltig: boolean; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   function deleteIsRecoverable(): boolean {
-    return moveToTrash && selectedFolder !== "Trash";
+    // In the trash itself — local "Trash" or the provider's — it is for good.
+    const rolle = rolleVon(selectedFolder, rollenByAccount[selectedAccountId], folderDelimiters[selectedFolder] || ".");
+    return moveToTrash && rolle !== "papierkorb";
   }
 
+  // Backspace deletes at once, also for good (Kai, 7.10.2026, option C):
+  // no question, but five seconds of "Rückgängig" before anything reaches
+  // the server — to the trash as well as from it.
   function requestDelete(uids: number[]) {
-    if (uids.length === 0 || showDeleteConfirm || isDeleting) return;
-    if (deleteIsRecoverable()) {
-      deferDelete(uids);
-    } else {
-      pendingDeleteUids = uids;
-      showDeleteConfirm = true;
-    }
+    if (uids.length === 0 || isDeleting) return;
+    deferDelete(uids, !deleteIsRecoverable());
+  }
+
+  /** The mail to open after `uids` leave the list: the next one below the
+   *  last of them, at the end the one above (as Apple Mail and Gmail). */
+  function naechsteNach(uids: number[]): Message | null {
+    const weg = new Set(uids);
+    const liste = $mailbox.messages;
+    let letzte = -1;
+    liste.forEach((m, i) => { if (weg.has(m.uid)) letzte = i; });
+    if (letzte < 0) return null;
+    for (let i = letzte + 1; i < liste.length; i++) if (!weg.has(liste[i].uid)) return liste[i];
+    for (let i = letzte - 1; i >= 0; i--) if (!weg.has(liste[i].uid)) return liste[i];
+    return null;
+  }
+
+  /** Removes the rows and opens the next mail after them, so Backspace, E
+   *  or ! can be pressed again right away — after one mail or a selection. */
+  function entfernenUndWeiter(uids: number[]) {
+    const weiter = naechsteNach(uids);
+    for (const uid of uids) mailbox.removeMessage(uid);
+    if (weiter) void handleSelectMessage(weiter.uid);
   }
 
   function handleDeleteMessage(uid: number, uids?: number[]) {
@@ -2581,8 +2639,7 @@ let sentFolderName = $state<string | null>(null);
     flushPendingDelete();
     flushVerschieben();
     const job = { uids, accountId: selectedAccountId, folder: selectedFolder, ziel, text };
-    for (const uid of uids) mailbox.removeMessage(uid);
-    mailbox.clearSelection();
+    entfernenUndWeiter(uids);
     undoVerschieben = { ...job, timer: setTimeout(() => flushVerschieben(), UNDO_MS) };
   }
 
@@ -2666,11 +2723,11 @@ let sentFolderName = $state<string | null>(null);
     folderSheetOpen = false;
   }
 
-  function deferDelete(uids: number[]) {
+  function deferDelete(uids: number[], endgueltig = false) {
     flushPendingDelete();
     flushVerschieben();
-    const job = { uids, accountId: selectedAccountId, folder: selectedFolder };
-    for (const uid of uids) mailbox.removeMessage(uid);
+    const job = { uids, accountId: selectedAccountId, folder: selectedFolder, endgueltig };
+    entfernenUndWeiter(uids);
     undoDelete = { ...job, timer: setTimeout(() => flushPendingDelete(), UNDO_MS) };
   }
 
@@ -2782,16 +2839,6 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
-  async function confirmDelete() {
-    if (isDeleting) return;
-    const uids = pendingDeleteUids;
-    if (uids.length === 0) return;
-    pendingDeleteUids = [];
-    showDeleteConfirm = false;
-    for (const uid of uids) mailbox.removeMessage(uid);
-    await executeDelete(uids, selectedAccountId, selectedFolder);
-  }
-
   async function executeDelete(uids: number[], accountId: number, folder: string) {
     isDeleting = true;
     try {
@@ -2811,11 +2858,6 @@ let sentFolderName = $state<string | null>(null);
     } finally {
       isDeleting = false;
     }
-  }
-
-  function cancelDelete() {
-    pendingDeleteUids = [];
-    showDeleteConfirm = false;
   }
 
   function translateFolder(name: string): string {
@@ -2862,6 +2904,7 @@ let sentFolderName = $state<string | null>(null);
   <MessageList
     messages={$mailbox.messages}
     selectedUids={$mailbox.selectedUids}
+    fokusUid={$mailbox.lastClickedUid}
     onselect={handleSelectMessage}
     onauswahl={(uid) => mailbox.auswahlUmschalten(uid)}
     onselectToggle={handleSelectToggle}
@@ -2912,7 +2955,9 @@ let sentFolderName = $state<string | null>(null);
       prefill={assistantCompose}
       initialAttachments={draftInitialAttachments}
     />
-  {:else if selectedMessage}
+  {:else if selectedMessage && $mailbox.selectedUids.length <= 1}
+    <!-- With several mails selected the pane shows the count (below), not
+         one of them; selectedMessage itself stays, an effect relies on it. -->
     {@const msg = selectedMessage}
     {@const imSpam = istSpamOrdner(selectedFolder)}
     <div class="preview-layout">
@@ -2951,7 +2996,8 @@ let sentFolderName = $state<string | null>(null);
             {#if deleteIsRecoverable()}
               {@render zeichen("loeschen", $t("mail.inPapierkorb"), () => handleDeleteMessage(msg.uid), $t("mail.tasteEntf"))}
             {:else}
-              <!-- Final: red, with its object and a question (CI G2). -->
+              <!-- Final: red, with its object; instead of a question five seconds of
+                   "Rückgängig" (Kai, 7.10.2026, CI exception RL). -->
               <button type="button" class="btn btn-gefahr btn-klein" onclick={() => handleDeleteMessage(msg.uid)}>
                 {$t("mail.deleteFinal1")}
               </button>
@@ -3133,7 +3179,11 @@ let sentFolderName = $state<string | null>(null);
       onaction={retryInit}
     />
   {:else}
-    <EmptyState icon="eingang" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
+    {#if $mailbox.selectedUids.length > 1}
+      <EmptyState icon="eingang" title={$t("mail.selectedCount", { count: $mailbox.selectedUids.length })} subtitle={$t("mail.auswahlHinweis")} offsetHeader={true} />
+    {:else}
+      <EmptyState icon="eingang" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
+    {/if}
   {/if}
 {/snippet}
 
@@ -3321,24 +3371,12 @@ let sentFolderName = $state<string | null>(null);
   </Huelle>
 {/if}
 
-  {#if showDeleteConfirm}
-    <ConfirmationDialog
-      open={showDeleteConfirm}
-      title={pendingDeleteUids.length === 1 ? $t("mail.deleteConfirmTitle1") : $t("mail.deleteConfirmTitleN")}
-      message={pendingDeleteUids.length === 1
-        ? $t("mail.deleteConfirmMsg1")
-        : $t("mail.deleteConfirmMsgN", { count: pendingDeleteUids.length })}
-      confirmLabel={pendingDeleteUids.length === 1 ? $t("mail.deleteFinal1") : $t("mail.deleteFinalN")}
-      cancelLabel={$t("common.cancel")}
-      danger={true}
-      onconfirm={confirmDelete}
-      oncancel={cancelDelete}
-    />
-  {/if}
 
   {#if undoDelete}
     <div class="undo-toast" role="status" aria-live="polite">
-      <span>{undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length })}</span>
+      <span>{undoDelete.endgueltig
+        ? (undoDelete.uids.length === 1 ? $t("mail.geloeschtEine") : $t("mail.geloeschtViele", { count: undoDelete.uids.length }))
+        : (undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length }))}</span>
       <button type="button" class="btn btn-sekundaer" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
     </div>
   {/if}

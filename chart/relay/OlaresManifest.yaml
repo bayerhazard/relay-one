@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.4
+  version: 26.10.5
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.4
+  versionName: 26.10.5
   upgradeDescription: |
+    v26.10.5: Folders sit in a fixed order: Drafts, Sent and Archive at the top, your own folders in between, Spam and the trash at the bottom. In Gmail accounts the "[Google Mail]" folder is gone and its system folders take these places; All Mail, Starred and Important are hidden and no longer fetched, as they only show mail kept elsewhere. Backspace deletes the open mail and opens the next one, so several can go one after the other; deleting for good no longer asks but offers "Undo" for five seconds. Shift with the arrow keys selects several mails at once.
     v26.10.4: The header now follows the columns below it. Next to the mail list the search sits exactly above the list, from the folder name to its last icon, and grows when the list is dragged wider; the five areas start above the open mail. The magnifier sits centred in the search field, and the app checks on every build that its icons on the home screen and in the browser tab show the right picture.
     v26.10.3: Relay now looks and works like the other AImighty apps. The five areas sit as icons in the header next to the search, the column holds folders, views and settings sections, and the profile at the top right leads to the settings. Dark mode follows the system. Buttons, dialogs, icons and colours come from the AImighty design system; deleting something for good always asks first, moving mail to the trash can be undone. The assistant opens from the shield at the bottom right. Above each mail a compact row of icons replies, forwards, archives, marks as spam, trashes, moves and flags, each with its name as a tooltip, and "New email" sits at the top of the column. Calendar and contacts now also connect to servers that use Basic sign-in, and new mail arrives reliably on quiet inboxes. Newsletters that offer it can be ended with "Unsubscribe" next to the sender. Several mails can be archived, moved to spam or trashed at once and taken back, and an optional "Clean up" area lists who writes to you most and lets you go through mail one by one.
     v26.10.2: Relay now defaults to the Olares Router. Chat, speech-to-text and text-to-speech are served automatically through the system models default-chat, default-stt and default-tts — no manual endpoint setup. A custom endpoint stays available per capability in Settings. Requires Olares 1.12.7+; older versions keep the manual configuration. Built for Olares 1.12.6.
