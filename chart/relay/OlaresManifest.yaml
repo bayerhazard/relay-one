@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.2
+  version: 26.10.3
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.2
+  versionName: 26.10.3
   upgradeDescription: |
+    v26.10.3: Relay now looks and works like the other AImighty apps. The five areas sit as icons in the header next to the search, the column holds folders, views and settings sections, and the profile at the top right leads to the settings. Dark mode follows the system. Buttons, dialogs, icons and colours come from the AImighty design system; deleting something for good always asks first, moving mail to the trash can be undone. The assistant opens from the shield at the bottom right, and reply and reply-all sit right at the mail. Calendar and contacts now also connect to servers that use Basic sign-in, and new mail arrives reliably on quiet inboxes.
     v26.10.2: Relay now defaults to the Olares Router. Chat, speech-to-text and text-to-speech are served automatically through the system models default-chat, default-stt and default-tts — no manual endpoint setup. A custom endpoint stays available per capability in Settings. Requires Olares 1.12.7+; older versions keep the manual configuration. Built for Olares 1.12.6.
     v26.10.1: Initial Release for AImighty
 
