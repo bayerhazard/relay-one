@@ -81,7 +81,7 @@ describe(`CI stand ${stand.stand}`, () => {
     expect(kennungen.sort()).toEqual(
       [
         "AM-BASIS", "AM-FELD", "AM-HAKEN", "AM-HUELLE", "AM-KARTE", "AM-KNOPF", "AM-LEER",
-        "HB-DIALOG", "HB-KONTO", "HB-MARKE", "HB-SEITENKOPF", "HB-SUCHE", "HB-SYMBOL", "HB-UNTERNAV", "HB-ZUSTAND",
+        "HB-ASSISTENT", "HB-DIALOG", "HB-KONTO", "HB-MARKE", "HB-SEITENKOPF", "HB-SUCHE", "HB-SYMBOL", "HB-UNTERNAV", "HB-ZUSTAND",
       ].sort(),
     );
   });
