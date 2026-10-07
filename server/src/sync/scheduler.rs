@@ -796,42 +796,63 @@ async fn run_provider_ops(state: &AppState) {
                     Entfernen::InPapierkorb(trash) => client.move_message(op.uid as u32, &op.folder, &trash).await,
                     Entfernen::Markieren => client.delete_message(op.uid as u32, &op.folder).await,
                 },
-                // Final delete from the provider's trash, by Message-ID (the
-                // mail has a new number there). Nothing found is done too:
-                // in archive mode the provider copy is already gone.
-                "delete_mid" => match (papierkorb_waehlen(liste), op.flag.as_deref()) {
-                    (Some(trash), Some(kopf)) => match client.delete_by_message_id(&trash, kopf).await {
-                        Ok(n) => {
-                            tracing::info!("provider_ops {}: {} Mail(s) im Papierkorb '{}' nach Message-ID gelöscht", op.id, n, trash);
-                            if n > 0 {
-                                expunge_vormerken(state, account_id, &trash);
-                            }
-                            Ok(())
-                        }
-                        Err(e) => Err(e),
-                    },
-                    _ => Ok(()),
-                },
-                // Restore from Relay's trash: found in the provider's trash by
-                // Message-ID and moved to the target there.
-                "move_mid" => match (papierkorb_waehlen(liste), op.flag.as_deref(), op.target_folder.as_deref()) {
-                    (Some(trash), Some(kopf), Some(ziel)) => match client.uids_by_message_id(&trash, kopf).await {
+                // By Message-ID (Kai, 7.10.2026): the mail is looked up in its
+                // folder on the provider ("Trash" = the provider's trash), so a
+                // number gone stale by a local move cannot miss it or hit
+                // another mail. Nothing found is done: it is already gone.
+                "delete_mid" => match (provider_ordner(liste, &op.folder), op.flag.as_deref()) {
+                    (Some(ordner), Some(kopf)) => match client.uids_by_message_id(&ordner, kopf).await {
                         Ok(uids) => {
                             let mut ergebnis = Ok(());
                             for u in &uids {
-                                if let Err(e) = client.move_message(*u, &trash, ziel).await {
+                                let r = match entfernen_wie(liste, &ordner) {
+                                    Entfernen::InPapierkorb(trash) => client.move_message(*u, &ordner, &trash).await,
+                                    Entfernen::Markieren => client.delete_message(*u, &ordner).await,
+                                };
+                                if let Err(e) = r {
                                     ergebnis = Err(e);
                                     break;
                                 }
                             }
-                            tracing::info!("provider_ops {}: {} Mail(s) aus '{}' nach '{}' (Message-ID)", op.id, uids.len(), trash, ziel);
+                            tracing::info!("provider_ops {}: {} Mail(s) in '{}' nach Message-ID gelöscht", op.id, uids.len(), ordner);
                             if !uids.is_empty() && ergebnis.is_ok() {
-                                expunge_vormerken(state, account_id, &trash);
+                                expunge_vormerken(state, account_id, &ordner);
                             }
                             ergebnis
                         }
                         Err(e) => Err(e),
                     },
+                    _ => Ok(()),
+                },
+                "move_mid" => match (provider_ordner(liste, &op.folder), op.flag.as_deref(), op.target_folder.as_deref()) {
+                    (Some(quelle), Some(kopf), Some(ziel)) => {
+                        // "Trash" as target: the provider's trash, or a folder
+                        // "Trash" made where it has none.
+                        let ziel = match provider_ordner(liste, ziel) {
+                            Some(z) => z,
+                            None => {
+                                let _ = client.create_folder(ziel).await;
+                                ziel.to_string()
+                            }
+                        };
+                        match client.uids_by_message_id(&quelle, kopf).await {
+                            Ok(uids) => {
+                                let mut ergebnis = Ok(());
+                                for u in &uids {
+                                    if let Err(e) = client.move_message(*u, &quelle, &ziel).await {
+                                        ergebnis = Err(e);
+                                        break;
+                                    }
+                                }
+                                tracing::info!("provider_ops {}: {} Mail(s) von '{}' nach '{}' (Message-ID)", op.id, uids.len(), quelle, ziel);
+                                if !uids.is_empty() && ergebnis.is_ok() {
+                                    expunge_vormerken(state, account_id, &quelle);
+                                }
+                                ergebnis
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
                     _ => Ok(()),
                 },
                 other => {
@@ -904,6 +925,16 @@ pub(crate) fn papierkorb_waehlen(folders: &[(String, String, String, String)]) -
 /// Gmail: "\Deleted + EXPUNGE" only archives there (Gmail's default), the
 /// mail stays in All Mail. Deleting means moving it into Gmail's trash,
 /// which Gmail empties after 30 days (Kai, 7.10.2026).
+/// A folder name as Relay uses it, on the provider: "Trash" is the
+/// provider's trash (None where it has none); every other name is itself.
+pub(crate) fn provider_ordner(folders: &[(String, String, String, String)], name: &str) -> Option<String> {
+    if name == "Trash" {
+        papierkorb_waehlen(folders)
+    } else {
+        Some(name.to_string())
+    }
+}
+
 pub(crate) fn ist_gmail(folders: &[(String, String, String, String)]) -> bool {
     folders.iter().any(|(name, ..)| {
         let l = name.to_lowercase();
@@ -2095,6 +2126,10 @@ mod loeschen_tests {
         let alt = vec![f("INBOX", "folder"), f("Deleted Messages", "folder")];
         assert_eq!(papierkorb_waehlen(&alt).as_deref(), Some("Deleted Messages"));
         assert_eq!(papierkorb_waehlen(&[f("INBOX", "folder")]), None);
+        // Relay's "Trash" is the provider's; other names stay.
+        assert_eq!(provider_ordner(&gmx, "Trash").as_deref(), Some("Gelöscht"));
+        assert_eq!(provider_ordner(&gmx, "Archiv").as_deref(), Some("Archiv"));
+        assert_eq!(provider_ordner(&[f("INBOX", "folder")], "Trash"), None);
     }
 }
 

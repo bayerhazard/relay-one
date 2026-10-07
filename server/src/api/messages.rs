@@ -610,27 +610,12 @@ pub async fn move_message(
         return move_to_local_folder(&state, &req, uid, account_id_i64, uid_i64).await;
     }
 
-    // Out of Relay's trash (restore): the row's number belongs to the folder
-    // the mail came from, so the provider's trash is searched by Message-ID
-    // (Kai, 7.10.2026). Without one, nothing is done on the provider rather
-    // than move a mail that only shares the number.
-    let aus_papierkorb_kopf: Option<String> = if req.source_folder == "Trash" {
-        with_db(&state, |conn| {
-            Ok(conn
-                .query_row(
-                    "SELECT m.message_id FROM messages m JOIN folders fo ON m.folder_id = fo.id
-                     WHERE m.account_id = ?1 AND m.uid = ?2 AND fo.name = 'Trash' LIMIT 1",
-                    rusqlite::params![account_id_i64, uid_i64],
-                    |row| row.get::<_, Option<String>>(0),
-                )
-                .ok()
-                .flatten()
-                .filter(|v| !v.trim().is_empty()))
-        })
-        .unwrap_or(None)
-    } else {
-        None
-    };
+    // The mail's Message-ID before the row moves: the provider op finds it by
+    // that header, not by a number that may already be stale (Kai, 7.10.2026).
+    let kopf: Option<String> = with_db(&state, |conn| {
+        Ok(cache::provider_ops::kopf_von(conn, account_id_i64, uid_i64, &req.source_folder))
+    })
+    .unwrap_or(None);
 
     // Local-first: update the cache and return; the IMAP COPY+STORE is
     // replayed by the provider-op worker. (Previously the browser waited on
@@ -645,23 +630,19 @@ pub async fn move_message(
         )
         .map_err(|e| e.to_string())?;
         // Decoded names: the worker's ensure_selected() UTF-7-encodes once.
-        if req.source_folder == "Trash" {
-            return match aus_papierkorb_kopf.as_deref() {
-                Some(kopf) => cache::provider_ops::enqueue_aus_papierkorb_verschieben(conn, account_id_i64, kopf, &req.target_folder)
-                    .map(|_| ())
-                    .map_err(|e| e.to_string()),
-                None => {
-                    tracing::warn!("move_message: uid {} aus dem Papierkorb ohne Message-ID — beim Provider nicht verschoben", uid);
-                    Ok(())
-                }
-            };
+        // Out of Relay's trash the number means nothing on the provider:
+        // without a Message-ID nothing is moved there rather than guess.
+        if req.source_folder == "Trash" && kopf.is_none() {
+            tracing::warn!("move_message: uid {} aus dem Papierkorb ohne Message-ID — beim Provider nicht verschoben", uid);
+            return Ok(());
         }
-        cache::provider_ops::enqueue_move(
+        cache::provider_ops::enqueue_verschieben(
             conn,
             account_id_i64,
             uid_i64,
             &req.source_folder,
             &req.target_folder,
+            kopf.as_deref(),
         )
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -687,6 +668,11 @@ async fn move_to_local_folder(
     account_id_i64: i64,
     uid_i64: i64,
 ) -> ApiResult<()> {
+    let kopf: Option<String> = with_db(state, |conn| {
+        Ok(cache::provider_ops::kopf_von(conn, account_id_i64, uid_i64, &req.source_folder))
+    })
+    .unwrap_or(None);
+
     // 1. Locally move the index row (never blocks on IMAP).
     //    Scoped to the source folder — uid is only unique per folder.
     with_db(state, |conn| {
@@ -734,13 +720,13 @@ async fn move_to_local_folder(
     {
         let _ = with_db(&state, |conn| {
             if eml_ok {
-                let _ = cache::provider_ops::enqueue_delete(conn, req.account_id as i64, uid as i64, &req.source_folder);
+                let _ = cache::provider_ops::enqueue_loeschen(conn, req.account_id as i64, uid as i64, &req.source_folder, kopf.as_deref());
             } else {
                 tracing::warn!(
                     "move_to_local: Verify-Garantie fehlt für uid {} (account {}) — weiches Löschen (Provider-Trash)",
                     uid, req.account_id
                 );
-                let _ = cache::provider_ops::enqueue_move(conn, req.account_id as i64, uid as i64, &req.source_folder, "Trash");
+                let _ = cache::provider_ops::enqueue_verschieben(conn, req.account_id as i64, uid as i64, &req.source_folder, "Trash", kopf.as_deref());
             }
             Ok::<_, String>(())
         });
@@ -1742,9 +1728,10 @@ async fn delete_message_trash_mode(
     // COPY+STORE runs in the background (folder auto-creation included — see
     // run_provider_ops). The browser never waits for IMAP again.
     with_db(state, |conn| {
+        let kopf = cache::provider_ops::kopf_von(conn, account_id_i64, uid_i64, &source_folder);
         cache::messages::update_folder_from(conn, account_id_i64, uid_i64, &source_folder, "Trash")
             .map_err(|e| e.to_string())?;
-        cache::provider_ops::enqueue_move(conn, account_id_i64, uid_i64, &source_folder, "Trash")
+        cache::provider_ops::enqueue_verschieben(conn, account_id_i64, uid_i64, &source_folder, "Trash", kopf.as_deref())
             .map(|_| ())
             .map_err(|e| e.to_string())
     })?;
@@ -1977,7 +1964,7 @@ async fn delete_message_permanent_delete(
                 tracing::info!("delete_message: uid {} in lokalem Ordner '{}' — nichts beim Provider", uid, f);
             } else {
                 match with_db(state, |conn| {
-                    cache::provider_ops::enqueue_delete(conn, account_id_i64, uid_i64, f).map_err(|e| e.to_string())
+                    cache::provider_ops::enqueue_loeschen(conn, account_id_i64, uid_i64, f, kopf_id.as_deref()).map_err(|e| e.to_string())
                 }) {
                     Ok(op) => tracing::info!(
                         "delete_message: uid {} (Konto {}) lokal entfernt, Provider-Löschung in Queue (op {})",
@@ -1994,7 +1981,7 @@ async fn delete_message_permanent_delete(
             // From Relay's trash: found in the provider's trash by its
             // Message-ID and deleted there for good (Kai, 7.10.2026).
             Some(kopf) => match with_db(state, |conn| {
-                cache::provider_ops::enqueue_aus_papierkorb(conn, account_id_i64, kopf).map_err(|e| e.to_string())
+                cache::provider_ops::enqueue_loeschen(conn, account_id_i64, uid_i64, "Trash", Some(kopf)).map_err(|e| e.to_string())
             }) {
                 Ok(op) => tracing::info!("delete_message: uid {} aus dem Papierkorb, beim Provider nach Message-ID (op {})", uid, op),
                 Err(e) => tracing::error!("delete_message: uid {} aus dem Papierkorb, enqueue fehlgeschlagen: {}", uid, e),

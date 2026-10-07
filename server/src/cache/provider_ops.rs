@@ -89,38 +89,67 @@ pub fn enqueue_delete(
     Ok(conn.last_insert_rowid())
 }
 
-/// Enqueue the final delete of a mail from the provider's trash, found by
-/// its Message-ID (Kai, 7.10.2026): a mail moved there has a new number in
-/// the trash that Relay does not know, so it is looked up by its header.
-/// The Message-ID rides in the `flag` column.
-pub fn enqueue_aus_papierkorb(
-    conn: &Connection,
-    account_id: i64,
-    message_id_kopf: &str,
-) -> Result<i64, rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO provider_ops (account_id, kind, uid, folder, flag)
-         VALUES (?1, 'delete_mid', 0, 'Trash', ?2)",
-        params![account_id, message_id_kopf],
-    )?;
-    Ok(conn.last_insert_rowid())
+/// The Message-ID header of the row (account, folder, uid), if it has one.
+/// Taken before the row moves locally.
+pub fn kopf_von(conn: &Connection, account_id: i64, uid: i64, folder: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT m.message_id FROM messages m JOIN folders f ON m.folder_id = f.id
+         WHERE m.account_id = ?1 AND m.uid = ?2 AND f.name = ?3 LIMIT 1",
+        params![account_id, uid, folder],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .ok()
+    .flatten()
+    .filter(|v| !v.trim().is_empty())
 }
 
-/// Enqueue a move out of Relay's trash (restore), found in the provider's
-/// trash by its Message-ID: the row's number belongs to the folder the mail
-/// came from, not to the trash (Kai, 7.10.2026).
-pub fn enqueue_aus_papierkorb_verschieben(
+/// Enqueue a move on the provider (Kai, 7.10.2026). With a Message-ID the
+/// worker finds the mail in `source` by that header ("move_mid"): after any
+/// local move a row carries the number of the folder it came from until
+/// the next sync, and a number sent to the provider in that window would
+/// miss the mail or hit another one. Without one, by number as before.
+/// The Message-ID rides in the `flag` column.
+pub fn enqueue_verschieben(
     conn: &Connection,
     account_id: i64,
-    message_id_kopf: &str,
+    uid: i64,
+    source: &str,
     target: &str,
+    kopf: Option<&str>,
 ) -> Result<i64, rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO provider_ops (account_id, kind, uid, folder, target_folder, flag)
-         VALUES (?1, 'move_mid', 0, 'Trash', ?2, ?3)",
-        params![account_id, target, message_id_kopf],
-    )?;
-    Ok(conn.last_insert_rowid())
+    match kopf {
+        Some(k) => {
+            conn.execute(
+                "INSERT INTO provider_ops (account_id, kind, uid, folder, target_folder, flag)
+                 VALUES (?1, 'move_mid', ?2, ?3, ?4, ?5)",
+                params![account_id, uid, source, target, k],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+        None => enqueue_move(conn, account_id, uid, source, target),
+    }
+}
+
+/// Enqueue a delete on the provider, by Message-ID where there is one (see
+/// `enqueue_verschieben`).
+pub fn enqueue_loeschen(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder: &str,
+    kopf: Option<&str>,
+) -> Result<i64, rusqlite::Error> {
+    match kopf {
+        Some(k) => {
+            conn.execute(
+                "INSERT INTO provider_ops (account_id, kind, uid, folder, flag)
+                 VALUES (?1, 'delete_mid', ?2, ?3, ?4)",
+                params![account_id, uid, folder, k],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+        None => enqueue_delete(conn, account_id, uid, folder),
+    }
 }
 
 /// Oldest pending ops for one account (FIFO, bounded).
@@ -318,7 +347,7 @@ mod loesch_tests {
         let conn = Connection::open_in_memory().unwrap();
         crate::cache::db::init_db(&conn).unwrap();
         let id = enqueue_delete(&conn, 1, 7, "INBOX").unwrap();
-        enqueue_aus_papierkorb(&conn, 1, "<a@b>").unwrap();
+        enqueue_loeschen(&conn, 1, 0, "Trash", Some("<a@b>")).unwrap();
         for _ in 0..5 {
             mark_failed(&conn, id, "boom").unwrap();
         }
