@@ -15,6 +15,8 @@
     onselect: (uid: number) => void;
     onselectToggle: (uid: number) => void;
     onselectRange: (fromIdx: number, toIdx: number) => void;
+    /** Selection mode: toggles a mail without opening it. */
+    onauswahl?: (uid: number) => void;
     onreply?: (uid: number) => void;
     onforward?: (uid: number) => void;
     ondelete?: (uid: number, uids?: number[]) => void;
@@ -30,7 +32,7 @@
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
 
   // Urgent = manually marked OR detected by the AI (high priority, no fraud
   // suspicion). Shown with the unread-style marking in red.
@@ -233,7 +235,23 @@
   let offsetY = $derived(startIndex * itemHeight);
   let selectedSet = $derived(new Set(selectedUids));
 
+  // Selection mode ("Auswählen" in the row menu, the way to select on a
+  // phone): every tap toggles instead of opening, until the selection is empty.
+  let auswahlModus = $state(false);
+  $effect(() => {
+    if (selectedUids.length === 0) auswahlModus = false;
+  });
+
+  function auswahlStarten(uid: number) {
+    auswahlModus = true;
+    if (!selectedUids.includes(uid)) onauswahl?.(uid);
+  }
+
   function handleClick(e: MouseEvent, uid: number, index: number) {
+    if (auswahlModus && lastTouchUid !== uid) {
+      onauswahl?.(uid);
+      return;
+    }
     if (lastTouchUid === uid) {
       // Row was swiped / long-pressed — suppress the synthetic click.
       lastTouchUid = null;
@@ -429,6 +447,9 @@
   {#if contextMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouch} role="presentation" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouch} style={isTouch ? "" : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`} role="menu">
+      {#if onauswahl}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => auswahlStarten(uid))}><span class="ctx-icon">{@html iconSVG("select")}</span>{$t("mail.auswaehlen")}</button>
+      {/if}
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}><span class="ctx-icon">{@html iconSVG("reply")}</span>{$t("mail.reply")}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}><span class="ctx-icon">{@html iconSVG("forward")}</span>{$t("mail.forward")}</button>
       <div class="ctx-menu-separator" role="separator"></div>
