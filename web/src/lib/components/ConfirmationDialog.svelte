@@ -7,10 +7,8 @@
       message: string;
       confirmLabel?: string;
       cancelLabel?: string;
-      altLabel?: string;
       onconfirm: () => void;
       oncancel: () => void;
-      onalt?: () => void;
       danger?: boolean;
     }
 
@@ -20,10 +18,8 @@
       message,
       confirmLabel = "",
       cancelLabel = "",
-      altLabel = "",
       onconfirm,
       oncancel,
-      onalt,
       danger = false,
     }: Props = $props();
 
@@ -75,11 +71,6 @@
           <button type="button" class="btn {danger ? 'btn-gefahr' : 'btn-primaer'}" onclick={onconfirm}>
             {confirmLabel || $t("confirmation.confirm")}
           </button>
-          {#if altLabel && onalt}
-            <button type="button" class="btn btn-sekundaer" onclick={onalt}>
-              {altLabel}
-            </button>
-          {/if}
           <button type="button" class="btn btn-still" onclick={oncancel} bind:this={cancelButton}>
             {cancelLabel || $t("common.cancel")}
           </button>

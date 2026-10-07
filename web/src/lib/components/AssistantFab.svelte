@@ -1,8 +1,11 @@
 <script lang="ts">
-  // Shared assistant entry point: floating action button + slide-in drawer.
-  // Drop into every module page; `module` tells the assistant which module it
-  // was opened from (used for module-aware navigation).
+  // Shared assistant entry point (HB-ASSISTENT, after Rocket's assistent.tsx):
+  // the shield bottom right opens the panel above it. Drop into every module
+  // page; `module` tells the assistant which module it was opened from (used
+  // for module-aware navigation and the examples). Placement — also above the
+  // bottom bar on the phone — comes from the CI CSS (.assistent-knopf).
   import AssistantDrawer from "./AssistantDrawer.svelte";
+  import Schild from "./Schild.svelte";
   import { t } from "$lib/i18n";
   import { assistantCommand } from "$lib/stores/assistantCommand";
   import { fabHidden } from "$lib/stores/fabHidden";
@@ -15,6 +18,9 @@
 
   let { module, context = "" }: Props = $props();
   let open = $state(false);
+  // The agent is running: the shield stops blinking (Rocket: !senden.isPending).
+  let busy = $state(false);
+  let knopf = $state<HTMLButtonElement | null>(null);
   // Phase C: a mail footer chip hands a pre-built plan to the drawer — open it
   // and inject the card (Concept §9.4).
   let externalPlan = $state<AgentPlan | null>(null);
@@ -25,67 +31,32 @@
       open = true;
     }
   });
+
+  const label = $derived(open ? $t("assistant.closePanel") : $t("assistant.open"));
 </script>
 
-<button
-  type="button"
-  class="assistant-fab"
-  class:hidden={$fabHidden}
-  onclick={() => (open = true)}
-  title={$t("assistant.open")}
-  aria-label={$t("assistant.open")}
->
-  <!-- Shield silhouette from the app icon (docs/icon/relay.svg), flat gold fill. -->
-  <svg viewBox="40.46 30.4 79.08 99.2" width="52" height="52" aria-hidden="true" focusable="false">
-    <path
-      d="M80 129.6C68.551 126.707 59.0993 120.114 51.6451 109.822C44.1909 99.5299 40.4638 88.1012 40.4638 75.5359V45.2799L80 30.3999L119.536 45.2799V75.5359C119.536 88.1012 115.809 99.5299 108.355 109.822C100.901 120.114 91.449 126.707 80 129.6Z"
-      fill="var(--am-gold-500)"
-    />
-  </svg>
-</button>
+<!-- M6 (Review 2026-09-14): hidden while a mobile drawer/sheet is open. -->
+{#if !$fabHidden}
+  <button
+    type="button"
+    class="assistent-knopf"
+    class:offen={open}
+    bind:this={knopf}
+    onclick={() => (open = !open)}
+    aria-label={label}
+    title={label}
+    aria-expanded={open}
+    aria-controls="assistent-panel"
+  >
+    <Schild size={42} zwinkert={!open && !busy} />
+  </button>
+{/if}
 <AssistantDrawer
-  open={open}
+  {open}
   {module}
   {context}
-  externalPlan={externalPlan}
+  {externalPlan}
+  returnFocus={knopf}
+  bind:busy
   onclose={() => (open = false)}
 />
-
-<style>
-  /* ── Floating entry [RL-ASSISTENT] ────────────────────────────────────────
-     The gold shield is a brand mark, not an AM-KNOPF: it stays Relay's own
-     (larger than the 40 px target, no surface) until HB-ASSISTENT. */
-  .assistant-fab {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 52px;
-    height: 52px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    z-index: 900;
-    opacity: 0.55;
-    transition: opacity var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .assistant-fab.hidden {
-    display: none;
-  }
-  .assistant-fab:hover {
-    opacity: 1;
-  }
-  .assistant-fab:focus-visible {
-    outline: 2px solid var(--am-fokus-ring);
-    outline-offset: 2px;
-    border-radius: var(--am-radius-mittel);
-    opacity: 1;
-  }
-  /* Above the bottom bar on the phone (AM-HUELLE, G5): the bar is a touch
-     target plus its padding high, plus the safe area. */
-  @media (max-width: 1023px) {
-    .assistant-fab {
-      bottom: calc(var(--am-ziel-beruehrung) + 2 * var(--am-raum-2) + var(--am-raum-3) + env(safe-area-inset-bottom));
-    }
-  }
-</style>
