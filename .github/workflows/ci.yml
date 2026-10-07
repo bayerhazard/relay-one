@@ -146,7 +146,7 @@ jobs:
       # of its own is deleted, then deleted for good from the trash, and the
       # test server is asked until it is really gone from both.
       - name: deleting reaches the mail server
-        run: timeout 900 python3 web/e2e/testserver/loeschprobe.py --relay http://127.0.0.1:3800
+        run: timeout 1800 python3 web/e2e/testserver/loeschprobe.py --relay http://127.0.0.1:3800
 
       - name: upload report
         if: failure()

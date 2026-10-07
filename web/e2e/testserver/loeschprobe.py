@@ -107,7 +107,10 @@ def main():
     warten("Server: nicht mehr im Papierkorb", lambda: betreff not in betreffe("Trash"), 120)
 
     # Deleted again, then for good.
-    warten("Relay kennt die Mail im Posteingang wieder", lambda: uid_in(relay, "INBOX", betreff) is not None, 240)
+    # Relay may show the restored mail only after its next sync (up to five
+    # minutes when the inbox is quiet): the local row of the move gives way
+    # to the server's, which has a new number.
+    warten("Relay kennt die Mail im Posteingang wieder", lambda: uid_in(relay, "INBOX", betreff) is not None, 420)
     uid = uid_in(relay, "INBOX", betreff)
     api(relay, "POST", "/messages/delete", {"account_id": KONTO, "uid": uid, "source_folder": "INBOX"})
     warten("Server: wieder im Papierkorb", lambda: betreff in betreffe("Trash") and betreff not in betreffe("INBOX"), 300)

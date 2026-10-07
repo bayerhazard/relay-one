@@ -752,7 +752,16 @@ async fn run_provider_ops(state: &AppState) {
             let braucht_liste = matches!(op.kind.as_str(), "delete" | "delete_mid" | "move_mid")
                 || op.target_folder.as_deref() == Some("Trash");
             if braucht_liste && ordner.is_none() {
-                ordner = client.list_folders().await.ok();
+                // A connection gone quiet between cycles fails with a broken
+                // pipe: connect anew and try once more, instead of waiting a
+                // whole cycle with every delete of this account.
+                ordner = match client.list_folders().await {
+                    Ok(l) => Some(l),
+                    Err(_) => match client.reconnect().await {
+                        Ok(()) => client.list_folders().await.ok(),
+                        Err(_) => None,
+                    },
+                };
             }
             let liste = ordner.as_deref().unwrap_or(&[]);
             let result = if braucht_liste && ordner.is_none() {
