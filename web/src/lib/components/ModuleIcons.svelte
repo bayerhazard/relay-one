@@ -39,7 +39,7 @@
     border-radius: var(--am-radius-mittel);
     color: var(--am-text-gedaempft);
     cursor: pointer;
-    transition: background 0.15s ease-in-out, color 0.15s ease-in-out;
+    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
   }
   .mi-btn:hover {
     background: var(--am-flaeche-2);

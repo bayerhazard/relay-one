@@ -66,8 +66,8 @@ pub async fn send_invitation(
     let title = row.summary.as_deref().unwrap_or("Termin");
     let subject = format!("Einladung: {title}");
     let body_text = format!(
-        "Du wurdest zum Termin \"{title}\" eingeladen.\n\n\
-         Details und Bestätigungsmöglichkeit findest du im angehängten Kalendereintrag."
+        "Sie wurden zum Termin \"{title}\" eingeladen.\n\n\
+         Details und die Möglichkeit zu antworten finden Sie im angehängten Kalendereintrag."
     );
     let mut sent = 0usize;
     for a in attendees {

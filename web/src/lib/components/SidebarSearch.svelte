@@ -54,7 +54,7 @@
     border-radius: var(--am-radius-mittel);
     border: 1px solid var(--am-rand);
     background: var(--am-seite);
-    transition: border-color 0.15s ease-in-out;
+    transition: border-color var(--am-dauer-schnell) var(--am-kurve);
   }
   .ss-bar:focus-within {
     border-color: var(--am-handlung-ruhend);

@@ -137,10 +137,10 @@
     gap: 10px;
   }
   .plan-card.external {
-    border-left-color: var(--am-achtung, #9f5100);
+    border-left-color: var(--am-achtung);
   }
   .plan-card.executed {
-    border-left-color: var(--am-erfolg, #007e46);
+    border-left-color: var(--am-erfolg);
     opacity: 0.9;
   }
   .plan-card.failed {
@@ -158,7 +158,7 @@
     color: var(--am-handlung-ruhend);
   }
   .plan-card.external .plan-tier {
-    color: var(--am-achtung, #9f5100);
+    color: var(--am-achtung);
   }
   .plan-tier svg {
     width: 15px;
@@ -175,8 +175,8 @@
     background: var(--am-flaeche-2);
   }
   .plan-status.status-executed {
-    color: var(--am-erfolg, #007e46);
-    background: color-mix(in srgb, var(--am-erfolg, #007e46) 12%, transparent);
+    color: var(--am-erfolg);
+    background: color-mix(in srgb, var(--am-erfolg) 12%, transparent);
   }
   .plan-status.status-cancelled,
   .plan-status.status-expired {
@@ -224,7 +224,7 @@
   .plan-external-warn {
     margin: 0;
     font-size: 0.75rem;
-    color: var(--am-achtung, #9f5100);
+    color: var(--am-achtung);
   }
   .plan-actions {
     display: flex;
@@ -236,10 +236,10 @@
     font-size: 0.8125rem;
     font-weight: 600;
     padding: 7px 14px;
-    border-radius: var(--am-radius-klein, 6px);
+    border-radius: var(--am-radius-mittel);
     border: 1px solid var(--am-rand);
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn:disabled {
     opacity: 0.5;

@@ -372,7 +372,7 @@
     display: flex;
     gap: 4px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     padding: 2px;
     background: var(--am-flaeche-1);
   }
@@ -385,7 +385,7 @@
     padding: 4px 10px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .lang-toggle button.active {
     background: var(--am-handlung-ruhend);
@@ -485,9 +485,9 @@
     font-weight: 600;
     padding: 10px 24px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-splash-primary:hover:not(:disabled) {
     background: var(--am-handlung-hover);
@@ -503,9 +503,9 @@
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 20px;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .btn-splash-secondary:hover {
     background: var(--am-flaeche-1);
@@ -563,7 +563,7 @@
     height: 20px;
     border-radius: 999px;
     background: var(--am-rand);
-    transition: background 0.2s ease;
+    transition: background var(--am-dauer-mittel) var(--am-kurve);
     flex-shrink: 0;
   }
   .toggle-label .toggle-track::after {
@@ -574,9 +574,9 @@
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--am-text-auf-farbe);
     box-shadow: none;
-    transition: transform 0.2s ease;
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
   }
   .toggle-label .toggle:checked + .toggle-track {
     background: var(--am-handlung-ruhend);
@@ -608,7 +608,7 @@
     color: var(--am-text-primaer);
     background: var(--am-seite);
     box-shadow: none;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .splash-form .form-group input:focus {
     border-color: var(--am-handlung-ruhend);

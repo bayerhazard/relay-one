@@ -112,7 +112,7 @@ impl AIClient {
     async fn acquire_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, String> {
         tokio::time::timeout(self.semaphore_acquire_timeout, self.semaphore.clone().acquire_owned())
             .await
-            .map_err(|_| "KI ist gerade ausgelastet, bitte kurz warten".to_string())
+            .map_err(|_| "Das Sprachmodell ist gerade ausgelastet. Bitte versuchen Sie es gleich noch einmal.".to_string())
             .and_then(|r| r.map_err(|_| "LLM-System heruntergefahren".to_string()))
     }
 

@@ -135,7 +135,7 @@
     background: var(--am-flaeche-2);
     color: var(--am-handlung-ruhend);
     margin-bottom: 12px;
-    transition: all 0.2s ease-in-out;
+    transition: all var(--am-dauer-mittel) var(--am-kurve);
   }
   .empty-state-svg {
     width: 28px;
@@ -176,7 +176,7 @@
     font-weight: 600;
     font-family: inherit;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .empty-state-action:hover {
     border-color: var(--am-handlung-ruhend);

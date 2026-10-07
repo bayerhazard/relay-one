@@ -26,11 +26,11 @@
     padding: 8px;
     background: none;
     border: none;
-    border-radius: 12px;
+    border-radius: var(--am-radius-mittel);
     cursor: pointer;
     width: 100%;
     color: var(--am-text-primaer);
-    transition: background 0.15s ease-in-out;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
   .ml-logo-btn:hover {
     background: var(--am-flaeche-2);

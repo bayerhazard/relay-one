@@ -85,8 +85,8 @@ describe("Splash Screen Integration in +page.svelte", () => {
     });
 
     expect(screen.getByText("Der intelligente, lokale E-Mail-Client.")).toBeTruthy();
-    expect(screen.getByText("KI-Überwachung")).toBeTruthy();
-    expect(screen.getByText("KI-Mail-Generierung")).toBeTruthy();
+    expect(screen.getByText("AI-Überwachung")).toBeTruthy();
+    expect(screen.getByText("Mails mit AI verfassen")).toBeTruthy();
     expect(screen.getByText("Lokal & Sicher")).toBeTruthy();
   });
 

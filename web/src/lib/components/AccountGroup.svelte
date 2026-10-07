@@ -303,7 +303,7 @@
     font-size: 0.8125rem;
     font-weight: 400;
     color: var(--am-text-gedaempft);
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
@@ -384,7 +384,7 @@
     justify-content: center;
     color: var(--am-text-gedaempft);
     opacity: 0.45;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--am-dauer-schnell) var(--am-kurve);
     /* Bigger touch target on phones (chevron toggles expand/collapse —
        dblclick is unreachable on touch). */
     min-width: 24px;

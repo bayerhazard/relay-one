@@ -122,11 +122,11 @@
     right: 0;
     z-index: 9999;
     padding: 6px 16px;
-    background: #1a1a2e;
-    color: #f0c040;
+    background: var(--am-achtung-flaeche);
+    color: var(--am-achtung);
     font-size: 12px;
     font-family: var(--am-schrift-sans);
     text-align: center;
-    border-bottom: 1px solid #2a2a3e;
+    border-bottom: 1px solid var(--am-achtung-rand);
   }
 </style>

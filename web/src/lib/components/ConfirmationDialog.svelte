@@ -31,11 +31,21 @@
       if (e.key === "Escape") {
         e.preventDefault();
         oncancel();
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" && !danger) {
+        // A destructive question must not confirm on Enter: focus starts on
+        // "Abbrechen" (CI HB-DIALOG), so Enter activates whatever is focused.
         e.preventDefault();
         onconfirm();
       }
     }
+
+    // `autofocus` does not fire for a dialog that appears later, so focus
+    // moves to "Abbrechen" explicitly — keyboard and screen reader land in
+    // the dialog, and Enter never confirms by accident (CI HB-DIALOG).
+    let cancelButton = $state<HTMLButtonElement | null>(null);
+    $effect(() => {
+      if (open && cancelButton) cancelButton.focus();
+    });
 
     function handleBackdropClick(e: MouseEvent) {
       const target = e.target as HTMLElement;
@@ -46,7 +56,6 @@
   </script>
 
   {#if open}
-    <!-- svelte-ignore a11y_autofocus -->
     <div
       class="dialog-overlay"
       role="alertdialog"
@@ -71,7 +80,7 @@
               type="button"
               class="btn-cancel"
               onclick={oncancel}
-              autofocus
+              bind:this={cancelButton}
             >
               {cancelLabel || $t("common.cancel")}
             </button>
@@ -97,7 +106,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.35);
+      background: var(--am-deckschicht);
       animation: fadeIn 0.15s ease-out;
     }
 
@@ -106,11 +115,12 @@
       to { opacity: 1; }
     }
 
+    /* A dialog floats: surface 3, emphasised border, the one shadow (CI R6). */
     .dialog-panel {
-      background: var(--am-seite);
-      border: 1px solid var(--am-rand);
-      border-radius: 12px;
-      box-shadow: none;
+      background: var(--am-flaeche-3);
+      border: 1px solid var(--am-rand-betont-farbe);
+      border-radius: var(--am-radius-gross);
+      box-shadow: var(--am-schatten-1);
       max-width: 400px;
       width: 90vw;
       animation: panelIn 0.15s ease-out;
@@ -155,13 +165,13 @@
     .btn-cancel {
       padding: 8px 18px;
       border: 1px solid var(--am-rand);
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-seite);
       color: var(--am-text-primaer);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-cancel:hover {
@@ -177,13 +187,13 @@
     .btn-alt {
       padding: 8px 18px;
       border: 1px solid var(--am-rand);
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-seite);
       color: var(--am-text-primaer);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-alt:hover {
@@ -199,13 +209,13 @@
     .btn-confirm {
       padding: 8px 18px;
       border: none;
-      border-radius: 6px;
+      border-radius: var(--am-radius-mittel);
       background: var(--am-handlung-ruhend);
       color: var(--am-handlung-text);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--am-dauer-schnell) var(--am-kurve);
     }
 
     .btn-confirm:hover {
@@ -222,6 +232,6 @@
     }
 
     .btn-confirm.danger:hover {
-      opacity: 0.85;
+      background: var(--am-fehler-hover);
     }
   </style>

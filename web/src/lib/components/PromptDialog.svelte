@@ -109,7 +109,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
     animation: fadeIn 0.15s ease-out;
   }
 
@@ -118,11 +118,12 @@
     to { opacity: 1; }
   }
 
+  /* A dialog floats: surface 3, emphasised border, the one shadow (CI R6). */
   .dialog-panel {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
-    box-shadow: none;
+    background: var(--am-flaeche-3);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-gross);
+    box-shadow: var(--am-schatten-1);
     max-width: 420px;
     width: 90vw;
     animation: panelIn 0.15s ease-out;
@@ -178,13 +179,13 @@
   .btn-cancel {
     padding: 8px 18px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
     color: var(--am-text-primaer);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-cancel:hover {
@@ -195,13 +196,13 @@
   .btn-confirm {
     padding: 8px 18px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     background: var(--am-handlung-ruhend);
     color: var(--am-handlung-text);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-confirm:hover:not(:disabled) {

@@ -90,7 +90,7 @@ describe("ComposeWindow - mode new", () => {
 
   it("generate button has type='button'", () => {
     const { container } = render(ComposeWindow, defaultProps);
-    const btn = container.querySelector(".btn-ai.primary");
+    const btn = container.querySelector(".btn-ai");
     expect(btn?.getAttribute("type")).toBe("button");
   });
 });

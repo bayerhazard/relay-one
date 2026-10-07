@@ -445,7 +445,7 @@
         }}><span class="ctx-icon">{@html iconSVG("move")}</span>{$t("mail.move")}</button>
       {/if}
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
+      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.deleteMail")}</button>
     </div>
   {/if}
 </div>
@@ -482,7 +482,7 @@
     border-bottom: 1px solid var(--am-rand);
     cursor: pointer;
     contain: layout style paint;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .message-item:hover {
     background: var(--am-flaeche-1);
@@ -629,7 +629,7 @@
     z-index: 1000;
   }
   .ctx-menu-scrim.sheet-scrim {
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--am-deckschicht);
   }
   .ctx-menu {
     position: fixed;
@@ -748,7 +748,7 @@
     position: relative;
     z-index: 2;
     background: var(--am-seite);
-    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.3, 1);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
     touch-action: pan-y;
   }
   .swipe-container.swiping .message-item {
@@ -764,7 +764,7 @@
        open. Showing buttons permanently makes them shine through
        translucent selected rows in dark mode. */
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--am-dauer-schnell) var(--am-kurve);
   }
   .swipe-bg.visible {
     opacity: 1;

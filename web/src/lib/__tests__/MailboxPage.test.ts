@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/svelte";
 import Page from "../../routes/+page.svelte";
 import * as tauri from "$lib/services/tauri";
@@ -210,98 +210,112 @@ describe("Mailbox Page - Neue Nachricht (Bug 2)", () => {
   });
 });
 
-describe("Mailbox Page - Nachricht loeschen (Bug 3)", () => {
+describe("Mailbox Page - Nachricht loeschen (Bug 3, CI RL-R2)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(tauri.getMoveToTrash).mockResolvedValue(true);
     mailboxState.value = { messages: [testMessage], selectedUids: [42], lastClickedUid: 42, loading: false, error: null };
     mailboxState.subscribers = [];
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   async function clickDeleteButton() {
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /löschen/i })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Mail löschen" })).toBeTruthy();
     });
-    const deleteBtn = screen.getByRole("button", { name: /löschen/i });
-    await fireEvent.click(deleteBtn);
+    await fireEvent.click(screen.getByRole("button", { name: "Mail löschen" }));
   }
 
   function getDialog() {
     return screen.getByRole("alertdialog");
   }
 
-  function getConfirmButton() {
-    const dialog = getDialog();
-    return within(dialog).getByRole("button", { name: "In Papierkorb" });
-  }
+  describe("to the trash (recoverable): no question, undo instead", () => {
+    it("asks nothing and offers Rückgängig", async () => {
+      await renderPageWithAccount(true, 42);
+      await clickDeleteButton();
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(screen.getByRole("status").textContent).toContain("Mail in den Papierkorb verschoben");
+      expect(screen.getByRole("button", { name: "Rückgängig" })).toBeTruthy();
+    });
 
-  function getCancelButton() {
-    const dialog = getDialog();
-    return within(dialog).getByRole("button", { name: "Abbrechen" });
-  }
+    it("calls deleteMessageCmd only after the undo window", async () => {
+      await renderPageWithAccount(true, 42);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await clickDeleteButton();
+      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(5000);
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42, expect.stringMatching(/INBOX|.*/));
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    });
 
-  it("shows confirmation dialog when delete button is clicked", async () => {
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    expect(getDialog()).toBeTruthy();
-    expect(getDialog().textContent).toContain("Nachricht in den Papierkorb verschieben");
+    it("Rückgängig keeps the mail: nothing reaches the server", async () => {
+      await renderPageWithAccount(true, 42);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      await clickDeleteButton();
+      await fireEvent.click(screen.getByRole("button", { name: "Rückgängig" }));
+      vi.advanceTimersByTime(10000);
+      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
+      expect(screen.queryByRole("status")).toBeNull();
+    });
   });
 
-  it("calls deleteMessageCmd after confirming deletion (trash mode)", async () => {
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    await fireEvent.click(getConfirmButton());
-    expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42, expect.stringMatching(/INBOX|.*/));
-    expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
-  });
+  describe("final (trash switched off): asks first", () => {
+    beforeEach(() => {
+      vi.mocked(tauri.getMoveToTrash).mockResolvedValue(false);
+    });
 
-  it("does not call deleteMessageCmd when deletion is cancelled", async () => {
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    await fireEvent.click(getCancelButton());
-    expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
-  });
+    function getConfirmButton() {
+      return within(getDialog()).getByRole("button", { name: "Mail endgültig löschen" });
+    }
 
-  it("closes dialog when cancel is clicked", async () => {
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    expect(getDialog()).toBeTruthy();
-    await fireEvent.click(getCancelButton());
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    function getCancelButton() {
+      return within(getDialog()).getByRole("button", { name: "Abbrechen" });
+    }
+
+    it("shows a confirmation that names the object", async () => {
+      await renderPageWithAccount(true, 42);
+      await clickDeleteButton();
+      expect(getDialog().textContent).toContain("Mail endgültig löschen?");
+    });
+
+    it("calls deleteMessageCmd after confirming", async () => {
+      await renderPageWithAccount(true, 42);
+      await clickDeleteButton();
+      await fireEvent.click(getConfirmButton());
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledWith(1, 42, expect.stringMatching(/INBOX|.*/));
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call deleteMessageCmd when cancelled, and closes the dialog", async () => {
+      await renderPageWithAccount(true, 42);
+      await clickDeleteButton();
+      await fireEvent.click(getCancelButton());
+      expect(tauri.deleteMessageCmd).not.toHaveBeenCalled();
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+
+    it("isDeleting guard prevents second delete while first is in-flight", async () => {
+      const neverResolve = new Promise<never>(() => {});
+      vi.mocked(tauri.deleteMessageCmd).mockResolvedValueOnce(neverResolve as any);
+      await renderPageWithAccount(true, 42);
+      await clickDeleteButton();
+      await fireEvent.click(getConfirmButton());
+      expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("does not render delete button when no message is selected", async () => {
     await renderPageWithAccount(true, null);
-    expect(screen.queryByRole("button", { name: /löschen/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mail löschen" })).toBeNull();
   });
 
   it("shows empty-state hint when no message is selected", async () => {
     await renderPageWithAccount(false, null);
-    expect(screen.getByText("Wähle eine Nachricht")).toBeTruthy();
-  });
-
-  it("confirmation dialog prevents rapid double-click from double-deleting", async () => {
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    expect(getDialog()).toBeTruthy();
-    await fireEvent.click(getConfirmButton());
-    expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
-  });
-
-  it("isDeleting guard prevents second delete while first is in-flight", async () => {
-    const neverResolve = new Promise<never>(() => {});
-    vi.mocked(tauri.deleteMessageCmd).mockResolvedValueOnce(neverResolve as any);
-
-    await renderPageWithAccount(true, 42);
-    await clickDeleteButton();
-    expect(getDialog()).toBeTruthy();
-
-    await fireEvent.click(getConfirmButton());
-
-    const deleteBtn = screen.getByRole("button", { name: /löschen/i });
-    await fireEvent.click(deleteBtn);
-
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-    expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Nachricht auswählen")).toBeTruthy();
   });
 });
 
@@ -384,9 +398,11 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
   it("Löschen im Menü wirkt auf ALLE ausgewählten Mails", async () => {
     await renderPageWithAccount(true, null, [mA, mB, mC]);
     await rightClickRow("Erste Mail", [101, 102]);
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Löschen" }));
-    const dialog = screen.getByRole("alertdialog");
-    await fireEvent.click(within(dialog).getByRole("button", { name: "In Papierkorb" }));
+    // To the trash: no question; the move runs after the undo window (RL-R2).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }));
+    vi.advanceTimersByTime(5000);
+    vi.useRealTimers();
     await waitFor(() => {
       expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(2);
     });
@@ -397,9 +413,11 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
   it("Rechtsklick AUSSERHALB der Selektion wirkt nur auf die eine Mail", async () => {
     await renderPageWithAccount(true, null, [mA, mB, mC]);
     await rightClickRow("Dritte Mail", [101]);
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Löschen" }));
-    const dialog = screen.getByRole("alertdialog");
-    await fireEvent.click(within(dialog).getByRole("button", { name: "In Papierkorb" }));
+    // To the trash: no question; the move runs after the undo window (RL-R2).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }));
+    vi.advanceTimersByTime(5000);
+    vi.useRealTimers();
     await waitFor(() => {
       expect(tauri.deleteMessageCmd).toHaveBeenCalledTimes(1);
     });

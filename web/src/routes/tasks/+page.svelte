@@ -785,9 +785,6 @@
                 {#if todo.priority}
                   <span class={`tk-prio ${prioClass(todo.priority)}`} title={$t("tasks.priority", { p: todo.priority })}>{PRIO_LABEL[todo.priority]}</span>
                 {/if}
-                <button type="button" class="tk-icon-btn tk-icon-btn-danger" onclick={() => askDelete(todo)} title={$t("tasks.deleteBtn")}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                </button>
               </div>
 
               <!-- Sub-tasks -->
@@ -899,7 +896,7 @@
 
     <div class="tk-detail-actions">
       <button type="button" class="tk-btn tk-btn-ghost" onclick={() => openSubtaskFor(detail!)}>{$t("tasks.subtaskAdd")}</button>
-      <button type="button" class="tk-btn tk-btn-ghost tk-btn-danger" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
+      <button type="button" class="tk-btn tk-btn-danger" onclick={() => askDelete(detail!)}>{$t("tasks.deleteBtn")}</button>
       <span class="tk-spacer"></span>
       <button type="button" class="tk-btn tk-btn-primary" onclick={saveDetail} disabled={busy}>{busy ? $t("tasks.saving") : $t("common.save")}</button>
     </div>
@@ -1241,11 +1238,10 @@
     color: var(--am-text-gedaempft);
     cursor: pointer;
     padding: 6px;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     flex-shrink: 0;
   }
   .tk-icon-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-  .tk-icon-btn-danger:hover { color: var(--am-fehler); }
 
   .tk-btn {
     display: inline-flex;
@@ -1254,7 +1250,7 @@
     gap: 6px;
     padding: 8px 14px;
     border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     font-size: var(--fs-sm);
@@ -1266,13 +1262,15 @@
   .tk-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
   .tk-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
   .tk-btn-ghost:hover { background: var(--am-flaeche-2); }
-  .tk-btn-danger { color: var(--am-fehler); }
+  /* Secondary danger: the border and the word carry the red (CI R1). */
+  .tk-btn-danger { background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
+  .tk-btn-danger:hover:not(:disabled) { background: var(--am-fehler-flaeche); }
 
   /* Detail panel — centred modal, matching Contacts/Calendar pattern */
   .tk-detail-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1316,7 +1314,7 @@
   .tk-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--am-deckschicht);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1345,11 +1343,11 @@
     max-width: 320px;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
+    box-shadow: var(--am-schatten-1);
   }
   .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
-  .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 55; }
+  .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: var(--am-deckschicht); z-index: 55; }
   .tk-app.narrow .tk-sidebar-close,
   .tk-app.narrow .tk-menu-toggle { display: inline-flex; }
   .tk-app:not(.narrow) .tk-sidebar-close,
@@ -1369,7 +1367,7 @@
     border: none;
     color: var(--am-text-primaer);
     cursor: pointer;
-    border-radius: var(--am-radius-klein);
+    border-radius: var(--am-radius-mittel);
     font-size: 1.25rem;
   }
   .tk-nav-btn:hover { background: var(--am-flaeche-2); }

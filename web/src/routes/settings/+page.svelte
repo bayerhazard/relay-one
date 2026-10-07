@@ -307,6 +307,17 @@ import {
     }
   }
 
+  // Clearing caches is final, so it asks first; in the view the buttons are
+  // secondary and only the confirmation carries the red (CI RL-R1, RL-R2).
+  let pendingClear = $state<"cache" | "summaries" | "actions" | null>(null);
+  function confirmClear() {
+    const kind = pendingClear;
+    pendingClear = null;
+    if (kind === "cache") handleClearCache();
+    else if (kind === "summaries") handleClearAiSummaries();
+    else if (kind === "actions") handleClearAiActions();
+  }
+
   async function handleClearCache() {
     cacheCleaning = true;
     cacheCleanupResult = null;
@@ -1187,7 +1198,7 @@ async function handleSaveCardDav() {
                     <button type="button" class="btn-action-ghost" onclick={() => connectAndEditAccount(a)}>
                       {$t("settings.edit")}
                     </button>
-                    <button type="button" class="btn-action-danger-ghost" onclick={() => handleDeleteAccount(a.id)}>
+                    <button type="button" class="btn-action-ghost" onclick={() => handleDeleteAccount(a.id)}>
                       {$t("settings.remove")}
                     </button>
                   </div>
@@ -1576,7 +1587,7 @@ async function handleSaveCardDav() {
                     <div class="caldav-row-actions">
                       <button type="button" class="caldav-toggle" class:caldav-toggle--on={a.enabled} onclick={() => handleToggleCalDav(a)} aria-pressed={a.enabled} title={$t("settings.caldavEnable")}></button>
                       <button type="button" class="btn-cancel btn-sm" onclick={() => caldavStartEdit(a)}>{$t("settings.caldavEdit")}</button>
-                      <button type="button" class="btn-danger btn-sm" onclick={() => { pendingDeleteCalDavId = a.id; showDeleteCalDavConfirm = true; }}>{$t("settings.remove")}</button>
+                      <button type="button" class="btn-action-ghost btn-sm" onclick={() => { pendingDeleteCalDavId = a.id; showDeleteCalDavConfirm = true; }}>{$t("settings.remove")}</button>
                     </div>
                   </div>
                 {/each}
@@ -1836,7 +1847,7 @@ async function handleSaveCardDav() {
                   </div>
                   <div class="delete-queue-actions">
                     <button type="button" class="btn-action-ghost" onclick={() => retryDeleteQueue(row.id)}>{$t("settings.retry")}</button>
-                    <button type="button" class="btn-action-danger-ghost" onclick={() => removeDeleteQueue(row.id)}>{$t("settings.discard")}</button>
+                    <button type="button" class="btn-action-ghost" onclick={() => removeDeleteQueue(row.id)}>{$t("settings.discard")}</button>
                   </div>
                 </div>
               {/each}
@@ -1887,7 +1898,7 @@ async function handleSaveCardDav() {
               <div class="backup-row">
                 <span class="backup-name">{b.name}</span>
                 <span class="backup-size">{formatBytes(b.size)}</span>
-                <button type="button" class="btn-action-danger-ghost" onclick={() => restoreBackup(b.name)}>{$t("settings.restore")}</button>
+                <button type="button" class="btn-action-ghost" onclick={() => restoreBackup(b.name)}>{$t("settings.restore")}</button>
               </div>
             {:else}
               <p class="hint-text">{$t("settings.noBackups")}</p>
@@ -1956,7 +1967,7 @@ async function handleSaveCardDav() {
               <button type="button" class="btn-submit" onclick={handleCleanupCache} disabled={cacheCleaning}>
                 {cacheCleaning ? $t("settings.cleaning") : $t("settings.cacheCleanup")}
               </button>
-              <button type="button" class="btn-danger" onclick={handleClearCache} disabled={cacheCleaning}>
+              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "cache")} disabled={cacheCleaning}>
                 {cacheCleaning ? $t("settings.clearing") : $t("settings.clearAll")}
               </button>
             </div>
@@ -1979,7 +1990,7 @@ async function handleSaveCardDav() {
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-danger" onclick={handleClearAiSummaries} disabled={aiSummariesClearing}>
+              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "summaries")} disabled={aiSummariesClearing}>
                 {aiSummariesClearing ? $t("settings.clearing") : $t("settings.aiSummariesClearAll")}
               </button>
             </div>
@@ -2002,7 +2013,7 @@ async function handleSaveCardDav() {
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-danger" onclick={handleClearAiActions} disabled={aiActionsClearing}>
+              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "actions")} disabled={aiActionsClearing}>
                 {aiActionsClearing ? $t("settings.clearing") : $t("settings.aiActionsClearAll")}
               </button>
             </div>
@@ -2034,6 +2045,21 @@ async function handleSaveCardDav() {
   danger={true}
   onconfirm={doDeleteCalDav}
   oncancel={cancelDeleteCalDav}
+/>
+
+<ConfirmationDialog
+  open={pendingClear !== null}
+  title={$t("settings.clearConfirmTitle")}
+  message={pendingClear === "cache" ? $t("settings.clearConfirmCache")
+    : pendingClear === "summaries" ? $t("settings.clearConfirmSummaries")
+    : $t("settings.clearConfirmActions")}
+  confirmLabel={pendingClear === "cache" ? $t("settings.clearAll")
+    : pendingClear === "summaries" ? $t("settings.aiSummariesClearAll")
+    : $t("settings.aiActionsClearAll")}
+  cancelLabel={$t("common.cancel")}
+  danger={true}
+  onconfirm={confirmClear}
+  oncancel={() => (pendingClear = null)}
 />
 
 <ConfirmationDialog
@@ -2090,8 +2116,8 @@ async function handleSaveCardDav() {
     font-weight: 600;
     color: var(--am-text-gedaempft);
     padding: 6px 12px 6px 4px;
-    border-radius: 6px;
-    transition: all 0.15s ease;
+    border-radius: var(--am-radius-mittel);
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     width: fit-content;
   }
 
@@ -2134,7 +2160,7 @@ async function handleSaveCardDav() {
     font-weight: 500;
     text-align: left;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
     width: 100%;
     font-family: inherit;
   }
@@ -2319,7 +2345,7 @@ async function handleSaveCardDav() {
     padding: 12px;
     cursor: pointer;
     text-align: left;
-    transition: all 0.2s ease;
+    transition: all var(--am-dauer-mittel) var(--am-kurve);
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -2449,7 +2475,7 @@ async function handleSaveCardDav() {
     display: inline-flex;
     gap: 4px;
     border: 1px solid var(--am-rand);
-    border-radius: 6px;
+    border-radius: var(--am-radius-mittel);
     padding: 2px;
     background: var(--am-flaeche-1);
     width: fit-content;
@@ -2463,7 +2489,7 @@ async function handleSaveCardDav() {
     padding: 6px 14px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
   .lang-toggle button.active {
     background: var(--am-handlung-ruhend);
@@ -2491,7 +2517,7 @@ async function handleSaveCardDav() {
     flex: none;
   }
   .router-status.ok .status-dot {
-    background: #2e9e5b;
+    background: var(--am-erfolg);
   }
 
   /* ─── SWITCH CONTROL (iOS / HubSpot Style) ─── */
@@ -2519,7 +2545,7 @@ async function handleSaveCardDav() {
     height: 24px;
     background-color: var(--am-rand);
     border-radius: 24px;
-    transition: background-color 0.2s ease;
+    transition: background-color var(--am-dauer-mittel) var(--am-kurve);
     flex-shrink: 0;
     margin-top: 2px;
   }
@@ -2531,9 +2557,9 @@ async function handleSaveCardDav() {
     width: 18px;
     left: 3px;
     bottom: 3px;
-    background-color: #FFFFFF;
+    background-color: var(--am-text-auf-farbe);
     border-radius: 50%;
-    transition: transform 0.2s ease;
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
     box-shadow: none;
   }
 
@@ -2607,7 +2633,7 @@ async function handleSaveCardDav() {
     background: var(--am-seite);
     color: var(--am-text-primaer);
     box-sizing: border-box;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .form-control::placeholder {
@@ -2702,7 +2728,7 @@ async function handleSaveCardDav() {
     height: 20px;
     border-radius: 999px;
     background: var(--am-rand);
-    transition: background 0.2s ease;
+    transition: background var(--am-dauer-mittel) var(--am-kurve);
     flex-shrink: 0;
     display: inline-block;
   }
@@ -2714,9 +2740,9 @@ async function handleSaveCardDav() {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--am-text-auf-farbe);
     box-shadow: none;
-    transition: transform 0.2s ease;
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
   }
   .toggle-label .toggle:checked + .toggle-track {
     background: var(--am-handlung-ruhend);
@@ -2810,7 +2836,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-submit:hover:not(:disabled) {
@@ -2831,7 +2857,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-cancel:hover {
@@ -2851,7 +2877,7 @@ async function handleSaveCardDav() {
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-action:hover:not(:disabled) {
@@ -2863,28 +2889,8 @@ async function handleSaveCardDav() {
     cursor: not-allowed;
   }
 
-  /* Destructive action button (Cache komplett leeren / KI-Zusammenfassungen
-     löschen) — theme-aware danger variant of .btn-submit. */
-  .btn-danger {
-    padding: 10px 24px;
-    background: var(--am-fehler);
-    color: var(--am-handlung-text);
-    border: none;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
 
-  .btn-danger:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--am-fehler) 85%, #000000);
-  }
 
-  .btn-danger:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 
   /* ─── ACCOUNT CARDS ─── */
   .account-grid {
@@ -2901,7 +2907,7 @@ async function handleSaveCardDav() {
     background: var(--am-flaeche-1);
     border: 1px solid var(--am-rand);
     border-radius: 10px;
-    transition: border-color 0.15s ease;
+    transition: border-color var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .account-card-item:hover {
@@ -3110,7 +3116,7 @@ async function handleSaveCardDav() {
     font-size: 0.78rem;
     padding: 4px 8px;
     border-radius: 8px;
-    border: 1px solid var(--am-rand, rgba(127,127,127,0.35));
+    border: 1px solid var(--am-rand);
     background: var(--am-flaeche-1);
     color: var(--am-text-primaer);
     cursor: pointer;
@@ -3132,19 +3138,19 @@ async function handleSaveCardDav() {
 
   .btn-action-ghost {
     background: transparent;
-    border: 1.5px solid var(--am-rand);
+    border: 1px solid var(--am-rand-betont-farbe);
     color: var(--am-text-primaer);
     padding: 10px 20px;
-    border-radius: 8px;
+    min-height: var(--am-ziel-zeiger);
+    border-radius: var(--am-radius-mittel);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--am-dauer-schnell) var(--am-kurve);
   }
 
   .btn-action-ghost:hover {
-    background: var(--am-seite);
-    border-color: var(--am-handlung-ruhend);
+    background: var(--am-flaeche-2);
   }
 
   .olares-import-row {
@@ -3160,22 +3166,7 @@ async function handleSaveCardDav() {
     color: var(--am-text-gedaempft);
   }
 
-  .btn-action-danger-ghost {
-    background: transparent;
-    border: 1.5px solid var(--am-rand);
-    color: var(--am-fehler);
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
 
-  .btn-action-danger-ghost:hover {
-    background: color-mix(in srgb, var(--am-fehler) 6%, transparent);
-    border-color: var(--am-fehler);
-  }
 
   /* ─── CARDDAV SPECIFIC ─── */
   .sync-success-pill {
@@ -3294,7 +3285,7 @@ async function handleSaveCardDav() {
     position: relative;
     cursor: pointer;
     padding: 0;
-    transition: background 0.15s ease;
+    transition: background var(--am-dauer-schnell) var(--am-kurve);
   }
   .caldav-toggle::after {
     content: "";
@@ -3305,7 +3296,7 @@ async function handleSaveCardDav() {
     height: 16px;
     border-radius: 50%;
     background: var(--am-seite);
-    transition: transform 0.15s ease;
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
   }
   .caldav-toggle--on {
     background: var(--am-handlung-ruhend);
