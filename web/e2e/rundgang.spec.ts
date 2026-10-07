@@ -166,3 +166,35 @@ test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page })
     expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
   }
 });
+
+// "Abo beenden" (List-Unsubscribe): only where the sender offers it. The test
+// server's newsletter names a one-click address that does not resolve, so
+// Relay falls back to the unsubscribe mail, which the test server accepts.
+test("Abo beenden am Newsletter", async ({ page, context }) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem("relay_onboarding_done", "1");
+    } catch {
+      /* sandboxed frame */
+    }
+  });
+  await page.goto("/");
+  await page.locator(".message-item").first().waitFor();
+  const knopf = page.getByRole("button", { name: "Abo beenden" });
+  await page.locator(".message-item", { hasText: "Newsletter Stadtwerke" }).click();
+  await expect(knopf).toBeVisible();
+  await knopf.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("stadtwerke.example");
+  await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Abo beenden" }).click();
+  await expect(page.getByRole("status")).toContainText("abmelden@stadtwerke.example");
+
+  // A mail without List-Unsubscribe gets no button (fresh list: on the phone
+  // the reading view covers it).
+  await page.goto("/");
+  await page.locator(".message-item", { hasText: "Jonas Weber" }).first().click();
+  await page.waitForTimeout(1000);
+  await expect(knopf, "kein Knopf an einer Mail ohne List-Unsubscribe").toHaveCount(0);
+});

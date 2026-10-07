@@ -323,6 +323,30 @@ export async function searchMessages(
   return get(`/messages/search?${q}`, "Die Suche konnte nicht durchgeführt werden.");
 }
 
+// ─── Abo beenden (List-Unsubscribe) ────────────────────────
+// The server reads the header itself; the browser only names the mail.
+
+export type AbmeldeArt = "ein_klick" | "mail" | "link";
+
+export async function getUnsubscribeOffer(
+  accountId: number,
+  uid: number,
+  folder?: string,
+): Promise<{ art: AbmeldeArt | null; ziel: string | null }> {
+  const q = new URLSearchParams({ account_id: String(accountId), uid: String(uid) });
+  if (folder) q.set("folder", folder);
+  return get(`/messages/unsubscribe?${q}`, "Die Abmeldung konnte nicht geprüft werden.");
+}
+
+export async function unsubscribe(
+  accountId: number,
+  uid: number,
+  folder?: string,
+): Promise<{ ok: boolean; art: AbmeldeArt; ziel: string | null; url: string | null }> {
+  return post("/messages/unsubscribe", { account_id: accountId, uid, folder },
+    "Das Abo konnte nicht beendet werden.");
+}
+
 export async function fetchRawMessage(
    accountId: number,
    uid: number,

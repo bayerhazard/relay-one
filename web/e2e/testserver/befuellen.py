@@ -93,6 +93,16 @@ MAILS = [
      24 * 9, ["\\Seen"], None),
 ]
 
+# Newsletters offer "Abo beenden" (RFC 2369/8058): one click to an address
+# that does not resolve here, so Relay falls back to the unsubscribe mail —
+# which GreenMail accepts, so the whole way can be tried locally.
+ABMELDEN = {
+    "Ihre Verbrauchsübersicht Oktober": {
+        "List-Unsubscribe": "<https://stadtwerke.example/abmelden?id=4711>, <mailto:abmelden@stadtwerke.example?subject=Abmelden>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+}
+
 # Who the mails in Sent and Drafts went to.
 EMPFAENGER = {
     "Re: Angebot Messestand Frühjahr": ("Jonas Weber", "jonas.weber@beispiel.de"),
@@ -109,6 +119,8 @@ def mail(absender, betreff, text, stunden, anhang):
     m["Subject"] = betreff
     m["Date"] = format_datetime(JETZT - timedelta(hours=stunden))
     m["Message-ID"] = make_msgid(domain="relay.test")
+    for k, v in ABMELDEN.get(betreff, {}).items():
+        m[k] = v
     m.set_content(text)
     if anhang:
         name, art = anhang

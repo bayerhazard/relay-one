@@ -28,6 +28,7 @@ import {
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     openEventStream, type AttachmentInfo,
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
+    getUnsubscribeOffer, unsubscribe, type AbmeldeArt,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
   import { isFollowupDone } from "$lib/utils/followupMemory";
@@ -2442,6 +2443,61 @@ let sentFolderName = $state<string | null>(null);
   // would assign new UIDs, so moving back would be guesswork). Deleting from
   // the trash, or with the trash switched off, is final and asks first.
   const UNDO_MS = 5000;
+  // Abo beenden (List-Unsubscribe): asked of the server per opened mail; the
+  // button shows only when the sender offers it, never in the spam folder.
+  let abmeldeAngebot = $state<{ uid: number; art: AbmeldeArt; ziel: string } | null>(null);
+  let abmeldenFragen = $state(false);
+  let abmeldenLaeuft = $state(false);
+  let abmeldeMeldung = $state<string | null>(null);
+  let abmeldeMeldungTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $effect(() => {
+    const msg = selectedMessage;
+    const account = selectedAccountId;
+    const folder = selectedFolder;
+    abmeldeAngebot = null;
+    if (!msg || showCompose || account <= 0) return;
+    const uid = msg.uid;
+    getUnsubscribeOffer(account, uid, folder)
+      .then((a) => {
+        if (a.art && selectedMessage?.uid === uid) abmeldeAngebot = { uid, art: a.art, ziel: a.ziel ?? "" };
+      })
+      .catch(() => { /* no button — nothing to tell */ });
+  });
+
+  function abmeldeMeldungZeigen(text: string) {
+    abmeldeMeldung = text;
+    if (abmeldeMeldungTimer) clearTimeout(abmeldeMeldungTimer);
+    abmeldeMeldungTimer = setTimeout(() => (abmeldeMeldung = null), 6000);
+  }
+
+  async function aboBeenden() {
+    const angebot = abmeldeAngebot;
+    abmeldenFragen = false;
+    if (!angebot || abmeldenLaeuft) return;
+    abmeldenLaeuft = true;
+    try {
+      const r = await unsubscribe(selectedAccountId, angebot.uid, selectedFolder);
+      if (r.art === "link" && r.url) {
+        window.open(r.url, "_blank", "noopener,noreferrer");
+      } else {
+        // The server says where it actually went: a failed one click falls
+        // back to the sender's unsubscribe address.
+        const ziel = r.ziel ?? angebot.ziel;
+        abmeldeMeldungZeigen(
+          r.art === "mail"
+            ? $t("mail.unsubscribeMailDone", { ziel })
+            : $t("mail.unsubscribeDone", { ziel }),
+        );
+        abmeldeAngebot = null;
+      }
+    } catch (e: unknown) {
+      abmeldeMeldungZeigen(localizeError(e instanceof Error ? e.message : String(e)));
+    } finally {
+      abmeldenLaeuft = false;
+    }
+  }
+
   let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   function deleteIsRecoverable(): boolean {
@@ -2718,6 +2774,11 @@ let sentFolderName = $state<string | null>(null);
           {#if hasSeveralRecipients(selectedMessage)}
             <button type="button" class="btn btn-sekundaer" onclick={() => handleReply(selectedMessage, true)}>
               {$t("mail.replyAll")}
+            </button>
+          {/if}
+          {#if abmeldeAngebot && abmeldeAngebot.uid === selectedMessage.uid}
+            <button type="button" class="btn btn-sekundaer" disabled={abmeldenLaeuft} onclick={() => (abmeldenFragen = true)}>
+              {$t("mail.unsubscribe")}
             </button>
           {/if}
           <button type="button" class="btn btn-gefahr" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
@@ -3049,6 +3110,29 @@ let sentFolderName = $state<string | null>(null);
     <div class="undo-toast" role="status" aria-live="polite">
       <span>{undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length })}</span>
       <button type="button" class="btn btn-sekundaer" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
+    </div>
+  {/if}
+
+  {#if abmeldenFragen && abmeldeAngebot}
+    <!-- Goes out to the sender and cannot be taken back: a question first,
+         focus on "Abbrechen" (HB-DIALOG). Not red — nothing is deleted. -->
+    <ConfirmationDialog
+      open={abmeldenFragen}
+      title={$t("mail.unsubscribeTitle")}
+      message={abmeldeAngebot.art === "link"
+        ? $t("mail.unsubscribeLinkMsg", { ziel: abmeldeAngebot.ziel })
+        : $t("mail.unsubscribeMsg", { ziel: abmeldeAngebot.ziel })}
+      confirmLabel={abmeldeAngebot.art === "link" ? $t("mail.unsubscribeLinkConfirm") : $t("mail.unsubscribe")}
+      cancelLabel={$t("common.cancel")}
+      onconfirm={aboBeenden}
+      enterConfirms={false}
+      oncancel={() => (abmeldenFragen = false)}
+    />
+  {/if}
+
+  {#if abmeldeMeldung}
+    <div class="undo-toast" role="status" aria-live="polite">
+      <span>{abmeldeMeldung}</span>
     </div>
   {/if}
 
@@ -3409,10 +3493,14 @@ let sentFolderName = $state<string | null>(null);
     flex: 1;
     min-height: 0;
   }
+  /* Wraps when the actions do not fit beside the sender (phone, a narrow
+     reading pane, a third button such as "Abo beenden"). */
   .preview-pane-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 24px;
+    min-height: var(--am-leistenhoehe);
+    padding: var(--am-raum-2) 24px;
     display: flex;
+    flex-wrap: wrap;
+    gap: var(--am-raum-2) var(--am-raum-4);
     align-items: center;
     justify-content: space-between;
     /* Linie unter dem Vorschau-Header unsichtbar (gleiche Farbe wie Hintergrund) */
@@ -3424,6 +3512,7 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
   .preview-from-name {
     font-size: 0.875rem;
@@ -3438,7 +3527,9 @@ let sentFolderName = $state<string | null>(null);
      danger button with its object in the word. */
   .preview-header-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--am-raum-2);
+    margin-left: auto;
   }
   .preview-back-bar {
     flex-shrink: 0;

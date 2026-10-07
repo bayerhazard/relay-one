@@ -57,6 +57,14 @@ describe("ConfirmationDialog", () => {
     expect(defaultProps.onconfirm).not.toHaveBeenCalled();
   });
 
+  it("does not confirm on Enter when enterConfirms is off, without turning red", async () => {
+    render(ConfirmationDialog, { ...defaultProps, enterConfirms: false });
+    const overlay = screen.getByRole("alertdialog");
+    await fireEvent.keyDown(overlay, { key: "Enter" });
+    expect(defaultProps.onconfirm).not.toHaveBeenCalled();
+    expect(overlay.querySelector(".btn-gefahr")).toBeNull();
+  });
+
   it("shows custom title", () => {
     render(ConfirmationDialog, {
       ...defaultProps,
