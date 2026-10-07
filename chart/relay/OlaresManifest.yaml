@@ -39,9 +39,9 @@ spec:
   sourceCode: https://github.com/bayerhazard/relay-one
   locale:
     - de
+  # amd64 only: release.yml builds no arm64 image (Kai, 7.10.2026).
   supportArch:
     - amd64
-    - arm64
   requiredCpu: 0.5
   limitedCpu: 4
   requiredMemory: 1Gi

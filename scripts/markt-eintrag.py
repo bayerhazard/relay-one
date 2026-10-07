@@ -119,22 +119,37 @@ def sprachen(werte: dict[str, str], als_template: bool) -> str:
     return "{" + zeilen + FELD + "}"
 
 
-def kategorien_lesen(manifest: Path) -> list[str]:
-    """`metadata.categories` aus dem OlaresManifest, ohne YAML-Bibliothek."""
+def liste_lesen(manifest: Path, schluessel: str) -> list[str]:
+    """A list such as `categories:` or `supportArch:` from the OlaresManifest,
+    without a YAML library."""
     zeilen = manifest.read_text(encoding="utf-8").splitlines()
     try:
-        i = next(n for n, z in enumerate(zeilen) if z.strip() == "categories:")
+        i = next(n for n, z in enumerate(zeilen) if z.strip() == f"{schluessel}:")
     except StopIteration:
-        raise SystemExit(f"{manifest}: keine categories") from None
-    kategorien = []
+        raise SystemExit(f"{manifest}: kein {schluessel}") from None
+    werte = []
     for z in zeilen[i + 1 :]:
         s = z.strip()
+        if s.startswith("#"):
+            continue
         if not s.startswith("- "):
             break
-        kategorien.append(s[2:].strip().strip("'\""))
-    if not kategorien:
-        raise SystemExit(f"{manifest}: categories ist leer")
-    return kategorien
+        werte.append(s[2:].strip().strip("'\""))
+    if not werte:
+        raise SystemExit(f"{manifest}: {schluessel} ist leer")
+    return werte
+
+
+def kategorien_lesen(manifest: Path) -> list[str]:
+    return liste_lesen(manifest, "categories")
+
+
+def anmeldung_lesen(manifest: Path) -> str:
+    """`authLevel` of the entrance — the market lists it with the app."""
+    stufen = re.findall(r"^\s*authLevel:\s*['\"]?(\w+)", manifest.read_text(encoding="utf-8"), flags=re.MULTILINE)
+    if len(stufen) != 1:
+        raise SystemExit(f"{manifest}: {len(stufen)} authLevel statt einem")
+    return stufen[0]
 
 
 def relay_block(apps: str) -> tuple[int, int]:
@@ -251,6 +266,17 @@ def main() -> None:
         )
         if n != 1:
             raise SystemExit("_apps.ts: categories im Relay-Eintrag nicht gefunden")
+        # Architectures as the chart promises them (Kai, 7.10.2026: the
+        # market listed arm64 that was never built).
+        arch = liste_lesen(arg.manifest, "supportArch")
+        block, n = re.subn(
+            r"supportArch: \[[^\]]*\]",
+            "supportArch: [" + ", ".join(f'"{a}"' for a in arch) + "]",
+            block,
+            count=1,
+        )
+        if n != 1:
+            raise SystemExit("_apps.ts: supportArch im Relay-Eintrag nicht gefunden")
     bisher = feld_lesen(block, "upgradeDescription")
     upgrade = {"en": neu_en + " " + bisher["en"]}
     if arg.texte:
@@ -270,7 +296,18 @@ def main() -> None:
         kurz_de, lang_de = texte_lesen(arg.texte / "beschreibung.de.md")
         block = feld_ersetzen(block, "description", sprachen({"en": kurz_en, "de": kurz_de}, als_template=False))
         block = feld_ersetzen(block, "fullDescription", sprachen({"en": lang_en, "de": lang_de}, als_template=True))
-    apps = apps[:anfang] + block + apps[ende:]
+    rest = apps[ende:]
+    if arg.manifest:
+        # The entrance's sign-in as in the chart (Kai, 7.10.2026: the market
+        # listed "public", Relay installs with "internal"). Only within the
+        # Relay entry's spec, up to the next app.
+        naechste = rest.find("metadata: {")
+        spec = rest if naechste < 0 else rest[:naechste]
+        spec, n = re.subn(r'authLevel: "[a-z]+"', f'authLevel: "{anmeldung_lesen(arg.manifest)}"', spec, count=1)
+        if n != 1:
+            raise SystemExit("_apps.ts: authLevel im Relay-Eintrag nicht gefunden")
+        rest = spec + ("" if naechste < 0 else rest[naechste:])
+    apps = apps[:anfang] + block + rest
 
     # ── _lib.ts ───────────────────────────────────────────────────────────
     roh = arg.chart.read_bytes()
