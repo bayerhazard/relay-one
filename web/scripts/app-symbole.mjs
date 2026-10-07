@@ -30,3 +30,5 @@ for (const [ziel, art, groesse] of ZIELE) {
   console.log(ziel, groesse, bild.length);
 }
 await browser.close();
+// iOS gets its icon from app.html itself (see touch-icon-einbetten.mjs).
+await import("./touch-icon-einbetten.mjs");

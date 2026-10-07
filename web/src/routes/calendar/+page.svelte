@@ -606,6 +606,36 @@
   let upcoming = $state<EventInfo[]>([]);
 
   // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf Termine.
+  // ─── Phone (Kai, 7.10.2026: "GUI nicht gut") ─────────────────────────
+  // One head line instead of four, the month in compact cells with dots,
+  // the chosen day's events as a list below — as Apple's and Google's
+  // calendars on a phone.
+  let handy = $state(false);
+  let tagGewaehlt = $state(new Date());
+  let mehrMenue = $state<{ x: number; y: number } | null>(null);
+  let mehrEintraege = $derived([
+    { label: $t("common.refresh"), action: () => void handleSync() },
+    { label: $t("calendar.importIcs"), action: () => triggerImport() },
+  ]);
+  let tagTermine = $derived(eventsByDay.get(dayKey(tagGewaehlt)) ?? []);
+  let tagTitel = $derived(
+    tagGewaehlt.toLocaleDateString($lang === "de" ? "de-DE" : "en-GB", { weekday: "long", day: "numeric", month: "long" })
+  );
+
+  onMount(() => {
+    const mq = window.matchMedia("(max-width: 40rem)");
+    handy = mq.matches;
+    const wechsel = (e: MediaQueryListEvent) => (handy = e.matches);
+    mq.addEventListener("change", wechsel);
+    return () => mq.removeEventListener("change", wechsel);
+  });
+
+  /** A tap on a day: on the phone it chooses the day, elsewhere a new event. */
+  function tagAntippen(day: Date) {
+    if (handy) tagGewaehlt = day;
+    else openNewEventOn(day);
+  }
+
   let evCtx = $state<{ x: number; y: number; event: EventInfo } | null>(null);
   // Ein actives Menu rendert nur bei geöffnetem ctx — die Labels werden
   // beim Öffnen frisch übersetzt, momentan über Snapshot-Ausdrücke.
@@ -1019,31 +1049,58 @@
     <div class="seitenkopf cal-kopf">
       <div class="seitenkopf-zeile">
         <h1>{periodLabel}</h1>
+        {#if handy}
+          <div class="cal-kopf-nav">
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
+            <button type="button" class="btn btn-still" onclick={() => { goToday(); tagGewaehlt = new Date(); }}>{$t("calendar.today")}</button>
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
+          </div>
+        {/if}
       </div>
       <div class="btn-reihe">
-        <div class="cal-kopf-nav">
-          <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
-          <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
-          <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
-        </div>
+        {#if !handy}
+          <div class="cal-kopf-nav">
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
+            <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
+          </div>
+        {/if}
         <div class="cal-viewtoggle" role="group" aria-label={$t("calendar.view")}>
           <button type="button" class="cal-vt" class:active={viewMode === "month"} aria-pressed={viewMode === "month"} onclick={() => setViewMode("month")}>{$t("calendar.viewMonth")}</button>
           <button type="button" class="cal-vt" class:active={viewMode === "week"} aria-pressed={viewMode === "week"} onclick={() => setViewMode("week")}>{$t("calendar.viewWeek")}</button>
           <button type="button" class="cal-vt" class:active={viewMode === "day"} aria-pressed={viewMode === "day"} onclick={() => setViewMode("day")}>{$t("calendar.viewDay")}</button>
         </div>
-        <button
-          type="button"
-          class="btn btn-still btn-symbol"
-          onclick={handleSync}
-          disabled={syncing}
-          title={syncing ? $t("common.syncing") : $t("common.refresh")}
-          aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}
-        >
-          <Symbol name="neu-laden" size={20} />
-        </button>
-        <!-- ".ics importieren" was in the column footer; now a second button
-             in the page head (CI ABGLEICH RL-G1). -->
-        <button type="button" class="btn btn-sekundaer" onclick={triggerImport} disabled={importing}>{$t("calendar.importIcs")}</button>
+        {#if handy}
+          <!-- Rarely needed: refresh and import behind "Mehr"; the new event
+               as a named sign (CI G4: known action, in the head, tooltip). -->
+          <div class="cal-kopf-rechts">
+            <button type="button" class="btn btn-still btn-symbol" aria-haspopup="menu" aria-label={$t("common.more")} title={$t("common.more")}
+              onclick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); mehrMenue = { x: r.left - 160, y: r.bottom + 4 }; }}>
+              <Symbol name="mehr" size={20} />
+            </button>
+            <button type="button" class="btn btn-primaer btn-symbol" onclick={() => openNewEventOn(tagGewaehlt)} aria-label={$t("calendar.createEvent")} title={$t("calendar.createEvent")}>
+              <Symbol name="plus" size={20} />
+            </button>
+          </div>
+        {:else}
+          <button
+            type="button"
+            class="btn btn-still btn-symbol"
+            onclick={handleSync}
+            disabled={syncing}
+            title={syncing ? $t("common.syncing") : $t("common.refresh")}
+            aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}
+          >
+            <Symbol name="neu-laden" size={20} />
+          </button>
+          <!-- ".ics importieren" was in the column footer; now a second button
+               in the page head (CI ABGLEICH RL-G1). -->
+          <button type="button" class="btn btn-sekundaer" onclick={triggerImport} disabled={importing}>{$t("calendar.importIcs")}</button>
+          <button type="button" class="btn btn-primaer" onclick={() => openNewEvent()}>
+            <Symbol name="plus" size={16} />
+            {$t("calendar.createEvent")}
+          </button>
+        {/if}
         <input
           type="file"
           accept=".ics,text/calendar"
@@ -1051,18 +1108,16 @@
           bind:this={importInput}
           onchange={onImportFile}
         />
-        <button type="button" class="btn btn-primaer" onclick={() => openNewEvent()}>
-          <Symbol name="plus" size={16} />
-          {$t("calendar.createEvent")}
-        </button>
       </div>
     </div>
+    <ContextMenu menu={mehrMenue} items={mehrEintraege} onclose={() => (mehrMenue = null)} />
 
     {#if error}
       <div class="hinweis cal-alert" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{error}</span></div>
     {/if}
 
     {#if viewMode === "month"}
+      <div class="cal-monat" class:handy>
       <div class="cal-grid">
         <div class="cal-grid-head">
           {#each WEEKDAYS as wd}
@@ -1075,9 +1130,19 @@
             class="cal-cell"
             class:other-month={day.getMonth() !== viewDate.getMonth()}
             class:is-today={dayKey(day) === dayKey(today)}
-            onclick={() => openNewEventOn(day)}
+            class:gewaehlt={handy && dayKey(day) === dayKey(tagGewaehlt)}
+            onclick={() => tagAntippen(day)}
           >
             <span class="cal-cell-num">{day.getDate()}</span>
+            {#if handy}
+              <!-- Phone: a dot per event (up to three) in its calendar's colour;
+                   the titles stand in the list below. -->
+              <span class="cal-punkte" aria-hidden="true">
+                {#each (eventsByDay.get(dayKey(day)) ?? []).slice(0, 3) as ev (evKey(ev))}
+                  <span class="cal-punkt" style="background: {calColor(calById(ev.calendar_id) ?? calendars[0])}"></span>
+                {/each}
+              </span>
+            {:else}
             <div class="cal-cell-events">
               {#each (eventsByDay.get(dayKey(day)) ?? []) as ev (evKey(ev))}
                 <button
@@ -1094,8 +1159,27 @@
                 </button>
               {/each}
             </div>
+            {/if}
           </div>
         {/each}
+      </div>
+      {#if handy}
+        <!-- The chosen day's events, in full. -->
+        <section class="cal-tagesliste" aria-label={tagTitel}>
+          <h2>{tagTitel}</h2>
+          {#if tagTermine.length === 0}
+            <p class="cal-tagesliste-leer">{$t("calendar.noEventsToday")}</p>
+          {:else}
+            {#each tagTermine as ev (evKey(ev))}
+              <button type="button" class="cal-tag-termin" class:cancelled={ev.status === "CANCELLED"} onclick={() => selectEvent(ev)}>
+                <span class="cal-tag-farbe" style="background: {calColor(calById(ev.calendar_id) ?? calendars[0])}"></span>
+                <span class="cal-tag-zeit">{fmtEventTime(ev)}</span>
+                <span class="cal-tag-titel">{ev.summary ?? $t("calendar.untitled")}</span>
+              </button>
+            {/each}
+          {/if}
+        </section>
+      {/if}
       </div>
     {:else if viewMode === "week"}
       <div class="cal-week">
@@ -1561,6 +1645,11 @@
   .cal-kopf-nav { display: flex; align-items: center; gap: var(--am-raum-1); }
   @media (max-width: 40rem) {
     .cal-viewtoggle .cal-vt { padding: 4px 8px; }
+    /* Phone head: title with the navigation in one line, the views with
+       "Mehr" and "+" in the second (Kai, 7.10.2026). */
+    .cal-kopf > .seitenkopf-zeile { width: 100%; justify-content: space-between; }
+    .cal-kopf > .btn-reihe { width: 100%; justify-content: space-between; }
+    .cal-kopf-rechts { display: flex; gap: var(--am-raum-2); }
   }
 
   /* Error line: HB-ZUSTAND draws it, only its place is set here. */
@@ -1579,13 +1668,44 @@
   .cal-vt.active { background: var(--am-seite); color: var(--am-text-primaer); font-weight: 600; }
 
   /* ── Month grid [RL-KALENDER] ─────────────────────────────────────────── */
+  .cal-monat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .cal-grid {
     flex: 1;
     display: grid;
     grid-template-columns: repeat(7, 1fr);
+    /* The weekday row is its own size; only the weeks share the height
+       (it took a week's 96 px before). */
+    grid-template-rows: auto;
     grid-auto-rows: minmax(96px, 1fr);
     overflow-y: auto;
   }
+
+  /* ── Phone month [RL-KALENDER] (Kai, 7.10.2026) ────────────────────────
+     Compact cells with dots, the chosen day's list below; the whole month
+     fits, and the list leaves room for the assistant's shield. */
+  .cal-monat.handy { overflow-y: auto; }
+  .cal-monat.handy .cal-grid { flex: none; grid-auto-rows: 52px; overflow: visible; }
+  .cal-monat.handy .cal-grid-head-cell { padding: 6px 0; text-align: center; border-right: none; }
+  .cal-monat.handy .cal-cell { align-items: center; padding: 4px 0; gap: 4px; border-right: none; }
+  .cal-monat.handy .cal-cell:hover { background: none; }
+  .cal-cell.gewaehlt .cal-cell-num { box-shadow: inset 0 0 0 2px var(--am-handlung-ruhend); border-radius: 50%; }
+  .cal-cell.gewaehlt.is-today .cal-cell-num { box-shadow: none; }
+  .cal-punkte { display: flex; gap: 3px; min-height: 6px; }
+  .cal-punkt { width: 6px; height: 6px; border-radius: 50%; }
+  .cal-tagesliste { padding: var(--am-raum-4) var(--am-raum-4) 96px; display: flex; flex-direction: column; gap: var(--am-raum-1); }
+  .cal-tagesliste h2 { font-size: 1rem; font-weight: 600; margin: 0 0 var(--am-raum-2); }
+  .cal-tagesliste-leer { margin: 0; color: var(--am-text-gedaempft); font-size: 0.875rem; }
+  .cal-tag-termin {
+    display: flex; align-items: center; gap: var(--am-raum-3);
+    min-height: 44px; padding: 0 var(--am-raum-3);
+    border: none; border-radius: var(--am-radius-mittel);
+    background: var(--am-flaeche-1); color: var(--am-text-primaer);
+    text-align: left; cursor: pointer; font-size: 0.9375rem;
+  }
+  .cal-tag-termin.cancelled { opacity: 0.5; text-decoration: line-through; }
+  .cal-tag-farbe { width: 4px; align-self: stretch; margin: 10px 0; border-radius: 2px; flex-shrink: 0; }
+  .cal-tag-zeit { color: var(--am-text-gedaempft); font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 3.5rem; }
+  .cal-tag-titel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-grid-head {
     display: contents;
   }

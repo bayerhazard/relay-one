@@ -1563,11 +1563,11 @@ let sentFolderName = $state<string | null>(null);
     searchActive = true;
     const seq = ++searchSeq;
     mailbox.setLoading(true);
-    // Similar mails stay in the open folder: the actions on them (trash,
-    // archive, spam) work on that folder.
-    (istAehnlichSuche(q)
-      ? searchMessages(selectedAccountId, q, 200, selectedFolder)
-      : searchMessages(selectedAccountId, q, 200))
+    // The search stays in the open folder (Kai, 7.10.2026). A mail's number
+    // is only unique within its folder, and every action (open, trash,
+    // move, flag) works on the open folder: a hit from another folder with
+    // the same number would have hit the wrong mail there.
+    searchMessages(selectedAccountId, q, 200, selectedFolder)
       .then((msgs) => {
         if (seq !== searchSeq) return; // stale result
         mailbox.setMessages(msgs);
@@ -2929,13 +2929,17 @@ let sentFolderName = $state<string | null>(null);
   // it under (own name, else the translated leaf), and the account's unread
   // count where the server has one — the inbox.
   let ordnerTitel = $derived.by(() => {
-    if (searchActive) return $t("mail.searchTitle");
+    if (searchActive) return $t("mail.searchIn", { ordner: ordnerName() });
+    return ordnerName();
+  });
+
+  function ordnerName(): string {
     const custom = customFolderNames[selectedFolder];
     if (custom) return custom;
     if (selectedFolder === "INBOX") return $t(translateFolder("INBOX"));
     const leaf = getLeafName(selectedFolder, folderDelimiters[selectedFolder] || ".");
     return customFolderNames[leaf] || $t(translateFolder(leaf));
-  });
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

@@ -15,7 +15,7 @@
   import { appearance, applyAppearance, type Appearance } from "$lib/stores/appearance";
   import { getOlaresMailStatus } from "$lib/services/tauri";
   import type { SymbolName } from "$lib/symbole";
-  import { initialen } from "$lib/initialen";
+  import { initialen, olaresNutzerAusHost } from "$lib/initialen";
 
   let name = $state("");
   let unter = $state("");
@@ -32,6 +32,9 @@
     } catch {
       // Without an identity the circle shows "…" — never a made-up name.
     }
+    // Last: the Olares user from the app's address (Kai, 7.10.2026: the
+    // circle showed "…" where the box sets no name variables).
+    if (!name) name = olaresNutzerAusHost(window.location.hostname);
   });
 
   const anzeige = $derived(name || "…");

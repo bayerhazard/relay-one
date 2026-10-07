@@ -94,6 +94,17 @@ pub struct FolderEntry {
 /// "Sent", `Extension("\\Important")` …). "sammel" are Gmail's views —
 /// All Mail, Starred, Important — that only show mails kept elsewhere: Relay
 /// hides them and does not fetch them (Kai, 7.10.2026).
+/// Gmail's "Chats" folder ("[Gmail]/Chats", "[Google Mail]/Chats") has no
+/// special-use attribute but holds no mail: hidden and not fetched like the
+/// views, so the "[Google Mail]" shell does not stay for it (Kai, 7.10.2026).
+pub fn gmail_ohne_post(name: &str, delim: &str) -> bool {
+    let Some((schale, blatt)) = (if delim.is_empty() { None } else { name.split_once(delim) }) else {
+        return false;
+    };
+    let schale = schale.to_lowercase();
+    (schale == "[gmail]" || schale == "[google mail]") && blatt.eq_ignore_ascii_case("chats")
+}
+
 pub fn rolle_aus_attributen(attrs: &[String]) -> Option<&'static str> {
     let hat = |n: &str| attrs.iter().any(|a| a == n);
     if attrs.iter().any(|a| a.contains("Important")) || hat("All") || hat("Flagged") {
@@ -164,6 +175,10 @@ mod tests {
         let r = |a: &[&str]| rolle_aus_attributen(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert_eq!(r(&["HasNoChildren", "All"]), Some("sammel"));
         assert_eq!(r(&["Flagged"]), Some("sammel"));
+        assert!(gmail_ohne_post("[Google Mail]/Chats", "/"));
+        assert!(gmail_ohne_post("[Gmail]/chats", "/"));
+        assert!(!gmail_ohne_post("Projekte/Chats", "/"));
+        assert!(!gmail_ohne_post("Chats", "/"));
         assert_eq!(r(&["Extension(\"\\\\Important\")"]), Some("sammel"));
         assert_eq!(r(&["HasNoChildren", "Trash"]), Some("papierkorb"));
         assert_eq!(r(&["Junk"]), Some("spam"));

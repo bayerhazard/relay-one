@@ -84,13 +84,24 @@ pub struct OlaresMailStatus {
     pub missing: Vec<String>,
 }
 
+/// The Olares user the entrance names on every request (`X-Bfl-User`).
+fn bfl_user(headers: &axum::http::HeaderMap) -> Option<String> {
+    headers
+        .get("x-bfl-user")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// `GET /api/v1/olares-mail/status`
-pub async fn olares_mail_status() -> ApiResult<OlaresMailStatus> {
+pub async fn olares_mail_status(headers: axum::http::HeaderMap) -> ApiResult<OlaresMailStatus> {
     let identity = Identity {
         first_name: opt("RELAY_OLARES_FIRSTNAME"),
         last_name: opt("RELAY_OLARES_LASTNAME"),
         email: opt("RELAY_OLARES_EMAIL"),
-        username: opt("RELAY_OLARES_USERNAME"),
+        // Without the Olares variable the entrance still names the user
+        // (Kai, 7.10.2026: the profile circle showed "…").
+        username: opt("RELAY_OLARES_USERNAME").or_else(|| bfl_user(&headers)),
         timezone: opt("RELAY_OLARES_TIMEZONE"),
     };
     let company = Company {

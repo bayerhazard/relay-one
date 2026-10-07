@@ -21,6 +21,8 @@ const GMAIL = [
   { name: "[Google Mail]/Papierkorb", tag: "folder", rolle: "papierkorb" },
   { name: "[Google Mail]/Spam", tag: "folder", rolle: "spam" },
   { name: "[Google Mail]/Wichtig", tag: "sammel", rolle: "sammel" },
+  // No attribute, no mail: hidden by name too (Kai, 7.10.2026).
+  { name: "[Google Mail]/Chats", tag: "folder", rolle: null },
   { name: "Trash", tag: "", rolle: null },
 ];
 

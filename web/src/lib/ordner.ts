@@ -12,14 +12,22 @@ const ROLLEN_NAMEN: [Rolle, string[]][] = [
   ["spam", ["spam", "junk", "junk e-mail", "spamverdacht"]],
   ["papierkorb", ["trash"]],
 ];
-const GMAIL_SAMMEL = ["alle nachrichten", "all mail", "markiert", "starred", "wichtig", "important"];
+// "Chats" holds no mail and has no special-use attribute; hidden with the
+// views so the "[Gmail]" shell does not stay for it (Kai, 7.10.2026).
+const GMAIL_SAMMEL = ["alle nachrichten", "all mail", "markiert", "starred", "wichtig", "important", "chats"];
+
+/** A folder of Gmail's that only shows mail kept elsewhere, or none. */
+function gmailSammel(name: string): boolean {
+  const m = name.match(/^\[(gmail|google mail)\][/.](.+)$/i);
+  return !!m && GMAIL_SAMMEL.includes(m[2].toLowerCase());
+}
 
 /** The role of a folder: what the server says, else what its name says. */
 export function rolleVon(name: string, rollen: Record<string, Rolle> | undefined, delim: string): Rolle | null {
   if (rollen?.[name]) return rollen[name];
   const teile = name.split(delim || ".");
   const blatt = teile[teile.length - 1].toLowerCase();
-  if (teile.length > 1 && /^\[(gmail|google mail)\]$/i.test(teile[0]) && GMAIL_SAMMEL.includes(blatt)) return "sammel";
+  if (teile.length > 1 && gmailSammel(name)) return "sammel";
   if (name === "Trash") return "papierkorb";
   for (const [rolle, namen] of ROLLEN_NAMEN) if (namen.includes(blatt) || namen.includes(name.toLowerCase())) return rolle;
   return null;
@@ -34,7 +42,7 @@ export function ordnerSichten<T extends { name: string; tag: string; rolle?: str
   for (const x of f) if (x.rolle) rollen[x.name] = x.rolle as Rolle;
   const hatTrash = f.some((x) => x.name === "Trash");
   const eintraege = f.filter((x) =>
-    x.tag !== "noselect" && x.tag !== "sammel" && rollen[x.name] !== "sammel"
+    x.tag !== "noselect" && x.tag !== "sammel" && rollen[x.name] !== "sammel" && !gmailSammel(x.name)
     && !(rollen[x.name] === "papierkorb" && x.name !== "Trash" && hatTrash));
   return { eintraege, rollen };
 }

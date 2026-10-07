@@ -461,7 +461,7 @@ describe("Mailbox Page - in the shell (CI HB-SEITENKOPF, RL-G1)", () => {
     expect(star.getAttribute("aria-pressed")).toBe("false");
     await fireEvent.click(star);
     await waitFor(() => {
-      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "is:flagged", 200);
+      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "is:flagged", 200, "INBOX");
     });
     expect(star.getAttribute("aria-pressed")).toBe("true");
     // The header search shows the operator, as the column field did.
@@ -474,7 +474,7 @@ describe("Mailbox Page - in the shell (CI HB-SEITENKOPF, RL-G1)", () => {
     const box = screen.getByRole("searchbox", { name: "E-Mails suchen..." }) as HTMLInputElement;
     await fireEvent.input(box, { target: { value: "rechnung" } });
     await waitFor(() => {
-      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "rechnung", 200);
+      expect(tauri.searchMessages).toHaveBeenCalledWith(1, "rechnung", 200, "INBOX");
     });
   });
 });
