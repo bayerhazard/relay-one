@@ -196,7 +196,7 @@ describe("Mailbox Page - Neue Nachricht (Bug 2)", () => {
 
   it("opens compose with empty An: field when clicking new mail button", async () => {
     await renderPageWithAccount();
-    await fireEvent.click(screen.getByTitle("Neue E-Mail (Strg+N / Cmd+N)"));
+    await fireEvent.click(screen.getAllByTitle("Neue E-Mail (Strg+N / Cmd+N)")[0]);
     expect(screen.getByText("Neue Nachricht")).toBeTruthy();
     const toInput = screen.getByPlaceholderText("Name oder E-Mail-Adresse") as HTMLInputElement;
     expect(toInput.value).toBe("");
@@ -204,7 +204,7 @@ describe("Mailbox Page - Neue Nachricht (Bug 2)", () => {
 
   it("opens compose with empty Betreff field for new mail", async () => {
     await renderPageWithAccount();
-    await fireEvent.click(screen.getByTitle("Neue E-Mail (Strg+N / Cmd+N)"));
+    await fireEvent.click(screen.getAllByTitle("Neue E-Mail (Strg+N / Cmd+N)")[0]);
     const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
     expect(subjectInput.value).toBe("");
   });

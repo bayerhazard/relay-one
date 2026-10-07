@@ -402,7 +402,7 @@
               <span class="sender">
                 {extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}
                 {#if msg.is_flagged}
-                  <Symbol name="standard" size={16} class="flag-star" filled label="Markiert" />
+                  <Symbol name="markieren" size={16} class="flag-star" filled label={$t("mail.markiert")} />
                 {/if}
               </span>
               <span class="msg-header-right">

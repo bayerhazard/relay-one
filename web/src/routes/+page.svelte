@@ -3143,6 +3143,11 @@ let sentFolderName = $state<string | null>(null);
       <!-- The inside of the mail area: accounts and their folder trees (RL-G2).
            On the phone the shell shows it as a sheet; a folder closes it. -->
       <div class="mail-spalte">
+        <!-- The page's one primary, where Gmail and Outlook put it. -->
+        <button type="button" class="btn btn-primaer mail-neu-spalte" onclick={handleNewMail} title={$t("mail.newMail")}>
+          <Symbol name="plus" size={16} />
+          {$t("mail.new")}
+        </button>
         {#each $accounts.groups as group}
           <AccountGroup
             account={group.account}
@@ -3195,8 +3200,10 @@ let sentFolderName = $state<string | null>(null);
   {:else}
   <div class="app-container" class:compact={isCompact} class:narrow={isNarrow} class:preview-open={previewOpen}>
     <main class="list-pane" style={isCompact ? "" : `width: ${listWidth}px; min-width: ${listWidth}px;`}>
-      <!-- HB-SEITENKOPF: the folder 28 px with its unread count; the list's
-           filter, refresh and the one primary action "Neue E-Mail". -->
+      <!-- HB-SEITENKOPF in a narrow column: one line, the folder with its
+           unread count left, the list's signs right (Kai, 07.10.2026). The
+           one primary "Neue E-Mail" sits atop the column on the desktop and
+           only here where the column is a sheet. -->
       <div class="seitenkopf mail-kopf">
         <div class="seitenkopf-zeile">
           <h1>{ordnerTitel}</h1>
@@ -3213,14 +3220,15 @@ let sentFolderName = $state<string | null>(null);
             aria-label={$t("mail.flagOnly")}
             aria-pressed={flaggedSearchActive}
           >
-            <Symbol name="standard" size={20} filled={flaggedSearchActive} />
+            <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
           </button>
           <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
             <Symbol name="neu-laden" size={20} />
           </button>
-          <button type="button" class="btn btn-primaer" onclick={handleNewMail} title={$t("mail.newMail")}>
+          <!-- On the phone the plus alone, as in the CI's phone head (G5). -->
+          <button type="button" class="btn btn-primaer btn-klein mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
             <Symbol name="plus" size={16} />
-            {$t("mail.new")}
+            <span class="mail-neu-wort">{$t("mail.new")}</span>
           </button>
         </div>
       </div>
@@ -3669,9 +3677,34 @@ let sentFolderName = $state<string | null>(null);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .mail-kopf {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--am-raum-2);
+  }
   .mail-kopf .btn-reihe {
     flex-shrink: 0;
     flex-wrap: nowrap;
+    gap: 2px;
+    margin: 0;
+  }
+  .mail-kopf .mail-neu-kopf { margin-left: var(--am-raum-2); }
+  .mail-neu-spalte {
+    width: calc(100% - 2 * var(--am-raum-4));
+    margin: 0 var(--am-raum-4) var(--am-raum-3);
+    justify-content: center;
+  }
+  @media (min-width: 1024px) {
+    .mail-kopf .mail-neu-kopf { display: none; }
+  }
+  @media (max-width: 1023px) {
+    .mail-neu-spalte { display: none; }
+  }
+  @media (max-width: 40rem) {
+    .mail-kopf { flex-direction: row; align-items: center; }
+    .mail-kopf .mail-neu-kopf { width: var(--am-ziel-beruehrung); height: var(--am-ziel-beruehrung); padding: 0; justify-content: center; }
+    .mail-neu-wort { display: none; }
   }
   @media (max-width: 40rem) {
     .mail-kopf { padding: var(--am-raum-3) var(--am-raum-4); }
