@@ -6,33 +6,23 @@
     quickAddTodo, todoViews, getCalendars,
     type TodoInfo, type TodoPatchInput,
   } from "$lib/services/tauri";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
-  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import SummaryLine from "$lib/components/SummaryLine.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
-  import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { fmtDateByLang, localeTag as fmtLocaleTag } from "$lib/utils/format";
   import { t, translate } from "$lib/i18n";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { dataVersion } from "$lib/stores/invalidation";
   import { parseQuickAdd, PRIO_LABEL, type ParsedQuickAdd } from "$lib/utils/quickAdd";
 
-  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
-  $effect(() => () => destroyResize());
-
-  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
-  let isNarrow = $derived(viewportWidth <= 768);
-  let sidebarOpen = $state(false);
-  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
-  $effect(() => {
-    const onResize = () => (viewportWidth = window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
+  // On the phone a choice in the column closes the shell's sheet (RL-G2).
+  let spalteOffen = $state(false);
+  function schliesseSpalte() {
+    spalteOffen = false;
+  }
 
   // ── Views ────────────────────────────────────────────────────────────
   // "inbox" | "today" | "upcoming" | "all" | "done" | "p:<calendarId>"
@@ -88,9 +78,9 @@
   // Live preview of what the parser understood (chips below the field).
   let qaParsed = $derived<ParsedQuickAdd>(parseQuickAdd(qaText));
 
-  /** Focus the Quick-Add field (sidebar "New" button + global Q shortcut). */
+  /** Focus the Quick-Add field (empty state's way forward + global Q shortcut). */
   function focusQuickAdd() {
-    if (isNarrow) sidebarOpen = false;
+    schliesseSpalte();
     qaInput?.focus();
   }
 
@@ -501,13 +491,13 @@
 
   function select(sel: Selection) {
     selection = sel;
-    if (isNarrow) sidebarOpen = false;
+    schliesseSpalte();
   }
 
   /** Toggle the tag filter (combined with the current view). */
   function selectTag(tag: string) {
     tagFilter = tagFilter === tag ? null : tag;
-    if (isNarrow) sidebarOpen = false;
+    schliesseSpalte();
   }
 
   function selectionLabel(): string {
@@ -565,39 +555,35 @@
 
 <svelte:window onkeydown={onGlobalKey} />
 
-<div class="tk-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
-  {#if isNarrow && sidebarOpen}
-    <div class="tk-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
-  {/if}
+<svelte:head><title>{tabTitel(selectionLabel())}</title></svelte:head>
 
-  <aside class="tk-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
-    <div class="tk-sidebar-header">
-      {#if isNarrow}
-        <button type="button" class="btn btn-still btn-symbol tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")} title={$t("tasks.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
-      {/if}
-      <ModuleLogo to="/" label={$t("tasks.title")} noHover />
-    </div>
-
-    <!-- Focus views -->
+<Huelle bereich="tasks" bind:spalteOffen bind:suche={tkSearch} suchePlatzhalter={$t("tasks.searchPlaceholder")}>
+  {#snippet spalte()}
+    <!-- The inside of the area (RL-G2): views, projects, tags. -->
     <nav class="tk-views" aria-label={$t("tasks.viewsLabel")}>
-      <button type="button" class="tk-view" class:active={selection === "inbox"} onclick={() => select("inbox")}>
+      <button type="button" class="tk-view" class:active={selection === "inbox"} aria-current={selection === "inbox" ? "page" : undefined} onclick={() => select("inbox")}>
+        <Symbol name="eingang" size={20} />
         <span class="tk-view-label">{$t("tasks.viewInbox")}</span>
         {#if counts.inbox}<span class="tk-badge">{counts.inbox}</span>{/if}
       </button>
-      <button type="button" class="tk-view" class:active={selection === "today"} onclick={() => select("today")}>
+      <button type="button" class="tk-view" class:active={selection === "today"} aria-current={selection === "today" ? "page" : undefined} onclick={() => select("today")}>
+        <Symbol name="frist" size={20} />
         <span class="tk-view-label">{$t("tasks.viewToday")}</span>
         {#if counts.today}<span class="tk-badge">{counts.today}</span>{/if}
         {#if counts.overdue}<span class="tk-badge tk-badge-danger">{counts.overdue}</span>{/if}
       </button>
-      <button type="button" class="tk-view" class:active={selection === "upcoming"} onclick={() => select("upcoming")}>
+      <button type="button" class="tk-view" class:active={selection === "upcoming"} aria-current={selection === "upcoming" ? "page" : undefined} onclick={() => select("upcoming")}>
+        <Symbol name="zeitplan" size={20} />
         <span class="tk-view-label">{$t("tasks.viewUpcoming")}</span>
         {#if counts.upcoming}<span class="tk-badge">{counts.upcoming}</span>{/if}
       </button>
-      <button type="button" class="tk-view" class:active={selection === "all"} onclick={() => select("all")}>
+      <button type="button" class="tk-view" class:active={selection === "all"} aria-current={selection === "all" ? "page" : undefined} onclick={() => select("all")}>
+        <Symbol name="liste" size={20} />
         <span class="tk-view-label">{$t("tasks.viewAll")}</span>
         {#if counts.all}<span class="tk-badge">{counts.all}</span>{/if}
       </button>
-      <button type="button" class="tk-view" class:active={selection === "done"} onclick={() => select("done")}>
+      <button type="button" class="tk-view" class:active={selection === "done"} aria-current={selection === "done" ? "page" : undefined} onclick={() => select("done")}>
+        <Symbol name="erledigt" size={20} />
         <span class="tk-view-label">{$t("tasks.viewDone")}</span>
         {#if counts.done}<span class="tk-badge">{counts.done}</span>{/if}
       </button>
@@ -605,11 +591,11 @@
 
     <!-- Projects (= CalDAV calendars) -->
     {#if projects.length}
-      <div class="tk-projects">
-        <div class="tk-projects-head">{$t("tasks.projects")}</div>
+      <div class="tk-projects" role="group" aria-labelledby="tk-projects-head">
+        <div class="tk-gruppe-titel" id="tk-projects-head">{$t("tasks.projects")}</div>
         {#each projects as p (p.id)}
-          <button type="button" class="tk-view" class:active={selection === `p:${p.id}`} onclick={() => select(`p:${p.id}`)}>
-            <span class="tk-dot" style={`background:${p.color || "var(--am-text-gedaempft)"}`}></span>
+          <button type="button" class="tk-view" class:active={selection === `p:${p.id}`} aria-current={selection === `p:${p.id}` ? "page" : undefined} onclick={() => select(`p:${p.id}`)}>
+            <span class="tk-zeichen" aria-hidden="true"><span class="tk-dot" style={`background:${p.color || "var(--am-text-gedaempft)"}`}></span></span>
             <span class="tk-view-label">{p.name}</span>
           </button>
         {/each}
@@ -617,44 +603,42 @@
     {/if}
 
     {#if allTags.length}
-      <div class="tk-projects tk-tags">
-        <div class="tk-projects-head">{$t("tasks.tags")}</div>
+      <div class="tk-projects tk-tags" role="group" aria-labelledby="tk-tags-head">
+        <div class="tk-gruppe-titel" id="tk-tags-head">{$t("tasks.tags")}</div>
         {#each allTags as [tag, count] (tag)}
-          <button type="button" class="tk-view" class:active={tagFilter === tag} onclick={() => selectTag(tag)}>
-            <span class="tk-tag">{tag}</span>
+          <button type="button" class="tk-view" class:active={tagFilter === tag} aria-pressed={tagFilter === tag} onclick={() => selectTag(tag)}>
+            <Symbol name="schlagwort" size={20} />
+            <span class="tk-view-label">{tag}</span>
             <span class="tk-badge">{count}</span>
           </button>
         {/each}
       </div>
     {/if}
-
-    <div class="tk-count">{$t("tasks.count", { n: visibleTodos.length })}</div>
-
-    <SidebarFooter active="tasks">
-      <SidebarSearch
-        bind:value={tkSearch}
-        placeholder={$t("tasks.searchPlaceholder")}
-        ariaLabel={$t("tasks.searchLabel")}
-        clearLabel={$t("tasks.clearSearch")}
-      />
-    </SidebarFooter>
-  </aside>
-
-  {#if !isNarrow}
-    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
-  {/if}
+  {/snippet}
 
   <main class="tk-main">
-    {#if isNarrow}
-      <div class="tk-mobile-header">
-        <button type="button" class="btn btn-still btn-symbol tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")} title={$t("tasks.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+    <!-- HB-SEITENKOPF: the chosen view at 28 px with its count; the sort
+         as a quiet control. The page's one primary is "Anlegen" in the
+         quick capture right below (RL-G4, G2). -->
+    <div class="seitenkopf">
+      <div class="seitenkopf-zeile">
         <h1>{selectionLabel()}</h1>
-        <button type="button" class="btn btn-still btn-symbol tk-mobile-new" onclick={focusQuickAdd} aria-label={$t("tasks.new")} title={$t("tasks.new")}>
-          <Symbol name="plus" size={20} />
-        </button>
+        <span class="seitenkopf-zahl">{visibleTodos.length}</span>
       </div>
-    {/if}
+      <div class="btn-reihe tk-sort-inline">
+        <label for="tk-sort">{$t("tasks.sortLabel")}</label>
+        <select id="tk-sort" class="input" value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
+          <option value="work">{$t("tasks.sortWork")}</option>
+          <option value="due">{$t("tasks.sortDue")}</option>
+          <option value="priority">{$t("tasks.sortPriority")}</option>
+          <option value="title">{$t("tasks.sortTitle")}</option>
+          <option value="created">{$t("tasks.sortCreated")}</option>
+          <option value="manual">{$t("tasks.sortManual")}</option>
+        </select>
+      </div>
+    </div>
 
+    <div class="tk-inhalt">
     <!-- Quick Add: instant capture with live parse chips -->
     <div class="tk-quickadd" class:focused={qaFocused}>
       <span class="tk-qa-plus" aria-hidden="true">
@@ -700,21 +684,6 @@
       </div>
     {/if}
 
-    <div class="tk-list-head">
-      <h2>{selectionLabel()}</h2>
-      <div class="tk-sort-inline">
-        <label for="tk-sort">{$t("tasks.sortLabel")}</label>
-        <select id="tk-sort" class="input" value={sortMode} onchange={(e) => setSort((e.currentTarget as HTMLSelectElement).value)}>
-          <option value="work">{$t("tasks.sortWork")}</option>
-          <option value="due">{$t("tasks.sortDue")}</option>
-          <option value="priority">{$t("tasks.sortPriority")}</option>
-          <option value="title">{$t("tasks.sortTitle")}</option>
-          <option value="created">{$t("tasks.sortCreated")}</option>
-          <option value="manual">{$t("tasks.sortManual")}</option>
-        </select>
-      </div>
-    </div>
-
     {#if nextSteps.length}
       <div class="karte tk-next">
         <div class="tk-next-head">{$t("tasks.nextSteps")}</div>
@@ -738,7 +707,11 @@
         <button type="button" class="btn btn-sekundaer" onclick={loadAll}>{$t("tasks.reload")}</button>
       </div>
     {:else if visibleTodos.length === 0}
-      <EmptyState title={tkSearch ? $t("tasks.notFound") : $t("tasks.viewEmpty")} icon={tkSearch ? "suche" : "aufgabe"} />
+      {#if tkSearch}
+        <EmptyState icon="suche" title={$t("tasks.notFound")} subtitle={$t("tasks.notFoundHint")} actionLabel={$t("tasks.clearSearch")} onaction={() => (tkSearch = "")} />
+      {:else}
+        <EmptyState icon="aufgabe" title={$t("tasks.viewEmpty")} subtitle={$t("tasks.viewEmptyHint")} actionLabel={$t("tasks.new")} onaction={focusQuickAdd} />
+      {/if}
     {:else}
       {#each groups as g (g.label ?? "_")}
         {#if g.label}<div class="tk-group-head">{g.label}</div>{/if}
@@ -805,8 +778,9 @@
         </ul>
       {/each}
     {/if}
+    </div>
   </main>
-</div>
+</Huelle>
 
 <!-- Detail dialog (HB-DIALOG). Escape is also handled globally (onGlobalKey). -->
 {#if detail}
@@ -964,83 +938,73 @@
 />
 
 <style>
-  /* ── Tasks shell and sidebar [RL-AUFGABEN] ────────────────────────────── */
-  .tk-app {
-    display: flex;
-    height: 100vh;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-  }
-  .tk-sidebar {
-    flex-shrink: 0;
-    background: var(--am-flaeche-1);
-    border-right: 1px solid var(--am-rand);
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-  }
-  .tk-sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
-  }
-
-  /* Focus views */
-  .tk-views { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 4px; }
+  /* ── Views in the column [RL-AUFGABEN] ───────────────────────────────────
+     The inside of the area under the five areas (RL-G2), rows like
+     HB-UNTERNAV / HB-NAVIGATION: 40 px, 20 px signs, the chosen one with the
+     gold edge, bold, sign in gold, no surface. The same in the phone sheet. */
+  .tk-views,
+  .tk-projects { display: flex; flex-direction: column; gap: 2px; padding: var(--am-raum-2) var(--am-raum-4); }
+  .tk-projects { border-top: 1px solid var(--am-trennlinie); }
   .tk-view {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--am-raum-3);
     width: 100%;
-    padding: 7px 10px;
+    min-height: var(--am-ziel-zeiger);
+    padding: var(--am-raum-2) var(--am-raum-3);
     border: none;
     background: none;
-    color: var(--am-text-gedaempft);
+    color: var(--am-text-sekundaer);
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    font-size: var(--fs-base);
+    font-size: 0.875rem;
     font-family: inherit;
     text-align: left;
   }
+  .tk-view > :global(svg) { flex: none; }
   .tk-view:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
-  .tk-view.active { background: var(--am-flaeche-2); color: var(--am-text-primaer); font-weight: 600; }
-  .tk-view-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-view:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  .tk-view.active {
+    background: transparent;
+    color: var(--am-text-primaer);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
+  }
+  .tk-view.active:hover { background: var(--am-flaeche-2); }
+  .tk-view.active > :global(svg) { color: var(--am-gold-beschriftung); }
+  .tk-view-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The project's calendar colour, in the 20 px place of a sign. */
+  .tk-zeichen { width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
   .tk-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .tk-badge {
     font-size: var(--fs-xs);
+    font-weight: 400;
     color: var(--am-text-gedaempft);
-    background: var(--am-flaeche-1);
+    background: var(--am-flaeche-2);
     border-radius: 999px;
     padding: 0 7px;
     min-width: 20px;
     text-align: center;
   }
   .tk-badge-danger { color: var(--am-fehler); }
-
-  .tk-projects { padding: 8px; border-top: 1px solid var(--am-rand); margin-top: 6px; }
-  .tk-tags .tk-view { justify-content: space-between; }
-  .tk-projects-head {
-    padding: 4px 10px 8px;
-    font-size: var(--fs-xs);
+  /* Group title as .huelle-nav-titel draws it — that class shows only in
+     the desktop column, this one also in the phone sheet. */
+  .tk-gruppe-titel {
+    margin: 0;
+    padding: var(--am-raum-3) var(--am-raum-3) var(--am-raum-1);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
     color: var(--am-text-gedaempft);
-  }
-  .tk-count {
-    padding: 10px 16px;
-    font-size: var(--fs-xs);
-    color: var(--am-text-gedaempft);
-    border-top: 1px solid var(--am-rand);
-    margin-top: 8px;
   }
 
-  /* ── Quick capture [RL-AUFGABEN] ──────────────────────────────────────── */
-  .tk-main { flex: 1; overflow-y: auto; padding: 20px 24px; min-width: 0; }
+  /* ── Page and quick capture [RL-AUFGABEN] ─────────────────────────────── */
+  .tk-main { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow-y: auto; }
+  /* A column, so the empty and loading states can fill the rest. */
+  .tk-inhalt { flex: 1; display: flex; flex-direction: column; padding: var(--am-raum-6) var(--am-raum-8); }
+  .tk-inhalt > :global(.leerzustand) { flex: 1; height: auto; }
 
   /* A composite field (icon, input, key hint, button) and Relay's own;
      surface, border and focus ring follow AM-FELD's .input. */
@@ -1052,7 +1016,7 @@
     border: 1px solid var(--am-rand);
     border-radius: var(--am-radius-mittel);
     background: var(--am-seite);
-    margin-bottom: 8px;
+    margin-bottom: var(--am-raum-4);
   }
   .tk-quickadd.focused { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
   .tk-qa-plus { display: inline-flex; color: var(--am-handlung-ruhend); flex-shrink: 0; }
@@ -1078,7 +1042,7 @@
   }
   .tk-qa-submit { flex-shrink: 0; }
 
-  .tk-qa-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .tk-qa-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: calc(-1 * var(--am-raum-2)) 0 var(--am-raum-4); }
   .tk-chip {
     display: inline-flex;
     align-items: center;
@@ -1095,18 +1059,9 @@
   .tk-prio-chip.prio-2 { background: var(--am-achtung); }
   .tk-prio-chip.prio-3 { background: var(--am-handlung-ruhend); }
 
-  /* ── List header, next steps and states [RL-AUFGABEN] ─────────────────── */
-  .tk-list-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin: 4px 0 12px;
-  }
-  .tk-list-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
-
-  /* Inline sort control: the select is an AM-FELD .input, sized to its text. */
+  /* ── Sort, next steps and states [RL-AUFGABEN] ─────────────────── */
+  /* Sort control in the page head: the select is an AM-FELD .input, sized
+     to its text. */
   .tk-sort-inline {
     display: inline-flex; align-items: center; gap: 8px;
     font-size: var(--fs-xs); color: var(--am-text-gedaempft); flex-shrink: 0;
@@ -1140,7 +1095,7 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    height: 60%;
+    flex: 1;
     color: var(--am-text-gedaempft);
     font-size: var(--fs-base);
   }
@@ -1259,28 +1214,9 @@
   .tk-delete { margin-left: auto; }
   .tk-modal-sub { margin: 0 0 var(--am-raum-3); font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
 
-  /* ── Narrow layout (mobile ≤768px) [RL-AUFGABEN] ──────────────────────── */
-  .tk-app.narrow .tk-sidebar {
-    position: fixed;
-    top: 0; left: 0; bottom: 0;
-    width: 85%;
-    max-width: 320px;
-    z-index: 60;
-    transform: translateX(-100%);
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-    box-shadow: var(--am-schatten-1);
+  /* ── Narrow [RL-AUFGABEN] ─────────────────────────────────────────────── */
+  @media (max-width: 40rem) {
+    .tk-inhalt { padding: var(--am-raum-4); }
+    .tk-qa-kbd { display: none; }
   }
-  .tk-app.narrow.sidebar-open .tk-sidebar { transform: translateX(0); }
-  .tk-app.narrow .tk-scrim { position: fixed; inset: 0; background: var(--am-deckschicht); z-index: 55; }
-  .tk-app:not(.narrow) .tk-sidebar-close,
-  .tk-app:not(.narrow) .tk-menu-toggle { display: none; }
-  .tk-app.narrow .resize-handle { display: none; }
-  .tk-app.narrow .tk-main { padding: 12px; }
-  .tk-mobile-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .tk-mobile-header h1 { margin: 0; font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-  .tk-mobile-new { margin-left: auto; }
-  @media (prefers-reduced-motion: reduce) {
-    .tk-app.narrow .tk-sidebar { transition: none; }
-  }
-  .tk-app.narrow .tk-qa-kbd { display: none; }
 </style>

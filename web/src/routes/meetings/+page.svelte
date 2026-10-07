@@ -6,9 +6,8 @@
     getMeetingFollowups, createPlanFromSuggestion,
     type MeetingInfo, type MeetingDetail, type FollowupSuggestion,
   } from "$lib/services/tauri";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
-  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
@@ -16,27 +15,12 @@
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { assistantCommand } from "$lib/stores/assistantCommand";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { selection } from "$lib/stores/selection";
   import { isFollowupDoneKey, meetingFollowupKey } from "$lib/utils/followupMemory";
-  import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
   import { renderMarkdown } from "$lib/utils/markdown";
   import { fmtDateByLang, localeTag } from "$lib/utils/format";
-
-  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
-  $effect(() => () => destroyResize());
-
-  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
-  let isNarrow = $derived(viewportWidth <= 768);
-  let sidebarOpen = $state(false);
-  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
-  $effect(() => {
-    const onResize = () => (viewportWidth = window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
 
   let meetings = $state<MeetingInfo[]>([]);
   let loading = $state(true);
@@ -44,6 +28,10 @@
   let scanning = $state(false);
   let search = $state("");
   let selectedId = $state<number | null>(null);
+  // Phones show one pane at a time, as the mail does: the list, or the
+  // detail of the chosen meeting with a way back. On wider screens both
+  // panes stand side by side and this only steers the tab title.
+  let detailOffen = $state(false);
 
   // Rechtsklick (T3, Review 2026-09-13): Kontextmenü auf der Meetingliste.
   let ctxMenu = $state<{ x: number; y: number; meeting: MeetingInfo } | null>(null);
@@ -67,7 +55,8 @@
   // Letztes geladenes Suchfeld — der Effect feuert nur bei echter Änderung.
   let loadedQuery = $state("");
 
-  // Debounced server-seitige Suche: bind:value hält `search` aktuell.
+  // Debounced server-seitige Suche: the field sits in the header now (CI
+  // HB-SUCHE, RL-G1); bind:suche keeps `search` current.
   $effect(() => {
     if (search === loadedQuery) return;
     const timer = setTimeout(() => void loadMeetings(), 300);
@@ -92,7 +81,7 @@
     detail = null;
     detailError = null;
     detailLoading = true;
-    if (isNarrow) sidebarOpen = false;
+    detailOffen = true;
     try {
       detail = await getMeeting(m.id);
     } catch (e: unknown) {
@@ -144,7 +133,7 @@
     deleteTarget = null;
     try {
       await deleteMeeting(t.id);
-      if (detail && detail.id === t.id) { detail = null; selectedId = null; }
+      if (detail && detail.id === t.id) { detail = null; selectedId = null; detailOffen = false; }
       await loadMeetings();
     } catch {
       // Fehler bleibt unsichtbar; Liste ist ohnehin frisch geladen.
@@ -290,26 +279,29 @@
   });
 </script>
 
-<div class="mt-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
-  {#if isNarrow && sidebarOpen}
-    <div class="mt-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
-  {/if}
+<svelte:head><title>{tabTitel(detailOffen && detail ? detail.title : $t("meetings.title"))}</title></svelte:head>
 
-  <!-- SIDEBAR -->
-  <aside class="mt-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
-    <div class="mt-sidebar-header">
-      {#if isNarrow}
-        <button type="button" class="btn btn-still btn-symbol mt-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("meetings.close")} title={$t("meetings.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
-      {/if}
-      <ModuleLogo to="/" label={$t("meetings.title")} noHover />
+<Huelle bereich="meetings" bind:suche={search} suchePlatzhalter={$t("meetings.searchPlaceholder")}>
+<!-- No inner navigation (`spalte`): the list of meetings is content, so it
+     stands as the left pane, the detail right — two panes like the mail. -->
+<div class="mt-app" class:detail-offen={detailOffen}>
+  <!-- HB-SEITENKOPF: title 28 px with the count; no primary — meetings come
+       from Insilo, "Aktualisieren" only fetches them. -->
+  <div class="seitenkopf">
+    <div class="seitenkopf-zeile">
+      <h1>{$t("meetings.title")}</h1>
+      <span class="seitenkopf-zahl">{meetings.length}</span>
     </div>
-
-    <div class="mt-tools">
+    <div class="btn-reihe">
       <button type="button" class="btn btn-still" onclick={handleScan} disabled={scanning}>
         {scanning ? $t("meetings.scanning") : $t("meetings.scan")}
       </button>
     </div>
+  </div>
 
+  <div class="mt-panes">
+  <!-- LIST -->
+  <section class="mt-list-pane" aria-label={$t("meetings.title")}>
     <div class="mt-list">
       {#if loading}
         <div class="mt-state">{$t("meetings.loading")}</div>
@@ -342,28 +334,15 @@
         {/each}
       {/if}
     </div>
+  </section>
 
-    <SidebarFooter active="meetings">
-      <SidebarSearch
-        bind:value={search}
-        placeholder={$t("meetings.searchPlaceholder")}
-        ariaLabel={$t("meetings.searchLabel")}
-        clearLabel={$t("meetings.clearSearch")}
-      />
-    </SidebarFooter>
-  </aside>
-  {#if !isNarrow}
-    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
-  {/if}
-
-  <!-- MAIN -->
+  <!-- DETAIL -->
   <main class="mt-main">
-    {#if isNarrow}
-      <div class="mt-mobile-header">
-        <button type="button" class="btn btn-still btn-symbol mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")} title={$t("meetings.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
-        <h1>{$t("meetings.title")}</h1>
-      </div>
-    {/if}
+    <div class="mt-back-bar">
+      <button type="button" class="btn btn-still" onclick={() => (detailOffen = false)}>
+        <Symbol name="zurueck" size={20} />{$t("common.back")}
+      </button>
+    </div>
 
     {#if detailLoading}
       <div class="mt-state">{$t("meetings.loading")}</div>
@@ -380,7 +359,7 @@
       <article class="mt-detail">
         <header class="mt-detail-header">
           <div class="mt-detail-headline">
-            <h1>{detail.title}</h1>
+            <h2 class="mt-detail-titel">{detail.title}</h2>
             <div class="mt-detail-meta">
               <span>{fmtDateTime(detail.meeting_date)}</span>
               <span>·</span>
@@ -463,7 +442,9 @@
       </article>
     {/if}
   </main>
+  </div>
 </div>
+</Huelle>
 
 <ConfirmationDialog
   open={deleteTarget !== null}
@@ -485,32 +466,30 @@
 <AssistantFab module="meetings" />
 
 <style>
-  /* ── Meetings shell: sidebar and main pane [RL-MEETINGS] ─────────────── */
+  /* ── Meetings page inside the shell: list and detail pane [RL-MEETINGS] ──
+     Two panes like the mail, each scrolling itself: the list left at a
+     fixed width, the detail right. No inner navigation in the column. */
   .mt-app {
-    display: flex;
-    height: 100vh;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-  }
-  .mt-sidebar {
-    flex-shrink: 0;
-    background: var(--am-flaeche-1);
-    border-right: 1px solid var(--am-rand);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
   }
-  .mt-sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
+  .mt-panes {
+    flex: 1;
     display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
+    min-height: 0;
   }
-  .mt-tools { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .mt-list-pane {
+    flex: 0 0 340px;
+    width: 340px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--am-trennlinie);
+  }
 
   /* ── Meeting list rows [RL-MEETINGS] ─────────────────────────────────── */
   /* List rows stay Relay's own (not `.btn`). */
@@ -518,7 +497,7 @@
     flex: 1;
     overflow-y: auto;
     min-height: 0;
-    padding: 4px 8px;
+    padding: var(--am-raum-2);
   }
   .mt-item {
     display: flex;
@@ -574,7 +553,14 @@
     flex: 1;
     overflow-y: auto;
     min-width: 0;
+    min-height: 0;
     background: var(--am-seite);
+  }
+  /* "Zurück" to the list — only on the phone, where the detail replaces it. */
+  .mt-back-bar {
+    display: none;
+    padding: var(--am-raum-2) var(--am-raum-3);
+    border-bottom: 1px solid var(--am-trennlinie);
   }
   /* ── Meeting detail [RL-MEETINGS] ────────────────────────────────────── */
   .mt-detail {
@@ -591,7 +577,7 @@
   }
   .mt-detail-headline { min-width: 0; }
   .mt-detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
-  .mt-detail-header h1 {
+  .mt-detail-titel {
     font-size: 1.4rem;
     font-weight: 600;
     margin: 0 0 6px;
@@ -684,38 +670,14 @@
   }
   .mt-link:hover { text-decoration: underline; }
 
-  /* ── Narrow (mobile ≤768px): sidebar as slide-in overlay [RL-MEETINGS] ── */
-  .mt-mobile-header { display: none; }
-  .mt-scrim { display: none; }
-  .mt-app.narrow .resize-handle { display: none; }
-
+  /* ── Phone (≤768px): one pane at a time, as the mail [RL-MEETINGS] ───── */
   @media (max-width: 768px) {
-    .mt-mobile-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 12px;
-      height: var(--am-leistenhoehe);
-      border-bottom: 1px solid var(--am-rand);
-    }
-    .mt-mobile-header h1 { font-size: 1rem; margin: 0; }
-    .mt-sidebar {
-      position: fixed;
-      inset: 0 auto 0 0;
-      width: min(85vw, 340px) !important;
-      min-width: 0 !important;
-      z-index: 40;
-      transform: translateX(-100%);
-      transition: transform var(--am-dauer-mittel) var(--am-kurve);
-    }
-    .mt-app.sidebar-open .mt-sidebar { transform: translateX(0); }
-    .mt-app.sidebar-open .mt-scrim {
-      display: block;
-      position: fixed;
-      inset: 0;
-      background: var(--am-deckschicht);
-      z-index: 30;
-    }
+    .mt-list-pane { flex: 1 1 auto; width: auto; border-right: none; }
+    .mt-main { display: none; }
+    .mt-app.detail-offen .mt-list-pane { display: none; }
+    .mt-app.detail-offen .mt-main { display: block; }
+    .mt-back-bar { display: block; }
     .mt-detail { padding: 20px 16px 48px; }
+    .mt-detail-header { flex-wrap: wrap; }
   }
 </style>

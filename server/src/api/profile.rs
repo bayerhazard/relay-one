@@ -1,74 +1,17 @@
-//! Profile photo + Voice (STT) endpoints.
+//! Voice (STT, TTS) endpoints. The profile photo endpoints are gone: the
+//! profile shows initials only, no picture leaves or enters the box (CI
+//! HB-KONTO, ABGLEICH RL-G1, Kai 6.10.2026).
 //!
 //! These were part of the desktop relay and were never ported to the web
 //! server — the frontend called the routes but the server returned 404/421.
 
 use axum::extract::State;
-use base64::Engine as _;
 use axum::Json;
 use serde::Deserialize;
 
 use crate::db::with_db;
 use crate::AppState;
 use crate::api::{ApiError, ApiResult};
-
-// ─── Profile photo ────────────────────────────────────────────
-
-/// `GET /api/v1/profile/photo` — the user's own profile photo (base64).
-pub async fn get_own_photo(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
-    let (data, typ) = with_db(&state, |conn| {
-        let data: Option<Vec<u8>> = conn
-            .query_row("SELECT photo_data FROM settings WHERE key = 'own_photo'", [], |r| r.get(0))
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(other),
-            })
-            .map_err(|e| e.to_string())?;
-        let typ: Option<String> = conn
-            .query_row("SELECT photo_type FROM settings WHERE key = 'own_photo'", [], |r| r.get(0))
-            .unwrap_or(None);
-        Ok::<_, String>((data, typ))
-    })?;
-    match (data, typ) {
-        (Some(bytes), Some(t)) => Ok(Json(serde_json::json!({
-            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
-            "type": t,
-        }))),
-        _ => Err(ApiError("Kein Profilbild hinterlegt".into())),
-    }
-}
-
-/// `POST /api/v1/profile/photo` — save the profile photo.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SavePhotoRequest {
-    pub photo_base64: String,
-    pub photo_type: String,
-}
-
-pub async fn save_own_photo(
-    State(state): State<AppState>,
-    Json(req): Json<SavePhotoRequest>,
-) -> ApiResult<serde_json::Value> {
-    use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(req.photo_base64.as_bytes())
-        .map_err(|e| ApiError(format!("Base64-Fehler: {e}")))?;
-    with_db(&state, |conn| {
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('own_photo', '1')
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [],
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE settings SET photo_data = ?1, photo_type = ?2 WHERE key = 'own_photo'",
-            rusqlite::params![bytes, req.photo_type],
-        )
-        .map_err(|e| e.to_string())
-    })?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
 
 /// `POST /api/v1/voice/transcribe` — transcribe a WAV/audio recording.
 ///

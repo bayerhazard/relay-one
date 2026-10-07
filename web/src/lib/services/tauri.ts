@@ -1188,24 +1188,6 @@ export async function voiceSpeak(text: string, lang?: string): Promise<HTMLAudio
   return audio;
 }
 
-export interface OwnPhotoResult {
-  data: string;
-  type: string;
-}
-
-export async function getOwnPhoto(): Promise<OwnPhotoResult | null> {
-  try {
-    return await get("/profile/photo", "");
-  } catch {
-    return null;
-  }
-}
-
-export async function saveOwnPhoto(base64: string, mimeType: string): Promise<void> {
-  return post("/profile/photo", { photoBase64: base64, photoType: mimeType },
-    "Das Profilbild konnte nicht gespeichert werden.");
-}
-
 // ─── SSE Events ──────────────────────────────────────────────
 // Server → client notifications (new mail, AI summaries) via EventSource.
 

@@ -6,31 +6,15 @@
     listContacts, createContact, updateContact, deleteContact, syncCardDav,
     type ContactInfo, type ContactInput,
   } from "$lib/services/tauri";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
-  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import { assistantAction } from "$lib/stores/assistantAction";
-  import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { dataVersion } from "$lib/stores/invalidation";
-
-  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
-  $effect(() => () => destroyResize());
-
-  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
-  let isNarrow = $derived(viewportWidth <= 768);
-  let sidebarOpen = $state(false);
-  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
-  $effect(() => {
-    const onResize = () => (viewportWidth = window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
 
   let contacts = $state<ContactInfo[]>([]);
   let loading = $state(true);
@@ -80,6 +64,15 @@
   }
 
   onMount(() => { loadContacts(); });
+
+  // The search sits in the header now (CI HB-SUCHE, RL-G1); a change
+  // reloads the list, as the field in the column did.
+  let searchSeen = search;
+  $effect(() => {
+    if (search === searchSeen) return;
+    searchSeen = search;
+    void loadContacts();
+  });
 
   // Reload after an assistant plan execution (Concept §10.5). Skips the first
   // run so the onMount load is not duplicated.
@@ -196,51 +189,27 @@
   }}
 />
 
-<div class="ct-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen}>
-  {#if isNarrow && sidebarOpen}
-    <div class="ct-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
-  {/if}
-  <aside class="ct-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
-    <div class="ct-sidebar-header">
-      {#if isNarrow}
-        <button type="button" class="btn btn-still btn-symbol ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")} title={$t("contacts.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
-      {/if}
-      <ModuleLogo to="/" label={$t("contacts.title")} noHover />
-    </div>
+<svelte:head><title>{tabTitel($t("contacts.title"))}</title></svelte:head>
 
-    <div class="ct-tools">
-      <button type="button" class="btn btn-primaer" onclick={openCreate}>
-        <Symbol name="plus" size={16} />
-        {$t("contacts.new")}
-      </button>
-      <button type="button" class="btn btn-still" onclick={handleRefresh} disabled={syncing}>
-        {syncing ? $t("common.syncing") : $t("common.refresh")}
-      </button>
-    </div>
-
-    <div class="ct-count">{$t("contacts.count", { n: contacts.length })}</div>
-
-    <SidebarFooter active="contacts">
-      <SidebarSearch
-        bind:value={search}
-        placeholder={$t("contacts.searchPlaceholder")}
-        ariaLabel={$t("contacts.searchLabel")}
-        clearLabel={$t("contacts.clearSearch")}
-        onInput={loadContacts}
-      />
-    </SidebarFooter>
-  </aside>
-  {#if !isNarrow}
-    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
-  {/if}
-
+<Huelle bereich="contacts" bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
   <main class="ct-main">
-    {#if isNarrow}
-      <div class="ct-mobile-header">
-        <button type="button" class="btn btn-still btn-symbol ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")} title={$t("contacts.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+    <!-- HB-SEITENKOPF: title 28 px with the count, the page's actions right. -->
+    <div class="seitenkopf">
+      <div class="seitenkopf-zeile">
         <h1>{$t("contacts.title")}</h1>
+        <span class="seitenkopf-zahl">{contacts.length}</span>
       </div>
-    {/if}
+      <div class="btn-reihe">
+        <button type="button" class="btn btn-still" onclick={handleRefresh} disabled={syncing}>
+          {syncing ? $t("common.syncing") : $t("common.refresh")}
+        </button>
+        <button type="button" class="btn btn-primaer" onclick={openCreate}>
+          <Symbol name="plus" size={16} />
+          {$t("contacts.new")}
+        </button>
+      </div>
+    </div>
+    <div class="ct-inhalt">
     {#if loading}
       <div class="ct-state">{$t("contacts.loading")}</div>
     {:else if error}
@@ -283,6 +252,7 @@
         {/each}
       </ul>
     {/if}
+    </div>
   </main>
 
   {#if editorOpen}
@@ -345,7 +315,7 @@
       </div>
     </div>
   {/if}
-</div>
+</Huelle>
 
   <ContextMenu
     menu={ctxMenu}
@@ -371,40 +341,9 @@
   />
 
 <style>
-  /* ── Contacts shell: sidebar and main pane [RL-KONTAKTE] ─────────────── */
-  .ct-app {
-    display: flex;
-    height: 100vh;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-  }
-  .ct-sidebar {
-    flex-shrink: 0;
-    background: var(--am-flaeche-1);
-    border-right: 1px solid var(--am-rand);
-    display: flex;
-    flex-direction: column;
-  }
-  .ct-sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
-  }
-
-  .ct-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
-  .ct-count {
-    padding: 10px 16px;
-    font-size: var(--fs-xs);
-    color: var(--am-text-gedaempft);
-    border-top: 1px solid var(--am-rand);
-    margin-top: 8px;
-  }
-  .ct-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  /* ── Contacts page inside the shell [RL-KONTAKTE] ───────────────────── */
+  .ct-main { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+  .ct-inhalt { flex: 1; padding: var(--am-raum-6) var(--am-raum-8); }
 
   /* ── Loading and error state [RL-KONTAKTE] ───────────────────────────── */
   .ct-state {
@@ -466,44 +405,8 @@
   /* Destructive last in the footer, away from "Speichern" (CI R1/G2). */
   .ct-delete { margin-left: auto; }
 
-  /* ── Narrow (mobile ≤768px): sidebar as slide-in overlay [RL-KONTAKTE] ── */
-  .ct-app.narrow .ct-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 85%;
-    max-width: 320px;
-    z-index: 60;
-    transform: translateX(-100%);
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-    box-shadow: var(--am-schatten-1);
-  }
-  .ct-app.narrow.sidebar-open .ct-sidebar { transform: translateX(0); }
-  .ct-app.narrow .ct-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    z-index: 55;
-  }
-  .ct-app.narrow .ct-sidebar-close,
-  .ct-app.narrow .ct-menu-toggle { display: inline-flex; }
-  .ct-app:not(.narrow) .ct-sidebar-close,
-  .ct-app:not(.narrow) .ct-menu-toggle { display: none; }
-  .ct-app.narrow .resize-handle { display: none; }
-  .ct-app.narrow .ct-main { padding: 12px; }
-  .ct-mobile-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .ct-mobile-header h1 {
-    margin: 0;
-    font-size: var(--fs-md);
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  /* ── Narrow [RL-KONTAKTE] ────────────────────────────────────────────── */
+  @media (max-width: 40rem) {
+    .ct-inhalt { padding: var(--am-raum-4); }
   }
 </style>

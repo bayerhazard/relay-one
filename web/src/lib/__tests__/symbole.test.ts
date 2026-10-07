@@ -9,7 +9,8 @@ import { translations } from "$lib/i18n";
  * Relay draws only from the CI set, through HB-SYMBOL (<Symbol>). After
  * Rocket's and Insilo's symbole.test.ts. Guarded here:
  * - lib/symbole.ts is generated from the CI copy (web/ci/marke/icons/ui/);
- * - no inline <svg> outside <Symbol> and the two brand marks;
+ * - no inline <svg> outside <Symbol> and the assistant's shield (the word
+ *   mark is the CI's delivered file, HB-MARKE);
  * - sizes only 16/20/24/40;
  * - no emoji or pictographs standing in for icons, in markup or copy.
  */
@@ -34,9 +35,9 @@ const markup = (path: string) => {
   return i < 0 ? text : text.slice(0, i);
 };
 
-// The brand marks are drawings, not icons: the AImighty wordmark and the
-// assistant's shield. <Symbol> itself is the one place that draws an svg.
-const SVG_ALLOWED = new Set(["lib/components/Symbol.svelte", "lib/components/ModuleLogo.svelte", "lib/components/AssistantFab.svelte"]);
+// The assistant's shield is a drawing, not an icon; <Symbol> itself is the
+// one place that draws an svg. The word mark comes as an image (Marke.svelte).
+const SVG_ALLOWED = new Set(["lib/components/Symbol.svelte", "lib/components/AssistantFab.svelte"]);
 
 // Pictographs and dingbats used as icons (✓ ✕ ⚠ 🔄 📎 …). Allowed: the key
 // name ⌫ in a shortcut hint, typographic … · — and the arrows in comments.
@@ -49,7 +50,7 @@ describe("HB-SYMBOL", () => {
     ).not.toThrow();
   });
 
-  it("no inline <svg> outside <Symbol> and the brand marks", () => {
+  it("no inline <svg> outside <Symbol> and the shield", () => {
     const offenders = COMPONENTS.filter((p) => !SVG_ALLOWED.has(relative(SRC, p)))
       .filter((p) => /<svg\b/.test(markup(p).replace(/`[^`]*`/g, "")))
       .map((p) => relative(SRC, p));

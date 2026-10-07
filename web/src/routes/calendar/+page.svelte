@@ -12,22 +12,20 @@
     type MeetingPrepResult, type ScheduleSuggestion, type AgendaDigestResult,
   } from "$lib/services/tauri";
   import { t, translate, lang } from "$lib/i18n";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { calendarView } from "$lib/stores/calendarView";
   import { dataVersion } from "$lib/stores/invalidation";
   import { germanHolidays } from "$lib/holidays";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
-  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import RecipientInput from "$lib/components/RecipientInput.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
-  import { useSidebarResize } from "$lib/composables/useSidebarResize";
 
-  const { width: sidebarWidth, startResize, destroy: destroyResize } = useSidebarResize();
-  $effect(() => () => destroyResize());
+  // Dates follow the UI language, not the browser's (CI ABGLEICH RL-G4):
+  // "Oktober 2026" in German, "October 2026" in English.
+  let locale = $derived($lang === "de" ? "de-DE" : "en-US");
 
   // Synthetic built-in "Feiertage" calendar (German public holidays).
   const HOLIDAY_CAL_ID = -1;
@@ -44,18 +42,9 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let syncing = $state(false);
+  // The search sits in the header (CI HB-SUCHE, RL-G1); it filters the
+  // shown events as the field in the column did.
   let calSearch = $state("");
-
-  // Narrow (mobile) mode: the sidebar collapses to a slide-in overlay.
-  let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
-  let isNarrow = $derived(viewportWidth <= 768);
-  let sidebarOpen = $state(false);
-  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
-  $effect(() => {
-    const onResize = () => (viewportWidth = window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
 
   // Current date anchor for the visible range.
   let viewDate = $state(new Date());
@@ -119,7 +108,7 @@
   function fmtInvWhen(iso: string): string {
     try {
       const d = new Date(iso);
-      return d.toLocaleString(undefined, {
+      return d.toLocaleString(locale, {
         weekday: "short", day: "2-digit", month: "2-digit",
         hour: "2-digit", minute: "2-digit",
       });
@@ -330,12 +319,12 @@
   // ─── Derived: month grid ─────────────────────
   const WEEKDAYS = $derived(
     [1, 2, 3, 4, 5, 6, 7].map((d) =>
-      new Date(2024, 0, d).toLocaleDateString($lang === "de" ? "de-DE" : "en-US", { weekday: "short" })
+      new Date(2024, 0, d).toLocaleDateString(locale, { weekday: "short" })
     )
   );
 
   let monthLabel = $derived(
-    viewDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })
+    viewDate.toLocaleDateString(locale, { month: "long", year: "numeric" })
   );
 
   // Build a 6x7 grid of dates covering the visible month.
@@ -403,7 +392,7 @@
     return allCalendars.find((c) => c.id === id);
   }
   function dowShort(d: Date): string {
-    return d.toLocaleDateString(undefined, { weekday: "short" });
+    return d.toLocaleDateString(locale, { weekday: "short" });
   }
 
   // Week label: "12. – 18. Sep 2026".
@@ -412,11 +401,11 @@
     const b = weekDays[6];
     const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
     const ay = a.getFullYear() === b.getFullYear() ? "" : ` ${a.getFullYear()}`;
-    return `${a.toLocaleDateString(undefined, opts)}${ay} – ${b.toLocaleDateString(undefined, { ...opts, year: "numeric" })}`;
+    return `${a.toLocaleDateString(locale, opts)}${ay} – ${b.toLocaleDateString(locale, { ...opts, year: "numeric" })}`;
   });
 
   let dayLabel = $derived(
-    viewDate.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    viewDate.toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" })
   );
 
   // The big label in the toolbar, per view mode.
@@ -454,7 +443,7 @@
     viewDate = d;
   }
   let miniMonthLabel = $derived(
-    viewDate.toLocaleDateString(undefined, { month: "short", year: "numeric" })
+    viewDate.toLocaleDateString(locale, { month: "short", year: "numeric" })
   );
 
   // Start a new event pre-filled with a given day.
@@ -832,6 +821,9 @@
     if (editorOpen && summaryInput) summaryInput.focus();
   });
 
+  // On the phone picking a day in the column closes the shell's sheet (RL-G2).
+  let spalteOffen = $state(false);
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape" && showDeleteConfirm) {
       cancelDeleteEvent();
@@ -848,7 +840,7 @@
     if (ev.all_day) return translate("calendar.allDay");
     const d = new Date(effStart(ev));
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   }
 
   // Compact "when" label for the upcoming-reminders list.
@@ -860,10 +852,10 @@
     if (diffMin < 1) return "jetzt";
     if (diffMin < 60) return `in ${diffMin} min`;
     const sameDay = localDayKey(d) === localDayKey(now);
-    const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const time = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
     if (sameDay) return `heute ${time}`;
     if (diffMin < 60 * 24) return `morgen ${time}`;
-    return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + ` ${time}`;
+    return d.toLocaleDateString(locale, { day: "numeric", month: "short" }) + ` ${time}`;
   }
 
   // Human-readable date range for the detail pane.
@@ -875,15 +867,15 @@
     const dateOpt: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "long" };
     if (ev.all_day) {
       return sameDay
-        ? s.toLocaleDateString(undefined, dateOpt)
-        : `${s.toLocaleDateString(undefined, dateOpt)} – ${e.toLocaleDateString(undefined, dateOpt)}`;
+        ? s.toLocaleDateString(locale, dateOpt)
+        : `${s.toLocaleDateString(locale, dateOpt)} – ${e.toLocaleDateString(locale, dateOpt)}`;
     }
     const timeOpt: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
-    const base = s.toLocaleDateString(undefined, dateOpt);
+    const base = s.toLocaleDateString(locale, dateOpt);
     if (sameDay) {
-      return `${base}, ${s.toLocaleTimeString(undefined, timeOpt)} – ${e.toLocaleTimeString(undefined, timeOpt)}`;
+      return `${base}, ${s.toLocaleTimeString(locale, timeOpt)} – ${e.toLocaleTimeString(locale, timeOpt)}`;
     }
-    return `${base}, ${s.toLocaleTimeString(undefined, timeOpt)} – ${e.toLocaleDateString(undefined, dateOpt)}, ${e.toLocaleTimeString(undefined, timeOpt)}`;
+    return `${base}, ${s.toLocaleTimeString(locale, timeOpt)} – ${e.toLocaleDateString(locale, dateOpt)}, ${e.toLocaleTimeString(locale, timeOpt)}`;
   }
 
   onMount(async () => {
@@ -908,18 +900,10 @@
   });
 </script>
 
-<div class="cal-app" class:narrow={isNarrow} class:sidebar-open={isNarrow && sidebarOpen} class:detail-open={isNarrow && !!selectedEvent}>
-  {#if isNarrow && sidebarOpen}
-    <div class="cal-scrim" role="presentation" onclick={() => (sidebarOpen = false)}></div>
-  {/if}
-  <aside class="cal-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
-    <div class="cal-sidebar-header">
-      {#if isNarrow}
-        <button type="button" class="btn btn-still btn-symbol cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")} title={$t("calendar.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
-      {/if}
-      <ModuleLogo to="/" label={$t("calendar.title")} noHover />
-    </div>
+<svelte:head><title>{tabTitel($t("calendar.title"))}</title></svelte:head>
 
+<Huelle bereich="calendar" bind:spalteOffen bind:suche={calSearch} suchePlatzhalter={$t("calendar.searchPlaceholder")}>
+  {#snippet spalte()}
     <!-- Mini month for quick navigation -->
     <div class="cal-mini">
       <div class="cal-mini-head">
@@ -935,13 +919,14 @@
             class:other={d.getMonth() !== viewDate.getMonth()}
             class:today={localDayKey(d) === localDayKey(today)}
             class:sel={localDayKey(d) === localDayKey(viewDate)}
-            onclick={() => { viewDate = new Date(d); }}
+            onclick={() => { viewDate = new Date(d); spalteOffen = false; }}
           >{d.getDate()}</button>
         {/each}
       </div>
     </div>
 
     <div class="cal-cal-list">
+      <div class="cal-spalte-titel">{$t("calendar.title")}</div>
       {#each allCalendars as cal (cal.id)}
         <label class="cal-cal-item">
           <input
@@ -1012,7 +997,7 @@
 
     {#if upcoming.length > 0}
       <div class="cal-upcoming">
-        <div class="cal-upcoming-head">{$t("calendar.upcoming")}</div>
+        <div class="cal-spalte-titel cal-upcoming-head">{$t("calendar.upcoming")}</div>
         {#each upcoming as ev (evKey(ev))}
           <button type="button" class="cal-upcoming-item" onclick={() => selectEvent(ev)}
                   oncontextmenu={(e) => { e.preventDefault(); evCtx = { x: e.clientX, y: e.clientY, event: ev }; }}>
@@ -1025,48 +1010,27 @@
         {/each}
       </div>
     {/if}
+  {/snippet}
 
-    <SidebarFooter active="calendar">
-      <SidebarSearch
-        bind:value={calSearch}
-        placeholder={$t("calendar.searchPlaceholder")}
-        ariaLabel={$t("calendar.searchLabel")}
-        clearLabel={$t("calendar.clearSearch")}
-      />
-      {#snippet extra()}
-        <input
-          type="file"
-          accept=".ics,text/calendar"
-          class="cal-file-input"
-          bind:this={importInput}
-          onchange={onImportFile}
-        />
-      {/snippet}
-    </SidebarFooter>
-  </aside>
-  {#if !isNarrow}
-    <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
-  {/if}
-
+<div class="cal-app" class:detail-open={!!selectedEvent}>
   <main class="cal-main">
-    <header class="cal-toolbar">
-      <div class="cal-toolbar-left">
-        {#if isNarrow}
-          <button type="button" class="btn btn-still btn-symbol cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")} title={$t("calendar.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
-        {/if}
-        <h1 class="cal-month">{periodLabel}</h1>
-        <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
-        <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
-        <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
+    <!-- HB-SEITENKOPF: the period as the title (28 px), the navigation and
+         the page's actions right; "Neuer Termin" is the one primary. -->
+    <div class="seitenkopf cal-kopf">
+      <div class="seitenkopf-zeile">
+        <h1>{periodLabel}</h1>
       </div>
-      <div class="cal-toolbar-center">
+      <div class="btn-reihe">
+        <div class="cal-kopf-nav">
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")} title={$t("calendar.prevPeriod")}><Symbol name="chevron-links" size={20} /></button>
+          <button type="button" class="btn btn-still" onclick={goToday}>{$t("calendar.today")}</button>
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => shiftPeriod(1)} aria-label={$t("calendar.nextPeriod")} title={$t("calendar.nextPeriod")}><Symbol name="chevron-rechts" size={20} /></button>
+        </div>
         <div class="cal-viewtoggle" role="tablist" aria-label={$t("calendar.view")}>
           <button type="button" class="cal-vt" class:active={viewMode === "month"} onclick={() => setViewMode("month")}>{$t("calendar.viewMonth")}</button>
           <button type="button" class="cal-vt" class:active={viewMode === "week"} onclick={() => setViewMode("week")}>{$t("calendar.viewWeek")}</button>
           <button type="button" class="cal-vt" class:active={viewMode === "day"} onclick={() => setViewMode("day")}>{$t("calendar.viewDay")}</button>
         </div>
-      </div>
-      <div class="cal-toolbar-right">
         <button
           type="button"
           class="btn btn-still btn-symbol"
@@ -1077,9 +1041,22 @@
         >
           <Symbol name="neu-laden" size={20} />
         </button>
-        <button type="button" class="btn btn-primaer" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
+        <!-- ".ics importieren" was in the column footer; now a second button
+             in the page head (CI ABGLEICH RL-G1). -->
+        <button type="button" class="btn btn-sekundaer" onclick={triggerImport} disabled={importing}>{$t("calendar.importIcs")}</button>
+        <input
+          type="file"
+          accept=".ics,text/calendar"
+          class="cal-file-input"
+          bind:this={importInput}
+          onchange={onImportFile}
+        />
+        <button type="button" class="btn btn-primaer" onclick={() => openNewEvent()}>
+          <Symbol name="plus" size={16} />
+          {$t("calendar.createEvent")}
+        </button>
       </div>
-    </header>
+    </div>
 
     {#if error}
       <div class="hinweis cal-alert" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{error}</span></div>
@@ -1262,6 +1239,7 @@
     {/if}
   </aside>
 </div>
+</Huelle>
 
 <!-- ─── Event editor dialog (HB-DIALOG) ─── -->
 {#if editorOpen}
@@ -1276,7 +1254,7 @@
   >
     <div class="karte dialog-karte" data-breite="normal">
       <div class="dialog-kopf">
-        <h2 id="cal-editor-title">{editingId === null ? $t("calendar.newEvent") : $t("calendar.editEvent")}</h2>
+        <h2 id="cal-editor-title">{editingId === null ? $t("calendar.createEvent") : $t("calendar.editEvent")}</h2>
         <button type="button" class="dialog-zu" onclick={() => editorOpen = false} aria-label={$t("calendar.close")} title={$t("calendar.close")}><Symbol name="schliessen" size={20} /></button>
       </div>
 
@@ -1453,85 +1431,44 @@
   {/if}
 
 <style>
-  /* ── Calendar shell [RL-KALENDER] ─────────────────────────────────────── */
+  /* ── Calendar page inside the shell [RL-KALENDER] ─────────────────────── */
+  /* The shell (Huelle) draws header, areas and column; the page is the
+     main pane with the detail pane beside it. */
   .cal-app {
     display: flex;
-    height: 100vh;
-    background: var(--am-seite);
+    min-height: 0;
     color: var(--am-text-primaer);
   }
 
-  /* Sidebar */
-  .cal-sidebar {
-    flex-shrink: 0;
-    background: var(--am-flaeche-1);
-    border-right: 1px solid var(--am-rand);
-    display: flex;
-    flex-direction: column;
-  }
-
   /* ── Narrow layout (mobile ≤768px) [RL-KALENDER] ──────────────────────── */
-  /* The sidebar collapses to a slide-in overlay. */
-  .cal-app.narrow .cal-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 85%;
-    max-width: 320px;
-    z-index: 60;
-    transform: translateX(-100%);
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-    box-shadow: var(--am-schatten-1);
-  }
-  .cal-app.narrow.sidebar-open .cal-sidebar { transform: translateX(0); }
-  .cal-app.narrow .cal-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    z-index: 55;
-  }
-  .cal-app:not(.narrow) .cal-sidebar-close,
-  .cal-app:not(.narrow) .cal-menu-toggle { display: none; }
-  .cal-app.narrow .cal-toolbar {
-    padding: 10px 12px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "left right" "center center";
-    row-gap: 8px;
-    column-gap: 6px;
-  }
-  .cal-app.narrow .cal-toolbar-left { grid-area: left; gap: 4px; }
-  .cal-app.narrow .cal-toolbar-center { grid-area: center; justify-self: start; }
-  .cal-app.narrow .cal-toolbar-right { grid-area: right; gap: 6px; }
-  .cal-app.narrow .cal-viewtoggle .cal-vt { padding: 4px 8px; }
-  .cal-app.narrow .cal-month { font-size: var(--fs-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-  /* Detail pane: hidden by default on mobile, full-screen overlay when an event is selected */
-  .cal-app.narrow .cal-detail { display: none; }
-  .cal-app.narrow.detail-open .cal-detail {
-    display: block;
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    min-width: 0;
-    z-index: 60;
-    border-left: none;
+  /* Detail pane: hidden by default, full-screen overlay when an event is selected. */
+  @media (max-width: 768px) {
+    .cal-detail { display: none; }
+    .cal-app.detail-open .cal-detail {
+      display: block;
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      min-width: 0;
+      z-index: 60;
+      border-left: none;
+    }
   }
 
-  /* ── Sidebar lists [RL-KALENDER] ──────────────────────────────────────── */
-  .cal-sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
+  /* ── Column: mini month, calendars, invitations, reminders [RL-KALENDER] ── */
+  /* Group titles like .huelle-nav-titel (small, uppercase, muted); the
+     shell's class is hidden on phones, where the column is a sheet. */
+  .cal-spalte-titel {
+    padding: var(--am-raum-3) var(--am-raum-3) var(--am-raum-1);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--am-text-gedaempft);
   }
-
-  .cal-cal-list { flex: 1; overflow-y: auto; padding: 8px; }
-  .cal-upcoming { border-top: 1px solid var(--am-rand); padding: 10px 8px; max-height: 200px; overflow-y: auto; }
-  .cal-upcoming-head { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--am-text-gedaempft); padding: 0 6px 8px; }
+  .cal-cal-list { padding: 0 8px 8px; }
+  .cal-upcoming { border-top: 1px solid var(--am-rand); padding: 10px 8px; }
+  .cal-upcoming-head { padding-top: 0; }
   .cal-upcoming-item {
     display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
     background: none; border: none; color: var(--am-text-primaer); padding: 7px 8px;
@@ -1542,7 +1479,7 @@
   .cal-upcoming-info { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
   .cal-upcoming-title { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-upcoming-when { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .cal-invitations { border-top: 1px solid var(--am-rand); padding: 10px 8px; max-height: 240px; overflow-y: auto; }
+  .cal-invitations { border-top: 1px solid var(--am-rand); padding: 10px 8px; }
   .cal-invitations-head {
     display: flex; align-items: center; justify-content: space-between;
     font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
@@ -1583,11 +1520,12 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    padding: 9px 12px;
+    min-height: var(--am-ziel-zeiger);
+    padding: 0 12px;
     color: var(--am-text-primaer);
     border-radius: var(--am-radius-mittel);
     cursor: pointer;
-    font-size: var(--fs-base);
+    font-size: 0.875rem;
   }
   .cal-cal-item:hover { background: var(--am-flaeche-2); }
   .cal-cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -1613,20 +1551,17 @@
   .cal-mini-day.today { font-weight: 700; color: var(--am-handlung-ruhend); }
   .cal-mini-day.sel { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); font-weight: 600; }
 
-  /* ── Toolbar [RL-KALENDER] ────────────────────────────────────────────── */
-  .cal-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .cal-toolbar {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--am-rand);
+  /* ── Main pane and page head [RL-KALENDER] ────────────────────────────── */
+  .cal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* Many actions next to a long period ("Dienstag, 6. Oktober 2026"):
+     the head may wrap instead of running off the side (layout only). */
+  .cal-kopf { flex-wrap: wrap; flex-shrink: 0; }
+  .cal-kopf h1 { white-space: nowrap; }
+  .cal-kopf > .btn-reihe { gap: var(--am-raum-2); }
+  .cal-kopf-nav { display: flex; align-items: center; gap: var(--am-raum-1); }
+  @media (max-width: 40rem) {
+    .cal-viewtoggle .cal-vt { padding: 4px 8px; }
   }
-  .cal-month { font-size: var(--fs-xl); font-weight: 600; margin: 0; white-space: nowrap; }
-  .cal-toolbar-left { display: flex; align-items: center; gap: 8px; justify-self: start; }
-  .cal-toolbar-center { justify-self: center; }
-  .cal-toolbar-right { display: flex; align-items: center; gap: 8px; justify-self: end; }
 
   /* Error line: HB-ZUSTAND draws it, only its place is set here. */
   .cal-alert { margin: 12px 20px 0; }

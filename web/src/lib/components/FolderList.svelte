@@ -56,6 +56,7 @@
   <div
     class="folder-item"
     class:active={selectedFolder === folder.name}
+    aria-current={selectedFolder === folder.name ? "page" : undefined}
     class:drag-over={dragTarget === folder.name}
     class:indent={folder.indent}
     data-folder={folder.name}

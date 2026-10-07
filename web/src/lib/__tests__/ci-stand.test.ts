@@ -64,9 +64,9 @@ describe(`CI stand ${stand.stand}`, () => {
     } catch (e) {
       meldung = (e as { stdout?: string }).stdout ?? String(e);
     }
-    // Relay does not carry every block of the CI (no board, no shell yet —
-    // that comes with Etappe 6). A missing section is no finding; every one
-    // present must be equal, and every header needs a Kennung.
+    // Relay does not carry every block of the CI (no board, no table).
+    // A missing section is no finding; every one present must be equal,
+    // and every header needs a Kennung.
     const befunde = meldung
       .trim()
       .split("\n")
@@ -79,7 +79,10 @@ describe(`CI stand ${stand.stand}`, () => {
     const kennungen = [...new Set([...css.matchAll(/\/\* ── [^\n]*\[((?:AM|HB)-[A-Z]+)\]/g)].map((m) => m[1]))];
     // Whoever drops a block Relay already had notices it here.
     expect(kennungen.sort()).toEqual(
-      ["AM-BASIS", "AM-FELD", "AM-HAKEN", "AM-KARTE", "AM-KNOPF", "AM-LEER", "HB-DIALOG", "HB-SYMBOL", "HB-ZUSTAND"].sort(),
+      [
+        "AM-BASIS", "AM-FELD", "AM-HAKEN", "AM-HUELLE", "AM-KARTE", "AM-KNOPF", "AM-LEER",
+        "HB-DIALOG", "HB-KONTO", "HB-MARKE", "HB-SEITENKOPF", "HB-SUCHE", "HB-SYMBOL", "HB-UNTERNAV", "HB-ZUSTAND",
+      ].sort(),
     );
   });
 });

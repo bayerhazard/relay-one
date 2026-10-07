@@ -5,9 +5,8 @@
   import { goto } from "$app/navigation";
   import MessageList from "$lib/components/MessageList.svelte";
   import FolderList from "$lib/components/FolderList.svelte";
-  import ModuleLogo from "$lib/components/ModuleLogo.svelte";
-  import SidebarFooter from "$lib/components/SidebarFooter.svelte";
-  import SidebarSearch from "$lib/components/SidebarSearch.svelte";
+  import Huelle from "$lib/components/Huelle.svelte";
+  import { tabTitel } from "$lib/tabTitel";
   import AccountGroup from "$lib/components/AccountGroup.svelte";
   import PromptDialog from "$lib/components/PromptDialog.svelte";
   import ComposeWindow from "$lib/components/ComposeWindow.svelte";
@@ -27,11 +26,10 @@ import {
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
     getMoveToTrash, getUnreadCounts, discardDraft, searchMessages,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
-    getOwnPhoto, openEventStream, type AttachmentInfo,
+    openEventStream, type AttachmentInfo,
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
-  import { fabHidden } from "$lib/stores/fabHidden";
   import { isFollowupDone } from "$lib/utils/followupMemory";
   import { dataVersion } from "$lib/stores/invalidation";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
@@ -42,22 +40,19 @@ import {
   import { isOnline, initOnlineListener } from "$lib/offline/online";
   import { isDark, tokenValue } from "$lib/stores/appearance";
 
-  let sidebarWidth = $state(220);
   let listWidth = $state(380);
   let showCompose = $state(false);
 
   // ─── Responsive layout ────────────────────────────────────
   // Below `compact` the preview becomes a full-width overlay (shown only when a
-  // message/compose is open); below `narrow` the sidebar collapses to a toggle.
-  // At full size everything behaves exactly as before (fixed 3-column layout).
+  // message/compose is open); below `narrow` the reading pane tightens its
+  // header. The folder column is the shell's (Huelle): on the desktop under
+  // the five areas, on the phone a sheet opened from the header (RL-G2).
   let viewportWidth = $state(typeof window !== "undefined" ? window.innerWidth : 1440);
   let isCompact = $derived(viewportWidth <= 900);
   let isNarrow = $derived(viewportWidth <= 600);
-  let sidebarOpen = $state(false); // only relevant in narrow mode (overlay)
-
-  // M6 (Review 2026-09-14): while the mobile folder drawer is open the
-  // assistant FAB would sit on top of it — hide it.
-  $effect(() => { fabHidden.set(isNarrow && sidebarOpen); });
+  // The shell's folder sheet on the phone; a chosen folder closes it.
+  let folderSheetOpen = $state(false);
 
   // Touch devices: context menus render as iOS-style bottom sheets.
   let isTouchDevice = $state(false);
@@ -387,7 +382,6 @@ import {
   let pendingDeleteUid = $state<number | null>(null);
   let isDeleting = $state(false);
   let moveToTrash = $state(true);
-  let ownPhoto = $state<{ data: string; type: string } | null>(null);
   let fetchLimit = $state(50);
   try { const v = localStorage.getItem("relay_fetch_limit"); if (v) fetchLimit = parseInt(v, 10) || 50; } catch {}
   let draftsFolderName = $state<string | null>(null);
@@ -1066,7 +1060,6 @@ let sentFolderName = $state<string | null>(null);
   function handleFolderSelect(name: string) {
     selectedFolder = name;
     mailbox.setFolderId(name);
-    sidebarOpen = false;
   }
 
   // Select folder from a specific account
@@ -1081,7 +1074,7 @@ let sentFolderName = $state<string | null>(null);
     }
     selectedFolder = folder;
     mailbox.setFolderId(folder);
-    sidebarOpen = false;
+    folderSheetOpen = false;
   }
 
   // Toggle account collapsed state (root level)
@@ -1356,10 +1349,12 @@ let sentFolderName = $state<string | null>(null);
   // the mouse is released outside the window — common on macOS).
   let activeDragControllers = new Set<AbortController>();
 
-  function startResize(e: MouseEvent, target: 'sidebar' | 'list') {
+  // The one resize handle left on the page: between list and reading pane.
+  // The column is the shell's and keeps its fixed 240 px (AM-HUELLE).
+  function startResize(e: MouseEvent) {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = target === 'sidebar' ? sidebarWidth : listWidth;
+    const startW = listWidth;
     const ac = new AbortController();
     activeDragControllers.add(ac);
     const { signal } = ac;
@@ -1369,11 +1364,7 @@ let sentFolderName = $state<string | null>(null);
     }
     function onMove(ev: MouseEvent) {
       const dx = ev.clientX - startX;
-      if (target === 'sidebar') {
-        sidebarWidth = Math.max(140, Math.min(400, startW + dx));
-      } else {
-        listWidth = Math.max(200, Math.min(700, startW + dx));
-      }
+      listWidth = Math.max(200, Math.min(700, startW + dx));
     }
     document.addEventListener('mousemove', onMove, { signal });
     document.addEventListener('mouseup', finish, { signal });
@@ -1482,13 +1473,12 @@ let sentFolderName = $state<string | null>(null);
 
   // ─── Full-text search ─────────────────────────────────────
   let searchQuery = $state("");
-  let searchFocused = $state(false);
   let searchActive = $state(false);
   let searchSeq = 0;
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Flag filter: the star button in the search bar toggles the is:flagged
-  // operator. Active state derives from the query text so manual typing of
+  // Flag filter: the star toggle in the list head toggles the is:flagged
+  // operator (RL-G1: a filter of the list, not part of the search field). Active state derives from the query text so manual typing of
   // `is:flagged` lights the star up as well.
   let flaggedSearchActive = $derived(
     ["is:flagged", "is:flag"].includes(searchQuery.trim().toLowerCase())
@@ -1500,6 +1490,7 @@ let sentFolderName = $state<string | null>(null);
       return;
     }
     searchQuery = "is:flagged";
+    searchSeen = searchQuery; // ran right here; the header effect must not run it again
     runSearch();
   }
 
@@ -1543,6 +1534,20 @@ let sentFolderName = $state<string | null>(null);
 
   $effect(() => {
     return () => { if (searchTimer) clearTimeout(searchTimer); };
+  });
+
+  // The search sits in the header now (CI HB-SUCHE, RL-G1). Typing runs the
+  // debounced search as the field in the column did; emptying the field
+  // (also Escape there) leaves the search at once, as Escape did before.
+  let searchSeen = "";
+  $effect(() => {
+    const q = searchQuery;
+    if (q === searchSeen) return;
+    searchSeen = q;
+    untrack(() => {
+      if (q === "") clearSearch();
+      else onSearchInput();
+    });
   });
 
   // Reload when folder changes - fetch from IMAP then read cache.
@@ -1723,7 +1728,6 @@ let sentFolderName = $state<string | null>(null);
     initOk = true;
     // Fire-and-forget: not needed for first paint
     getMoveToTrash().then(v => { moveToTrash = v; }).catch(() => {});
-    getOwnPhoto().then(v => { ownPhoto = v; }).catch(() => {});
     refreshUnreadCounts();
 
     // Offline support: listen for connectivity changes, sync queued drafts on reconnect
@@ -2133,11 +2137,6 @@ let sentFolderName = $state<string | null>(null);
   function handleKeydown(e: KeyboardEvent) {
     // Escape: close context menus, compose or confirmation dialog, or clear multi-selection
     if (e.key === "Escape") {
-      // M1 (Review 2026-09-14): mobile folder drawer must close on Escape first
-      if (isNarrow && sidebarOpen) {
-        sidebarOpen = false;
-        return;
-      }
       if (folderCtxMenu || moveMenu || linkMenu) {
         closeMenus();
         return;
@@ -2639,9 +2638,25 @@ let sentFolderName = $state<string | null>(null);
     };
     return dict[name] || name;
   }
+
+  // Page head (HB-SEITENKOPF): the chosen folder by the name the column shows
+  // it under (own name, else the translated leaf), and the account's unread
+  // count where the server has one — the inbox.
+  let ordnerTitel = $derived.by(() => {
+    if (searchActive) return $t("mail.searchTitle");
+    const custom = customFolderNames[selectedFolder];
+    if (custom) return custom;
+    if (selectedFolder === "INBOX") return $t(translateFolder("INBOX"));
+    const leaf = getLeafName(selectedFolder, folderDelimiters[selectedFolder] || ".");
+    return customFolderNames[leaf] || $t(translateFolder(leaf));
+  });
+  let ordnerUngelesen = $derived(
+    !searchActive && selectedFolder === "INBOX" ? (unreadByAccount[selectedAccountId] ?? 0) : 0
+  );
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
+<svelte:head><title>{showSplash ? tabTitel() : tabTitel(ordnerTitel)}</title></svelte:head>
 
 {#snippet list()}
   <MessageList
@@ -2714,7 +2729,8 @@ let sentFolderName = $state<string | null>(null);
       
       <div class="preview-scroll-wrapper">
         <div class="preview-content-area">
-          <h1 class="preview-subject-large">{selectedMessage.subject || $t("mail.noSubject")}</h1>
+          <!-- h2: the page's one h1 is the folder in the list head. -->
+          <h2 class="preview-subject-large">{selectedMessage.subject || $t("mail.noSubject")}</h2>
           <div class="preview-date-line">{formatDate(selectedMessage.date)}</div>
           {#if selectedMessage.to || selectedMessage.cc}
             <div class="preview-recipients">
@@ -2874,90 +2890,63 @@ let sentFolderName = $state<string | null>(null);
 {/snippet}
 
 {#if showSplash}
+  <!-- No account yet: the onboarding takes the whole screen, outside the shell. -->
   <SplashScreen oncomplete={handleSplashComplete} />
 {:else}
-  <div class="app-container" class:compact={isCompact} class:narrow={isNarrow} class:preview-open={previewOpen} class:sidebar-open={sidebarOpen}>
-    {#if isNarrow && sidebarOpen}
-      <div class="sidebar-scrim" role="presentation" onclick={() => sidebarOpen = false}></div>
-    {/if}
-    <aside class="sidebar-pane" style={isNarrow ? "" : `width: ${sidebarWidth}px; min-width: ${sidebarWidth}px;`}>
-      <div class="sidebar">
-        <div class="sidebar-header">
-          {#if isNarrow}
-            <button type="button" class="btn btn-still btn-symbol" onclick={() => sidebarOpen = false} title={$t("mail.closeFolder")} aria-label={$t("mail.closeFolder")}>
-              <Symbol name="zurueck" size={20} />
-            </button>
-          {/if}
-          <ModuleLogo to="/settings" label={$t("mail.accountSettings")} noHover />
-        </div>
-        <nav class="sidebar-nav" id="sidebar-nav">
-          {#each $accounts.groups as group}
-            <AccountGroup
-              account={group.account}
-              folderTree={folderTreesByAccount[group.account.id] ?? { name: "INBOX", label: "", children: [] }}
-              selectedFolder={group.account.id === selectedAccountId ? selectedFolder : null}
-              collapsedFolders={getCollapsedForAccount(group.account.id)}
-              unreadCount={unreadByAccount[group.account.id] ?? 0}
-              bind:dragSource
-              bind:dragTarget
-              onSelectFolder={handleAccountFolderSelect}
-              onToggleCollapse={handleToggleCollapse}
-              onToggleFolder={handleToggleFolder}
-              onMoveMessage={handleMoveMessage}
-              onFolderMouseDown={handleFolderMouseDown}
-              onContextMenu={handleFolderContextMenu}
-            />
-          {/each}
-        </nav>
-        <SidebarFooter active="mail">
-          <SidebarSearch
-            bind:value={searchQuery}
-            ariaLabel={$t("mail.searchAria")}
-            placeholder={searchFocused ? "" : $t("mail.search")}
-            clearLabel={$t("mail.clearSearch")}
-            onInput={onSearchInput}
-            onFocus={() => (searchFocused = true)}
-            onBlur={() => (searchFocused = false)}
-            onKeydown={(e) => { if (e.key === "Escape") clearSearch(); }}
-          >
-            <button
-              type="button"
-              class="flag-filter-btn"
-              class:active={flaggedSearchActive}
-              onclick={toggleFlagFilter}
-              title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
-              aria-label={$t("mail.flagOnly")}
-              aria-pressed={flaggedSearchActive}
-            >
-              <Symbol name="standard" size={16} filled={flaggedSearchActive} />
-            </button>
-          </SidebarSearch>
-        </SidebarFooter>
+  <Huelle bereich="mail" bind:suche={searchQuery} bind:spalteOffen={folderSheetOpen} suchePlatzhalter={$t("mail.search")}>
+    {#snippet spalte()}
+      <!-- The inside of the mail area: accounts and their folder trees (RL-G2).
+           On the phone the shell shows it as a sheet; a folder closes it. -->
+      <div class="mail-spalte">
+        {#each $accounts.groups as group}
+          <AccountGroup
+            account={group.account}
+            folderTree={folderTreesByAccount[group.account.id] ?? { name: "INBOX", label: "", children: [] }}
+            selectedFolder={group.account.id === selectedAccountId ? selectedFolder : null}
+            collapsedFolders={getCollapsedForAccount(group.account.id)}
+            unreadCount={unreadByAccount[group.account.id] ?? 0}
+            bind:dragSource
+            bind:dragTarget
+            onSelectFolder={handleAccountFolderSelect}
+            onToggleCollapse={handleToggleCollapse}
+            onToggleFolder={handleToggleFolder}
+            onMoveMessage={handleMoveMessage}
+            onFolderMouseDown={handleFolderMouseDown}
+            onContextMenu={handleFolderContextMenu}
+          />
+        {/each}
       </div>
-    </aside>
-    {#if !isNarrow}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={(e) => startResize(e, 'sidebar')}></div>
-    {/if}
+    {/snippet}
+
+  <div class="app-container" class:compact={isCompact} class:narrow={isNarrow} class:preview-open={previewOpen}>
     <main class="list-pane" style={isCompact ? "" : `width: ${listWidth}px; min-width: ${listWidth}px;`}>
-      <div class="list-header-container">
-        <div class="list-header">
-          <div class="list-title-area">
-            {#if isNarrow}
-              <button type="button" class="btn btn-still btn-symbol" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.toggleFolder")} aria-label={$t("mail.toggleFolder")}>
-                <Symbol name="seitenleiste-auf" size={20} />
-              </button>
-            {/if}
-            <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>
-          </div>
-          <div class="list-header-actions">
-            <button type="button" class="btn btn-still btn-symbol" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.newMail")}>
-              <Symbol name="bearbeiten" size={20} />
-            </button>
-            <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
-              <Symbol name="neu-laden" size={20} />
-            </button>
-          </div>
+      <!-- HB-SEITENKOPF: the folder 28 px with its unread count; the list's
+           filter, refresh and the one primary action "Neue E-Mail". -->
+      <div class="seitenkopf mail-kopf">
+        <div class="seitenkopf-zeile">
+          <h1>{ordnerTitel}</h1>
+          {#if ordnerUngelesen > 0}
+            <span class="seitenkopf-zahl" title={$t("mail.unreadCount", { count: ordnerUngelesen })}>{ordnerUngelesen}</span>
+          {/if}
+        </div>
+        <div class="btn-reihe">
+          <button
+            type="button"
+            class="btn btn-still btn-symbol"
+            onclick={toggleFlagFilter}
+            title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
+            aria-label={$t("mail.flagOnly")}
+            aria-pressed={flaggedSearchActive}
+          >
+            <Symbol name="standard" size={20} filled={flaggedSearchActive} />
+          </button>
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
+            <Symbol name="neu-laden" size={20} />
+          </button>
+          <button type="button" class="btn btn-primaer" onclick={handleNewMail} title={$t("mail.newMail")}>
+            <Symbol name="plus" size={16} />
+            {$t("mail.new")}
+          </button>
         </div>
       </div>
       {#if $mailbox.error}
@@ -2990,7 +2979,7 @@ let sentFolderName = $state<string | null>(null);
     </main>
     {#if !isCompact}
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={(e) => startResize(e, 'list')}></div>
+      <div class="resize-handle" role="separator" aria-orientation="vertical" onmousedown={startResize}></div>
     {/if}
     <section class="preview-pane">
       {#if isCompact && previewOpen && !showCompose}
@@ -3037,6 +3026,7 @@ let sentFolderName = $state<string | null>(null);
     </section>
 
   </div>
+  </Huelle>
 {/if}
 
   {#if showDeleteConfirm}
@@ -3175,19 +3165,16 @@ let sentFolderName = $state<string | null>(null);
   {/if}
 
 <style>
-  /* ── App shell: three columns and resize handles [RL-HUELLE] ─────────────── */
+  /* ── Mail inside the shell: list and reading pane [RL-HUELLE] ────────────
+     The shell (Huelle) hands the page its height; the two panes scroll
+     themselves. Only `style` containment: layout/paint/strict would make a
+     containing block for the position:fixed context menus inside the list
+     and shift them by the header and the column. */
   .app-container {
     display: flex;
-    height: 100vh;
-    width: 100vw;
-    contain: strict;
-  }
-  .sidebar-pane {
-    flex-shrink: 0;
-    background: var(--am-flaeche-1);
-    /* Trennlinie unsichtbar: gleiche Farbe wie der Sidebar-Hintergrund */
-    border-right: 1px solid var(--am-flaeche-1);
-    contain: layout style paint;
+    min-width: 0;
+    min-height: 0;
+    contain: style;
   }
   .resize-handle {
     width: 5px;
@@ -3202,6 +3189,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .list-pane {
     flex-shrink: 0;
+    min-height: 0;
     background: var(--am-seite);
     border-right: 1px solid var(--am-rand);
     /* NOTE: contain: layout/paint/strict would create a containing block for
@@ -3214,6 +3202,8 @@ let sentFolderName = $state<string | null>(null);
   }
   .preview-pane {
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     background: var(--am-seite);
     /* contain: layout would create a containing block for position:fixed
        descendants — the attachment context menu would be misplaced. */
@@ -3221,14 +3211,10 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     flex-direction: column;
   }
-  .sidebar-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    z-index: 40;
-  }
 
-  /* ── Responsive shell: compact and narrow [RL-HUELLE] ────────────────────── */
+  /* ── Responsive: compact and narrow [RL-HUELLE] ──────────────────────────
+     The folder column is the shell's sheet on small screens; here only the
+     list and the reading pane change. */
   /* COMPACT (≤900px): preview becomes a full-width overlay over the list,
      shown only when a message/compose is open. List fills the width. */
   .app-container.compact .list-pane {
@@ -3248,46 +3234,15 @@ let sentFolderName = $state<string | null>(null);
     position: relative;
   }
 
-  /* NARROW (≤600px): sidebar collapses to a full-width overlay (iOS Mail style). */
-  .app-container.narrow .sidebar-pane {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: none;
-    z-index: 50;
-    transform: translateX(-100%);
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-  }
-  .app-container.narrow.sidebar-open .sidebar-pane {
-    transform: translateX(0);
-  }
-  /* In narrow mode the sidebar covers the whole width, so the dark scrim would
-     only flash at the edge while the sidebar slides in — hide its shadow. */
-  .app-container.narrow .sidebar-scrim {
-    background: transparent;
-  }
-  /* Safe-area insets (Dynamic Island + home indicator). Touch targets come
-     from AM-KNOPF (44 px on a coarse pointer). */
-  .app-container.narrow .sidebar-pane {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .app-container.narrow .list-header-container {
-    padding-top: env(safe-area-inset-top, 0px);
-    background: var(--am-seite);
-  }
+  /* NARROW (≤600px): a tighter reading pane. Touch targets come from
+     AM-KNOPF (44 px on a coarse pointer). */
   .app-container.narrow .preview-back-bar {
-    padding-top: max(8px, env(safe-area-inset-top, 0px));
     min-height: 44px;
   }
-  /* Compact preview header on phones. */
   .app-container.narrow .preview-pane-header {
     height: auto;
     min-height: 64px;
     padding: 8px 14px;
-    padding-top: max(8px, env(safe-area-inset-top, 0px));
   }
   .app-container.narrow .preview-from-name {
     font-size: 1rem;
@@ -3300,46 +3255,39 @@ let sentFolderName = $state<string | null>(null);
     min-height: 320px;
   }
 
-  /* ── Sidebar: header, nav, search footer [RL-SPALTE] ─────────────────────── */
-  .sidebar {
+  /* ── The mail column: accounts and folder trees [RL-ORDNERBAUM] ─────────
+     Rows after HB-UNTERNAV (RL-G2): 40 px, 8 px radius, hover surface 2;
+     the chosen folder carries the gold edge, bold, its sign in gold — no
+     filled surface. The rows themselves live in AccountGroup. */
+  .mail-spalte {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    padding: 0;
+    padding-bottom: var(--am-raum-4);
   }
-  .sidebar-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-    margin-bottom: 16px;
-  }
-  .sidebar-nav {
-    flex: 1;
-    padding: 0;
-    overflow-y: auto;
-  }
-  /* Pressed-state toggle inside the composite search field (SidebarSearch,
-     34 px high) — a 40 px AM-KNOPF does not fit there. */
-  .flag-filter-btn {
-    border: none;
-    background: none;
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    padding: 2px 6px;
+  .mail-spalte :global(.tree-row) {
+    min-height: 40px;
+    box-sizing: border-box;
     border-radius: var(--am-radius-mittel);
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    opacity: 0.75;
   }
-  .flag-filter-btn:hover,
-  .flag-filter-btn.active {
+  .mail-spalte :global(.tree-row:hover) {
     background: var(--am-flaeche-2);
-    opacity: 1;
+  }
+  .mail-spalte :global(.tree-row.active) {
+    background: none;
+    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+    color: var(--am-text-primaer);
+    font-weight: 600;
+  }
+  .mail-spalte :global(.tree-row.active:hover) {
+    background: var(--am-flaeche-2);
+  }
+  .mail-spalte :global(.tree-row.active .tree-icon) {
+    color: var(--am-gold-beschriftung);
+  }
+  .mail-spalte :global(.tree-row .tree-icon),
+  .mail-spalte :global(.tree-row .tree-icon svg) {
+    width: 20px;
+    height: 20px;
   }
 
   /* ── Folder rows, rendered by FolderList [RL-ORDNERBAUM] ─────────────────── */
@@ -3394,37 +3342,30 @@ let sentFolderName = $state<string | null>(null);
     pointer-events: none;
   }
 
-  /* ── Message list: header, selection toolbar [RL-POSTLISTE] ──────────────── */
-  .list-header-container {
-    display: flex;
-    flex-direction: column;
-    background: var(--am-seite);
+  /* ── Message list: page head, selection toolbar [RL-POSTLISTE] ──────────
+     The list column carries HB-SEITENKOPF. It is narrower than a page, so
+     the head pads less to the side and the title gives way (ellipsis)
+     before the buttons wrap. */
+  .mail-kopf {
+    padding-inline: var(--am-raum-4);
     flex-shrink: 0;
   }
-  .list-header {
-    height: var(--am-leistenhoehe);
-    padding: 0 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: transparent;
+  .mail-kopf .seitenkopf-zeile {
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+  .mail-kopf h1 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mail-kopf .btn-reihe {
     flex-shrink: 0;
-    border-bottom: 1px solid var(--am-rand);
+    flex-wrap: nowrap;
   }
-  .list-title-area {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .list-header-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--am-raum-1);
-  }
-  .list-header h1 {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: var(--am-text-primaer);
+  @media (max-width: 40rem) {
+    .mail-kopf { padding: var(--am-raum-3) var(--am-raum-4); }
   }
   .selection-toolbar {
     display: flex;
@@ -3540,6 +3481,7 @@ let sentFolderName = $state<string | null>(null);
     max-width: 800px;
   }
   .preview-subject-large {
+    margin-top: 0;
     font-size: 1.5rem;
     font-weight: 700;
     margin-bottom: 8px;
@@ -3791,8 +3733,7 @@ let sentFolderName = $state<string | null>(null);
     background: var(--am-flaeche-1);
     display: flex;
     flex-direction: column;
-    /* Gleiche Hoehe wie der untere Sidebar-Block (.sidebar-footer):
-       Abstand Trennlinie -> untere Fensterkante = 107px (inkl. 1px border) */
+    /* Fixed height: 107px from the line to the bottom edge (incl. 1px border). */
     height: 107px;
     box-sizing: border-box;
     padding: 12px 16px;
