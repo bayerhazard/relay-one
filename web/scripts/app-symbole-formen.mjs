@@ -13,6 +13,7 @@ export const WEB = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const ZIELE = [
   ["static/favicon-32.png", "tab", 32],
   ["static/apple-touch-icon.png", "voll", 180],
+  ["static/icon-192.png", "rund", 192],
   ["static/icon.png", "rund", 512],
   ["static/maskable-icon.png", "voll", 512],
   // The market icon (OlaresManifest: icon) — the same tile.

@@ -10,6 +10,12 @@
   "theme_color": "#051729",
   "icons": [
     {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/icon.png",
       "sizes": "512x512",
       "type": "image/png",
@@ -25,6 +31,60 @@
       "src": "/apple-touch-icon.png",
       "sizes": "180x180",
       "type": "image/png"
+    }
+  ],
+  "id": "/",
+  "lang": "de",
+  "shortcuts": [
+    {
+      "name": "Neue E-Mail",
+      "short_name": "Neu",
+      "url": "/?neu=1",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Kalender",
+      "url": "/calendar",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Kontakte",
+      "url": "/contacts",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/bilder/relay-desktop.png",
+      "sizes": "1440x900",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Posteingang mit geöffneter Mail"
+    },
+    {
+      "src": "/bilder/relay-handy.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Posteingang am Handy"
     }
   ]
 }
