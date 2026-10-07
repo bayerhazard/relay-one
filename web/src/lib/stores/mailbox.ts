@@ -247,6 +247,16 @@ function createMailboxStore() {
           : [...s.selectedUids, uid],
         lastClickedUid: uid,
       })),
+    /** Toggles a mail in the selection without opening it — the selection
+     * mode of "Aufräumen" (long press › Auswählen, then taps). */
+    auswahlUmschalten: (uid: number) =>
+      update((s) => ({
+        ...s,
+        selectedUids: s.selectedUids.includes(uid)
+          ? s.selectedUids.filter((u) => u !== uid)
+          : [...s.selectedUids, uid],
+        lastClickedUid: null,
+      })),
     selectRange: (fromIdx: number, toIdx: number, msgs: Message[]) =>
       update((s) => {
         // Clamp indices: the message list can shrink between click and

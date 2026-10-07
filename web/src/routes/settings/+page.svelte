@@ -4,7 +4,7 @@
   import {
     getSettings, saveSettings,
     connectAccount, listAccounts, deleteAccount, updateAccountSettings,
-    getMoveToTrash, setMoveToTrash,
+    getMoveToTrash, setMoveToTrash, getAufraeumen, setAufraeumen,
     getCardDavSettings, setCardDavSettings, syncCardDav,
     syncCalDav,
     listCalDavAccounts, createCalDavAccount, updateCalDavAccount, deleteCalDavAccount,
@@ -76,6 +76,8 @@
   let aiError = $state<string | null>(null);
   let cbResetDone = $state(false);
   let moveToTrash = $state(true);
+  // Erweitert: the clean-up view (Aufräumen) in the mail column.
+  let aufraeumen = $state(false);
   let autoDownloadImages = $state(true);
   let fetchLimit = $state(50);
   let notificationsEnabled = $state(false);
@@ -236,6 +238,7 @@
     } catch (e) { console.warn("Settings load failed, using defaults", e); }
     try {
       moveToTrash = await getMoveToTrash();
+      aufraeumen = await getAufraeumen().catch(() => false);
     } catch (e) { console.warn("move_to_trash load failed, using default", e); }
     await loadAccountList();
 
@@ -388,6 +391,13 @@
     } catch (e: unknown) {
       aiError = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  async function handleAufraeumenToggle() {
+    aufraeumen = !aufraeumen;
+    try {
+      await setAufraeumen(aufraeumen);
+    } catch (e) { console.warn("aufraeumen save failed", e); aufraeumen = !aufraeumen; }
   }
 
   async function handleMoveToTrashToggle() {
@@ -992,6 +1002,27 @@ async function handleSaveCardDav() {
               <label class="schalter-text" for="schalter-move-to-trash">
                 <span id="schalter-move-to-trash-titel">{$t("settings.moveToTrash")}</span>
                 <span class="schalter-hinweis" id="schalter-move-to-trash-hinweis">{$t("settings.moveToTrashDesc")}</span>
+              </label>
+            </div>
+
+            <div class="divider"></div>
+
+            <!-- Erweitert (Kai, 7.10.2026): off by default, Relay looks as before. -->
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-aufraeumen"
+                class="schalter"
+                class:an={aufraeumen}
+                role="switch"
+                aria-checked={aufraeumen}
+                aria-labelledby="schalter-aufraeumen-titel"
+                aria-describedby="schalter-aufraeumen-hinweis"
+                onclick={handleAufraeumenToggle}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-aufraeumen">
+                <span id="schalter-aufraeumen-titel">{$t("settings.aufraeumen")}</span>
+                <span class="schalter-hinweis" id="schalter-aufraeumen-hinweis">{$t("settings.aufraeumenDesc")}</span>
               </label>
             </div>
 

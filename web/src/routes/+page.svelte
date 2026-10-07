@@ -13,6 +13,8 @@
   import ReplySuggestions from "$lib/components/ReplySuggestions.svelte";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+  import Aufraeumen from "$lib/components/Aufraeumen.svelte";
+  import Durchgehen from "$lib/components/Durchgehen.svelte";
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -29,6 +31,7 @@ import {
     openEventStream, type AttachmentInfo,
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
     getUnsubscribeOffer, unsubscribe, type AbmeldeArt,
+    moveMessagesBatch, STAPEL_MAX, getAufraeumen,
   } from "$lib/services/tauri";
   import { assistantCommand } from "$lib/stores/assistantCommand";
   import { isFollowupDone } from "$lib/utils/followupMemory";
@@ -394,6 +397,17 @@ import {
   try { const v = localStorage.getItem("relay_fetch_limit"); if (v) fetchLimit = parseInt(v, 10) || 50; } catch {}
   let draftsFolderName = $state<string | null>(null);
 let sentFolderName = $state<string | null>(null);
+  // Spam and archive of the account (attribute \Junk / \Archive, else by
+  // name); without one, "Junk"/"Archive" — the provider queue creates it.
+  let junkFolderName = $state<string | null>(null);
+  let archiveFolderName = $state<string | null>(null);
+  const spamOrdner = () => junkFolderName ?? "Junk";
+  const archivOrdner = () => archiveFolderName ?? "Archive";
+  const SPAM_NAMEN = ["junk", "spam", "spamverdacht", "junk e-mail", "junk-e-mail", "junk email", "inbox.junk", "inbox.spam"];
+  const ARCHIV_NAMEN = ["archive", "archiv", "inbox.archive", "inbox.archiv"];
+  function istSpamOrdner(name: string): boolean {
+    return name === junkFolderName || SPAM_NAMEN.includes(name.toLowerCase());
+  }
   let draftUid = $state<number | null>(null);
   let draftTo = $state("");
   let draftCc = $state("");
@@ -462,6 +476,8 @@ let sentFolderName = $state<string | null>(null);
         const localSet = new Set<string>();
         draftsFolderName = null;
         sentFolderName = null;
+        junkFolderName = null;
+        archiveFolderName = null;
         const draftFallbacks = ["drafts", "entwürfe", "inbox.drafts"];
         const sentFallbacks = ["sent", "sent messages", "gesendet", "inbox.sent", "inbox.gesendet"];
         for (const x of f) {
@@ -479,6 +495,12 @@ let sentFolderName = $state<string | null>(null);
           }
           if (!sentFolderName && (x.attributes?.some(a => a.includes("Sent")) || sentFallbacks.includes(key))) {
             sentFolderName = x.name;
+          }
+          if (!junkFolderName && (x.attributes?.some(a => a.includes("Junk")) || SPAM_NAMEN.includes(key))) {
+            junkFolderName = x.name;
+          }
+          if (!archiveFolderName && (x.attributes?.some(a => a.includes("Archive")) || ARCHIV_NAMEN.includes(key))) {
+            archiveFolderName = x.name;
           }
         }
         const orderedNames = applySavedFolderOrder(accountId, names);
@@ -1072,6 +1094,7 @@ let sentFolderName = $state<string | null>(null);
 
   // Select folder from a specific account
   function handleAccountFolderSelect(accountId: number, folder: string) {
+    ansicht = "liste";
     if (accountId !== selectedAccountId) {
       const acct = accountList.find(a => a.id === accountId);
       if (acct) {
@@ -1736,6 +1759,7 @@ let sentFolderName = $state<string | null>(null);
     initOk = true;
     // Fire-and-forget: not needed for first paint
     getMoveToTrash().then(v => { moveToTrash = v; }).catch(() => {});
+    getAufraeumen().then(v => { aufraeumenAn = v; }).catch(() => {});
     refreshUnreadCounts();
 
     // Offline support: listen for connectivity changes, sync queued drafts on reconnect
@@ -2129,6 +2153,8 @@ let sentFolderName = $state<string | null>(null);
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    // The clean-up views bring their own keys.
+    if (ansicht !== "liste") return;
     // Escape: close context menus, compose or confirmation dialog, or clear multi-selection
     if (e.key === "Escape") {
       if (folderCtxMenu || moveMenu || linkMenu) {
@@ -2201,6 +2227,18 @@ let sentFolderName = $state<string | null>(null);
             return;
           }
           break;
+      }
+    }
+
+    // E: archive, !: spam / not spam — the selection or the open mail.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !showCompose) {
+      if (e.key === "e" || e.key === "E") {
+        if (gemeinteUids().length > 0) { e.preventDefault(); archivieren(); }
+        return;
+      }
+      if (e.key === "!") {
+        if (gemeinteUids().length > 0) { e.preventDefault(); spamUmschalten(); }
+        return;
       }
     }
 
@@ -2523,8 +2561,104 @@ let sentFolderName = $state<string | null>(null);
     requestDelete($mailbox.selectedUids);
   }
 
+  // ─── Stapel verschieben mit Rückgängig (Aufräumen) ───────────
+  // Like the trash: the rows go at once, the server hears of it after
+  // UNDO_MS — "Rückgängig" before that only reloads, no new UIDs needed.
+  let undoVerschieben = $state<{ uids: number[]; accountId: number; folder: string; ziel: string; text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  function verschiebenMitRueckgaengig(uids: number[], ziel: string, text: string) {
+    if (uids.length === 0 || ziel === selectedFolder) return;
+    flushPendingDelete();
+    flushVerschieben();
+    const job = { uids, accountId: selectedAccountId, folder: selectedFolder, ziel, text };
+    for (const uid of uids) mailbox.removeMessage(uid);
+    mailbox.clearSelection();
+    undoVerschieben = { ...job, timer: setTimeout(() => flushVerschieben(), UNDO_MS) };
+  }
+
+  function flushVerschieben() {
+    const job = undoVerschieben;
+    if (!job) return;
+    clearTimeout(job.timer);
+    undoVerschieben = null;
+    void stapelAusfuehren(job);
+  }
+
+  async function stapelAusfuehren(job: { uids: number[]; accountId: number; folder: string; ziel: string }) {
+    const raw = getAccountFolders(job.accountId).raw;
+    let fehler = 0;
+    for (let i = 0; i < job.uids.length; i += STAPEL_MAX) {
+      try {
+        const r = await moveMessagesBatch(job.accountId, job.uids.slice(i, i + STAPEL_MAX), job.folder, job.ziel,
+          raw[job.folder] || job.folder, raw[job.ziel] || job.ziel);
+        fehler += r.fehler;
+      } catch {
+        fehler += Math.min(STAPEL_MAX, job.uids.length - i);
+      }
+    }
+    invalidateFolderCache(job.accountId, job.folder);
+    invalidateFolderCache(job.accountId, job.ziel);
+    if (fehler > 0) {
+      mailbox.setError(translate("mail.moveFailed") + translate("mail.moveBatchPartial", { count: String(fehler) }));
+      if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder(true);
+    }
+  }
+
+  function undoVerschiebenRueckgaengig() {
+    const job = undoVerschieben;
+    if (!job) return;
+    clearTimeout(job.timer);
+    undoVerschieben = null;
+    invalidateFolderCache(job.accountId, job.folder);
+    if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder();
+    aufraeumenNeuLaden += 1;
+  }
+
+
+  /** The mails an action means: the selection, else the open mail. */
+  function gemeinteUids(): number[] {
+    if ($mailbox.selectedUids.length > 0) return [...$mailbox.selectedUids];
+    return selectedMessage ? [selectedMessage.uid] : [];
+  }
+
+  function archivieren(uids = gemeinteUids()) {
+    const n = uids.length;
+    verschiebenMitRueckgaengig(uids, archivOrdner(),
+      n === 1 ? translate("mail.archivedOne") : translate("mail.archivedMany", { count: String(n) }));
+  }
+
+  /** Spam, or back to the inbox from the spam folder ("Kein Spam"). */
+  function spamUmschalten(uids = gemeinteUids()) {
+    if (istSpamOrdner(selectedFolder)) {
+      verschiebenMitRueckgaengig(uids, "INBOX",
+        uids.length === 1 ? translate("mail.notSpamOne") : translate("mail.notSpamMany", { count: String(uids.length) }));
+    } else {
+      verschiebenMitRueckgaengig(uids, spamOrdner(),
+        uids.length === 1 ? translate("mail.spamOne") : translate("mail.spamMany", { count: String(uids.length) }));
+    }
+  }
+
+  onDestroy(() => flushVerschieben());
+
+  // ─── Aufräumen (behind the switch in Einstellungen › Allgemein) ───
+  let aufraeumenAn = $state(false);
+  let ansicht = $state<"liste" | "absender" | "durchgehen">("liste");
+  let aufraeumenNeuLaden = $state(0);
+
+  function aufraeumenAktion(uids: number[], art: "archiv" | "papierkorb" | "spam") {
+    if (art === "archiv") archivieren(uids);
+    else if (art === "spam") spamUmschalten(uids);
+    else requestDelete(uids);
+  }
+
+  function aufraeumenOeffnen() {
+    ansicht = "absender";
+    folderSheetOpen = false;
+  }
+
   function deferDelete(uids: number[]) {
     flushPendingDelete();
+    flushVerschieben();
     const job = { uids, accountId: selectedAccountId, folder: selectedFolder };
     for (const uid of uids) mailbox.removeMessage(uid);
     undoDelete = { ...job, timer: setTimeout(() => flushPendingDelete(), UNDO_MS) };
@@ -2547,6 +2681,7 @@ let sentFolderName = $state<string | null>(null);
     // Nothing reached the server yet — reloading brings the mails back.
     invalidateFolderCache(job.accountId, job.folder);
     if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder();
+    aufraeumenNeuLaden += 1;
   }
 
   onDestroy(() => flushPendingDelete());
@@ -2712,6 +2847,7 @@ let sentFolderName = $state<string | null>(null);
     messages={$mailbox.messages}
     selectedUids={$mailbox.selectedUids}
     onselect={handleSelectMessage}
+    onauswahl={(uid) => mailbox.auswahlUmschalten(uid)}
     onselectToggle={handleSelectToggle}
     onselectRange={handleSelectRange}
     onreply={handleReplyMessage}
@@ -2781,6 +2917,9 @@ let sentFolderName = $state<string | null>(null);
               {$t("mail.unsubscribe")}
             </button>
           {/if}
+          <button type="button" class="btn btn-still" onclick={() => spamUmschalten([selectedMessage.uid])} title={istSpamOrdner(selectedFolder) ? $t("mail.notSpamTitle") : $t("mail.spamTitle")}>
+            {istSpamOrdner(selectedFolder) ? $t("mail.notSpam") : $t("mail.spam")}
+          </button>
           <button type="button" class="btn btn-gefahr" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
             {$t("mail.deleteMail")}
           </button>
@@ -2975,9 +3114,39 @@ let sentFolderName = $state<string | null>(null);
             onContextMenu={handleFolderContextMenu}
           />
         {/each}
+        {#if aufraeumenAn}
+          <!-- Erweitert: only with the switch on (Einstellungen › Allgemein). -->
+          <button type="button" class="mail-aufraeumen" class:aktiv={ansicht !== "liste"}
+            aria-current={ansicht !== "liste" ? "page" : undefined} onclick={aufraeumenOeffnen}>
+            <Symbol name="archiv" size={20} />
+            <span>{$t("mail.aufraeumen")}</span>
+          </button>
+        {/if}
       </div>
     {/snippet}
 
+  {#if ansicht === "absender"}
+    <Aufraeumen
+      accountId={selectedAccountId}
+      folder={selectedFolder}
+      folderLabel={translate(translateFolder(selectedFolder))}
+      istSpamOrdner={istSpamOrdner(selectedFolder)}
+      neuLaden={aufraeumenNeuLaden}
+      onaktion={aufraeumenAktion}
+      onmeldung={abmeldeMeldungZeigen}
+      ondurchgehen={() => (ansicht = "durchgehen")}
+      onschliessen={() => (ansicht = "liste")}
+    />
+  {:else if ansicht === "durchgehen"}
+    <Durchgehen
+      accountId={selectedAccountId}
+      folder={selectedFolder}
+      messages={$mailbox.messages}
+      istSpamOrdner={istSpamOrdner(selectedFolder)}
+      onaktion={aufraeumenAktion}
+      onschliessen={() => (ansicht = "absender")}
+    />
+  {:else}
   <div class="app-container" class:compact={isCompact} class:narrow={isNarrow} class:preview-open={previewOpen}>
     <main class="list-pane" style={isCompact ? "" : `width: ${listWidth}px; min-width: ${listWidth}px;`}>
       <!-- HB-SEITENKOPF: the folder 28 px with its unread count; the list's
@@ -3019,8 +3188,14 @@ let sentFolderName = $state<string | null>(null);
             <button type="button" class="btn btn-sekundaer btn-klein" onclick={markSelectedRead} title={$t("mail.markReadTitle")}>
               {$t("mail.read")}
             </button>
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => archivieren()} title={$t("mail.archiveTitle")}>
+              {$t("mail.archive")}
+            </button>
             <button type="button" class="btn btn-sekundaer btn-klein" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
               {$t("mail.move")}
+            </button>
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => spamUmschalten()} title={istSpamOrdner(selectedFolder) ? $t("mail.notSpamTitle") : $t("mail.spamTitle")}>
+              {istSpamOrdner(selectedFolder) ? $t("mail.notSpam") : $t("mail.spam")}
             </button>
             <!-- Secondary, not red: with a mail open the reading pane already
                  carries the one danger button (CI R1, Kai 06.10.2026). -->
@@ -3088,6 +3263,7 @@ let sentFolderName = $state<string | null>(null);
     </section>
 
   </div>
+  {/if}
   </Huelle>
 {/if}
 
@@ -3128,6 +3304,13 @@ let sentFolderName = $state<string | null>(null);
       enterConfirms={false}
       oncancel={() => (abmeldenFragen = false)}
     />
+  {/if}
+
+  {#if undoVerschieben}
+    <div class="undo-toast" role="status" aria-live="polite">
+      <span>{undoVerschieben.text}</span>
+      <button type="button" class="btn btn-sekundaer" onclick={undoVerschiebenRueckgaengig}>{$t("mail.undo")}</button>
+    </div>
   {/if}
 
   {#if abmeldeMeldung}
@@ -3441,6 +3624,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .selection-toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -3456,6 +3640,8 @@ let sentFolderName = $state<string | null>(null);
   }
   .selection-actions {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: var(--am-raum-2);
   }
@@ -3468,6 +3654,35 @@ let sentFolderName = $state<string | null>(null);
   /* ── Undo toast after a delete [RL-POSTLISTE] ────────────────────────────── */
   /* "In den Papierkorb verschoben · Rückgängig" — floats, so it carries the
      one shadow and the emphasised border (CI R6). */
+  /* ── Clean-up entry in the mail column [RL-AUFRAEUMEN] ────────────────────
+     An HB-UNTERNAV row under the accounts: 40 px, 20 px sign; chosen = gold
+     edge, bold, no surface. Only with the switch on. */
+  .mail-aufraeumen {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-2);
+    width: 100%;
+    min-height: 40px;
+    margin-top: var(--am-raum-2);
+    padding: 8px 14px;
+    font-size: 0.8125rem;
+    border: none;
+    border-radius: var(--am-radius-mittel);
+    background: none;
+    color: var(--am-text-sekundaer);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .mail-aufraeumen:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
+  .mail-aufraeumen.aktiv {
+    font-weight: 600;
+    color: var(--am-text-primaer);
+    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+  }
+  .mail-aufraeumen.aktiv :global(svg) { color: var(--am-gold-beschriftung); }
+  .mail-aufraeumen:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+
   .undo-toast {
     position: fixed;
     left: 50%;
