@@ -25,6 +25,7 @@ pub mod quick_add;
 pub mod send;
 pub mod settings;
 pub mod todos;
+pub mod unsubscribe;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -80,6 +81,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/messages/body", get(messages::fetch_message_body))
         .route("/messages/reparse", post(messages::reparse_eml_bodies))
         .route("/messages/raw", get(messages::fetch_raw_message))
+        .route("/messages/unsubscribe", get(unsubscribe::angebot).post(unsubscribe::abmelden))
         .route("/messages/attachments", get(messages::fetch_attachments))
         .route("/messages/attachment", get(messages::fetch_attachment_content))
         .route("/messages/read", post(messages::mark_as_read))
