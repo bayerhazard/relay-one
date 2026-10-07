@@ -1733,6 +1733,12 @@ let sentFolderName = $state<string | null>(null);
         goto(pathto);
         return;
       }
+      // The app icon's shortcut "Neue E-Mail" (manifest: /?neu=1) opens
+      // the compose window at once; the parameter leaves the address.
+      if (new URLSearchParams(window.location.search).get("neu") === "1") {
+        history.replaceState(history.state, "", window.location.pathname);
+        handleNewMail();
+      }
     } catch { /* ignore */ }
     // Olares-Desktop (Electron) kann Navigation an die eingebettete Web-App
     // per postMessage senden (Menüpunkt "Relay → Einstellungen"). Bekannte
