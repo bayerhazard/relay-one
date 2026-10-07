@@ -15,6 +15,8 @@
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import Aufraeumen from "$lib/components/Aufraeumen.svelte";
   import Durchgehen from "$lib/components/Durchgehen.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import type { SymbolName } from "$lib/symbole";
   import SplashScreen from "$lib/components/SplashScreen.svelte";
   import ErrorBanner from "$lib/components/ErrorBanner.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
@@ -2485,6 +2487,8 @@ let sentFolderName = $state<string | null>(null);
   // button shows only when the sender offers it, never in the spam folder.
   let abmeldeAngebot = $state<{ uid: number; art: AbmeldeArt; ziel: string } | null>(null);
   let abmeldenFragen = $state(false);
+  // "Mehr" in the reading pane's toolbar: what is rarer (reply to all).
+  let mehrMenue = $state<{ x: number; y: number } | null>(null);
   let abmeldenLaeuft = $state(false);
   let abmeldeMeldung = $state<string | null>(null);
   let abmeldeMeldungTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2842,6 +2846,15 @@ let sentFolderName = $state<string | null>(null);
 <svelte:window onkeydown={handleKeydown} />
 <svelte:head><title>{showSplash ? tabTitel() : tabTitel(ordnerTitel)}</title></svelte:head>
 
+<!-- A sign-only button of a toolbar (CI G4): the word as tooltip and name,
+     40 px target from .btn-symbol. -->
+{#snippet zeichen(name: SymbolName, wort: string, aktion: (e: MouseEvent) => void, taste?: string, gedrueckt?: boolean)}
+  <button type="button" class="btn btn-still btn-symbol" title={taste ? `${wort} (${taste})` : wort} aria-label={wort}
+    aria-pressed={gedrueckt === undefined ? undefined : gedrueckt} onclick={aktion}>
+    <Symbol {name} size={20} />
+  </button>
+{/snippet}
+
 {#snippet list()}
   <MessageList
     messages={$mailbox.messages}
@@ -2867,6 +2880,7 @@ let sentFolderName = $state<string | null>(null);
     accountId={selectedAccountId}
     isDraftFolder={selectedFolder === draftsFolderName}
     isSentFolder={selectedFolder === sentFolderName}
+    loeschenEndgueltig={!deleteIsRecoverable()}
     searchActive={searchActive}
   />
 {/snippet}
@@ -2896,33 +2910,65 @@ let sentFolderName = $state<string | null>(null);
       initialAttachments={draftInitialAttachments}
     />
   {:else if selectedMessage}
+    {@const msg = selectedMessage}
+    {@const imSpam = istSpamOrdner(selectedFolder)}
     <div class="preview-layout">
       <div class="preview-pane-header">
         <div class="preview-header-meta">
           <span class="preview-from-name">{extractName(selectedMessage.from) || $t("mail.unknown")}</span>
-          <span class="preview-from-email">{extractEmail(selectedMessage.from)}</span>
+          <span class="preview-from-email">
+            {extractEmail(selectedMessage.from)}
+            <!-- "Abo beenden" has no clear sign: a word beside the sender, as
+                 in Gmail (CI G4). -->
+            {#if abmeldeAngebot && abmeldeAngebot.uid === selectedMessage.uid}
+              <span aria-hidden="true">·</span>
+              <button type="button" class="preview-abmelden" disabled={abmeldenLaeuft} onclick={() => (abmeldenFragen = true)}>
+                {$t("mail.unsubscribe")}
+              </button>
+            {/if}
+          </span>
         </div>
-        <div class="preview-header-actions">
-          <!-- Secondary: the page's one primary is "Neue E-Mail" (CI G2). -->
-          <button type="button" class="btn btn-sekundaer" onclick={() => handleReply(selectedMessage)}>
-            {$t("mail.reply")}
-          </button>
-          {#if hasSeveralRecipients(selectedMessage)}
-            <button type="button" class="btn btn-sekundaer" onclick={() => handleReply(selectedMessage, true)}>
-              {$t("mail.replyAll")}
-            </button>
-          {/if}
-          {#if abmeldeAngebot && abmeldeAngebot.uid === selectedMessage.uid}
-            <button type="button" class="btn btn-sekundaer" disabled={abmeldenLaeuft} onclick={() => (abmeldenFragen = true)}>
-              {$t("mail.unsubscribe")}
-            </button>
-          {/if}
-          <button type="button" class="btn btn-still" onclick={() => spamUmschalten([selectedMessage.uid])} title={istSpamOrdner(selectedFolder) ? $t("mail.notSpamTitle") : $t("mail.spamTitle")}>
-            {istSpamOrdner(selectedFolder) ? $t("mail.notSpam") : $t("mail.spam")}
-          </button>
-          <button type="button" class="btn btn-gefahr" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
-            {$t("mail.deleteMail")}
-          </button>
+        <!-- One toolbar of signs (CI G4, Kai 07.10.2026): known, reversible,
+             named with tooltip and key. Words stay for what has no clear
+             sign or cannot be undone. -->
+        <div class="werkzeugleiste" role="toolbar" aria-label={$t("mail.aktionen")}>
+          <div class="werkzeug-gruppe">
+            {@render zeichen("antworten", $t("mail.reply"), () => handleReply(msg))}
+            {@render zeichen("weiterleiten", $t("mail.forward"), () => handleForwardMessage(msg.uid))}
+          </div>
+          <div class="werkzeug-gruppe">
+            {@render zeichen("archiv", $t("mail.archive"), () => archivieren([msg.uid]), "E")}
+            {#if imSpam}
+              <button type="button" class="btn btn-still btn-klein" onclick={() => spamUmschalten([msg.uid])} title={$t("mail.notSpamTitle")}>
+                {$t("mail.notSpam")}
+              </button>
+            {:else}
+              {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten([msg.uid]), "!")}
+            {/if}
+            {#if deleteIsRecoverable()}
+              {@render zeichen("loeschen", $t("mail.inPapierkorb"), () => handleDeleteMessage(msg.uid), "⌫")}
+            {:else}
+              <!-- Final: red, with its object and a question (CI G2). -->
+              <button type="button" class="btn btn-gefahr btn-klein" onclick={() => handleDeleteMessage(msg.uid)}>
+                {$t("mail.deleteFinal1")}
+              </button>
+            {/if}
+            {@render zeichen("verschieben", $t("mail.moveFolderTitle"), (e) => {
+              mailbox.selectSingle(msg.uid);
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              openMoveMenuAt(r.left, r.bottom + 4);
+            })}
+          </div>
+          <div class="werkzeug-gruppe">
+            {@render zeichen("gelesen", msg.is_read ? $t("mail.markUnread") : $t("mail.markRead"), () => handleToggleRead(msg.uid))}
+            {@render zeichen("markieren", msg.is_flagged ? $t("mail.flagOff") : $t("mail.flagOn"), () => handleToggleFlag(msg.uid), undefined, msg.is_flagged)}
+            {#if hasSeveralRecipients(msg)}
+              {@render zeichen("mehr", $t("common.more"), (e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                mehrMenue = { x: r.right - 220, y: r.bottom + 4 };
+              })}
+            {/if}
+          </div>
         </div>
       </div>
       
@@ -3185,26 +3231,26 @@ let sentFolderName = $state<string | null>(null);
         <div class="selection-toolbar">
           <span class="selection-count">{$t("mail.selectedCount", { count: $mailbox.selectedUids.length })}</span>
           <div class="selection-actions">
-            <button type="button" class="btn btn-sekundaer btn-klein" onclick={markSelectedRead} title={$t("mail.markReadTitle")}>
-              {$t("mail.read")}
-            </button>
-            <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => archivieren()} title={$t("mail.archiveTitle")}>
-              {$t("mail.archive")}
-            </button>
-            <button type="button" class="btn btn-sekundaer btn-klein" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
-              {$t("mail.move")}
-            </button>
-            <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => spamUmschalten()} title={istSpamOrdner(selectedFolder) ? $t("mail.notSpamTitle") : $t("mail.spamTitle")}>
-              {istSpamOrdner(selectedFolder) ? $t("mail.notSpam") : $t("mail.spam")}
-            </button>
-            <!-- Secondary, not red: with a mail open the reading pane already
-                 carries the one danger button (CI R1, Kai 06.10.2026). -->
-            <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
-              {$t("mail.deleteMails")}
-            </button>
-            <button type="button" class="btn btn-still btn-symbol" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")} aria-label={$t("mail.clearSelectionTitle")}>
-              <Symbol name="schliessen" size={20} />
-            </button>
+            <!-- Signs as above the mail (CI G4); the trash is not red,
+                 it comes back with "Rückgängig" (CI G2, Kai 07.10.2026). -->
+            {@render zeichen("gelesen", $t("mail.markReadTitle"), markSelectedRead)}
+            {@render zeichen("archiv", $t("mail.archive"), () => archivieren(), "E")}
+            {@render zeichen("verschieben", $t("mail.moveFolderTitle"), moveSelectedToFolder)}
+            {#if istSpamOrdner(selectedFolder)}
+              <button type="button" class="btn btn-still btn-klein" onclick={() => spamUmschalten()} title={$t("mail.notSpamTitle")}>
+                {$t("mail.notSpam")}
+              </button>
+            {:else}
+              {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten(), "!")}
+            {/if}
+            {#if deleteIsRecoverable()}
+              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, "⌫")}
+            {:else}
+              <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected}>
+                {$t("mail.deleteFinalN")}
+              </button>
+            {/if}
+            {@render zeichen("schliessen", $t("mail.auswahlAufheben"), () => mailbox.clearSelection(), "Esc")}
           </div>
         </div>
       {/if}
@@ -3289,6 +3335,14 @@ let sentFolderName = $state<string | null>(null);
     </div>
   {/if}
 
+  {#if mehrMenue && selectedMessage}
+    {@const msg = selectedMessage}
+    <ContextMenu
+      menu={mehrMenue}
+      items={[{ label: $t("mail.replyAll"), action: () => handleReply(msg, true) }]}
+      onclose={() => (mehrMenue = null)}
+    />
+  {/if}
   {#if abmeldenFragen && abmeldeAngebot}
     <!-- Goes out to the sender and cannot be taken back: a question first,
          focus on "Abbrechen" (HB-DIALOG). Not red — nothing is deleted. -->
@@ -3738,13 +3792,47 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.75rem;
     color: var(--am-text-gedaempft);
   }
-  /* Mail actions (CI R1): reply is the one primary, "Mail löschen" the
-     danger button with its object in the word. */
-  .preview-header-actions {
+  /* ── Toolbar of signs [RL-WERKZEUGLEISTE] ────────────────────────────────
+     Signs in groups, a thin divider between groups (CI G4, Kai 07.10.2026;
+     Relay builds it first, then it goes to the CI as an HB block). Wraps
+     whole groups when the pane is narrow. */
+  .werkzeugleiste {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--am-raum-2);
+    align-items: center;
+    gap: var(--am-raum-1);
     margin-left: auto;
+  }
+  .werkzeug-gruppe {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .werkzeug-gruppe + .werkzeug-gruppe {
+    padding-left: var(--am-raum-1);
+    border-left: 1px solid var(--am-trennlinie);
+  }
+  .werkzeugleiste .btn-symbol[aria-pressed="true"] {
+    color: var(--am-gold-auszeichnung);
+  }
+  /* "Abo beenden" as a word beside the sender, like a link. */
+  .preview-abmelden {
+    border: 0;
+    padding: 0;
+    background: none;
+    font: inherit;
+    color: var(--am-text-primaer);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .preview-abmelden:disabled {
+    color: var(--am-text-deaktiviert);
+    cursor: default;
+  }
+  .preview-abmelden:focus-visible {
+    outline: var(--am-fokus-ring);
+    outline-offset: 2px;
   }
   .preview-back-bar {
     flex-shrink: 0;

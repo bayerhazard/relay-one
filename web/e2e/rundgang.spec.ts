@@ -213,7 +213,7 @@ test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, i
   const vorher = await zeilen.count();
   await zeilen.nth(1).click();
   await zeilen.nth(2).click({ modifiers: ["Control"] });
-  await page.getByRole("button", { name: "Archivieren", exact: true }).click();
+  await page.locator(".selection-toolbar").getByRole("button", { name: "Archivieren", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2 Mails ins Archiv verschoben");
   await expect(zeilen).toHaveCount(vorher - 2);
   await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();

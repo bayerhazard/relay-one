@@ -7,6 +7,7 @@
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import Symbol from "$lib/components/Symbol.svelte";
   import { lang, t } from "$lib/i18n";
+  import type { SymbolName } from "$lib/symbole";
   import {
     getSenders, getUnsubscribeOffer, unsubscribe,
     type Absender, type AbmeldeArt,
@@ -114,6 +115,12 @@
   }
 </script>
 
+{#snippet zeichen(name: SymbolName, wort: string, aktion: () => void)}
+  <button type="button" class="btn btn-still btn-symbol" title={wort} aria-label={wort} onclick={aktion}>
+    <Symbol {name} size={20} />
+  </button>
+{/snippet}
+
 <div class="aufraeumen">
   <div class="seitenkopf">
     <div class="seitenkopf-zeile">
@@ -167,17 +174,13 @@
                   {$t("mail.unsubscribe")}
                 </button>
               {/if}
-              <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => handeln(a, "archiv")}>
-                {a.anzahl === 1 ? $t("mail.archive") : $t("mail.alleArchivieren", { count: a.anzahl })}
-              </button>
-              <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => handeln(a, "papierkorb")}>
-                {a.anzahl === 1 ? $t("mail.inPapierkorb") : $t("mail.alleLoeschen", { count: a.anzahl })}
-              </button>
+              <!-- Signs with the word as tooltip and name (CI G4): every
+                   action comes back with "Rückgängig". -->
+              {@render zeichen("archiv", a.anzahl === 1 ? $t("mail.archive") : $t("mail.alleArchivieren", { count: a.anzahl }), () => handeln(a, "archiv"))}
               {#if !istSpamOrdner}
-                <button type="button" class="btn btn-still btn-klein" onclick={() => handeln(a, "spam")}>
-                  {a.anzahl === 1 ? $t("mail.spam") : $t("mail.alleSpam", { count: a.anzahl })}
-                </button>
+                {@render zeichen("spam", a.anzahl === 1 ? $t("mail.alsSpam") : $t("mail.alleSpam", { count: a.anzahl }), () => handeln(a, "spam"))}
               {/if}
+              {@render zeichen("loeschen", a.anzahl === 1 ? $t("mail.inPapierkorb") : $t("mail.alleLoeschen", { count: a.anzahl }), () => handeln(a, "papierkorb"))}
             </div>
           </li>
         {/each}
@@ -269,7 +272,11 @@
   .aufraeumen-knoepfe {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--am-raum-2);
+    align-items: center;
+    gap: 2px;
+  }
+  .aufraeumen-knoepfe .btn-klein {
+    margin-right: var(--am-raum-2);
   }
   @media (max-width: 40rem) {
     .aufraeumen-inhalt {

@@ -29,10 +29,12 @@
     accountId: number;
     isDraftFolder?: boolean;
     isSentFolder?: boolean;
+    /** Deleting here is final (the trash itself, or no trash): red, with a question. */
+    loeschenEndgueltig?: boolean;
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, searchActive = false }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, loeschenEndgueltig = false, searchActive = false }: Props = $props();
 
   // Urgent = manually marked OR detected by the AI (high priority, no fraud
   // suspicion). Shown with the unread-style marking in red.
@@ -465,7 +467,8 @@
         }}><span class="ctx-icon">{@html iconSVG("move")}</span>{$t("mail.move")}</button>
       {/if}
       <div class="ctx-menu-separator" role="separator"></div>
-      <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.deleteMail")}</button>
+      <!-- Red only for what is final; the trash comes back (CI G2, 07.10.2026). -->
+      <button type="button" class="ctx-menu-item" class:danger={loeschenEndgueltig} role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{loeschenEndgueltig ? $t("mail.deleteFinal1") : $t("mail.inPapierkorb")}</button>
     </div>
   {/if}
 </div>
