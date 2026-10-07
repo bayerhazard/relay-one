@@ -35,9 +35,10 @@ const markup = (path: string) => {
   return i < 0 ? text : text.slice(0, i);
 };
 
-// The assistant's shield is a drawing, not an icon; <Symbol> itself is the
-// one place that draws an svg. The word mark comes as an image (Marke.svelte).
-const SVG_ALLOWED = new Set(["lib/components/Symbol.svelte", "lib/components/AssistantFab.svelte"]);
+// <Symbol> itself is the one place that draws an icon svg. The AImighty
+// shield (HB-ASSISTENT, Schild.svelte) is a brand drawing, not an icon — the
+// one other inline svg. The word mark comes as an image (Marke.svelte).
+const SVG_ALLOWED = new Set(["lib/components/Symbol.svelte", "lib/components/Schild.svelte"]);
 
 // Pictographs and dingbats used as icons (✓ ✕ ⚠ 🔄 📎 …). Allowed: the key
 // name ⌫ in a shortcut hint, typographic … · — and the arrows in comments.

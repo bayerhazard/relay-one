@@ -1,9 +1,13 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
-  // AI-Assistent v2 (Concept §10.1): agentic drawer. Streams the agent loop via
-  // SSE, renders confirmation cards (PlanCard), a live status line and a "what I
-  // did" trace. Write actions never execute directly — they become plans the
-  // user confirms (B4 fixed). Voice input is unchanged from v1.
+  // AI-Assistent v2 (Concept §10.1) in the shape of HB-ASSISTENT (Rocket:
+  // assistent.tsx): the panel above the shield — head, history, empty state
+  // with examples, input. Streams the agent loop via SSE, renders
+  // confirmation cards (PlanCard), a live status line and a "what I did"
+  // trace. Write actions never execute directly — they become plans the user
+  // confirms (B4 fixed). Relay's own on top of Rocket: dictation at the input,
+  // reading answers aloud, the trace, stop while running.
+  import Schild from "$lib/components/Schild.svelte";
   import { goto } from "$app/navigation";
   import { get } from "svelte/store";
   import { t, translate, lang } from "$lib/i18n";
@@ -34,9 +38,21 @@
     onclose: () => void;
     /** Phase C: a plan handed in from a mail footer chip (origin=mail_followup). */
     externalPlan?: AgentPlan | null;
+    /** Where focus returns on Escape / the close button: the shield. */
+    returnFocus?: HTMLElement | null;
+    /** Out: the agent is running (the shield stops blinking). */
+    busy?: boolean;
   }
 
-  let { open, module, context: _context = "", onclose, externalPlan = null }: Props = $props();
+  let {
+    open,
+    module,
+    context: _context = "",
+    onclose,
+    externalPlan = null,
+    returnFocus = null,
+    busy = $bindable(false),
+  }: Props = $props();
 
   interface ChatMsg {
     role: "user" | "assistant";
@@ -55,8 +71,53 @@
   let sessionId = $state<string | null>(null);
   let planBusy = $state<string | null>(null);
   let abortController = $state<AbortController | null>(null);
-  let inputEl = $state<HTMLInputElement | null>(null);
+  let inputEl = $state<HTMLTextAreaElement | null>(null);
   let popEl = $state<HTMLElement | null>(null);
+  let endEl = $state<HTMLElement | null>(null);
+
+  $effect(() => {
+    busy = loading;
+  });
+
+  // Examples per module for the empty state (HB-ASSISTENT: Rocket's
+  // BEISPIELE). Literal keys so the i18n guard sees them.
+  const examples = $derived.by(() => {
+    void $lang;
+    switch (module) {
+      case "mail":
+        return [translate("assistant.example.mail.1"), translate("assistant.example.mail.2"), translate("assistant.example.mail.3"), translate("assistant.example.mail.4")];
+      case "calendar":
+        return [translate("assistant.example.calendar.1"), translate("assistant.example.calendar.2"), translate("assistant.example.calendar.3"), translate("assistant.example.calendar.4")];
+      case "contacts":
+        return [translate("assistant.example.contacts.1"), translate("assistant.example.contacts.2"), translate("assistant.example.contacts.3"), translate("assistant.example.contacts.4")];
+      case "tasks":
+        return [translate("assistant.example.tasks.1"), translate("assistant.example.tasks.2"), translate("assistant.example.tasks.3"), translate("assistant.example.tasks.4")];
+      case "meetings":
+        return [translate("assistant.example.meetings.1"), translate("assistant.example.meetings.2"), translate("assistant.example.meetings.3"), translate("assistant.example.meetings.4")];
+      default:
+        return [translate("assistant.example.settings.1"), translate("assistant.example.settings.2"), translate("assistant.example.settings.3"), translate("assistant.example.settings.4")];
+    }
+  });
+
+  function useExample(text: string) {
+    input = text;
+    inputEl?.focus();
+  }
+
+  // Close from inside (Escape, the close button): focus goes back to the
+  // shield it opened from, as in Rocket.
+  function closeAndReturn() {
+    onclose();
+    returnFocus?.focus();
+  }
+
+  // Keep the newest entry in view (Rocket: ende.scrollIntoView).
+  $effect(() => {
+    void messages.length;
+    void loading;
+    void streamPlans.length;
+    endEl?.scrollIntoView?.({ block: "end" });
+  });
   // Phase C: track the last injected external plan id so a re-render of the
   // same plan does not inject it twice.
   let lastExternalPlanId = $state<string | null>(null);
@@ -136,12 +197,17 @@
       ttsEnabled = s?.ttsEnabled ?? false;
       ttsAuto = s?.ttsAuto ?? false;
     });
+    // composedPath, not target.contains: a click that swaps its own button
+    // (send → stop, the external card's arming, the mic icon) leaves a
+    // detached target behind by the time the event reaches the document.
     const onDocClick = (e: MouseEvent) => {
-      const t = e.target;
-      if (popEl && t instanceof Node && !popEl.contains(t)) onclose();
+      if (popEl && !e.composedPath().includes(popEl)) onclose();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onclose();
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        closeAndReturn();
+      }
     };
     // Defer listener attachment past the opening click so the trigger
     // click doesn't immediately close the popover.
@@ -427,65 +493,49 @@
 </script>
 
 {#if open}
-  <aside class="assistant-pop" bind:this={popEl} role="dialog" aria-label={$t("assistant.title")}>
-      <header class="assistant-header">
-        <span class="assistant-title">{$t("assistant.title")}</span>
-        <button type="button" class="btn btn-still btn-symbol" onclick={onclose} aria-label={$t("assistant.close")} title={$t("assistant.close")}><Symbol name="schliessen" size={20} /></button>
-      </header>
-      <div class="assistant-body">
-        {#if messages.length === 0}
-          <p class="assistant-hint">{$t("assistant.hint")}</p>
-        {/if}
-        {#each messages as m, i (m.text + m.plans.length + m.steps.length)}
-          {#if m.error}
-            <div class="chat-msg assistant error">{m.error}</div>
-          {:else}
-            <div class="chat-msg {m.role}">
+  <section class="assistent-panel" id="assistent-panel" bind:this={popEl} aria-label={$t("assistant.title")}>
+    <header class="assistent-kopf">
+      <Schild size={16} />
+      <span>{$t("assistant.title")}</span>
+      <button type="button" class="assistent-zu" onclick={closeAndReturn} aria-label={$t("assistant.close")} title={$t("assistant.close")}>
+        <Symbol name="schliessen" size={16} />
+      </button>
+    </header>
+
+    <div class="assistent-verlauf">
+      {#if messages.length === 0 && !loading}
+        <div class="assistent-leer">
+          <p>{$t("assistant.empty")}</p>
+          <ul>
+            {#each examples as example (example)}
+              <li><button type="button" class="alsLink" onclick={() => useExample(example)}>{example}</button></li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+      {#each messages as m, i (i)}
+        {#if m.role === "user"}
+          <p class="assistent-nachricht nutzer">{m.text}</p>
+        {:else if m.error}
+          <p class="assistent-nachricht fehler" role="alert">{m.error}</p>
+        {:else}
+          <div class="assistent-antwort">
+            {#if m.text.trim()}
               <!-- T5 (Review 2026-09-13): Antworten in Markdown rendern
                    (DOMPurify-gesichert wie alle {@html}-Ausgaben). -->
-              <div class="chat-text">{@html renderMarkdown(m.text)}</div>
-              {#if m.role === "assistant" && ttsEnabled && m.text.trim()}
+              <div class="assistent-nachricht antwort-text">{@html renderMarkdown(m.text)}</div>
+              {#if ttsEnabled}
                 <button
                   type="button"
-                  class="btn btn-still btn-symbol btn-klein chat-speak"
+                  class="btn btn-still btn-symbol btn-klein"
                   aria-pressed={speakingMsg === i}
                   onclick={() => speakMessage(m.text, i)}
                   title={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
                   aria-label={speakingMsg === i ? $t("assistant.speakStop") : $t("assistant.speak")}
                 >{#if speakingMsg === i}<Symbol name="stopp" size={16} />{:else}<Symbol name="vorlesen" size={16} />{/if}</button>
               {/if}
-            </div>
-            {#each m.plans as plan (plan.id)}
-              <div class="chat-plan">
-                <PlanCard
-                  {plan}
-                  busy={planBusy === plan.id}
-                  onConfirm={onConfirmPlan}
-                  onDiscard={onDiscardPlan}
-                  onUndo={onUndoPlan}
-                  onOpen={onOpenPath}
-                />
-              </div>
-            {/each}
-            {#if m.steps.length > 0}
-              <details class="chat-steps">
-                <summary>{$t("assistant.whatIDid")}</summary>
-                <ul>
-                  {#each m.steps as s (s.tool + s.label)}
-                    <li>{s.label}</li>
-                  {/each}
-                </ul>
-              </details>
             {/if}
-          {/if}
-        {/each}
-        {#if loading}
-          <div class="chat-msg assistant status" role="status">
-            <span class="chat-typing">…</span>
-            <span class="assistant-thinking">{statusLabel ?? $t("assistant.thinking")}</span>
-          </div>
-          {#each streamPlans as plan (plan.id)}
-            <div class="chat-plan">
+            {#each m.plans as plan (plan.id)}
               <PlanCard
                 {plan}
                 busy={planBusy === plan.id}
@@ -494,187 +544,113 @@
                 onUndo={onUndoPlan}
                 onOpen={onOpenPath}
               />
-            </div>
-          {/each}
+            {/each}
+            {#if m.steps.length > 0}
+              <details class="assistent-spur">
+                <summary>{$t("assistant.whatIDid")}</summary>
+                {#each m.steps as s, j (j)}
+                  <p class="assistent-hinweis">{s.label}</p>
+                {/each}
+              </details>
+            {/if}
+          </div>
         {/if}
-        {#if ttsError}
-          <div class="chat-msg assistant error" role="alert">{ttsError}</div>
+      {/each}
+      {#if loading}
+        <p class="assistent-nachricht arbeitet" role="status">{statusLabel ?? $t("assistant.thinking")}</p>
+        {#if streamPlans.length > 0}
+          <div class="assistent-antwort">
+            {#each streamPlans as plan (plan.id)}
+              <PlanCard
+                {plan}
+                busy={planBusy === plan.id}
+                onConfirm={onConfirmPlan}
+                onDiscard={onDiscardPlan}
+                onUndo={onUndoPlan}
+                onOpen={onOpenPath}
+              />
+            {/each}
+          </div>
         {/if}
-      </div>
-      <footer class="assistant-footer">
-        <div class="assistant-input-wrap">
-          <input
-            bind:this={inputEl}
-            bind:value={input}
-            class="input assistant-input"
-            type="text"
-            placeholder={$t("assistant.placeholder")}
-            onkeydown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
-          />
-          <button
-            type="button"
-            class="btn btn-still btn-symbol assistant-mic"
-            class:recording={isRecording}
-            class:voice-enabled={voiceEnabled}
-            disabled={transcribing}
-            onclick={toggleVoiceInput}
-            title={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
-            aria-label={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
-          >
-            <Symbol name="mikrofon" size={20} />
-          </button>
-        </div>
-        {#if loading}
-          <button type="button" class="btn btn-sekundaer" onclick={stop} aria-label={$t("assistant.stop")}>
-            <Symbol name="stopp" size={16} />
-            {$t("assistant.stop")}
-          </button>
-        {:else}
-          <button type="button" class="btn btn-primaer" disabled={transcribing || !input.trim()} onclick={send}>
-            {transcribing ? "…" : $t("assistant.send")}
-          </button>
-        {/if}
-      </footer>
-      {#if voiceError}
-        <div class="assistant-voice-error">{voiceError}</div>
       {/if}
-    </aside>
+      {#if transcribing}
+        <p class="assistent-nachricht arbeitet" role="status">{$t("assistant.transcribing")}</p>
+      {/if}
+      {#if voiceError}
+        <p class="assistent-nachricht fehler" role="alert">{voiceError}</p>
+      {/if}
+      {#if ttsError}
+        <p class="assistent-nachricht fehler" role="alert">{ttsError}</p>
+      {/if}
+      <div bind:this={endEl}></div>
+    </div>
+
+    <form
+      class="assistent-eingabe"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+    >
+      <!-- Dictation sits inside the field (HB-DIKTAT): speak, and the
+           transcript goes out as the request. -->
+      <div class="diktat-feld">
+        <textarea
+          bind:this={inputEl}
+          bind:value={input}
+          rows="2"
+          placeholder={$t("assistant.taskPlaceholder")}
+          aria-label={$t("assistant.task")}
+          onkeydown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+        ></textarea>
+        <button
+          type="button"
+          class="btn btn-still btn-symbol diktat-knopf"
+          class:aufnahme={isRecording}
+          aria-pressed={isRecording}
+          disabled={transcribing}
+          onclick={toggleVoiceInput}
+          title={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
+          aria-label={isRecording ? $t("assistant.micStop") : $t("assistant.micStart")}
+        >
+          <Symbol name={isRecording ? "stopp" : "mikrofon"} size={16} />
+        </button>
+      </div>
+      {#if loading}
+        <!-- While the agent runs, the same place stops it. -->
+        <button type="button" class="assistent-senden" onclick={stop} aria-label={$t("assistant.halt")} title={$t("assistant.halt")}>
+          <Symbol name="stopp" size={16} />
+        </button>
+      {:else}
+        <button type="submit" class="assistent-senden" disabled={transcribing || !input.trim()} aria-label={$t("assistant.send")} title={$t("assistant.send")}>
+          <Symbol name="pfeil-hoch" size={16} />
+        </button>
+      {/if}
+    </form>
+  </section>
 {/if}
 
 <style>
-  /* ── Popover shell [RL-ASSISTENT] ─────────────────────────────────────────
-     Relay's own until HB-ASSISTENT replaces it. */
-  .assistant-pop {
-    position: fixed;
-    bottom: 80px;
-    right: 20px;
-    width: 380px;
-    height: min(520px, calc(100vh - 100px));
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 14px;
-    box-shadow: var(--am-schatten-1);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    transform-origin: bottom right;
-    animation: popIn 160ms ease-out;
-    z-index: 1000;
+  /* ── Answer text [RL-ASSISTENT] ───────────────────────────────────────────
+     Panel, head, history, messages, card and input are HB-ASSISTENT in
+     global.css. Relay's own: answers come as Markdown (T5) — normalise the
+     block spacing inside the bubble; pre-wrap would double the newlines
+     between the rendered blocks. */
+  .antwort-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
-  @keyframes popIn {
-    from {
-      opacity: 0;
-      transform: scale(0.94) translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1) translateY(0);
-    }
-  }
-  @media (max-width: 768px) {
-    .assistant-pop {
-      left: 0;
-      right: 0;
-      bottom: 0;
-      width: 100%;
-      height: min(70vh, 560px);
-      border-radius: 16px 16px 0 0;
-      transform-origin: bottom center;
-    }
-  }
-  /* ── Header [RL-ASSISTENT] ────────────────────────────────────────────── */
-  .assistant-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 8px 8px 16px;
-    border-bottom: 1px solid var(--am-rand);
-  }
-  .assistant-title {
-    font-weight: 600;
-    color: var(--am-text-primaer);
-  }
-  /* ── Conversation [RL-ASSISTENT] ──────────────────────────────────────── */
-  .assistant-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-  }
-  .assistant-hint {
-    color: var(--am-text-gedaempft);
-    font-size: 0.85rem;
-  }
-  .assistant-thinking {
-    display: block;
-    margin-top: 4px;
-    font-size: 0.78rem;
-    color: var(--am-text-gedaempft);
-  }
-  /* ── Composer [RL-ASSISTENT] ──────────────────────────────────────────────
-     Input, mic and send come from AM-FELD and AM-KNOPF; only placement here. */
-  .assistant-footer {
-    display: flex;
-    gap: 8px;
-    padding: 12px;
-    border-top: 1px solid var(--am-rand);
-  }
-  .assistant-input-wrap {
-    position: relative;
-    flex: 1;
-    display: flex;
-  }
-  /* Room for the mic button that sits inside the input. */
-  .assistant-input {
-    flex: 1;
-    padding-right: var(--am-ziel-zeiger);
-  }
-  .assistant-mic {
-    position: absolute;
-    right: 0;
-    top: 0;
-  }
-  /* Recording is a live state, not a button style: red with a pulse. */
-  .assistant-mic.recording,
-  .assistant-mic.recording:hover {
-    background: var(--am-fehler);
-    color: var(--am-handlung-text);
-    animation: micPulse 1.2s ease-in-out infinite;
-  }
-  .assistant-voice-error {
-    position: absolute;
-    bottom: 62px;
-    left: 12px;
-    right: 12px;
-    padding: 8px 10px;
-    background: var(--am-flaeche-2);
-    color: var(--am-fehler);
-    border: 1px solid var(--am-fehler);
-    border-radius: var(--am-radius-klein);
-    font-size: 0.8rem;
-    z-index: 1;
-  }
-  @keyframes micPulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--am-fehler) 50%, transparent); }
-    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--am-fehler) 0%, transparent); }
-  }
-  /* ── Messages [RL-ASSISTENT] ──────────────────────────────────────────── */
-  .chat-msg {
-    max-width: 85%;
-    padding: 10px 12px;
-    border-radius: var(--am-radius-mittel);
-    margin-bottom: 10px;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  /* Markdown-Ausgabe (T5): Block-Abstände normieren, Code-Span Heben. */
-  .chat-text :global(p) { margin: 0.35em 0; }
-  .chat-text :global(p:first-child) { margin-top: 0; }
-  .chat-text :global(p:last-child) { margin-bottom: 0; }
-  .chat-text :global(ul), .chat-text :global(ol) { margin: 0.35em 0; padding-left: 1.3em; }
-  .chat-text :global(li) { margin: 0.2em 0; }
-  .chat-text :global(code) {
+  .antwort-text :global(p) { margin: 0.35em 0; }
+  .antwort-text :global(p:first-child) { margin-top: 0; }
+  .antwort-text :global(p:last-child) { margin-bottom: 0; }
+  .antwort-text :global(ul), .antwort-text :global(ol) { margin: 0.35em 0; padding-left: 1.3em; }
+  .antwort-text :global(li) { margin: 0.2em 0; }
+  .antwort-text :global(code) {
     background: var(--am-flaeche-2);
     border: 1px solid var(--am-rand);
     border-radius: var(--am-radius-klein);
@@ -682,69 +658,64 @@
     font-family: var(--am-schrift-mono);
     font-size: 0.85em;
   }
-  .chat-msg.user .chat-text :global(code) {
-    background: color-mix(in srgb, var(--am-handlung-text) 18%, transparent);
-    border-color: transparent;
-  }
-  .chat-msg.user {
-    margin-left: auto;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-  }
-  .chat-msg.assistant {
-    margin-right: auto;
-    background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand);
-    color: var(--am-text-primaer);
-  }
-  .chat-msg.error {
-    background: var(--am-flaeche-2);
-    color: var(--am-fehler);
-    border: 1px solid var(--am-fehler);
-  }
-  .chat-msg.outcome {
-    margin-right: auto;
-    max-width: 100%;
-    padding: 6px 10px;
-    font-size: 0.8rem;
-    color: var(--am-text-gedaempft);
+
+  /* ── Examples [RL-ASSISTENT] ──────────────────────────────────────────────
+     The link button itself (Rocket's .alsLink, outside HB-ASSISTENT). */
+  .alsLink {
+    border: 0;
     background: transparent;
-    border: none;
-    border-left: 2px solid var(--am-rand);
-  }
-  .chat-speak {
-    margin-top: 6px;
-  }
-  .chat-typing {
-    color: var(--am-text-gedaempft);
-  }
-  /* ── Plans and trace [RL-ASSISTENT] ───────────────────────────────────── */
-  .chat-plan {
-    margin: 0 0 10px;
-    animation: planIn 200ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  @keyframes planIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .chat-plan { animation: none; }
-  }
-  .chat-steps {
-    margin: 0 0 10px;
-    font-size: 0.78rem;
-    color: var(--am-text-gedaempft);
-  }
-  .chat-steps summary {
+    padding: 0;
+    color: var(--am-handlung-ruhend);
+    font: inherit;
+    font-weight: 500;
     cursor: pointer;
+  }
+  .alsLink:hover { text-decoration: underline; }
+  :global(.dunkel) .alsLink { color: var(--am-gold-beschriftung); }
+
+  /* ── Trace [RL-ASSISTENT] ─────────────────────────────────────────────────
+     "Was ich getan habe": folded, its lines are .assistent-hinweis. */
+  .assistent-spur {
+    display: grid;
+    gap: var(--am-raum-1);
+  }
+  .assistent-spur summary {
+    cursor: pointer;
+    font-size: 0.75rem;
     font-weight: 600;
+    color: var(--am-text-gedaempft);
     user-select: none;
   }
-  .chat-steps ul {
-    margin: 6px 0 0;
-    padding-left: 18px;
+
+  /* ── Dictation [RL-ASSISTENT] ─────────────────────────────────────────────
+     The mic sits inside the field, bottom right; the field keeps room for
+     it. Recording is a live state, not a button style: red with a pulse. */
+  .diktat-feld {
+    position: relative;
+    flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    min-width: 0;
+  }
+  .diktat-feld textarea {
+    padding-right: calc(var(--am-ziel-zeiger) + var(--am-raum-1));
+  }
+  .diktat-knopf {
+    position: absolute;
+    right: var(--am-raum-1);
+    bottom: var(--am-raum-1);
+    height: var(--am-ziel-zeiger);
+  }
+  .diktat-knopf.aufnahme,
+  .diktat-knopf.aufnahme:hover {
+    background: var(--am-fehler);
+    color: var(--am-handlung-text);
+    animation: diktat-puls 1.2s ease-in-out infinite;
+  }
+  @keyframes diktat-puls {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--am-fehler) 50%, transparent); }
+    50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--am-fehler) 0%, transparent); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .diktat-knopf.aufnahme { animation: none; }
   }
 </style>

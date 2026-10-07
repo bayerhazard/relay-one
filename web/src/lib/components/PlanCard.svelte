@@ -1,8 +1,12 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
-  // Confirmation card for an ActionPlan (Concept §10.3). Presentational: the
-  // parent (Drawer) performs the confirm/discard/undo calls and passes the
-  // resulting plan back. External-tier plans need a second, explicit stage.
+  // Confirmation card for an ActionPlan (Concept §10.3) in the shape of
+  // HB-ASSISTENT's card (Rocket: assistent.tsx → Karte): the ready request,
+  // a person presses "Ausführen". Presentational: the parent (Drawer)
+  // performs the confirm/discard/undo calls and passes the resulting plan
+  // back. Relay's own on top of Rocket's card: several steps per plan, the
+  // second stage for steps that go outside (external tier), undo after
+  // execution, and the "Öffnen" link into the created item.
   import { t, translate } from "$lib/i18n";
   import type { AgentPlan } from "$lib/services/tauri";
 
@@ -20,8 +24,9 @@
   let externalArmed = $state(false);
 
   const isExternal = $derived(plan.steps.some((s) => s.tier === "external"));
-  const stepCount = plan.steps.length;
-  const stepLabel = $derived(stepCount === 1 ? translate("assistant.plan.step") : translate("assistant.plan.steps", { n: stepCount }));
+  const stepLabel = $derived(
+    plan.steps.length === 1 ? translate("assistant.plan.step") : translate("assistant.plan.steps", { n: plan.steps.length }),
+  );
 
   // After execution, the first result may carry the created id — substitute it
   // into the `danach` navigation template.
@@ -43,183 +48,129 @@
     return first.danach.replace("{id}", id);
   });
 
-  const statusKey = $derived(
-    `assistant.plan.${plan.status}`,
-  );
+  const statusKey = $derived(`assistant.plan.${plan.status}`);
+  const verworfen = $derived(plan.status === "cancelled" || plan.status === "expired");
 </script>
 
-<article class="karte plan-card" class:external={isExternal} class:executed={plan.status === "executed"}
-  class:cancelled={plan.status === "cancelled"} class:failed={plan.status === "failed"}>
-  <header class="plan-head">
-    <span class="plan-tier" aria-hidden="true">
-      {#if isExternal}
-        <Symbol name="achtung" size={16} />
-      {:else}
-        <Symbol name="erfolg" size={16} />
-      {/if}
+<div
+  class="assistent-karte"
+  class:verworfen
+  class:ausgefuehrt={plan.status === "executed"}
+  class:fehlgeschlagen={plan.status === "failed"}
+>
+  <div class="assistent-karte-kopf">
+    <strong>{stepLabel}</strong>
+    <span class="plan-status" data-status={plan.status}>
+      {#if plan.status === "executed"}<Symbol name="erfolg" size={16} />{/if}
+      {$t(statusKey)}
     </span>
-    <span class="plan-stepcount">{stepLabel}</span>
-    <span class="plan-status status-{plan.status}">{$t(statusKey)}</span>
-  </header>
-
-  <div class="plan-steps">
-    {#each plan.steps as step}
-      <div class="plan-step">
-        <p class="plan-step-title">{step.title}</p>
-        {#if step.rows.length > 0}
-          <dl class="plan-rows">
-            {#each step.rows as [k, v]}
-              <div class="plan-row">
-                <dt>{k}</dt>
-                <dd>{v}</dd>
-              </div>
-            {/each}
-          </dl>
-        {/if}
-      </div>
-    {/each}
   </div>
 
+  {#each plan.steps as step, i (i)}
+    <div class="plan-schritt">
+      <p class="plan-schritt-titel">{step.title}</p>
+      {#if step.rows.length > 0}
+        <dl class="assistent-karte-zeilen">
+          {#each step.rows as [k, v], j (j)}
+            <div>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          {/each}
+        </dl>
+      {/if}
+    </div>
+  {/each}
+
   {#if isExternal && plan.status === "pending"}
-    <div class="hinweis" data-art="achtung"><Symbol name="achtung" size={16} /><span>{$t("assistant.plan.externalWarning")}</span></div>
+    <div class="hinweis plan-hinweis" data-art="achtung"><Symbol name="achtung" size={16} /><span>{$t("assistant.plan.externalWarning")}</span></div>
   {/if}
 
-  <footer class="btn-reihe plan-actions">
-    {#if plan.status === "pending"}
-      {#if isExternal}
-        {#if !externalArmed}
-          <button type="button" class="btn btn-sekundaer" disabled={busy}
-            onclick={() => (externalArmed = true)}>
-            {$t("assistant.plan.execute")}
-          </button>
-        {:else}
-          <button type="button" class="btn btn-primaer" disabled={busy}
-            onclick={() => onConfirm?.(plan, true)}>
-            {$t("assistant.plan.confirmExternal")}
-          </button>
-        {/if}
+  {#if plan.status === "pending"}
+    <div class="btn-reihe plan-aktionen">
+      {#if isExternal && externalArmed}
+        <button type="button" class="btn btn-primaer btn-klein" disabled={busy} onclick={() => onConfirm?.(plan, true)}>
+          {$t("assistant.plan.confirmExternal")}
+        </button>
+      {:else if isExternal}
+        <!-- First stage only arms; the request goes out on the second. -->
+        <button type="button" class="btn btn-primaer btn-klein" disabled={busy} onclick={() => (externalArmed = true)}>
+          {$t("assistant.plan.execute")}
+        </button>
       {:else}
-        <button type="button" class="btn btn-primaer" disabled={busy}
-          onclick={() => onConfirm?.(plan, false)}>
+        <button type="button" class="btn btn-primaer btn-klein" disabled={busy} onclick={() => onConfirm?.(plan, false)}>
           {$t("assistant.plan.execute")}
         </button>
       {/if}
-      <button type="button" class="btn btn-sekundaer" disabled={busy} onclick={() => onDiscard?.(plan)}>
+      <button type="button" class="btn btn-still btn-klein" disabled={busy} onclick={() => onDiscard?.(plan)}>
         {$t("assistant.plan.discard")}
       </button>
-    {:else if plan.status === "executed"}
-      {#if openPath && onOpen}
-        <button type="button" class="btn btn-sekundaer" onclick={() => onOpen(openPath)}>
-          {$t("assistant.plan.open")}
-        </button>
-      {/if}
-      <button type="button" class="btn btn-sekundaer" disabled={busy} onclick={() => onUndo?.(plan)}>
+    </div>
+  {:else if plan.status === "executed"}
+    <div class="btn-reihe plan-aktionen">
+      <button type="button" class="btn btn-sekundaer btn-klein" disabled={busy} onclick={() => onUndo?.(plan)}>
         {$t("assistant.plan.undo")}
       </button>
+    </div>
+    {#if openPath && onOpen}
+      <p class="assistent-hinweis plan-oeffnen">
+        <a
+          href={openPath}
+          onclick={(e) => {
+            e.preventDefault();
+            onOpen(openPath);
+          }}>{$t("assistant.plan.open")}</a
+        >
+      </p>
     {/if}
-  </footer>
-</article>
+  {/if}
+</div>
 
 <style>
   /* ── Plan card [RL-PLAN] ──────────────────────────────────────────────────
-     Surface from AM-KARTE. Relay's own: the tighter padding for the narrow
-     drawer and the left accent that tells the tier/outcome at a glance. */
-  .plan-card {
-    border-left: 3px solid var(--am-handlung-ruhend);
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .plan-card.external {
-    border-left-color: var(--am-achtung);
-  }
-  .plan-card.executed {
-    border-left-color: var(--am-erfolg);
-    opacity: 0.9;
-  }
-  .plan-card.failed {
+     Card, head and rows are HB-ASSISTENT (.assistent-karte …). Relay's own:
+     the status word (Rocket uses its lead stage chip, which Relay has not),
+     the red accent of a failed plan, several steps per card, and the
+     spacing of the action row (inline in Rocket). */
+  .assistent-karte.fehlgeschlagen {
     border-left-color: var(--am-fehler);
   }
-
-  /* ── Header and status [RL-PLAN] ──────────────────────────────────────── */
-  .plan-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.75rem;
-    color: var(--am-text-gedaempft);
-  }
-  .plan-tier {
-    display: inline-flex;
-    color: var(--am-handlung-ruhend);
-  }
-  .plan-card.external .plan-tier {
-    color: var(--am-achtung);
-  }
-  .plan-stepcount {
-    font-weight: 600;
-  }
   .plan-status {
-    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--am-raum-1);
+    flex: none;
+    font-size: 0.75rem;
     font-weight: 600;
-    padding: 2px 8px;
-    border-radius: var(--am-radius-voll);
-    background: var(--am-flaeche-2);
-  }
-  .plan-status.status-executed {
-    color: var(--am-erfolg);
-    background: var(--am-erfolg-flaeche);
-  }
-  .plan-status.status-cancelled,
-  .plan-status.status-expired {
     color: var(--am-text-gedaempft);
   }
-  .plan-status.status-failed {
+  .plan-status[data-status="executed"] {
+    color: var(--am-erfolg);
+  }
+  .plan-status[data-status="failed"] {
     color: var(--am-fehler);
-    background: var(--am-fehler-flaeche);
   }
 
   /* ── Steps [RL-PLAN] ──────────────────────────────────────────────────── */
-  .plan-steps {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .plan-schritt + .plan-schritt {
+    margin-top: var(--am-raum-2);
+    padding-top: var(--am-raum-2);
+    border-top: 1px solid var(--am-trennlinie);
   }
-  .plan-step + .plan-step {
-    border-top: 1px solid var(--am-rand);
-    padding-top: 8px;
-  }
-  .plan-step-title {
-    margin: 0 0 4px;
-    font-size: 0.875rem;
+  .plan-schritt-titel {
+    margin: 0 0 var(--am-raum-1);
     font-weight: 600;
     color: var(--am-text-primaer);
-  }
-  .plan-rows {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .plan-row {
-    display: flex;
-    gap: 8px;
-    font-size: 0.8125rem;
-  }
-  .plan-row dt {
-    flex: 0 0 96px;
-    color: var(--am-text-gedaempft);
-  }
-  .plan-row dd {
-    margin: 0;
-    color: var(--am-text-primaer);
-    word-break: break-word;
   }
 
   /* ── Actions [RL-PLAN] ────────────────────────────────────────────────────
      Buttons and row from AM-KNOPF; the external warning is HB-ZUSTAND. */
-  .plan-actions {
+  .plan-hinweis,
+  .plan-aktionen,
+  .plan-oeffnen {
+    margin-top: var(--am-raum-2);
+  }
+  .plan-aktionen {
     gap: var(--am-raum-2);
   }
 </style>

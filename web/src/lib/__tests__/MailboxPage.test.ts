@@ -485,3 +485,23 @@ describe("Mailbox Page - in the shell (CI HB-SEITENKOPF, RL-G1)", () => {
     });
   });
 });
+
+// RL-B1a (Kai 06.10.2026): "Antworten" and "Allen antworten" stand at the
+// mail; the question with three buttons is gone.
+describe("reply buttons at the mail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers only Antworten when the mail went to one person", async () => {
+    await renderPageWithAccount(true, 42, [{ ...testMessage, to: "Ich <test@example.com>" }]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Antworten" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Allen antworten" })).toBeNull();
+  });
+
+  it("offers Allen antworten next to Antworten with several recipients", async () => {
+    await renderPageWithAccount(true, 42, [{ ...testMessage, to: "Ich <test@example.com>, Anna <anna@example.com>", cc: "Ben <ben@example.com>" }]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Allen antworten" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Antworten" })).toBeTruthy();
+  });
+});

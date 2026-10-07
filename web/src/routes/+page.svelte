@@ -377,8 +377,6 @@ import {
   let showDeleteConfirm = $state(false);
   let showDeleteFolderConfirm = $state(false);
   let pendingDeleteFolder = $state<string | null>(null);
-  let showReplyAllDialog = $state(false);
-  let pendingReplyMessage = $state<Message | null>(null);
   let pendingDeleteUid = $state<number | null>(null);
   let isDeleting = $state(false);
   let moveToTrash = $state(true);
@@ -1886,32 +1884,17 @@ let sentFolderName = $state<string | null>(null);
     showCompose = true;
   }
 
-  async function handleReply(msg: Message) {
-    // Ask whether to reply to everyone when the original mail went to
-    // multiple recipients (To has several addresses, or there is a CC).
+  // "Antworten" and "Allen antworten" stand at the mail (CI ABGLEICH RL-B1,
+  // Kai 06.10.2026); the question with three buttons is gone.
+  function handleReply(msg: Message, replyAll = false) {
+    void doHandleReply(msg, replyAll);
+  }
+
+  /** The mail went to more than one person: To has several, or there is a CC. */
+  function hasSeveralRecipients(msg: Message): boolean {
     const toList = (msg.to ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const ccList = (msg.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-    const multiRecipient = toList.length > 1 || ccList.length > 0;
-    if (multiRecipient) {
-      pendingReplyMessage = msg;
-      showReplyAllDialog = true;
-      return;
-    }
-    doHandleReply(msg, false);
-  }
-
-  function handleReplyToSender() {
-    const msg = pendingReplyMessage;
-    showReplyAllDialog = false;
-    pendingReplyMessage = null;
-    if (msg) doHandleReply(msg, false);
-  }
-
-  function handleReplyAll() {
-    const msg = pendingReplyMessage;
-    showReplyAllDialog = false;
-    pendingReplyMessage = null;
-    if (msg) doHandleReply(msg, true);
+    return toList.length > 1 || ccList.length > 0;
   }
 
   async function doHandleReply(msg: Message, replyAll: boolean) {
@@ -2718,9 +2701,15 @@ let sentFolderName = $state<string | null>(null);
           <span class="preview-from-email">{extractEmail(selectedMessage.from)}</span>
         </div>
         <div class="preview-header-actions">
-          <button type="button" class="btn btn-primaer" onclick={() => handleReply(selectedMessage)}>
+          <!-- Secondary: the page's one primary is "Neue E-Mail" (CI G2). -->
+          <button type="button" class="btn btn-sekundaer" onclick={() => handleReply(selectedMessage)}>
             {$t("mail.reply")}
           </button>
+          {#if hasSeveralRecipients(selectedMessage)}
+            <button type="button" class="btn btn-sekundaer" onclick={() => handleReply(selectedMessage, true)}>
+              {$t("mail.replyAll")}
+            </button>
+          {/if}
           <button type="button" class="btn btn-gefahr" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
             {$t("mail.deleteMail")}
           </button>
@@ -3064,19 +3053,6 @@ let sentFolderName = $state<string | null>(null);
     />
   {/if}
 
-  {#if showReplyAllDialog}
-    <ConfirmationDialog
-      open={showReplyAllDialog}
-      title={$t("mail.replyTitle")}
-      message={$t("mail.replyAllMsg")}
-      confirmLabel={$t("mail.replyAll")}
-      altLabel={$t("mail.replySender")}
-      cancelLabel={$t("common.cancel")}
-      onconfirm={handleReplyAll}
-      onalt={handleReplyToSender}
-      oncancel={() => { showReplyAllDialog = false; pendingReplyMessage = null; }}
-    />
-  {/if}
 
   <PromptDialog
     open={showRenameDialog}
