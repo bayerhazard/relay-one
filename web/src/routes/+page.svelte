@@ -41,6 +41,7 @@ import {
   import { dataVersion } from "$lib/stores/invalidation";
   import { formatDate, extractEmail, extractEmails, extractName, replyAllRecipients, isSafeOpenUrl, isHtmlContent, extractHtmlFromMime, extractPlainFromMime, parseMimeWithWorker, type MailAttachment } from "$lib/utils/format";
   import { iconSVG, folderIconFor } from "$lib/icons";
+  import { aehnlichAnfrage, istAehnlichSuche, type AehnlichArt } from "$lib/aehnlich";
   import type { MailChainEntry } from "$lib/types/mail";
   import { cacheBody, getCachedBody } from "$lib/offline/bodyCache";
   import { queueDraft, getQueuedDrafts, removeQueuedDraft } from "$lib/offline/draftQueue";
@@ -1562,7 +1563,11 @@ let sentFolderName = $state<string | null>(null);
     searchActive = true;
     const seq = ++searchSeq;
     mailbox.setLoading(true);
-    searchMessages(selectedAccountId, q, 200)
+    // Similar mails stay in the open folder: the actions on them (trash,
+    // archive, spam) work on that folder.
+    (istAehnlichSuche(q)
+      ? searchMessages(selectedAccountId, q, 200, selectedFolder)
+      : searchMessages(selectedAccountId, q, 200))
       .then((msgs) => {
         if (seq !== searchSeq) return; // stale result
         mailbox.setMessages(msgs);
@@ -1575,6 +1580,19 @@ let sentFolderName = $state<string | null>(null);
         if (seq === searchSeq) mailbox.setLoading(false);
       });
   }
+
+  /** "Ähnliche E-Mails" from the context menu: the search for that way. */
+  function aehnlicheZeigen(uid: number, art: AehnlichArt) {
+    const mail = $mailbox.messages.find((m) => m.uid === uid);
+    const q = mail ? aehnlichAnfrage(art, mail) : null;
+    if (!q) return;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchQuery = q;
+    searchSeen = q; // ran right here; the header effect must not run it again
+    runSearch();
+  }
+
+  let aehnlichAktiv = $derived(searchActive && istAehnlichSuche(searchQuery));
 
   function onSearchInput() {
     if (searchTimer) clearTimeout(searchTimer);
@@ -1659,6 +1677,10 @@ let sentFolderName = $state<string | null>(null);
 
  async function loadFolder(force = false) {
     if (loadingFolder) return;
+    // A search shows its hits; the folder must not replace them (a reload
+    // for new mail, or the first load still running when the search came).
+    // Leaving the search sets searchActive to false first, then loads.
+    if (searchActive) return;
     const reqFolder = selectedFolder;
     const reqAccount = selectedAccountId;
     // Freshness window: a recently fetched folder is served purely from the
@@ -1694,8 +1716,9 @@ let sentFolderName = $state<string | null>(null);
       // via periodic IMAP fetches. list_only omits body_text/body_html so a
       // 10k-message folder transfers as metadata-only JSON.
       const msgs = await fetchMessages(reqAccount, 10000, 0, reqFolder, true);
-      // Re-check after the await: only apply if still the active selection.
-      if (reqFolder !== selectedFolder || reqAccount !== selectedAccountId) return;
+      // Re-check after the await: only apply if still the active selection
+      // and no search has taken the list meanwhile.
+      if (reqFolder !== selectedFolder || reqAccount !== selectedAccountId || searchActive) return;
       // Always update the store — setMessages() preserves body_text/body_html
       // for existing messages via the folderId:uid key merge, so the selected
       // message's body is safe even during a concurrent handleSelectMessage().
@@ -2948,6 +2971,7 @@ let sentFolderName = $state<string | null>(null);
       if (!$mailbox.selectedUids.includes(uid)) mailbox.selectSingle(uid);
       openMoveMenuAt(x, y);
     }}
+    onaehnlich={aehnlicheZeigen}
     ondragstart={handleDragStart}
     loading={$mailbox.loading}
     accountId={selectedAccountId}
@@ -3337,6 +3361,16 @@ let sentFolderName = $state<string | null>(null);
             {/if}
             {@render zeichen("schliessen", $t("mail.auswahlAufheben"), () => mailbox.clearSelection(), "Esc")}
           </div>
+        </div>
+      {/if}
+      {#if aehnlichAktiv && !$mailbox.loading && $mailbox.messages.length > 0}
+        <!-- Similar mails: how many, and all of them at once into the selection
+             bar (trash, archive, spam, each with "Rückgängig"). -->
+        <div class="aehnlich-leiste" aria-live="polite">
+          <span>{$mailbox.messages.length === 1 ? $t("mail.aehnlichEine") : $t("mail.aehnlichTreffer", { count: $mailbox.messages.length })}</span>
+          {#if $mailbox.selectedUids.length < $mailbox.messages.length}
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => mailbox.selectAll($mailbox.messages)}>{$t("mail.alleAuswaehlen")}</button>
+          {/if}
         </div>
       {/if}
       <div class="list-scroll-wrapper">
@@ -3812,6 +3846,22 @@ let sentFolderName = $state<string | null>(null);
     justify-content: flex-end;
     align-items: center;
     gap: var(--am-raum-2);
+  }
+  /* Similar mails: a quiet line over the list, count and "Alle auswählen". */
+  .aehnlich-leiste {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--am-raum-3);
+    padding: var(--am-raum-2) var(--am-raum-4);
+    border-bottom: 1px solid var(--am-rand);
+    min-height: 48px;
+    font-size: 0.875rem;
+    color: var(--am-text-sekundaer);
+  }
+  .aehnlich-leiste .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .list-scroll-wrapper {
     flex: 1;

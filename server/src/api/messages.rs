@@ -152,6 +152,8 @@ pub struct SearchQuery {
     pub account_id: u32,
     pub query: String,
     pub limit: Option<u32>,
+    /// Only this folder (the open one), so actions on the hits reach them.
+    pub folder: Option<String>,
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────
@@ -354,17 +356,18 @@ pub async fn fetch_messages(
     Ok(Json(json))
 }
 
-/// `GET /api/v1/messages/search?account_id=&query=&limit=`
+/// `GET /api/v1/messages/search?account_id=&query=&limit=&folder=`
 pub async fn search_messages(
     State(state): State<AppState>,
     Query(q): Query<SearchQuery>,
 ) -> ApiResult<Vec<serde_json::Value>> {
     let messages = with_db(&state, |conn| {
-        cache::messages::search_messages(
+        cache::messages::search_messages_in(
             conn,
             q.account_id as i64,
             &q.query,
             q.limit.map(|v| v as i64).unwrap_or(100),
+            q.folder.as_deref().filter(|f| !f.is_empty()),
         )
         .map_err(|e| e.to_string())
     })?;

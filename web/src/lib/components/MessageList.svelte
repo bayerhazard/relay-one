@@ -8,6 +8,7 @@
   import { t } from "$lib/i18n";
   import { formatDate, extractName } from "$lib/utils/format";
   import { iconSVG } from "$lib/icons";
+  import { adresseVon, betreffKern, domainVon, type AehnlichArt } from "$lib/aehnlich";
 
   interface Props {
     messages: Message[];
@@ -24,6 +25,8 @@
     ontoggleFlag?: (uid: number, uids?: number[]) => void;
     ontoggleUrgent?: (uid: number, uids?: number[]) => void;
     onmove?: (uid: number, x: number, y: number) => void;
+    /** "Ähnliche E-Mails": shows the mails like this one in the folder. */
+    onaehnlich?: (uid: number, art: AehnlichArt) => void;
     ondragstart?: (e: DragEvent, uid: number) => void;
     loading: boolean;
     accountId: number;
@@ -36,7 +39,7 @@
     searchActive?: boolean;
   }
 
-  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, loeschenEndgueltig = false, searchActive = false, fokusUid = null }: Props = $props();
+  let { messages, selectedUids, onselect, onselectToggle, onselectRange, onauswahl, onreply, onforward, ondelete, ontoggleRead, ontoggleFlag, ontoggleUrgent, onmove, onaehnlich, ondragstart, loading, accountId, isDraftFolder = false, isSentFolder = false, loeschenEndgueltig = false, searchActive = false, fokusUid = null }: Props = $props();
 
   // Urgent = manually marked OR detected by the AI (high priority, no fraud
   // suspicion). Shown with the unread-style marking in red.
@@ -306,7 +309,22 @@
     contextMenu ? (messages.find((m) => m.uid === contextMenu!.uid) ?? null) : null
   );
 
+  // The menu's second page: the three ways to similar mails.
+  let aehnlichSeite = $state(false);
+  let aehnlichWege = $derived.by(() => {
+    if (!contextMsg) return [];
+    const wege: { art: AehnlichArt; text: string }[] = [];
+    const adresse = adresseVon(contextMsg.from);
+    const domain = domainVon(contextMsg.from);
+    const kern = betreffKern(contextMsg.subject);
+    if (adresse) wege.push({ art: "absender", text: $t("mail.aehnlichAbsender", { wert: adresse }) });
+    if (domain) wege.push({ art: "domain", text: $t("mail.aehnlichDomain", { wert: domain }) });
+    if (kern) wege.push({ art: "betreff", text: $t("mail.aehnlichBetreff", { wert: kern }) });
+    return wege;
+  });
+
   function openContextMenu(x: number, y: number, uid: number) {
+    aehnlichSeite = false;
     const menuWidth = 180;
     const menuHeight = 180;
     const vw = typeof window !== "undefined" ? window.innerWidth : menuWidth;
@@ -325,11 +343,13 @@
 
   function closeContextMenu() {
     contextMenu = null;
+    aehnlichSeite = false;
   }
 
   function runContextAction(action?: (uid: number, uids: number[]) => void) {
     const uid = contextMenu?.uid;
     contextMenu = null;
+    aehnlichSeite = false;
     if (uid == null) return;
     // Standard mail-client semantics: a context action on a row inside a
     // multi-selection acts on ALL selected rows; on an unselected row it
@@ -474,8 +494,18 @@
   {#if contextMenu}
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouch} role="presentation" onclick={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouch} style={isTouch ? "" : `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`} role="menu">
+      {#if aehnlichSeite}
+      <button type="button" class="ctx-menu-item ctx-menu-zurueck" role="menuitem" onclick={() => (aehnlichSeite = false)}><span class="ctx-icon">{@html iconSVG("back")}</span>{$t("mail.aehnlich")}</button>
+      <div class="ctx-menu-separator" role="separator"></div>
+      {#each aehnlichWege as weg (weg.art)}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onaehnlich?.(uid, weg.art))}><span class="ctx-menu-text">{weg.text}</span></button>
+      {/each}
+      {:else}
       {#if onauswahl}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => auswahlStarten(uid))}><span class="ctx-icon">{@html iconSVG("select")}</span>{$t("mail.auswaehlen")}</button>
+      {/if}
+      {#if onaehnlich && aehnlichWege.length > 0}
+        <button type="button" class="ctx-menu-item" role="menuitem" aria-haspopup="menu" onclick={() => (aehnlichSeite = true)}><span class="ctx-icon">{@html iconSVG("search")}</span>{$t("mail.aehnlich")}<span class="ctx-weiter">{@html iconSVG("submenu")}</span></button>
       {/if}
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onreply?.(uid))}><span class="ctx-icon">{@html iconSVG("reply")}</span>{$t("mail.reply")}</button>
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => runContextAction((uid) => onforward?.(uid))}><span class="ctx-icon">{@html iconSVG("forward")}</span>{$t("mail.forward")}</button>
@@ -494,6 +524,7 @@
       <div class="ctx-menu-separator" role="separator"></div>
       <!-- Red only for what is final; the trash comes back (CI G2, 07.10.2026). -->
       <button type="button" class="ctx-menu-item" class:danger={loeschenEndgueltig} role="menuitem" onclick={() => runContextAction((uid, uids) => ondelete?.(uid, uids))}><span class="ctx-icon">{@html iconSVG("delete")}</span>{loeschenEndgueltig ? $t("mail.deleteFinal1") : $t("mail.inPapierkorb")}</button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -708,6 +739,16 @@
     padding: 6px;
     display: flex;
     flex-direction: column;
+  }
+  /* "Ähnliche E-Mails": the sign for the next page sits at the end; the
+     ways show address and subject in full, wrapping if they must. */
+  .ctx-weiter {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--am-text-gedaempft);
+  }
+  .ctx-menu-text {
+    overflow-wrap: anywhere;
   }
   .ctx-menu-item {
     display: flex;

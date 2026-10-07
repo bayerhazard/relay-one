@@ -360,6 +360,53 @@ test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, i
   await expect(zeilen).toHaveCount(vorher);
 });
 
+// "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails
+// of the same sender, the same domain or a similar subject in the open
+// folder, then all of them at once into the trash and back. Jonas Weber
+// wrote twice to the inbox and once to the archive; beispiel.de is three
+// mails in the inbox.
+test("Ähnliche E-Mails: Absender, Domain, Betreff", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Rechtsklick");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const alle = await zeilen.count();
+  const jonas = zeilen.filter({ hasText: "Angebot Messestand Frühjahr" });
+  const aehnlich = async (weg: string) => {
+    await jonas.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Ähnliche E-Mails" }).click();
+    await page.getByRole("menuitem", { name: weg }).click();
+  };
+  const leiste = page.locator(".aehnlich-leiste");
+
+  await aehnlich("Von jonas.weber@beispiel.de");
+  await expect(leiste).toContainText("2 ähnliche E-Mails in diesem Ordner");
+  await expect(zeilen).toHaveCount(2);
+  await expect(zeilen.filter({ hasText: "Vertrag Messe 2025" }), "nicht aus dem Archiv").toHaveCount(0);
+
+  await page.getByRole("button", { name: "Alle auswählen" }).click();
+  await page.locator(".selection-toolbar").getByRole("button", { name: /Papierkorb/ }).click();
+  await expect(zeilen).toHaveCount(0);
+  await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+  await expect(zeilen).toHaveCount(2);
+
+  await page.keyboard.press("Escape");
+  await page.locator(".kopfleiste input[type=search], .kopfleiste input").first().fill("");
+  await expect(zeilen).toHaveCount(alle);
+  await aehnlich("Alle von @beispiel.de");
+  await expect(leiste).toContainText("3 ähnliche E-Mails in diesem Ordner");
+
+  await page.locator(".kopfleiste input[type=search], .kopfleiste input").first().fill("");
+  await expect(zeilen).toHaveCount(alle);
+  await aehnlich("Betreff „Angebot Messestand Frühjahr …“");
+  await expect(leiste).toContainText("1 ähnliche E-Mail in diesem Ordner");
+  await expect(page.locator(".kopfleiste input").first()).toHaveValue('betreff:"Angebot Messestand Frühjahr"');
+});
+
 // Backspace deletes and moves on (Kai, 7.10.2026): the next mail opens at
 // once, "Rückgängig" brings the deleted one back. Undone, so the dummy
 // data stays the same.
