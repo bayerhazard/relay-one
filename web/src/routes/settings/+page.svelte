@@ -942,7 +942,7 @@ async function handleSaveCardDav() {
   <main class="settings-content-wrapper">
     {#if isNarrow}
       <div class="mobile-content-header">
-        <button type="button" class="back-btn" onclick={() => mobileContentOpen = false} title={$t("common.back")}>
+        <button type="button" class="btn btn-still back-btn" onclick={() => mobileContentOpen = false} title={$t("common.back")}>
           <Symbol name="zurueck" size={16} />
           <span>{$t("settings.title")}</span>
         </button>
@@ -958,7 +958,7 @@ async function handleSaveCardDav() {
         </header>
 
         <!-- Card: Sprache -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.language")}</h3>
             <p class="card-desc">{$t("settings.languageDesc")}</p>
@@ -972,7 +972,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Theme-Auswahl -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.appearance")}</h3>
             <p class="card-desc">{$t("settings.appearanceDesc")}</p>
@@ -1045,7 +1045,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Postfach Synchronisation -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.mailboxBehavior")}</h3>
             <p class="card-desc">{$t("settings.mailboxBehaviorDesc")}</p>
@@ -1054,7 +1054,7 @@ async function handleSaveCardDav() {
           <div class="card-body">
             <!-- Sync limit -->
             <div class="form-row align-items-center">
-              <div class="form-group flex-2">
+              <div class="feld flex-2">
                 <label for="fetch-limit-input">{$t("settings.maxMessages")}</label>
                 <div class="input-with-badge">
                   <input
@@ -1065,7 +1065,7 @@ async function handleSaveCardDav() {
                     bind:value={fetchLimit}
                     onchange={handleFetchLimitChange}
                     oninput={handleFetchLimitChange}
-                    class="form-control"
+                   
                   />
                   <span class="input-badge">{$t("settings.mails")}</span>
                 </div>
@@ -1077,48 +1077,72 @@ async function handleSaveCardDav() {
 
             <div class="divider"></div>
 
-            <!-- Custom Switch for Move to Trash -->
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" checked={moveToTrash} onchange={handleMoveToTrashToggle} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.moveToTrash")}</span>
-                  <span class="switch-desc">{$t("settings.moveToTrashDesc")}</span>
-                </span>
+            <!-- On/off switch (AM-HAKEN): Move to Trash -->
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-move-to-trash"
+                class="schalter"
+                class:an={moveToTrash}
+                role="switch"
+                aria-checked={moveToTrash}
+                aria-labelledby="schalter-move-to-trash-titel"
+                aria-describedby="schalter-move-to-trash-hinweis"
+                onclick={handleMoveToTrashToggle}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-move-to-trash">
+                <span id="schalter-move-to-trash-titel">{$t("settings.moveToTrash")}</span>
+                <span class="schalter-hinweis" id="schalter-move-to-trash-hinweis">{$t("settings.moveToTrashDesc")}</span>
               </label>
             </div>
 
             <div class="divider"></div>
 
-            <!-- Custom Switch for Auto Download Images -->
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" checked={autoDownloadImages} onchange={handleAutoDownloadImagesToggle} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.autoDownloadImages")}</span>
-                  <span class="switch-desc">{$t("settings.autoDownloadImagesDesc")}</span>
-                </span>
+            <!-- On/off switch (AM-HAKEN): Auto Download Images -->
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-auto-download-images"
+                class="schalter"
+                class:an={autoDownloadImages}
+                role="switch"
+                aria-checked={autoDownloadImages}
+                aria-labelledby="schalter-auto-download-images-titel"
+                aria-describedby="schalter-auto-download-images-hinweis"
+                onclick={handleAutoDownloadImagesToggle}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-auto-download-images">
+                <span id="schalter-auto-download-images-titel">{$t("settings.autoDownloadImages")}</span>
+                <span class="schalter-hinweis" id="schalter-auto-download-images-hinweis">{$t("settings.autoDownloadImagesDesc")}</span>
               </label>
             </div>
 
             <div class="divider"></div>
 
-            <!-- Custom Switch for Push Notifications -->
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" checked={notificationsEnabled} onchange={handleNotificationsToggle} disabled={notificationsBusy} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.push")}</span>
-                  <span class="switch-desc">{$t("settings.pushDesc")}</span>
-                </span>
+            <!-- On/off switch (AM-HAKEN): Push Notifications -->
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-push"
+                class="schalter"
+                class:an={notificationsEnabled}
+                role="switch"
+                aria-checked={notificationsEnabled}
+                aria-labelledby="schalter-push-titel"
+                aria-describedby="schalter-push-hinweis"
+                onclick={handleNotificationsToggle} disabled={notificationsBusy}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-push">
+                <span id="schalter-push-titel">{$t("settings.push")}</span>
+                <span class="schalter-hinweis" id="schalter-push-hinweis">{$t("settings.pushDesc")}</span>
               </label>
-              {#if notificationsError}
-                <p class="text-xs text-red-500 mt-2">{notificationsError}</p>
-              {/if}
             </div>
+            {#if notificationsError}
+              <div class="hinweis" data-art="fehler" role="alert">
+                <Symbol name="achtung" size={16} />
+                <span>{notificationsError}</span>
+              </div>
+            {/if}
           </div>
         </section>
       {/if}
@@ -1132,7 +1156,7 @@ async function handleSaveCardDav() {
 
         <!-- Liste verbundener Konten -->
         {#if accountList.length > 0}
-          <section class="settings-card">
+          <section class="karte settings-card">
             <div class="card-header">
               <h3>{$t("settings.connectedAccounts", { count: accountList.length })}</h3>
               <p class="card-desc">{$t("settings.connectedAccountsDesc")}</p>
@@ -1162,7 +1186,7 @@ async function handleSaveCardDav() {
                       <label class="sync-mode-label" for={`sync-mode-${a.id}`}>{$t("settings.syncMode")}</label>
                       <select
                         id={`sync-mode-${a.id}`}
-                        class="sync-mode-select"
+                        class="input sync-mode-select"
                         value={a.sync_mode ?? 'mirror'}
                         onchange={(e) => handleSyncModeChange(a.id, (e.currentTarget as HTMLSelectElement).value)}
                       >
@@ -1177,10 +1201,10 @@ async function handleSaveCardDav() {
                     </div>
                   </div>
                   <div class="account-actions">
-                    <button type="button" class="btn-action-ghost" onclick={() => connectAndEditAccount(a)}>
+                    <button type="button" class="btn btn-sekundaer" onclick={() => connectAndEditAccount(a)}>
                       {$t("settings.edit")}
                     </button>
-                    <button type="button" class="btn-action-ghost" onclick={() => handleDeleteAccount(a.id)}>
+                    <button type="button" class="btn btn-sekundaer" onclick={() => handleDeleteAccount(a.id)}>
                       {$t("settings.remove")}
                     </button>
                   </div>
@@ -1191,14 +1215,14 @@ async function handleSaveCardDav() {
         {/if}
 
         <!-- Formular zum Hinzufügen / Bearbeiten -->
-        <section class="settings-card" id="account-form">
+        <section class="karte settings-card" id="account-form">
           <div class="card-header">
             <h3>{isEditing ? $t("settings.editAccountTitle") : $t("settings.newAccountTitle")}</h3>
             <p class="card-desc">{$t("settings.accountFormDesc")}</p>
           </div>
 
           <div class="olares-import-row">
-            <button type="button" class="btn-action-ghost" onclick={importFromOlares}>
+            <button type="button" class="btn btn-sekundaer" onclick={importFromOlares}>
               {$t("settings.olaresImport")}
             </button>
             <span class="olares-import-hint">{$t("settings.olaresImportHint")}</span>
@@ -1206,114 +1230,111 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             <div class="form-grid-1">
-              <div class="form-group">
+              <div class="feld">
                 <label for="acct-name">{$t("settings.accountName")}</label>
-                <input id="acct-name" bind:value={acctName} placeholder={$t("settings.accountNamePlaceholder")} class="form-control" />
+                <input id="acct-name" bind:value={acctName} placeholder={$t("settings.accountNamePlaceholder")} />
               </div>
             </div>
 
             <div class="form-section-title">{$t("settings.imapSection")}</div>
             <div class="form-grid-3">
-              <div class="form-group">
+              <div class="feld">
                 <label for="imap-host">{$t("settings.serverAddress")}</label>
-                <input id="imap-host" bind:value={imapHost} placeholder="imap.provider.com" class="form-control" />
+                <input id="imap-host" bind:value={imapHost} placeholder="imap.provider.com" />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="imap-port">{$t("settings.port")}</label>
-                <input id="imap-port" type="number" bind:value={imapPort} class="form-control" />
+                <input id="imap-port" type="number" bind:value={imapPort} />
               </div>
-              <div class="form-group justify-self-center">
-                <label class="toggle-label">
-                  <input type="checkbox" class="toggle" bind:checked={imapSsl} />
-                  <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">SSL</span>
-                </label>
+              <div class="toggle-cell">
+                <div class="schalter-zeile">
+                  <button type="button" id="schalter-imap-ssl" class="schalter" class:an={imapSsl} role="switch" aria-checked={imapSsl} aria-labelledby="schalter-imap-ssl-titel" onclick={() => (imapSsl = !imapSsl)}><span class="schalter-knauf"></span></button>
+                  <label class="schalter-text" id="schalter-imap-ssl-titel" for="schalter-imap-ssl">SSL</label>
+                </div>
               </div>
-              <div class="form-group justify-self-center">
-                <label class="toggle-label" title={$t("settings.insecureTitle")}>
-                  <input type="checkbox" class="toggle" bind:checked={imapInsecure} />
-                  <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">{$t("settings.insecureAllow")}</span>
-                </label>
+              <div class="toggle-cell">
+                <div class="schalter-zeile" title={$t("settings.insecureTitle")}>
+                  <button type="button" id="schalter-imap-insecure" class="schalter" class:an={imapInsecure} role="switch" aria-checked={imapInsecure} aria-labelledby="schalter-imap-insecure-titel" onclick={() => (imapInsecure = !imapInsecure)}><span class="schalter-knauf"></span></button>
+                  <label class="schalter-text" id="schalter-imap-insecure-titel" for="schalter-imap-insecure">{$t("settings.insecureAllow")}</label>
+                </div>
               </div>
             </div>
 
             <div class="form-section-title">{$t("settings.smtpSection")}</div>
             <div class="form-grid-3">
-              <div class="form-group">
+              <div class="feld">
                 <label for="smtp-host">{$t("settings.serverAddress")}</label>
-                <input id="smtp-host" bind:value={smtpHost} placeholder="smtp.provider.com" class="form-control" />
+                <input id="smtp-host" bind:value={smtpHost} placeholder="smtp.provider.com" />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="smtp-port">{$t("settings.port")}</label>
-                <input id="smtp-port" type="number" bind:value={smtpPort} class="form-control" />
+                <input id="smtp-port" type="number" bind:value={smtpPort} />
               </div>
-              <div class="form-group justify-self-center">
-                <label class="toggle-label">
-                  <input type="checkbox" class="toggle" bind:checked={smtpTls} />
-                  <span class="toggle-track" aria-hidden="true"></span>
-                  <span class="toggle-text">TLS</span>
-                </label>
+              <div class="toggle-cell">
+                <div class="schalter-zeile">
+                  <button type="button" id="schalter-smtp-tls" class="schalter" class:an={smtpTls} role="switch" aria-checked={smtpTls} aria-labelledby="schalter-smtp-tls-titel" onclick={() => (smtpTls = !smtpTls)}><span class="schalter-knauf"></span></button>
+                  <label class="schalter-text" id="schalter-smtp-tls-titel" for="schalter-smtp-tls">TLS</label>
+                </div>
               </div>
             </div>
 
             <div class="form-section-title">{$t("settings.imapCredentials")}</div>
             <div class="form-grid-2">
-              <div class="form-group">
+              <div class="feld">
                 <label for="acct-user">{$t("settings.username")}</label>
-                <input id="acct-user" bind:value={acctUser} placeholder="name@provider.com" class="form-control" />
+                <input id="acct-user" bind:value={acctUser} placeholder="name@provider.com" />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="acct-pass">{$t("settings.password")}</label>
-                <input id="acct-pass" type="password" bind:value={acctPass} placeholder="••••••••••••••••" class="form-control" />
+                <input id="acct-pass" type="password" bind:value={acctPass} placeholder="••••••••••••••••" />
               </div>
             </div>
 
             <div class="form-section-title">{$t("settings.smtpCredentialsOptional")}</div>
             <div class="form-grid-2">
-              <div class="form-group">
+              <div class="feld">
                 <label for="smtp-user">{$t("settings.smtpUsername")}</label>
-                <input id="smtp-user" bind:value={smtpUser} placeholder={$t("settings.optionalImapUser")} class="form-control" />
+                <input id="smtp-user" bind:value={smtpUser} placeholder={$t("settings.optionalImapUser")} />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="smtp-pass">{$t("settings.smtpPassword")}</label>
-                <input id="smtp-pass" type="password" bind:value={smtpPass} placeholder={$t("settings.optionalImapPassword")} class="form-control" />
+                <input id="smtp-pass" type="password" bind:value={smtpPass} placeholder={$t("settings.optionalImapPassword")} />
               </div>
             </div>
 
             <div class="form-section-title">{$t("settings.sender")}</div>
             <div class="form-grid-2 mt-2">
-              <div class="form-group">
+              <div class="feld">
                 <label for="sender-name">{$t("settings.senderName")}</label>
-                <input id="sender-name" bind:value={senderName} placeholder={$t("mail.pnameExample")} class="form-control" />
+                <input id="sender-name" bind:value={senderName} placeholder={$t("mail.pnameExample")} />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="sender-mail">{$t("settings.senderMail")}</label>
-                <input id="sender-mail" type="text" inputmode="email" bind:value={senderMail} placeholder="name@provider.com" class="form-control" />
+                <input id="sender-mail" type="text" inputmode="email" bind:value={senderMail} placeholder="name@provider.com" />
               </div>
             </div>
 
             {#if acctError}
-              <div class="alert-box error">
-                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
-                <div class="alert-text">{acctError}</div>
+              <div class="hinweis" data-art="fehler" role="alert">
+                <Symbol name="achtung" size={16} />
+                <span>{acctError}</span>
               </div>
             {/if}
             
             {#if acctSuccess}
-              <div class="alert-box success">
-                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                <div class="alert-text">{acctSuccess}</div>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{acctSuccess}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
               {#if isEditing}
-                <button type="button" class="btn-cancel" onclick={handleCancelEdit}>
+                <button type="button" class="btn btn-sekundaer" onclick={handleCancelEdit}>
                   {$t("common.cancel")}
                 </button>
               {/if}
-              <button type="button" class="btn-submit" onclick={handleConnectAccount} disabled={acctConnecting}>
+              <button type="button" class="btn btn-primaer" onclick={handleConnectAccount} disabled={acctConnecting}>
                 {acctConnecting ? $t("settings.testing") : (isEditing ? $t("settings.saveChanges") : $t("settings.connectAccount"))}
               </button>
             </div>
@@ -1329,28 +1350,35 @@ async function handleSaveCardDav() {
         </header>
 
         <!-- Card: Textgenerierungs-Optionen -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.assistantBehavior")}</h3>
             <p class="card-desc">{$t("settings.assistantBehaviorDesc")}</p>
           </div>
 
           <div class="card-body">
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" bind:checked={$showDiffEnabled} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.diffEditor")}</span>
-                  <span class="switch-desc">{$t("settings.diffEditorDesc")}</span>
-                </span>
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-diff-editor"
+                class="schalter"
+                class:an={$showDiffEnabled}
+                role="switch"
+                aria-checked={$showDiffEnabled}
+                aria-labelledby="schalter-diff-editor-titel"
+                aria-describedby="schalter-diff-editor-hinweis"
+                onclick={() => ($showDiffEnabled = !$showDiffEnabled)}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-diff-editor">
+                <span id="schalter-diff-editor-titel">{$t("settings.diffEditor")}</span>
+                <span class="schalter-hinweis" id="schalter-diff-editor-hinweis">{$t("settings.diffEditorDesc")}</span>
               </label>
             </div>
           </div>
         </section>
 
         <!-- Card: Anbindung (Olares Router default / manual) -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sourceTitle")}</h3>
             <p class="card-desc">{$t("settings.sourceDesc")}</p>
@@ -1376,43 +1404,46 @@ async function handleSaveCardDav() {
               </div>
               <p class="hint-text">{$t("settings.routerHint")}</p>
               <div class="form-grid-1">
-                <div class="form-group">
+                <div class="feld">
                   <label for="ai-router-url">{$t("settings.routerBase")}</label>
-                  <input id="ai-router-url" type="text" value={aiRouterUrl} class="form-control" readonly />
+                  <input id="ai-router-url" type="text" value={aiRouterUrl} readonly />
                 </div>
               </div>
               {#if !aiRouterAvailable}
-                <p class="text-xs text-red-500 mt-2">{$t("settings.routerUnavailable")}</p>
+                <div class="hinweis" data-art="achtung">
+                  <Symbol name="achtung" size={16} />
+                  <span>{$t("settings.routerUnavailable")}</span>
+                </div>
               {/if}
             {:else}
               <div class="form-grid-1">
-                <div class="form-group">
+                <div class="feld">
                   <label for="ai-url">{$t("settings.apiUrl")}</label>
-                  <input id="ai-url" type="url" bind:value={aiUrl} placeholder="https://llm.aimighty.de/v1" class="form-control" />
+                  <input id="ai-url" type="url" bind:value={aiUrl} placeholder="https://llm.aimighty.de/v1" />
                 </div>
               </div>
 
               <div class="form-grid-2">
-                <div class="form-group">
+                <div class="feld">
                   <label for="ai-key">{$t("settings.apiKey")}</label>
-                  <input id="ai-key" type="password" bind:value={aiKey} placeholder="ollama" class="form-control" />
+                  <input id="ai-key" type="password" bind:value={aiKey} placeholder="ollama" />
                 </div>
-                <div class="form-group">
+                <div class="feld">
                   <label for="ai-model">{$t("settings.modelId")}</label>
-                  <input id="ai-model" type="text" bind:value={aiModel} placeholder="llama3.2" class="form-control" />
+                  <input id="ai-model" type="text" bind:value={aiModel} placeholder="llama3.2" />
                 </div>
               </div>
             {/if}
 
             {#if aiError}
-              <div class="alert-box error">
-                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
-                <div class="alert-text">{aiError}</div>
+              <div class="hinweis" data-art="fehler" role="alert">
+                <Symbol name="achtung" size={16} />
+                <span>{aiError}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-submit" onclick={handleSaveAI}>
+              <button type="button" class="btn btn-primaer" onclick={handleSaveAI}>
                 {#if aiSaved}<Symbol name="erfolg" size={16} />{/if} {aiSaved ? $t("settings.saved") : $t("settings.saveConnection")}
               </button>
             </div>
@@ -1420,7 +1451,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-System-Status -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiStatus")}</h3>
             <p class="card-desc">{$t("settings.aiStatusDesc")}</p>
@@ -1428,7 +1459,7 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             <div class="form-actions-row">
-              <button type="button" class="btn-submit" onclick={handleResetCircuitBreaker}>
+              <button type="button" class="btn btn-sekundaer" onclick={handleResetCircuitBreaker}>
                 {#if cbResetDone}<Symbol name="erfolg" size={16} />{/if} {cbResetDone ? $t("settings.aiResetDone") : $t("settings.aiReset")}
               </button>
             </div>
@@ -1444,7 +1475,7 @@ async function handleSaveCardDav() {
         </header>
 
         <!-- Card: CardDAV Settings -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.carddav")}</h3>
             <p class="card-desc">{$t("settings.carddavDesc")}</p>
@@ -1452,59 +1483,59 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             <div class="form-grid-1">
-              <div class="form-group">
+              <div class="feld">
                 <label for="carddav-url">{$t("settings.serverUrl")}</label>
-                <input id="carddav-url" type="url" bind:value={carddavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/addressbooks/users/username/contacts/" class="form-control" />
+                <input id="carddav-url" type="url" bind:value={carddavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/addressbooks/users/username/contacts/" />
               </div>
             </div>
 
             <div class="form-grid-2">
-              <div class="form-group">
+              <div class="feld">
                 <label for="carddav-user">{$t("settings.usernameShort")}</label>
-                <input id="carddav-user" type="text" bind:value={carddavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
+                <input id="carddav-user" type="text" bind:value={carddavUser} placeholder={$t("settings.usernameShort")} />
               </div>
-              <div class="form-group">
+              <div class="feld">
                 <label for="carddav-pass">{$t("settings.passwordToken")}</label>
-                <input id="carddav-pass" type="password" bind:value={carddavPass} placeholder={$t("settings.passwordToken")} class="form-control" />
+                <input id="carddav-pass" type="password" bind:value={carddavPass} placeholder={$t("settings.passwordToken")} />
               </div>
             </div>
 
             <div class="form-grid-1">
-              <div class="form-group">
+              <div class="feld">
                 <label for="carddav-interval">{$t("settings.syncInterval")}</label>
                 <div class="input-with-badge">
-                  <input id="carddav-interval" type="number" bind:value={carddavInterval} min="1" max="1440" class="form-control" />
+                  <input id="carddav-interval" type="number" bind:value={carddavInterval} min="1" max="1440" />
                   <span class="input-badge">{$t("settings.minutes")}</span>
                 </div>
               </div>
             </div>
 
             {#if carddavError}
-              <div class="alert-box error">
-                <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
-                <div class="alert-text">{carddavError}</div>
+              <div class="hinweis" data-art="fehler" role="alert">
+                <Symbol name="achtung" size={16} />
+                <span>{carddavError}</span>
               </div>
             {/if}
             
             {#if carddavSaved}
-              <div class="alert-box success">
-                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                <div class="alert-text">{$t("settings.carddavSaved")}</div>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{$t("settings.carddavSaved")}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-cancel" onclick={handleSyncCardDav} disabled={carddavSyncing}>
+              <button type="button" class="btn btn-sekundaer" onclick={handleSyncCardDav} disabled={carddavSyncing}>
                 {carddavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
               </button>
-              <button type="button" class="btn-submit" onclick={handleSaveCardDav}>
+              <button type="button" class="btn btn-primaer" onclick={handleSaveCardDav}>
                 {$t("common.save")}
               </button>
             </div>
 
             {#if carddavSyncResult !== null}
-              <div class="sync-success-pill">
-                <span class="sync-icon"><Symbol name="neu-laden" size={16} /></span>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="neu-laden" size={16} />
                 <span>{$t("settings.syncSuccess", { count: carddavSyncResult })}</span>
               </div>
             {/if}
@@ -1512,7 +1543,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Profile Photo -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.profilePhoto")}</h3>
             <p class="card-desc">{$t("settings.profilePhotoDesc")}</p>
@@ -1528,11 +1559,11 @@ async function handleSaveCardDav() {
                 {/if}
               </div>
               <div class="photo-actions">
-                <button type="button" class="btn-cancel" onclick={handlePhotoUpload}>
+                <button type="button" class="btn btn-sekundaer" onclick={handlePhotoUpload}>
                   {$t("settings.uploadImage")}
                 </button>
                 {#if ownPhoto}
-                  <button type="button" class="btn-cancel" onclick={handleClearPhoto}>
+                  <button type="button" class="btn btn-sekundaer" onclick={handleClearPhoto}>
                     {$t("settings.remove")}
                   </button>
                 {/if}
@@ -1549,7 +1580,7 @@ async function handleSaveCardDav() {
           <p class="tab-desc">{$t("settings.calendarDesc")}</p>
         </header>
 
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.caldav")}</h3>
             <p class="card-desc">{$t("settings.caldavDesc")}</p>
@@ -1567,9 +1598,9 @@ async function handleSaveCardDav() {
                       <span class="caldav-row-meta">{a.url} · {$t("settings.syncIntervalShort", { count: a.sync_interval_minutes })}</span>
                     </div>
                     <div class="caldav-row-actions">
-                      <button type="button" class="caldav-toggle" class:caldav-toggle--on={a.enabled} onclick={() => handleToggleCalDav(a)} aria-pressed={a.enabled} title={$t("settings.caldavEnable")}></button>
-                      <button type="button" class="btn-cancel btn-sm" onclick={() => caldavStartEdit(a)}>{$t("settings.caldavEdit")}</button>
-                      <button type="button" class="btn-action-ghost btn-sm" onclick={() => { pendingDeleteCalDavId = a.id; showDeleteCalDavConfirm = true; }}>{$t("settings.remove")}</button>
+                      <button type="button" class="schalter" class:an={a.enabled} role="switch" aria-checked={a.enabled} onclick={() => handleToggleCalDav(a)} aria-label={$t("settings.caldavEnable")} title={$t("settings.caldavEnable")}><span class="schalter-knauf"></span></button>
+                      <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => caldavStartEdit(a)}>{$t("settings.caldavEdit")}</button>
+                      <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => { pendingDeleteCalDavId = a.id; showDeleteCalDavConfirm = true; }}>{$t("settings.remove")}</button>
                     </div>
                   </div>
                 {/each}
@@ -1578,67 +1609,67 @@ async function handleSaveCardDav() {
 
             {#if caldavEditingId === null}
               <div class="form-actions-row">
-                <button type="button" class="btn-submit" onclick={caldavStartAdd}>{$t("settings.caldavAdd")}</button>
-                <button type="button" class="btn-cancel" onclick={handleSyncCalDav} disabled={caldavSyncing}>
+                <button type="button" class="btn btn-primaer" onclick={caldavStartAdd}>{$t("settings.caldavAdd")}</button>
+                <button type="button" class="btn btn-sekundaer" onclick={handleSyncCalDav} disabled={caldavSyncing}>
                   {caldavSyncing ? $t("settings.syncing") : $t("settings.syncNow")}
                 </button>
               </div>
             {:else}
               <div class="form-grid-2">
-                <div class="form-group">
+                <div class="feld">
                   <label for="caldav-name">{$t("settings.caldavAccountName")}</label>
-                  <input id="caldav-name" type="text" bind:value={caldavName} placeholder={$t("settings.caldavAccountNamePlaceholder")} class="form-control" />
+                  <input id="caldav-name" type="text" bind:value={caldavName} placeholder={$t("settings.caldavAccountNamePlaceholder")} />
                 </div>
-                <div class="form-group">
+                <div class="feld">
                   <label for="caldav-interval">{$t("settings.syncInterval")}</label>
                   <div class="input-with-badge">
-                    <input id="caldav-interval" type="number" bind:value={caldavInterval} min="1" max="1440" class="form-control" />
+                    <input id="caldav-interval" type="number" bind:value={caldavInterval} min="1" max="1440" />
                     <span class="input-badge">{$t("settings.minutes")}</span>
                   </div>
                 </div>
               </div>
 
               <div class="form-grid-1">
-                <div class="form-group">
+                <div class="feld">
                   <label for="caldav-url">{$t("settings.serverUrl")}</label>
-                  <input id="caldav-url" type="url" bind:value={caldavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/calendars/username/" class="form-control" />
+                  <input id="caldav-url" type="url" bind:value={caldavUrl} placeholder="https://nextcloud.example.com/remote.php/dav/calendars/username/" />
                 </div>
               </div>
 
               <div class="form-grid-2">
-                <div class="form-group">
+                <div class="feld">
                   <label for="caldav-user">{$t("settings.usernameShort")}</label>
-                  <input id="caldav-user" type="text" bind:value={caldavUser} placeholder={$t("settings.usernameShort")} class="form-control" />
+                  <input id="caldav-user" type="text" bind:value={caldavUser} placeholder={$t("settings.usernameShort")} />
                 </div>
-                <div class="form-group">
+                <div class="feld">
                   <label for="caldav-pass">{$t("settings.passwordToken")}</label>
-                  <input id="caldav-pass" type="password" bind:value={caldavPass} placeholder={caldavEditingId !== "new" ? $t("settings.caldavPasswordKeep") : $t("settings.passwordToken")} class="form-control" />
+                  <input id="caldav-pass" type="password" bind:value={caldavPass} placeholder={caldavEditingId !== "new" ? $t("settings.caldavPasswordKeep") : $t("settings.passwordToken")} />
                 </div>
               </div>
 
               {#if caldavError}
-                <div class="alert-box error">
-                  <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
-                  <div class="alert-text">{caldavError}</div>
+                <div class="hinweis" data-art="fehler" role="alert">
+                  <Symbol name="achtung" size={16} />
+                  <span>{caldavError}</span>
                 </div>
               {/if}
 
               {#if caldavSaved}
-                <div class="alert-box success">
-                  <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                  <div class="alert-text">{$t("settings.caldavSaved")}</div>
+                <div class="hinweis" data-art="erfolg" role="status">
+                  <Symbol name="erfolg" size={16} />
+                  <span>{$t("settings.caldavSaved")}</span>
                 </div>
               {/if}
 
               <div class="form-actions-row">
-                <button type="button" class="btn-cancel" onclick={caldavCancelEdit}>{$t("common.cancel")}</button>
-                <button type="button" class="btn-submit" onclick={handleSaveCalDav}>{$t("common.save")}</button>
+                <button type="button" class="btn btn-sekundaer" onclick={caldavCancelEdit}>{$t("common.cancel")}</button>
+                <button type="button" class="btn btn-primaer" onclick={handleSaveCalDav}>{$t("common.save")}</button>
               </div>
             {/if}
 
             {#if caldavSyncResult !== null}
-              <div class="sync-success-pill">
-                <span class="sync-icon"><Symbol name="neu-laden" size={16} /></span>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="neu-laden" size={16} />
                 <span>{$t("settings.syncSuccessCal", { count: caldavSyncResult })}</span>
               </div>
             {/if}
@@ -1652,28 +1683,35 @@ async function handleSaveCardDav() {
           <h1>{$t("settings.voiceTitle")}</h1>
           <p class="tab-desc">{$t("settings.voiceDesc")}</p>
         </header>
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.voice2mail")}</h3>
             <p class="card-desc">{$t("settings.voice2mailDesc")}</p>
           </div>
 
           <div class="card-body">
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" bind:checked={voiceEnabled} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.voiceEnable")}</span>
-                  <span class="switch-desc">{$t("settings.voiceEnableDesc")}</span>
-                </span>
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-voice-enable"
+                class="schalter"
+                class:an={voiceEnabled}
+                role="switch"
+                aria-checked={voiceEnabled}
+                aria-labelledby="schalter-voice-enable-titel"
+                aria-describedby="schalter-voice-enable-hinweis"
+                onclick={() => (voiceEnabled = !voiceEnabled)}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-voice-enable">
+                <span id="schalter-voice-enable-titel">{$t("settings.voiceEnable")}</span>
+                <span class="schalter-hinweis" id="schalter-voice-enable-hinweis">{$t("settings.voiceEnableDesc")}</span>
               </label>
             </div>
           </div>
         </section>
 
         <!-- Card: Sprach-Anbindung (Olares Router default / manual) -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sourceTitle")}</h3>
             <p class="card-desc">{$t("settings.sourceDesc")}</p>
@@ -1702,7 +1740,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: STT Endpoint -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sttEndpoint")}</h3>
             <p class="card-desc">{$t("settings.sttEndpointDesc")}</p>
@@ -1711,20 +1749,20 @@ async function handleSaveCardDav() {
           <div class="card-body">
             {#if voiceSource === "manual"}
               <div class="form-grid-1">
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-stt-url">{$t("settings.apiUrl")}</label>
-                  <input id="voice-stt-url" type="url" bind:value={voiceSttUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceEnabled} />
+                  <input id="voice-stt-url" type="url" bind:value={voiceSttUrl} placeholder="https://speaches.aimighty.de/v1" disabled={!voiceEnabled} />
                 </div>
               </div>
 
               <div class="form-grid-2">
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-stt-key">{$t("settings.apiKey")}</label>
-                  <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceEnabled} />
+                  <input id="voice-stt-key" type="password" bind:value={voiceSttKey} placeholder={$t("settings.optional")} disabled={!voiceEnabled} />
                 </div>
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-stt-model">{$t("settings.modelId")}</label>
-                  <input id="voice-stt-model" type="text" bind:value={voiceSttModel} placeholder="Systran/faster-whisper-small" class="form-control" disabled={!voiceEnabled} />
+                  <input id="voice-stt-model" type="text" bind:value={voiceSttModel} placeholder="Systran/faster-whisper-small" disabled={!voiceEnabled} />
                 </div>
               </div>
             {:else}
@@ -1734,68 +1772,82 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: TTS (Phase D) -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.ttsEndpoint")}</h3>
             <p class="card-desc">{$t("settings.ttsEndpointDesc")}</p>
           </div>
 
           <div class="card-body">
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" bind:checked={voiceTtsEnabled} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.ttsEnable")}</span>
-                  <span class="switch-desc">{$t("settings.ttsEnableDesc")}</span>
-                </span>
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-tts-enable"
+                class="schalter"
+                class:an={voiceTtsEnabled}
+                role="switch"
+                aria-checked={voiceTtsEnabled}
+                aria-labelledby="schalter-tts-enable-titel"
+                aria-describedby="schalter-tts-enable-hinweis"
+                onclick={() => (voiceTtsEnabled = !voiceTtsEnabled)}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-tts-enable">
+                <span id="schalter-tts-enable-titel">{$t("settings.ttsEnable")}</span>
+                <span class="schalter-hinweis" id="schalter-tts-enable-hinweis">{$t("settings.ttsEnableDesc")}</span>
               </label>
             </div>
 
             {#if voiceSource === "manual"}
               <div class="form-grid-1">
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-tts-url">{$t("settings.apiUrl")}</label>
-                  <input id="voice-tts-url" type="url" bind:value={voiceTtsUrl} placeholder="https://speaches.aimighty.de/v1" class="form-control" disabled={!voiceTtsEnabled} />
+                  <input id="voice-tts-url" type="url" bind:value={voiceTtsUrl} placeholder="https://speaches.aimighty.de/v1" disabled={!voiceTtsEnabled} />
                 </div>
               </div>
 
               <div class="form-grid-2">
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-tts-key">{$t("settings.apiKey")}</label>
-                  <input id="voice-tts-key" type="password" bind:value={voiceTtsKey} placeholder={$t("settings.optional")} class="form-control" disabled={!voiceTtsEnabled} />
+                  <input id="voice-tts-key" type="password" bind:value={voiceTtsKey} placeholder={$t("settings.optional")} disabled={!voiceTtsEnabled} />
                 </div>
-                <div class="form-group">
+                <div class="feld">
                   <label for="voice-tts-model">{$t("settings.modelId")}</label>
-                  <input id="voice-tts-model" type="text" bind:value={voiceTtsModel} placeholder="tts-1" class="form-control" disabled={!voiceTtsEnabled} />
+                  <input id="voice-tts-model" type="text" bind:value={voiceTtsModel} placeholder="tts-1" disabled={!voiceTtsEnabled} />
                 </div>
               </div>
             {:else}
               <p class="hint-text">{$t("settings.voiceRouterStatus", { stt: "default-stt", tts: "default-tts" })}</p>
             {/if}
 
-            <div class="switch-row">
-              <label class="switch-container">
-                <input type="checkbox" bind:checked={voiceTtsAuto} />
-                <span class="switch-slider"></span>
-                <span class="switch-label-group">
-                  <span class="switch-title">{$t("settings.ttsAuto")}</span>
-                  <span class="switch-desc">{$t("settings.ttsAutoDesc")}</span>
-                </span>
+            <div class="schalter-zeile">
+              <button
+                type="button"
+                id="schalter-tts-auto"
+                class="schalter"
+                class:an={voiceTtsAuto}
+                role="switch"
+                aria-checked={voiceTtsAuto}
+                aria-labelledby="schalter-tts-auto-titel"
+                aria-describedby="schalter-tts-auto-hinweis"
+                onclick={() => (voiceTtsAuto = !voiceTtsAuto)}
+              ><span class="schalter-knauf"></span></button>
+              <label class="schalter-text" for="schalter-tts-auto">
+                <span id="schalter-tts-auto-titel">{$t("settings.ttsAuto")}</span>
+                <span class="schalter-hinweis" id="schalter-tts-auto-hinweis">{$t("settings.ttsAutoDesc")}</span>
               </label>
             </div>
           </div>
         </section>
 
         {#if voiceError}
-          <div class="alert-box error">
-            <div class="alert-icon"><Symbol name="achtung" size={20} /></div>
-            <div class="alert-text">{voiceError}</div>
+          <div class="hinweis" data-art="fehler" role="alert">
+            <Symbol name="achtung" size={16} />
+            <span>{voiceError}</span>
           </div>
         {/if}
 
         <div class="form-actions-row">
-          <button type="button" class="btn-submit" onclick={handleSaveVoice}>
+          <button type="button" class="btn btn-primaer" onclick={handleSaveVoice}>
             {#if voiceSaved}<Symbol name="erfolg" size={16} />{/if} {voiceSaved ? $t("settings.saved") : $t("settings.saveConnection")}
           </button>
         </div>
@@ -1808,7 +1860,7 @@ async function handleSaveCardDav() {
         </header>
 
         <!-- Card: Delete Queue Review -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.deleteQueue", { count: deleteQueue.length })}</h3>
             <p class="card-desc">{$t("settings.deleteQueueDesc")}</p>
@@ -1828,8 +1880,8 @@ async function handleSaveCardDav() {
                     {/if}
                   </div>
                   <div class="delete-queue-actions">
-                    <button type="button" class="btn-action-ghost" onclick={() => retryDeleteQueue(row.id)}>{$t("settings.retry")}</button>
-                    <button type="button" class="btn-action-ghost" onclick={() => removeDeleteQueue(row.id)}>{$t("settings.discard")}</button>
+                    <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => retryDeleteQueue(row.id)}>{$t("settings.retry")}</button>
+                    <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => removeDeleteQueue(row.id)}>{$t("settings.discard")}</button>
                   </div>
                 </div>
               {/each}
@@ -1838,7 +1890,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Export -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.exportTitle")}</h3>
             <p class="card-desc">{$t("settings.exportDesc")}</p>
@@ -1847,8 +1899,8 @@ async function handleSaveCardDav() {
             {#each accountList as a (a.id)}
               <div class="export-account">
                 <span class="export-account-name">{a.name}</span>
-                <button type="button" class="btn-action-ghost" onclick={() => downloadExport(a.id, "mbox")}>MBox</button>
-                <button type="button" class="btn-action-ghost" onclick={() => downloadExport(a.id, "zip")}>EML-ZIP</button>
+                <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => downloadExport(a.id, "mbox")}>MBox</button>
+                <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => downloadExport(a.id, "zip")}>EML-ZIP</button>
               </div>
             {/each}
             {#if accountList.length === 0}
@@ -1858,21 +1910,24 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Backup -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.backupTitle")}</h3>
             <p class="card-desc">{$t("settings.backupDesc")}</p>
           </div>
           <div class="export-row">
-            <button type="button" class="btn-action" onclick={handleBackup} disabled={backupBusy}>
+            <button type="button" class="btn btn-primaer" onclick={handleBackup} disabled={backupBusy}>
               {backupBusy ? $t("settings.createBackupBusy") : $t("settings.createBackup")}
             </button>
             {#if backupResult}
-              <p class="hint-text mt-2">{$t("settings.backupCreated", { path: backupResult.path, size: formatBytes(backupResult.size) })}</p>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{$t("settings.backupCreated", { path: backupResult.path, size: formatBytes(backupResult.size) })}</span>
+              </div>
             {/if}
           </div>
 
-          <div class="card-header" style="margin-top:16px">
+          <div class="card-header backup-list-header">
             <h4>{$t("settings.existingBackups")}</h4>
           </div>
           <div class="backup-list">
@@ -1880,14 +1935,18 @@ async function handleSaveCardDav() {
               <div class="backup-row">
                 <span class="backup-name">{b.name}</span>
                 <span class="backup-size">{formatBytes(b.size)}</span>
-                <button type="button" class="btn-action-ghost" onclick={() => restoreBackup(b.name)}>{$t("settings.restore")}</button>
+                <button type="button" class="btn btn-sekundaer btn-klein" onclick={() => askRestoreBackup(b.name)}>{$t("settings.restore")}</button>
               </div>
             {:else}
               <p class="hint-text">{$t("settings.noBackups")}</p>
             {/each}
           </div>
           {#if restoreResult}
-            <p class="hint-text mt-2">{restoreResult}</p>
+            <!-- Neutral notice: the line reports either outcome. -->
+            <div class="hinweis" role="status">
+              <Symbol name="hinweis" size={16} />
+              <span>{restoreResult}</span>
+            </div>
           {/if}
         </section>
       {/if}
@@ -1899,7 +1958,7 @@ async function handleSaveCardDav() {
         </header>
 
         <!-- Card: Cache Statistics -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.cacheStats")}</h3>
             <p class="card-desc">{$t("settings.cacheStatsDesc")}</p>
@@ -1924,7 +1983,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Cache Cleanup -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.cacheCleanup")}</h3>
             <p class="card-desc">{$t("settings.cacheCleanupDesc")}</p>
@@ -1932,24 +1991,24 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             <div class="form-grid-2">
-              <div class="form-group">
+              <div class="feld">
                 <label for="cache-max-mb">{$t("settings.cacheMaxMb")}</label>
-                <input id="cache-max-mb" type="number" bind:value={cacheMaxMb} min="10" max="500" class="form-control" />
+                <input id="cache-max-mb" type="number" bind:value={cacheMaxMb} min="10" max="500" />
               </div>
             </div>
 
             {#if cacheCleanupResult !== null}
-              <div class="alert-box success">
-                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                <div class="alert-text">{$t("settings.cacheCleaned", { count: cacheCleanupResult })}</div>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{$t("settings.cacheCleaned", { count: cacheCleanupResult })}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-submit" onclick={handleCleanupCache} disabled={cacheCleaning}>
+              <button type="button" class="btn btn-primaer" onclick={handleCleanupCache} disabled={cacheCleaning}>
                 {cacheCleaning ? $t("settings.cleaning") : $t("settings.cacheCleanup")}
               </button>
-              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "cache")} disabled={cacheCleaning}>
+              <button type="button" class="btn btn-sekundaer" onclick={() => (pendingClear = "cache")} disabled={cacheCleaning}>
                 {cacheCleaning ? $t("settings.clearing") : $t("settings.clearAll")}
               </button>
             </div>
@@ -1957,7 +2016,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-Zusammenfassungen -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiSummaries")}</h3>
             <p class="card-desc">{$t("settings.aiSummariesDesc")}</p>
@@ -1965,14 +2024,14 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             {#if aiSummariesResult !== null}
-              <div class="alert-box success">
-                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                <div class="alert-text">{$t("settings.aiSummariesCleared", { count: aiSummariesResult })}</div>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{$t("settings.aiSummariesCleared", { count: aiSummariesResult })}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "summaries")} disabled={aiSummariesClearing}>
+              <button type="button" class="btn btn-sekundaer" onclick={() => (pendingClear = "summaries")} disabled={aiSummariesClearing}>
                 {aiSummariesClearing ? $t("settings.clearing") : $t("settings.aiSummariesClearAll")}
               </button>
             </div>
@@ -1980,7 +2039,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-Aktionen -->
-        <section class="settings-card">
+        <section class="karte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiActions")}</h3>
             <p class="card-desc">{$t("settings.aiActionsDesc")}</p>
@@ -1988,14 +2047,14 @@ async function handleSaveCardDav() {
 
           <div class="card-body">
             {#if aiActionsResult !== null}
-              <div class="alert-box success">
-                <div class="alert-icon"><Symbol name="erfolg" size={20} /></div>
-                <div class="alert-text">{$t("settings.aiActionsCleared", { count: aiActionsResult })}</div>
+              <div class="hinweis" data-art="erfolg" role="status">
+                <Symbol name="erfolg" size={16} />
+                <span>{$t("settings.aiActionsCleared", { count: aiActionsResult })}</span>
               </div>
             {/if}
 
             <div class="form-actions-row">
-              <button type="button" class="btn-action-ghost" onclick={() => (pendingClear = "actions")} disabled={aiActionsClearing}>
+              <button type="button" class="btn btn-sekundaer" onclick={() => (pendingClear = "actions")} disabled={aiActionsClearing}>
                 {aiActionsClearing ? $t("settings.clearing") : $t("settings.aiActionsClearAll")}
               </button>
             </div>
@@ -2058,7 +2117,7 @@ async function handleSaveCardDav() {
   <AssistantFab module="settings" />
 
 <style>
-  /* ─── BASE LAYOUT (HubSpot Split-Screen) ─── */
+  /* ── Settings shell: sidebar and content [RL-EINSTELLUNGEN] ────────────── */
   .settings-page {
     display: flex;
     height: 100vh;
@@ -2067,7 +2126,6 @@ async function handleSaveCardDav() {
     overflow: hidden;
   }
 
-  /* ─── SIDEBAR ─── */
   .settings-sidebar {
     background: var(--am-flaeche-1);
     border-right: 1px solid var(--am-rand);
@@ -2088,34 +2146,7 @@ async function handleSaveCardDav() {
   }
 
   .back-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--am-text-gedaempft);
-    padding: 6px 12px 6px 4px;
-    border-radius: var(--am-radius-mittel);
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
     width: fit-content;
-  }
-
-  .back-btn:hover {
-    color: var(--am-text-primaer);
-    background: var(--am-flaeche-2);
-  }
-
-
-  .sidebar-header h2 {
-    font-size: 1.25rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--am-text-primaer);
-    margin: 0;
-    padding-left: 4px;
   }
 
   .sidebar-menu {
@@ -2173,7 +2204,6 @@ async function handleSaveCardDav() {
     border-radius: 20px;
   }
 
-  /* ─── CONTENT WRAPPER ─── */
   .settings-content-wrapper {
     flex: 1;
     overflow-y: auto;
@@ -2187,7 +2217,7 @@ async function handleSaveCardDav() {
     padding: 48px 40px 80px 40px;
   }
 
-  /* ─── MOBILE (≤600px): iOS-style drill-down ─────────────────
+  /* ── Mobile drill-down (≤600px) [RL-EINSTELLUNGEN] ──────────────────────────
      Menu list fills the screen; selecting an item pushes the content
      view (with a back button). Sidebar and content never show at once. */
   .mobile-content-header {
@@ -2225,10 +2255,6 @@ async function handleSaveCardDav() {
       top: 0;
       z-index: 10;
     }
-    .mobile-content-header .back-btn {
-      min-height: 44px;
-      font-size: 0.9375rem;
-    }
     .settings-content {
       max-width: none;
       padding: 20px 16px 64px;
@@ -2240,19 +2266,17 @@ async function handleSaveCardDav() {
       font-size: 1.375rem;
     }
     .settings-card {
-      padding: 16px;
-      border-radius: 10px;
+      padding: var(--am-raum-4);
     }
     .menu-item {
       min-height: 48px;
       padding: 12px;
       font-size: 1rem;
     }
-    .sidebar-header h2 {
-      font-size: 1.5rem;
-    }
   }
 
+
+  /* ── Tab header and cards [RL-EINSTELLUNGEN] ───────────────────────────── */
   .tab-header {
     margin-bottom: 28px;
   }
@@ -2271,14 +2295,9 @@ async function handleSaveCardDav() {
     margin: 0;
   }
 
-  /* ─── CARDS ─── */
+  /* AM-KARTE draws the card; only the spacing between cards is ours. */
   .settings-card {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
-    padding: 24px;
     margin-bottom: 20px;
-    box-shadow: none;
   }
 
   .card-header {
@@ -2305,7 +2324,7 @@ async function handleSaveCardDav() {
     flex-direction: column;
   }
 
-  /* ─── THEME GRID SELECTION ─── */
+  /* ── Appearance cards (stay Relay-own until HB-DARSTELLUNG, Etappe 6) [RL-EINSTELLUNGEN] ─── */
   .theme-selection-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -2365,7 +2384,7 @@ async function handleSaveCardDav() {
   }
 
   .theme-preview.light {
-    background: #FFFFFF;
+    background: var(--am-text-auf-farbe);
   }
 
   .theme-preview.dark {
@@ -2404,7 +2423,7 @@ async function handleSaveCardDav() {
     background: var(--am-seite);
   }
 
-  .light .mock-content { background: #FFFFFF; }
+  .light .mock-content { background: var(--am-text-auf-farbe); }
   .dark .mock-content { background: var(--am-blau-800); }
 
   .mock-line {
@@ -2436,7 +2455,7 @@ async function handleSaveCardDav() {
   .dark-dot { background: var(--am-gold-500); }
   .system-dot { background: linear-gradient(90deg, var(--am-blau-800) 50%, var(--am-gold-500) 50%); }
   /* System: left half light, right half dark — the mock follows the light card. */
-  .theme-preview.system { background: linear-gradient(90deg, #ffffff 50%, var(--am-blau-800) 50%); }
+  .theme-preview.system { background: linear-gradient(90deg, var(--am-text-auf-farbe) 50%, var(--am-blau-800) 50%); }
 
   .theme-label {
     font-size: 0.8125rem;
@@ -2444,7 +2463,7 @@ async function handleSaveCardDav() {
     color: var(--am-text-primaer);
   }
 
-  /* ─── LANGUAGE TOGGLE ─── */
+  /* ── Segmented choice: language and source (future HB-SEGMENT) [RL-EINSTELLUNGEN] ─── */
   .lang-toggle {
     display: inline-flex;
     gap: 4px;
@@ -2470,11 +2489,11 @@ async function handleSaveCardDav() {
     color: var(--am-handlung-text);
   }
   .lang-toggle button:focus-visible {
-    outline: 2px solid var(--am-handlung-ruhend);
+    outline: 2px solid var(--am-fokus-ring);
     outline-offset: 1px;
   }
 
-  /* ─── ROUTER STATUS (Olares Router reachability) ─── */
+  /* ── Router status line [RL-EINSTELLUNGEN] ─────────────────────────────── */
   .router-status {
     display: inline-flex;
     align-items: center;
@@ -2494,76 +2513,7 @@ async function handleSaveCardDav() {
     background: var(--am-erfolg);
   }
 
-  /* ─── SWITCH CONTROL (iOS / HubSpot Style) ─── */
-  .switch-row {
-    padding: 6px 0;
-  }
-
-  .switch-container {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    cursor: pointer;
-    user-select: none;
-    width: 100%;
-  }
-
-  .switch-container input {
-    display: none;
-  }
-
-  .switch-slider {
-    position: relative;
-    display: inline-block;
-    width: 44px;
-    height: 24px;
-    background-color: var(--am-rand);
-    border-radius: 24px;
-    transition: background-color var(--am-dauer-mittel) var(--am-kurve);
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-
-  .switch-slider::before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: var(--am-text-auf-farbe);
-    border-radius: 50%;
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-    box-shadow: none;
-  }
-
-  input:checked + .switch-slider {
-    background-color: var(--am-handlung-ruhend);
-  }
-
-  input:checked + .switch-slider::before {
-    transform: translateX(20px);
-  }
-
-  .switch-label-group {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .switch-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-  }
-
-  .switch-desc {
-    font-size: 0.8125rem;
-    color: var(--am-text-gedaempft);
-    line-height: 1.5;
-  }
-
-  /* ─── FORM ELEMENTS ─── */
+  /* ── Field layout (AM-FELD draws the fields) [RL-EINSTELLUNGEN] ────────── */
   .form-grid-1 {
     display: grid;
     grid-template-columns: 1fr;
@@ -2586,38 +2536,12 @@ async function handleSaveCardDav() {
     margin-bottom: 16px;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .form-group label {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--am-text-gedaempft);
-  }
-
-  .form-control {
-    width: 100%;
-    padding: 10px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: 8px;
-    font-size: 0.875rem;
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    box-sizing: border-box;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-
-  .form-control::placeholder {
-    color: var(--am-text-gedaempft);
-    opacity: 0.5;
-  }
-
-  .form-control:focus {
-    border-color: var(--am-handlung-ruhend);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
+  /* Grid gap spaces the fields; AM-FELD's own bottom margin would double it. */
+  .form-grid-1 > .feld,
+  .form-grid-2 > .feld,
+  .form-grid-3 > .feld,
+  .form-row > .feld {
+    margin-bottom: 0;
   }
 
   /* Form row and helper layouts */
@@ -2632,7 +2556,9 @@ async function handleSaveCardDav() {
 
   .flex-2 { flex: 2; }
   .flex-3 { flex: 3; }
-  .justify-self-center { justify-self: center; align-self: center; padding-bottom: 12px; }
+  /* SSL/TLS switches sit in the field grid, centred against the inputs. */
+  .toggle-cell { justify-self: center; align-self: center; padding-bottom: var(--am-raum-3); }
+  .toggle-cell .schalter-zeile { margin: 0; }
 
   .divider {
     height: 1px;
@@ -2657,7 +2583,7 @@ async function handleSaveCardDav() {
     align-items: center;
   }
 
-  .input-with-badge .form-control {
+  .input-with-badge input {
     padding-right: 64px;
   }
 
@@ -2682,91 +2608,20 @@ async function handleSaveCardDav() {
     margin: 0;
   }
 
-  /* Toggle Switch (SSL/TLS) */
-  .toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-    padding: 4px 8px;
-  }
-  .toggle-label .toggle {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .toggle-label .toggle-track {
-    position: relative;
-    width: 34px;
-    height: 20px;
-    border-radius: 999px;
-    background: var(--am-rand);
-    transition: background var(--am-dauer-mittel) var(--am-kurve);
-    flex-shrink: 0;
-    display: inline-block;
-  }
-  .toggle-label .toggle-track::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--am-text-auf-farbe);
-    box-shadow: none;
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-  }
-  .toggle-label .toggle:checked + .toggle-track {
-    background: var(--am-handlung-ruhend);
-  }
-  .toggle-label .toggle:checked + .toggle-track::after {
-    transform: translateX(14px);
-  }
-  .toggle-label .toggle:focus-visible + .toggle-track {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 20%, transparent);
-  }
-  .toggle-text {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-    line-height: 1;
+  /* ── Notices and action rows (HB-ZUSTAND, AM-KNOPF draw them) [RL-EINSTELLUNGEN] ─── */
+  .hinweis {
+    margin: var(--am-raum-4) 0;
   }
 
-  /* ─── ALERTS / ALERTMESSAGES ─── */
-  .alert-box {
+  .form-actions-row {
     display: flex;
+    justify-content: flex-end;
     gap: 12px;
-    padding: 12px 16px;
-    border-radius: 8px;
-    margin: 16px 0;
-    font-size: 0.8125rem;
-    line-height: 1.4;
+    margin-top: 20px;
   }
 
-  .alert-box.error {
-    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--am-fehler) 30%, transparent);
-    color: var(--am-fehler);
-  }
 
-  .alert-box.success {
-    background: color-mix(in srgb, var(--am-erfolg) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--am-erfolg) 30%, transparent);
-    color: var(--am-erfolg);
-  }
-
-  .alert-icon {
-    font-size: 1rem;
-    font-weight: 700;
-  }
-
-  .alert-text {
-    font-weight: 500;
-  }
-
-  /* ─── Cache Stats ─── */
+  /* ── Cache statistics [RL-EINSTELLUNGEN] ───────────────────────────────── */
   .cache-stats {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -2793,80 +2648,7 @@ async function handleSaveCardDav() {
     color: var(--am-text-primaer);
   }
 
-  /* ─── BUTTONS ─── */
-  .form-actions-row {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 20px;
-  }
-
-  .btn-submit {
-    padding: 10px 24px;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    border: none;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-
-  .btn-submit:hover:not(:disabled) {
-    background: var(--am-handlung-hover);
-  }
-
-  .btn-submit:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-cancel {
-    padding: 10px 20px;
-    background: transparent;
-    border: 1.5px solid var(--am-rand);
-    color: var(--am-text-gedaempft);
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-
-  .btn-cancel:hover {
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    border-color: var(--am-text-gedaempft);
-  }
-
-  /* Primary action button (Backup erstellen) — same visual language as
-     .btn-submit so the Archiv tab matches the other tabs. */
-  .btn-action {
-    padding: 10px 24px;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    border: none;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-
-  .btn-action:hover:not(:disabled) {
-    background: var(--am-handlung-hover);
-  }
-
-  .btn-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-
-
-
-  /* ─── ACCOUNT CARDS ─── */
+  /* ── Mail accounts [RL-EINSTELLUNGEN] ──────────────────────────────────── */
   .account-grid {
     display: flex;
     flex-direction: column;
@@ -2878,9 +2660,10 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: 16px;
     padding: 16px;
-    background: var(--am-flaeche-1);
+    /* The rows sit on a .karte (flaeche-1), so they take the page colour. */
+    background: var(--am-seite);
     border: 1px solid var(--am-rand);
-    border-radius: 10px;
+    border-radius: var(--am-radius-mittel);
     transition: border-color var(--am-dauer-schnell) var(--am-kurve);
   }
 
@@ -2965,6 +2748,56 @@ async function handleSaveCardDav() {
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+
+  .account-sync-row {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sync-mode-label {
+    font-size: 0.75rem;
+    color: var(--am-text-gedaempft);
+  }
+
+  /* Inline in the row: AM-FELD's .input draws it, only the width is ours. */
+  .sync-mode-select {
+    width: auto;
+  }
+
+  .sync-mode-hint {
+    font-size: 0.7rem;
+    color: var(--am-text-gedaempft);
+  }
+
+  .bullet-separator {
+    color: var(--am-rand);
+  }
+
+  .account-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .olares-import-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 0 24px 16px;
+  }
+
+  .olares-import-hint {
+    font-size: 0.8125rem;
+    color: var(--am-text-gedaempft);
+  }
+
+  /* ── Archive: delete queue, export, backup [RL-EINSTELLUNGEN] ──────────── */
+  .backup-list-header {
+    margin-top: 16px;
   }
 
   .backup-list {
@@ -3073,94 +2906,7 @@ async function handleSaveCardDav() {
     gap: 6px;
   }
 
-  .account-sync-row {
-    margin-top: 8px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .sync-mode-label {
-    font-size: 0.75rem;
-    color: var(--am-text-gedaempft);
-  }
-
-  .sync-mode-select {
-    font-size: 0.78rem;
-    padding: 4px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--am-rand);
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    cursor: pointer;
-  }
-
-  .sync-mode-hint {
-    font-size: 0.7rem;
-    color: var(--am-text-gedaempft);
-  }
-
-  .bullet-separator {
-    color: var(--am-rand);
-  }
-
-  .account-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-action-ghost {
-    background: transparent;
-    border: 1px solid var(--am-rand-betont-farbe);
-    color: var(--am-text-primaer);
-    padding: 10px 20px;
-    min-height: var(--am-ziel-zeiger);
-    border-radius: var(--am-radius-mittel);
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-
-  .btn-action-ghost:hover {
-    background: var(--am-flaeche-2);
-  }
-
-  .olares-import-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    padding: 0 24px 16px;
-  }
-
-  .olares-import-hint {
-    font-size: 0.8125rem;
-    color: var(--am-text-gedaempft);
-  }
-
-
-
-  /* ─── CARDDAV SPECIFIC ─── */
-  .sync-success-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    background: var(--am-flaeche-2);
-    color: var(--am-handlung-ruhend);
-    border: 1px solid var(--am-rand);
-    border-radius: 20px;
-    font-size: 0.8125rem;
-    margin-top: 16px;
-  }
-
-  .sync-icon {
-    font-size: 1rem;
-  }
-
-  /* ─── PHOTO UPLOAD ─── */
+  /* ── Profile photo [RL-EINSTELLUNGEN] ──────────────────────────────────── */
   .photo-upload-row {
     display: flex;
     align-items: center;
@@ -3197,7 +2943,7 @@ async function handleSaveCardDav() {
     gap: 8px;
   }
 
-  /* ─── CalDAV multi-account list ─────────────── */
+  /* ── CalDAV accounts [RL-EINSTELLUNGEN] ────────────────────────────────── */
   .caldav-empty {
     color: var(--am-text-gedaempft);
     font-size: 0.875rem;
@@ -3245,38 +2991,5 @@ async function handleSaveCardDav() {
     align-items: center;
     gap: var(--am-raum-2);
     flex-shrink: 0;
-  }
-  .btn-sm {
-    padding: 6px 10px;
-    font-size: 0.8125rem;
-  }
-  .caldav-toggle {
-    width: 38px;
-    height: 22px;
-    border-radius: 11px;
-    border: 1px solid var(--am-rand);
-    background: var(--am-rand);
-    position: relative;
-    cursor: pointer;
-    padding: 0;
-    transition: background var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .caldav-toggle::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--am-seite);
-    transition: transform var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .caldav-toggle--on {
-    background: var(--am-handlung-ruhend);
-    border-color: var(--am-handlung-ruhend);
-  }
-  .caldav-toggle--on::after {
-    transform: translateX(16px);
   }
 </style>

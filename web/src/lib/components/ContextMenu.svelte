@@ -66,6 +66,8 @@
 {/if}
 
 <style>
+  /* ── Context menu [RL-MENUE] ─────────────────────────────────────────── */
+  /* Menu items stay Relay's own rows, not `.btn` (Etappe 4). */
   .ctx-scrim {
     position: fixed;
     inset: 0;

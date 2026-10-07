@@ -299,13 +299,13 @@
   <aside class="mt-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="mt-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="mt-nav-btn mt-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("meetings.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol mt-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("meetings.close")} title={$t("meetings.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("meetings.title")} noHover />
     </div>
 
     <div class="mt-tools">
-      <button type="button" class="mt-btn mt-btn-ghost" onclick={handleScan} disabled={scanning}>
+      <button type="button" class="btn btn-still" onclick={handleScan} disabled={scanning}>
         {scanning ? $t("meetings.scanning") : $t("meetings.scan")}
       </button>
     </div>
@@ -314,9 +314,12 @@
       {#if loading}
         <div class="mt-state">{$t("meetings.loading")}</div>
       {:else if error}
-        <div class="mt-state mt-state-error">
-          <p>{error}</p>
-          <button type="button" class="mt-btn mt-btn-ghost" onclick={loadMeetings}>{$t("meetings.reload")}</button>
+        <div class="mt-state">
+          <div class="hinweis" data-art="fehler" role="alert">
+            <Symbol name="achtung" size={16} />
+            <span>{error}</span>
+          </div>
+          <button type="button" class="btn btn-sekundaer mt-state-retry" onclick={loadMeetings}>{$t("meetings.reload")}</button>
         </div>
       {:else if meetings.length === 0}
         <div class="mt-state">{$t("meetings.empty")}</div>
@@ -357,7 +360,7 @@
   <main class="mt-main">
     {#if isNarrow}
       <div class="mt-mobile-header">
-        <button type="button" class="mt-nav-btn mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")} title={$t("meetings.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{$t("meetings.title")}</h1>
       </div>
     {/if}
@@ -365,8 +368,11 @@
     {#if detailLoading}
       <div class="mt-state">{$t("meetings.loading")}</div>
     {:else if detailError}
-      <div class="mt-state mt-state-error">
-        <p>{detailError}</p>
+      <div class="mt-state">
+        <div class="hinweis" data-art="fehler" role="alert">
+          <Symbol name="achtung" size={16} />
+          <span>{detailError}</span>
+        </div>
       </div>
     {:else if !detail}
       <EmptyState title={$t("meetings.selectHint")} icon="besprechung" />
@@ -384,10 +390,10 @@
             </div>
           </div>
           <div class="mt-detail-actions">
-            <button type="button" class="mt-btn mt-btn-ghost" onclick={emailMinutes}>
+            <button type="button" class="btn btn-sekundaer" onclick={emailMinutes}>
               {$t("meetings.emailMinutes")}
             </button>
-            <button type="button" class="mt-btn mt-btn-danger" onclick={handleDelete}>
+            <button type="button" class="btn btn-gefahr" onclick={handleDelete}>
               {$t("meetings.delete")}
             </button>
           </div>
@@ -425,7 +431,7 @@
           {#if followupsLoading}
             <div class="mt-followups-row"><span class="mt-followups-muted">{$t("meetings.followupsLoading")}</span></div>
           {:else if followupsError}
-            <div class="mt-followups-row"><span class="mt-followups-muted">{followupsError}</span></div>
+            <div class="hinweis" data-art="fehler" role="alert"><Symbol name="achtung" size={16} /><span>{followupsError}</span></div>
           {:else if followups.length === 0}
             <div class="mt-followups-row"><span class="mt-followups-muted">{$t("meetings.followupsEmpty")}</span></div>
           {:else}
@@ -436,7 +442,7 @@
                 </div>
                 <button
                   type="button"
-                  class="mt-btn mt-followups-btn"
+                  class="btn btn-sekundaer btn-klein mt-followups-btn"
                   disabled={followupPlanBusy}
                   onclick={() => handleFollowupChip(a)}
                 >
@@ -479,6 +485,7 @@
 <AssistantFab module="meetings" />
 
 <style>
+  /* ── Meetings shell: sidebar and main pane [RL-MEETINGS] ─────────────── */
   .mt-app {
     display: flex;
     height: 100vh;
@@ -503,39 +510,10 @@
     flex-shrink: 0;
     margin-bottom: 16px;
   }
-  .mt-nav-btn {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: var(--am-radius-mittel);
-    font-size: 1rem;
-  }
-  .mt-nav-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-
   .mt-tools { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 8px; }
-  .mt-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .mt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .mt-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
-  .mt-btn-ghost:hover { background: var(--am-flaeche-2); }
-  /* Secondary danger: border and word carry the red (CI R1). */
-  .mt-btn-danger { background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
-  .mt-btn-danger:hover { background: var(--am-fehler-flaeche); }
 
+  /* ── Meeting list rows [RL-MEETINGS] ─────────────────────────────────── */
+  /* List rows stay Relay's own (not `.btn`). */
   .mt-list {
     flex: 1;
     overflow-y: auto;
@@ -583,14 +561,14 @@
     white-space: nowrap;
   }
 
+  /* ── Loading and error state [RL-MEETINGS] ───────────────────────────── */
   .mt-state {
     padding: 24px 16px;
     font-size: 0.85rem;
     color: var(--am-text-gedaempft);
     text-align: center;
   }
-  .mt-state-error { color: var(--am-fehler); }
-  .mt-state-error .mt-btn { margin-top: 10px; }
+  .mt-state-retry { margin-top: 10px; }
 
   .mt-main {
     flex: 1;
@@ -598,6 +576,7 @@
     min-width: 0;
     background: var(--am-seite);
   }
+  /* ── Meeting detail [RL-MEETINGS] ────────────────────────────────────── */
   .mt-detail {
     max-width: 860px;
     margin: 0 auto;
@@ -633,6 +612,7 @@
     color: var(--am-text-gedaempft);
     margin: 0 0 8px;
   }
+  /* ── Follow-up suggestions [RL-MEETINGS] ─────────────────────────────── */
   .mt-followups-row {
     display: flex;
     align-items: center;
@@ -645,6 +625,7 @@
   .mt-followups-label { font-size: 0.9rem; }
   .mt-followups-muted { color: var(--am-text-gedaempft); font-size: 0.85rem; }
   .mt-followups-btn { flex-shrink: 0; }
+  /* ── Participant and tag chips [RL-MEETINGS] ─────────────────────────── */
   .mt-participants {
     list-style: none;
     margin: 0;
@@ -669,6 +650,7 @@
     color: var(--am-handlung-ruhend);
   }
 
+  /* ── Minutes body (rendered Markdown) [RL-MEETINGS] ──────────────────── */
   .mt-body { font-size: 0.92rem; line-height: 1.6; }
   .mt-body-empty { color: var(--am-text-gedaempft); }
   .mt-body :global(h1), .mt-body :global(h2), .mt-body :global(h3) {
@@ -702,6 +684,7 @@
   }
   .mt-link:hover { text-decoration: underline; }
 
+  /* ── Narrow (mobile ≤768px): sidebar as slide-in overlay [RL-MEETINGS] ── */
   .mt-mobile-header { display: none; }
   .mt-scrim { display: none; }
   .mt-app.narrow .resize-handle { display: none; }

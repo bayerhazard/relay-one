@@ -24,6 +24,9 @@
 </div>
 
 <style>
+  /* ── Module switcher [RL-BEREICHSWECHSEL] ─────────────────────────────────
+     A row of nav items, deliberately not AM-KNOPF: the active module is a
+     selection state that buttons do not have. */
   .mi-row {
     display: flex;
     align-items: center;
@@ -45,6 +48,10 @@
   .mi-btn:hover {
     background: var(--am-flaeche-2);
     color: var(--am-text-primaer);
+  }
+  .mi-btn:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
   }
   .mi-btn.active {
     background: var(--am-flaeche-2);

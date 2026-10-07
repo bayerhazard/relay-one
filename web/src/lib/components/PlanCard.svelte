@@ -48,7 +48,7 @@
   );
 </script>
 
-<article class="plan-card" class:external={isExternal} class:executed={plan.status === "executed"}
+<article class="karte plan-card" class:external={isExternal} class:executed={plan.status === "executed"}
   class:cancelled={plan.status === "cancelled"} class:failed={plan.status === "failed"}>
   <header class="plan-head">
     <span class="plan-tier" aria-hidden="true">
@@ -81,39 +81,39 @@
   </div>
 
   {#if isExternal && plan.status === "pending"}
-    <p class="plan-external-warn">{$t("assistant.plan.externalWarning")}</p>
+    <div class="hinweis" data-art="achtung"><Symbol name="achtung" size={16} /><span>{$t("assistant.plan.externalWarning")}</span></div>
   {/if}
 
-  <footer class="plan-actions">
+  <footer class="btn-reihe plan-actions">
     {#if plan.status === "pending"}
       {#if isExternal}
         {#if !externalArmed}
-          <button type="button" class="btn btn-secondary" disabled={busy}
+          <button type="button" class="btn btn-sekundaer" disabled={busy}
             onclick={() => (externalArmed = true)}>
             {$t("assistant.plan.execute")}
           </button>
         {:else}
-          <button type="button" class="btn btn-danger" disabled={busy}
+          <button type="button" class="btn btn-primaer" disabled={busy}
             onclick={() => onConfirm?.(plan, true)}>
             {$t("assistant.plan.confirmExternal")}
           </button>
         {/if}
       {:else}
-        <button type="button" class="btn btn-primary" disabled={busy}
+        <button type="button" class="btn btn-primaer" disabled={busy}
           onclick={() => onConfirm?.(plan, false)}>
           {$t("assistant.plan.execute")}
         </button>
       {/if}
-      <button type="button" class="btn btn-ghost" disabled={busy} onclick={() => onDiscard?.(plan)}>
+      <button type="button" class="btn btn-sekundaer" disabled={busy} onclick={() => onDiscard?.(plan)}>
         {$t("assistant.plan.discard")}
       </button>
     {:else if plan.status === "executed"}
       {#if openPath && onOpen}
-        <button type="button" class="btn btn-secondary" onclick={() => onOpen(openPath)}>
+        <button type="button" class="btn btn-sekundaer" onclick={() => onOpen(openPath)}>
           {$t("assistant.plan.open")}
         </button>
       {/if}
-      <button type="button" class="btn btn-ghost" disabled={busy} onclick={() => onUndo?.(plan)}>
+      <button type="button" class="btn btn-sekundaer" disabled={busy} onclick={() => onUndo?.(plan)}>
         {$t("assistant.plan.undo")}
       </button>
     {/if}
@@ -121,11 +121,11 @@
 </article>
 
 <style>
+  /* ── Plan card [RL-PLAN] ──────────────────────────────────────────────────
+     Surface from AM-KARTE. Relay's own: the tighter padding for the narrow
+     drawer and the left accent that tells the tier/outcome at a glance. */
   .plan-card {
-    border: 1px solid var(--am-rand);
     border-left: 3px solid var(--am-handlung-ruhend);
-    border-radius: var(--am-radius-mittel, 8px);
-    background: var(--am-flaeche-1);
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
@@ -141,6 +141,8 @@
   .plan-card.failed {
     border-left-color: var(--am-fehler);
   }
+
+  /* ── Header and status [RL-PLAN] ──────────────────────────────────────── */
   .plan-head {
     display: flex;
     align-items: center;
@@ -162,12 +164,12 @@
     margin-left: auto;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 999px;
+    border-radius: var(--am-radius-voll);
     background: var(--am-flaeche-2);
   }
   .plan-status.status-executed {
     color: var(--am-erfolg);
-    background: color-mix(in srgb, var(--am-erfolg) 12%, transparent);
+    background: var(--am-erfolg-flaeche);
   }
   .plan-status.status-cancelled,
   .plan-status.status-expired {
@@ -175,8 +177,10 @@
   }
   .plan-status.status-failed {
     color: var(--am-fehler);
-    background: color-mix(in srgb, var(--am-fehler) 12%, transparent);
+    background: var(--am-fehler-flaeche);
   }
+
+  /* ── Steps [RL-PLAN] ──────────────────────────────────────────────────── */
   .plan-steps {
     display: flex;
     flex-direction: column;
@@ -212,59 +216,10 @@
     color: var(--am-text-primaer);
     word-break: break-word;
   }
-  .plan-external-warn {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--am-achtung);
-  }
+
+  /* ── Actions [RL-PLAN] ────────────────────────────────────────────────────
+     Buttons and row from AM-KNOPF; the external warning is HB-ZUSTAND. */
   .plan-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .btn {
-    font-family: inherit;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    padding: 7px 14px;
-    border-radius: var(--am-radius-mittel);
-    border: 1px solid var(--am-rand);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-primary {
-    background: var(--am-handlung-ruhend);
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-  }
-  .btn-primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .btn-secondary {
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-  }
-  .btn-secondary:hover:not(:disabled) {
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-ruhend);
-  }
-  .btn-ghost {
-    background: transparent;
-    color: var(--am-text-gedaempft);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    color: var(--am-text-primaer);
-  }
-  .btn-danger {
-    background: var(--am-fehler);
-    border-color: var(--am-fehler);
-    color: var(--am-handlung-text);
-  }
-  .btn-danger:hover:not(:disabled) {
-    filter: brightness(1.08);
+    gap: var(--am-raum-2);
   }
 </style>

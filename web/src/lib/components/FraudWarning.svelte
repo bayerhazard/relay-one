@@ -10,9 +10,11 @@
   let { score, warnings }: Props = $props();
 </script>
 
+<!-- HB-ZUSTAND notice line: "achtung" for a suspicion, "fehler" once the
+     score is high. `fraud-warning` is the layout hook in the message row. -->
 {#if score > 0.6}
-  <div class="fraud-warning">
-    <span class="fraud-icon"><Symbol name="achtung" size={16} /></span>
+  <div class="hinweis fraud-warning" data-art={score >= 0.8 ? "fehler" : "achtung"}>
+    <Symbol name="achtung" size={16} />
     <div class="fraud-body">
       <span class="fraud-title">{$t("fraud.suspected")}</span>
       {#if warnings.length > 0}
@@ -27,29 +29,18 @@
 {/if}
 
 <style>
+  /* ── Fraud warning in the message row [RL-BETRUGSHINWEIS] ───────────── */
   .fraud-warning {
-    display: flex;
-    gap: 8px;
-    padding: 6px 8px;
-    background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--am-fehler) 25%, transparent);
-    border-radius: 6px;
-    margin-top: 4px;
-  }
-  .fraud-icon {
-    font-size: 0.875rem;
-    flex-shrink: 0;
-  }
-  .fraud-body {
-    font-size: 0.6875rem;
+    margin-top: var(--am-raum-1);
+    padding: var(--am-raum-1) var(--am-raum-2);
+    font-size: 0.75rem;
   }
   .fraud-title {
     font-weight: 600;
-    color: var(--am-fehler);
   }
   .fraud-list {
     margin: 2px 0 0 14px;
     padding: 0;
-    color: var(--am-text-gedaempft);
+    color: var(--am-text-sekundaer);
   }
 </style>

@@ -164,6 +164,9 @@
 </div>
 
 <style>
+  /* ── Tone sliders [RL-TONFALL] ─────────────────────────────────────────────
+     Two custom sliders (Seriosität, Textumfang), Relay's own: a CI slider
+     does not exist yet. Grid order per row: name, start, track, end, value. */
   .tone-controls {
     display: flex;
     flex-direction: column;
@@ -194,7 +197,7 @@
   }
 
   .slider-name:nth-child(1) { grid-row: 1; grid-column: 1; }
-  .slider-name:nth-child(7) { grid-row: 2; grid-column: 1; }
+  .slider-name:nth-child(6) { grid-row: 2; grid-column: 1; }
 
   .range-label {
     font-size: 0.75rem;
@@ -212,9 +215,9 @@
   }
 
   .range-label:nth-child(2) { grid-row: 1; grid-column: 2; }
-  .range-label:nth-child(5) { grid-row: 1; grid-column: 4; }
-  .range-label:nth-child(8) { grid-row: 2; grid-column: 2; }
-  .range-label:nth-child(11) { grid-row: 2; grid-column: 4; }
+  .range-label:nth-child(4) { grid-row: 1; grid-column: 4; }
+  .range-label:nth-child(7) { grid-row: 2; grid-column: 2; }
+  .range-label:nth-child(9) { grid-row: 2; grid-column: 4; }
 
   .slider-label {
     font-size: 0.75rem;
@@ -229,9 +232,10 @@
     white-space: nowrap;
   }
 
-  .slider-label:nth-child(6) { grid-row: 1; grid-column: 5; }
-  .slider-label:nth-child(12) { grid-row: 2; grid-column: 5; }
+  .slider-label:nth-child(5) { grid-row: 1; grid-column: 5; }
+  .slider-label:nth-child(10) { grid-row: 2; grid-column: 5; }
 
+  /* ── Slider track and thumb [RL-TONFALL] ──────────────────────────────────── */
   .track {
     position: relative;
     height: 24px;
@@ -242,7 +246,7 @@
   }
 
   .track:nth-child(3) { grid-row: 1; grid-column: 3; }
-  .track:nth-child(9) { grid-row: 2; grid-column: 3; }
+  .track:nth-child(8) { grid-row: 2; grid-column: 3; }
 
   .track::before {
     content: "";
@@ -308,6 +312,7 @@
 0 0 0 2px var(--am-fokus-ring);
   }
 
+  /* ── Phone layout [RL-TONFALL] ──────────────────────────────────────────── */
   @container (max-width: 480px) {
     /* Mobile (iPhone): keep the sliders + endpoint labels only. The category
        names (Seriosität/Textumfang) and the current-value labels

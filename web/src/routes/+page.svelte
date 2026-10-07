@@ -2703,10 +2703,10 @@ let sentFolderName = $state<string | null>(null);
           <span class="preview-from-email">{extractEmail(selectedMessage.from)}</span>
         </div>
         <div class="preview-header-actions">
-          <button type="button" class="action-btn-pill primary" onclick={() => handleReply(selectedMessage)}>
+          <button type="button" class="btn btn-primaer" onclick={() => handleReply(selectedMessage)}>
             {$t("mail.reply")}
           </button>
-          <button type="button" class="action-btn-pill delete" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
+          <button type="button" class="btn btn-gefahr" onclick={() => handleDeleteMessage(selectedMessage.uid)} title={$t("mail.deleteShortcut")}>
             {$t("mail.deleteMail")}
           </button>
         </div>
@@ -2790,21 +2790,27 @@ let sentFolderName = $state<string | null>(null);
           {/if}
 
           {#if attPreview}
-            <div class="att-preview-overlay" role="dialog" aria-modal="true" aria-label={$t("mail.attachmentPreview")}>
-              <div class="att-preview-scrim" role="presentation" onclick={closeAttPreview}></div>
-              <div class="att-preview-modal">
-                <div class="att-preview-header">
-                  <span class="att-preview-name" title={attPreview.filename}>{attPreview.filename}</span>
-                  <div class="att-preview-actions">
-                    <button type="button" class="att-preview-btn" onclick={downloadAttPreview} title={$t("mail.downloadTitle")} aria-label={$t("mail.downloadTitle")}>
-                      <Symbol name="herunterladen" size={16} />
-                    </button>
-                    <button type="button" class="att-preview-btn" onclick={closeAttPreview} title={$t("mail.closeShortcut")} aria-label={$t("mail.close")}>
-                      <Symbol name="schliessen" size={16} />
-                    </button>
-                  </div>
+            <!-- HB-DIALOG; a click on the layer itself (not the card) closes it. -->
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+            <div
+              class="dialog-schicht att-preview-schicht"
+              role="dialog"
+              tabindex="-1"
+              aria-modal="true"
+              aria-label={$t("mail.attachmentPreview")}
+              onclick={(e) => { if ((e.target as HTMLElement).classList.contains("dialog-schicht")) closeAttPreview(); }}
+            >
+              <div class="karte dialog-karte att-preview-karte" data-breite="breit">
+                <div class="dialog-kopf">
+                  <h2 class="att-preview-name" title={attPreview.filename}>{attPreview.filename}</h2>
+                  <button type="button" class="btn btn-still btn-symbol" onclick={downloadAttPreview} title={$t("mail.downloadTitle")} aria-label={$t("mail.downloadTitle")}>
+                    <Symbol name="herunterladen" size={20} />
+                  </button>
+                  <button type="button" class="dialog-zu" onclick={closeAttPreview} title={$t("mail.close")} aria-label={$t("mail.close")}>
+                    <Symbol name="schliessen" size={20} />
+                  </button>
                 </div>
-                <div class="att-preview-body">
+                <div class="dialog-koerper att-preview-body">
                   {#if attPreview.contentType.startsWith("image/")}
                     <img src={attPreview.url} alt={attPreview.filename} class="att-preview-image" />
                   {:else if attPreview.contentType.startsWith("text/") || attPreview.contentType.includes("json") || attPreview.contentType.includes("xml") || attPreview.contentType.includes("javascript")}
@@ -2814,7 +2820,7 @@ let sentFolderName = $state<string | null>(null);
                   {:else}
                     <div class="att-preview-unsupported">
                       <span>{$t("mail.previewUnsupported")}</span>
-                      <button type="button" class="att-preview-download-btn" onclick={downloadAttPreview}>{$t("mail.download")}</button>
+                      <button type="button" class="btn btn-primaer" onclick={downloadAttPreview}>{$t("mail.download")}</button>
                     </div>
                   {/if}
                 </div>
@@ -2878,8 +2884,8 @@ let sentFolderName = $state<string | null>(null);
       <div class="sidebar">
         <div class="sidebar-header">
           {#if isNarrow}
-            <button type="button" class="icon-btn sidebar-close" onclick={() => sidebarOpen = false} title={$t("mail.close")} aria-label={$t("mail.closeFolder")}>
-              &#8592;
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => sidebarOpen = false} title={$t("mail.closeFolder")} aria-label={$t("mail.closeFolder")}>
+              <Symbol name="zurueck" size={20} />
             </button>
           {/if}
           <ModuleLogo to="/settings" label={$t("mail.accountSettings")} noHover />
@@ -2938,18 +2944,18 @@ let sentFolderName = $state<string | null>(null);
         <div class="list-header">
           <div class="list-title-area">
             {#if isNarrow}
-              <button type="button" class="icon-btn menu-toggle" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.folders")} aria-label={$t("mail.toggleFolder")}>
+              <button type="button" class="btn btn-still btn-symbol" onclick={() => sidebarOpen = !sidebarOpen} title={$t("mail.toggleFolder")} aria-label={$t("mail.toggleFolder")}>
                 <Symbol name="seitenleiste-auf" size={20} />
               </button>
             {/if}
             <h1>{searchActive ? $t("mail.searchTitle") : $t(translateFolder(selectedFolder))}</h1>
           </div>
-          <div class="list-header-pill">
-            <button type="button" class="pill-icon-btn" onclick={handleNewMail} title={$t("mail.newMail")}>
-              <Symbol name="bearbeiten" size={16} />
+          <div class="list-header-actions">
+            <button type="button" class="btn btn-still btn-symbol" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.newMail")}>
+              <Symbol name="bearbeiten" size={20} />
             </button>
-            <button type="button" class="pill-icon-btn" onclick={() => loadFolder(true)} title={$t("mail.refresh")}>
-              <Symbol name="neu-laden" size={16} />
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
+              <Symbol name="neu-laden" size={20} />
             </button>
           </div>
         </div>
@@ -2961,17 +2967,19 @@ let sentFolderName = $state<string | null>(null);
         <div class="selection-toolbar">
           <span class="selection-count">{$t("mail.selectedCount", { count: $mailbox.selectedUids.length })}</span>
           <div class="selection-actions">
-            <button type="button" class="selection-btn" onclick={markSelectedRead} title={$t("mail.markReadTitle")}>
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={markSelectedRead} title={$t("mail.markReadTitle")}>
               {$t("mail.read")}
             </button>
-            <button type="button" class="selection-btn" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={moveSelectedToFolder} disabled={movingSelection} title={$t("mail.moveFolderTitle")}>
               {$t("mail.move")}
             </button>
-            <button type="button" class="selection-btn danger" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
+            <!-- Secondary, not red: with a mail open the reading pane already
+                 carries the one danger button (CI R1, Kai 06.10.2026). -->
+            <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected} title={$t("mail.deleteShortcut")}>
               {$t("mail.deleteMails")}
             </button>
-            <button type="button" class="selection-btn ghost" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")} aria-label={$t("mail.clearSelectionTitle")}>
-              <Symbol name="schliessen" />
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => mailbox.clearSelection()} title={$t("mail.clearSelectionTitle")} aria-label={$t("mail.clearSelectionTitle")}>
+              <Symbol name="schliessen" size={20} />
             </button>
           </div>
         </div>
@@ -2987,8 +2995,8 @@ let sentFolderName = $state<string | null>(null);
     <section class="preview-pane">
       {#if isCompact && previewOpen && !showCompose}
         <div class="preview-back-bar">
-          <button type="button" class="icon-btn" onclick={backToList} title={$t("mail.backToList")} aria-label={$t("mail.back")}>
-            &#8592; {$t("mail.back")}
+          <button type="button" class="btn btn-still" onclick={backToList} title={$t("mail.backToList")} aria-label={$t("mail.back")}>
+            <Symbol name="zurueck" size={20} />{$t("mail.back")}
           </button>
         </div>
       {/if}
@@ -2997,7 +3005,9 @@ let sentFolderName = $state<string | null>(null);
         <div class="followups-footer">
           <div class="followups-footer-head">
             <span class="followups-footer-title">AI-Vorschläge</span>
-            {#if followupsError}<span class="followups-footer-error">{followupsError}</span>{/if}
+            {#if followupsError}
+              <div class="hinweis followups-footer-error" data-art="fehler"><Symbol name="achtung" size={16} /><span>{followupsError}</span></div>
+            {/if}
           </div>
           <div class="followups-footer-scroll">
             {#if followupsLoading}
@@ -3012,7 +3022,7 @@ let sentFolderName = $state<string | null>(null);
                   </div>
                   <button
                     type="button"
-                    class="followups-footer-btn"
+                    class="btn btn-sekundaer btn-klein followups-footer-btn"
                     disabled={followupPlanBusy}
                     onclick={() => handleFollowupChip(a)}
                   >
@@ -3047,7 +3057,7 @@ let sentFolderName = $state<string | null>(null);
   {#if undoDelete}
     <div class="undo-toast" role="status" aria-live="polite">
       <span>{undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length })}</span>
-      <button type="button" class="undo-toast-btn" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
+      <button type="button" class="btn btn-sekundaer" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
     </div>
   {/if}
 
@@ -3165,6 +3175,7 @@ let sentFolderName = $state<string | null>(null);
   {/if}
 
 <style>
+  /* ── App shell: three columns and resize handles [RL-HUELLE] ─────────────── */
   .app-container {
     display: flex;
     height: 100vh;
@@ -3210,6 +3221,86 @@ let sentFolderName = $state<string | null>(null);
     display: flex;
     flex-direction: column;
   }
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    background: var(--am-deckschicht);
+    z-index: 40;
+  }
+
+  /* ── Responsive shell: compact and narrow [RL-HUELLE] ────────────────────── */
+  /* COMPACT (≤900px): preview becomes a full-width overlay over the list,
+     shown only when a message/compose is open. List fills the width. */
+  .app-container.compact .list-pane {
+    flex: 1;
+    min-width: 0;
+  }
+  .app-container.compact .preview-pane {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    display: none;
+  }
+  .app-container.compact.preview-open .preview-pane {
+    display: flex;
+  }
+  .app-container.compact {
+    position: relative;
+  }
+
+  /* NARROW (≤600px): sidebar collapses to a full-width overlay (iOS Mail style). */
+  .app-container.narrow .sidebar-pane {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform var(--am-dauer-mittel) var(--am-kurve);
+  }
+  .app-container.narrow.sidebar-open .sidebar-pane {
+    transform: translateX(0);
+  }
+  /* In narrow mode the sidebar covers the whole width, so the dark scrim would
+     only flash at the edge while the sidebar slides in — hide its shadow. */
+  .app-container.narrow .sidebar-scrim {
+    background: transparent;
+  }
+  /* Safe-area insets (Dynamic Island + home indicator). Touch targets come
+     from AM-KNOPF (44 px on a coarse pointer). */
+  .app-container.narrow .sidebar-pane {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .app-container.narrow .list-header-container {
+    padding-top: env(safe-area-inset-top, 0px);
+    background: var(--am-seite);
+  }
+  .app-container.narrow .preview-back-bar {
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    min-height: 44px;
+  }
+  /* Compact preview header on phones. */
+  .app-container.narrow .preview-pane-header {
+    height: auto;
+    min-height: 64px;
+    padding: 8px 14px;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+  }
+  .app-container.narrow .preview-from-name {
+    font-size: 1rem;
+  }
+  .app-container.narrow .preview-subject-large {
+    font-size: 1.2rem;
+  }
+  .app-container.narrow .mail-iframe-container {
+    height: calc(100vh - 220px);
+    min-height: 320px;
+  }
+
+  /* ── Sidebar: header, nav, search footer [RL-SPALTE] ─────────────────────── */
   .sidebar {
     display: flex;
     flex-direction: column;
@@ -3226,114 +3317,32 @@ let sentFolderName = $state<string | null>(null);
     flex-shrink: 0;
     margin-bottom: 16px;
   }
-  .sidebar-close {
-    flex-shrink: 0;
-    font-size: 1.25rem;
-  }
-  .logo-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
-    background: none;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    width: 100%;
-    transition: background var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .logo-btn:hover {
-    background: var(--am-flaeche-2);
-  }
-  .logo-aimighty {
-    display: block;
-    width: 128px;
-    height: auto;
-  }
-  .account-header-btn {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px;
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    width: 100%;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .account-header-btn:hover {
-    background: var(--am-flaeche-2);
-    border-color: var(--am-handlung-ruhend);
-  }
-  .account-header-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.8125rem;
-    box-shadow: none;
-    flex-shrink: 0;
-    overflow: hidden;
-  }
-  .account-header-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 50%;
-  }
-  .account-header-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-    text-align: left;
-  }
-  .account-header-name {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-    line-height: 1.2;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .account-header-sub {
-    font-size: 0.75rem;
-    color: var(--am-text-gedaempft);
-    line-height: 1.2;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .account-header-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--am-rand);
-    flex-shrink: 0;
-    display: inline-block;
-  }
-  .account-header-dot.connected {
-    background: var(--am-erfolg);
-    box-shadow: none;
-  }
-
   .sidebar-nav {
     flex: 1;
     padding: 0;
     overflow-y: auto;
   }
- 
+  /* Pressed-state toggle inside the composite search field (SidebarSearch,
+     34 px high) — a 40 px AM-KNOPF does not fit there. */
+  .flag-filter-btn {
+    border: none;
+    background: none;
+    color: var(--am-text-primaer);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--am-radius-mittel);
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    opacity: 0.75;
+  }
+  .flag-filter-btn:hover,
+  .flag-filter-btn.active {
+    background: var(--am-flaeche-2);
+    opacity: 1;
+  }
+
+  /* ── Folder rows, rendered by FolderList [RL-ORDNERBAUM] ─────────────────── */
   :global(.folder-item) {
     display: flex;
     align-items: center;
@@ -3385,6 +3394,7 @@ let sentFolderName = $state<string | null>(null);
     pointer-events: none;
   }
 
+  /* ── Message list: header, selection toolbar [RL-POSTLISTE] ──────────────── */
   .list-header-container {
     display: flex;
     flex-direction: column;
@@ -3406,59 +3416,15 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: 10px;
   }
-  .list-header-pill {
+  .list-header-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 4px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-seite);
+    gap: var(--am-raum-1);
   }
   .list-header h1 {
     font-size: 1.125rem;
     font-weight: 700;
     color: var(--am-text-primaer);
-  }
-  .pill-icon-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--am-text-gedaempft);
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-    padding: 6px;
-    border-radius: var(--am-radius-mittel);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .pill-icon-btn:hover {
-    color: var(--am-handlung-ruhend);
-    background: var(--am-flaeche-2);
-  }
-  .search-bar {
-    display: flex;
-    align-items: center;
-    padding: 0 16px 12px 16px;
-    background: transparent;
-    flex-shrink: 0;
-  }
-  .flag-filter-btn {
-    border: none;
-    background: none;
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: var(--am-radius-mittel);
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    opacity: 0.75;
-  }
-  .flag-filter-btn:hover,
-  .flag-filter-btn.active {
-    background: var(--am-flaeche-2);
-    opacity: 1;
   }
   .selection-toolbar {
     display: flex;
@@ -3477,45 +3443,37 @@ let sentFolderName = $state<string | null>(null);
   }
   .selection-actions {
     display: flex;
-    gap: 6px;
-  }
-  .selection-btn {
-    padding: 5px 12px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-size: 0.75rem;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .selection-btn:hover:not(:disabled) {
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-ruhend);
-  }
-  .selection-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .selection-btn.danger {
-    border-color: var(--am-fehler);
-    color: var(--am-fehler);
-  }
-  .selection-btn.danger:hover:not(:disabled) {
-    background: var(--am-fehler-flaeche);
-  }
-  .selection-btn.ghost {
-    border-color: transparent;
-    background: transparent;
-    padding: 5px 8px;
+    align-items: center;
+    gap: var(--am-raum-2);
   }
   .list-scroll-wrapper {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
   }
+
+  /* ── Undo toast after a delete [RL-POSTLISTE] ────────────────────────────── */
+  /* "In den Papierkorb verschoben · Rückgängig" — floats, so it carries the
+     one shadow and the emphasised border (CI R6). */
+  .undo-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(var(--am-raum-8) + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: var(--am-ebene-menue);
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-4);
+    padding: var(--am-raum-2) var(--am-raum-2) var(--am-raum-2) var(--am-raum-4);
+    background: var(--am-flaeche-3);
+    color: var(--am-text-primaer);
+    border: 1px solid var(--am-rand-betont-farbe);
+    border-radius: var(--am-radius-mittel);
+    box-shadow: var(--am-schatten-1);
+    font-size: var(--fs-base);
+  }
+
+  /* ── Reading pane: header, subject, body [RL-LESEANSICHT] ────────────────── */
   .preview-layout {
     display: flex;
     flex-direction: column;
@@ -3547,79 +3505,17 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.75rem;
     color: var(--am-text-gedaempft);
   }
+  /* Mail actions (CI R1): reply is the one primary, "Mail löschen" the
+     danger button with its object in the word. */
   .preview-header-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--am-raum-2);
   }
-  /* Mail actions (CI R1/G2): reply is the one primary, delete is a
-     secondary danger — the border and the word carry the red. */
-  .action-btn-pill {
-    padding: 6px 14px;
-    min-height: var(--am-ziel-zeiger);
-    border: 1px solid var(--am-rand-betont-farbe);
-    border-radius: var(--am-radius-mittel);
+  .preview-back-bar {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--am-rand);
     background: var(--am-seite);
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    font-size: 0.75rem;
-    font-weight: 500;
-    transition: background-color var(--am-dauer-schnell) var(--am-kurve),
-      border-color var(--am-dauer-schnell) var(--am-kurve);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 100px;
-  }
-  .action-btn-pill:hover {
-    background: var(--am-flaeche-2);
-  }
-  .action-btn-pill.primary {
-    background: var(--am-handlung-ruhend);
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-  }
-  .action-btn-pill.primary:hover {
-    background: var(--am-handlung-hover);
-    border-color: var(--am-handlung-hover);
-  }
-  .action-btn-pill.delete {
-    border-color: var(--am-fehler);
-    color: var(--am-fehler);
-  }
-  .action-btn-pill.delete:hover {
-    background: var(--am-fehler-flaeche);
-  }
-  /* "In den Papierkorb verschoben · Rückgängig" — floats, so it carries the
-     one shadow and the emphasised border (CI R6). */
-  .undo-toast {
-    position: fixed;
-    left: 50%;
-    bottom: calc(var(--am-raum-8) + env(safe-area-inset-bottom, 0px));
-    transform: translateX(-50%);
-    z-index: var(--am-ebene-menue);
-    display: flex;
-    align-items: center;
-    gap: var(--am-raum-4);
-    padding: var(--am-raum-2) var(--am-raum-2) var(--am-raum-2) var(--am-raum-4);
-    background: var(--am-flaeche-3);
-    color: var(--am-text-primaer);
-    border: 1px solid var(--am-rand-betont-farbe);
-    border-radius: var(--am-radius-mittel);
-    box-shadow: var(--am-schatten-1);
-    font-size: var(--fs-base);
-  }
-  .undo-toast-btn {
-    min-height: var(--am-ziel-zeiger);
-    padding: 0 var(--am-raum-4);
-    border: 1px solid var(--am-rand-betont-farbe);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .undo-toast-btn:hover {
-    background: var(--am-flaeche-2);
   }
   .preview-scroll-wrapper {
     flex: 1;
@@ -3650,7 +3546,7 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-primaer);
     line-height: 1.3;
   }
-.preview-date-line {
+  .preview-date-line {
     font-size: 0.75rem;
     color: var(--am-text-gedaempft);
   }
@@ -3665,6 +3561,11 @@ let sentFolderName = $state<string | null>(null);
   .preview-recipient-line strong {
     color: var(--am-text-primaer);
     font-weight: 600;
+  }
+  .preview-body {
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: var(--am-text-primaer);
   }
   .mail-iframe-container {
     background: var(--am-seite);
@@ -3688,7 +3589,7 @@ let sentFolderName = $state<string | null>(null);
   }
   .mail-body {
     font-family: inherit;
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-word;
@@ -3700,120 +3601,8 @@ let sentFolderName = $state<string | null>(null);
     color: var(--am-text-gedaempft);
     font-style: italic;
   }
-  .followups-footer {
-    flex-shrink: 0;
-    margin-top: auto;
-    border-top: 1px solid var(--am-rand);
-    background: var(--am-flaeche-1);
-    display: flex;
-    flex-direction: column;
-    /* Gleiche Hoehe wie der untere Sidebar-Block (.sidebar-footer):
-       Abstand Trennlinie -> untere Fensterkante = 107px (inkl. 1px border) */
-    height: 107px;
-    box-sizing: border-box;
-    padding: 12px 16px;
-    gap: 8px;
-  }
-  .followups-footer-head {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .followups-footer-title {
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--am-handlung-ruhend);
-  }
-  .followups-footer-error {
-    font-size: 0.78rem;
-    color: var(--am-fehler);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .followups-footer-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .followups-footer-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }
-  .followups-footer-label {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 0 1 auto;
-    font-size: 0.85rem;
-    color: var(--am-text-primaer);
-  }
-  .followups-footer-label > span:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .followups-footer-conflict {
-    font-size: 0.76rem;
-    color: var(--am-fehler);
-  }
-  .followups-footer-muted {
-    font-size: 0.85rem;
-    color: var(--am-text-gedaempft);
-  }
-  .followups-footer-btn {
-    flex-shrink: 0;
-    font-size: 0.78rem;
-    font-weight: 500;
-    padding: 6px 12px;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    cursor: pointer;
-  }
-  .followups-footer-btn:hover {
-    filter: brightness(1.1);
-  }
-  .followups-footer-alts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding-left: 4px;
-  }
-  .followups-footer-alt {
-    font-size: 0.74rem;
-    font-weight: 500;
-    padding: 4px 10px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    cursor: pointer;
-  }
-  .followups-footer-alt:hover {
-    border-color: var(--am-handlung-ruhend);
-    color: var(--am-handlung-ruhend);
-  }
-  .followups-footer-alt--picked {
-    border-color: var(--am-handlung-ruhend);
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-  }
-  .followups-footer-alt--picked:hover {
-    color: var(--am-handlung-text);
-    filter: brightness(1.1);
-  }
+
+  /* ── Attachment chips [RL-LESEANSICHT] ───────────────────────────────────── */
   .attachments {
     margin-top: 20px;
     padding-top: 16px;
@@ -3875,257 +3664,64 @@ let sentFolderName = $state<string | null>(null);
     font-size: 0.6875rem;
     color: var(--am-text-gedaempft);
   }
-.preview-body {
-    font-size: 0.875rem;
-    line-height: 1.7;
-    color: var(--am-text-primaer);
+
+  /* ── Attachment preview, on HB-DIALOG [RL-LESEANSICHT] ───────────────────── */
+  /* A viewer, not a question: wider and taller than the breit dialog, the
+     body edge to edge on a dark ground. */
+  .att-preview-karte {
+    max-width: min(57.5rem, 100%);
+    max-height: calc(100dvh - var(--am-raum-8));
   }
-  .mail-body {
-    font-family: inherit;
-    font-size: 0.875rem;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
+  .att-preview-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--am-text-gedaempft);
-  }
-  .empty-icon {
-    font-size: 3rem;
-    margin-bottom: 12px;
-    opacity: 0.3;
-  }
-  /* ─── Splash Screen ─── */
-  .splash-screen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: var(--am-flaeche-1);
+  .att-preview-body {
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
-    overflow-y: auto;
-    padding: 24px;
+    background: var(--am-blau-950);
   }
-  .splash-card {
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
-    padding: 48px;
+  .att-preview-frame {
     width: 100%;
-    max-width: 720px;
-    box-shadow: none;
-    display: flex;
-    flex-direction: column;
-    animation: fadeIn 0.25s ease-out;
+    height: 100%;
+    border: none;
+    min-height: 55vh;
   }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
-    to { opacity: 1; transform: scale(1); }
+  .att-preview-image {
+    max-width: 100%;
+    max-height: 75vh;
+    object-fit: contain;
   }
-  .splash-intro {
+  .att-preview-unsupported {
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 14px;
+    padding: 40px;
+    color: var(--am-text-gedaempft);
+    font-size: 0.875rem;
     text-align: center;
   }
-  .splash-intro h1 {
-    font-size: 1.875rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-    color: var(--am-text-primaer);
-  }
-  .splash-subtitle {
-    font-size: 0.9375rem;
-    color: var(--am-text-gedaempft);
-    margin-bottom: 48px;
-    max-width: 500px;
-  }
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-    width: 100%;
-    margin-bottom: 48px;
-  }
-  .feature-card {
-    border-top: 1px solid var(--am-rand);
-    padding-top: 16px;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-  }
-  .feature-card h3 {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-    margin-bottom: 8px;
-  }
-  .feature-card p {
-    font-size: 0.8125rem;
-    color: var(--am-text-gedaempft);
-    line-height: 1.5;
-  }
-  .btn-splash-primary {
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    font-size: 0.875rem;
-    font-weight: 600;
-    padding: 10px 24px;
-    border: none;
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-splash-primary:hover:not(:disabled) {
-    background: var(--am-handlung-hover);
-  }
-  .btn-splash-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-splash-secondary {
-    background: transparent;
-    border: 1px solid var(--am-rand);
-    color: var(--am-text-primaer);
-    font-size: 0.875rem;
-    font-weight: 600;
-    padding: 10px 20px;
-    border-radius: var(--am-radius-mittel);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .btn-splash-secondary:hover {
-    background: var(--am-flaeche-1);
-  }
-  .splash-form-view {
-    display: flex;
-    flex-direction: column;
-  }
-  .splash-form-view h2 {
-    font-size: 1.375rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-    color: var(--am-text-primaer);
-  }
-  .splash-form {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px 24px;
-    text-align: left;
-    margin-top: 20px;
-  }
-  .form-group.span-2 {
-    grid-column: span 2;
-  }
-  .port-ssl-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 41px;
-    width: 100%;
-  }
-  .splash-form .form-group .port-ssl-row input[type="number"] {
-    width: 75px;
-    flex-shrink: 0;
-  }
-  .check-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--am-text-primaer);
-    user-select: none;
-    height: 100%;
-  }
-  .check-label input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
-    border: 1px solid var(--am-rand);
-    border-radius: 4px;
-    background: var(--am-seite);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-    position: relative;
-    outline: none;
-    margin: 0;
-  }
-  .check-label input[type="checkbox"]:checked {
-    background: var(--am-handlung-ruhend);
-    border-color: var(--am-handlung-ruhend);
-  }
-  .check-label input[type="checkbox"]:checked::after {
-    content: "";
-    position: absolute;
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-    top: 2px;
-    left: 5px;
-  }
-  .check-label input[type="checkbox"]:focus {
-    border-color: var(--am-handlung-ruhend);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
-  }
-  .splash-form .form-group label:not(.check-label) {
-    display: block;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--am-text-gedaempft);
-    margin-bottom: 6px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  .splash-form .form-group input {
-    width: 100%;
-    padding: 10px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: 6px;
-    font-size: 0.875rem;
-    color: var(--am-text-primaer);
-    background: var(--am-seite);
-    box-shadow: none;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .splash-form .form-group input:focus {
-    border-color: var(--am-handlung-ruhend);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
-    background: var(--am-seite);
-  }
-  .splash-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 12px;
-    border-top: 1px solid var(--am-rand);
-    padding-top: 24px;
-  }
-  .splash-actions.span-2 {
-    grid-column: span 2;
-  }
-  .error-message.span-2 {
-    grid-column: span 2;
+  @media (max-width: 600px) {
+    .att-preview-schicht {
+      padding: 0;
+    }
+    .att-preview-karte {
+      max-width: none;
+      max-height: 100dvh;
+      height: 100%;
+      border: none;
+      border-radius: 0;
+    }
+    .att-preview-frame {
+      min-height: 0;
+    }
   }
 
-  /* ─── Preview Skeleton ─── */
+  /* ── Loading skeleton of the reading pane [RL-LESEANSICHT] ───────────────── */
   .preview-skeleton {
     padding: 32px 24px;
     max-width: 800px;
@@ -4187,140 +3783,81 @@ let sentFolderName = $state<string | null>(null);
     100% { background-position: -200% 0; }
   }
 
-  /* ─── Responsive layout (additive) ───────────────────────── */
-  .icon-btn {
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--am-text-gedaempft);
-    font-size: 1rem;
-    padding: 4px 8px;
-    border-radius: var(--am-radius-mittel);
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: inherit;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .icon-btn:hover {
-    background: var(--am-flaeche-2);
-    color: var(--am-text-primaer);
-  }
-  .menu-toggle {
-    font-size: 1.125rem;
-    margin-right: 4px;
-  }
-  .preview-back-bar {
+  /* ── AI follow-up suggestions footer [RL-VORSCHLAEGE] ────────────────────── */
+  .followups-footer {
     flex-shrink: 0;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--am-rand);
-    background: var(--am-seite);
+    margin-top: auto;
+    border-top: 1px solid var(--am-rand);
+    background: var(--am-flaeche-1);
+    display: flex;
+    flex-direction: column;
+    /* Gleiche Hoehe wie der untere Sidebar-Block (.sidebar-footer):
+       Abstand Trennlinie -> untere Fensterkante = 107px (inkl. 1px border) */
+    height: 107px;
+    box-sizing: border-box;
+    padding: 12px 16px;
+    gap: 8px;
   }
-  .sidebar-scrim {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    z-index: 40;
+  .followups-footer-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
   }
-
-  /* COMPACT (≤900px): preview becomes a full-width overlay over the list,
-     shown only when a message/compose is open. List fills the width. */
-  .app-container.compact .list-pane {
-    flex: 1;
+  .followups-footer-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--am-handlung-ruhend);
+  }
+  /* HB-ZUSTAND line; one line only, the footer has a fixed height. */
+  .followups-footer-error {
     min-width: 0;
   }
-  .app-container.compact .preview-pane {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    display: none;
+  .followups-footer-error > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .app-container.compact.preview-open .preview-pane {
+  .followups-footer-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .app-container.compact {
-    position: relative;
+  .followups-footer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
   }
-
-  /* NARROW (≤600px): sidebar collapses to a full-width overlay (iOS Mail style). */
-  .app-container.narrow .sidebar-pane {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: none;
-    z-index: 50;
-    transform: translateX(-100%);
-    transition: transform var(--am-dauer-mittel) var(--am-kurve);
-  }
-  .app-container.narrow.sidebar-open .sidebar-pane {
-    transform: translateX(0);
-  }
-  /* In narrow mode the sidebar covers the whole width, so the dark scrim would
-     only flash at the edge while the sidebar slides in — hide its shadow. */
-  .app-container.narrow .sidebar-scrim {
-    background: transparent;
-  }
-
-  /* ─── iPhone 15 Pro mobile optimizations ─────────────────── */
-  /* Safe-area insets (Dynamic Island + home indicator). */
-  .app-container.narrow .sidebar-pane {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .app-container.narrow .list-header-container {
-    padding-top: env(safe-area-inset-top, 0px);
-    background: var(--am-seite);
-  }
-  .app-container.narrow .preview-back-bar {
-    padding-top: max(8px, env(safe-area-inset-top, 0px));
-    min-height: 44px;
-  }
-  .app-container.narrow .menu-toggle,
-  .app-container.narrow .icon-btn {
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 1.25rem;
-  }
-  /* Burger menu ~33% bigger on phones (1.25rem -> 1.67rem). */
-  .app-container.narrow .menu-toggle {
-    font-size: 1.67rem;
-    min-width: 48px;
-    min-height: 48px;
-    line-height: 1;
-  }
-  /* Preview action pills: text only (no icons). */
-  /* Compact preview header on phones. */
-  .app-container.narrow .preview-pane-header {
-    height: auto;
-    min-height: 64px;
-    padding: 8px 14px;
-    padding-top: max(8px, env(safe-area-inset-top, 0px));
-  }
-  .app-container.narrow .preview-from-name {
-    font-size: 1rem;
-  }
-  .app-container.narrow .preview-subject-large {
-    font-size: 1.2rem;
-  }
-  .app-container.narrow .mail-iframe-container {
-    height: calc(100vh - 220px);
-    min-height: 320px;
-  }
-  .app-container.narrow .action-btn-pill {
-    padding: 9px 12px;
-    min-height: 40px;
+  .followups-footer-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 0 1 auto;
     font-size: 0.85rem;
+    color: var(--am-text-primaer);
   }
-  /* Compose window fills the phone screen. */
-  .app-container.narrow .compose-window {
-    margin: 0;
-    border-radius: 0;
-    height: 100%;
+  .followups-footer-label > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .followups-footer-muted {
+    font-size: 0.85rem;
+    color: var(--am-text-gedaempft);
+  }
+  .followups-footer-btn {
+    flex-shrink: 0;
   }
 
-  /* ─── Plain HTML context menus (replaces Tauri native menus) ─── */
+  /* ── Context menus: folder, move, link, attachment [RL-MENUE] ────────────── */
   .ctx-menu-scrim {
     position: fixed;
     inset: 0;
@@ -4399,130 +3936,13 @@ let sentFolderName = $state<string | null>(null);
     background: var(--am-fehler-flaeche);
     color: var(--am-fehler);
   }
-
-  /* ── Attachment preview overlay ─────────────────────────── */
-  .att-preview-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 1100;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .att-preview-scrim {
-    position: absolute;
-    inset: 0;
-    background: var(--am-deckschicht);
-  }
-  .att-preview-modal {
-    position: relative;
-    width: min(920px, 100%);
-    max-height: 90vh;
-    background: var(--am-seite);
-    border: 1px solid var(--am-rand);
-    border-radius: 12px;
-    box-shadow: none;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .att-preview-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--am-rand);
-    background: var(--am-seite);
-    flex-shrink: 0;
-  }
-  .att-preview-name {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--am-text-primaer);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .att-preview-actions {
-    display: flex;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  .att-preview-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border: 1px solid var(--am-rand);
-    border-radius: 8px;
-    background: none;
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
-  }
-  .att-preview-btn:hover {
-    background: var(--am-flaeche-2);
-    border-color: var(--am-handlung-ruhend);
-  }
-  .att-preview-body {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--am-blau-950);
-  }
-  .att-preview-frame {
-    width: 100%;
-    height: 100%;
-    border: none;
-    min-height: 55vh;
-  }
-  .att-preview-image {
-    max-width: 100%;
-    max-height: 75vh;
-    object-fit: contain;
-  }
-  .att-preview-unsupported {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    padding: 40px;
-    color: var(--am-text-gedaempft);
-    font-size: 0.875rem;
-    text-align: center;
-  }
-  .att-preview-download-btn {
-    padding: 9px 22px;
-    border: none;
-    border-radius: 8px;
-    background: var(--am-handlung-ruhend);
-    color: var(--am-handlung-text);
-    font-size: 0.875rem;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-  }
-  @media (max-width: 600px) {
-    .att-preview-overlay {
-      padding: 0;
-    }
-    .att-preview-modal {
-      width: 100%;
-      max-height: 100vh;
-      height: 100%;
-      border: none;
-      border-radius: 0;
-    }
-    .att-preview-frame {
-      min-height: 0;
-    }
+  .ctx-menu-separator {
+    height: 1px;
+    margin: 4px 8px;
+    background: var(--am-rand);
   }
 
+  /* ── Context menu as bottom sheet on touch [RL-MENUE] ────────────────────── */
   /* iOS-style bottom sheet (touch devices): slides up from the bottom edge,
      full width, large touch targets, safe-area aware. */
   @keyframes sheetUp {
@@ -4561,10 +3981,5 @@ let sentFolderName = $state<string | null>(null);
   }
   .ctx-menu.sheet .ctx-menu-separator {
     margin: 4px 16px;
-  }
-  .ctx-menu-separator {
-    height: 1px;
-    margin: 4px 8px;
-    background: var(--am-rand);
   }
 </style>

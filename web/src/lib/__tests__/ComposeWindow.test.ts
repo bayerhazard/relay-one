@@ -66,9 +66,9 @@ describe("ComposeWindow - mode new", () => {
   });
 
   it("close button has type='button'", () => {
-    const { container } = render(ComposeWindow, defaultProps);
-    const btn = container.querySelector(".close-btn");
-    expect(btn?.getAttribute("type")).toBe("button");
+    render(ComposeWindow, defaultProps);
+    const btn = screen.getByRole("button", { name: "Schließen" });
+    expect(btn.getAttribute("type")).toBe("button");
   });
 
   it("renders send button", () => {

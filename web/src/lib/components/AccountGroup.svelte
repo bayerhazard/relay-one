@@ -151,13 +151,6 @@
     dragSource = null;
   }
 
-  // Chevron SVG — inline, compact
-  function chevronSVG(open: boolean): string {
-    if (open) {
-      return `<Symbol name="chevron" size={16} />`;
-    }
-    return `<Symbol name="chevron-rechts" size={16} />`;
-  }
 </script>
 
 <div class="account-group">
@@ -264,7 +257,11 @@
           }
         }}
       >
-        {@html chevronSVG(!collapsedFolders.has(node.name))}
+        {#if collapsedFolders.has(node.name)}
+          <Symbol name="chevron-rechts" size={16} />
+        {:else}
+          <Symbol name="chevron" size={16} />
+        {/if}
       </span>
     {/if}
   </div>
@@ -275,6 +272,8 @@
 {/snippet}
 
 <style>
+  /* ── Account group: one account's folder tree [RL-ORDNERBAUM] ───────── */
+  /* Tree rows are list rows and stay Relay's own (not `.btn`). */
   .account-group {
     padding: 4px 0;
   }
@@ -292,7 +291,7 @@
     color: var(--am-handlung-ruhend);
   }
 
-  /* ── Tree Row ────────────────────────────── */
+  /* ── Tree row [RL-ORDNERBAUM] ─────────────────────────────────────────── */
   .tree-row {
     display: flex;
     align-items: center;
@@ -399,7 +398,7 @@
     opacity: 0.8;
   }
 
-  /* ── Divider ─────────────────────────────── */
+  /* ── Divider between accounts [RL-ORDNERBAUM] ──────────────────────── */
   .account-divider {
     height: 1px;
     background: var(--am-rand);

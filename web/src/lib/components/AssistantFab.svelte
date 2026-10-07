@@ -32,7 +32,7 @@
   class="assistant-fab"
   class:hidden={$fabHidden}
   onclick={() => (open = true)}
-  title={$t("assistant.title")}
+  title={$t("assistant.open")}
   aria-label={$t("assistant.open")}
 >
   <!-- Shield silhouette from the app icon (docs/icon/relay.svg), flat gold fill. -->
@@ -52,6 +52,9 @@
 />
 
 <style>
+  /* ── Floating entry [RL-ASSISTENT] ────────────────────────────────────────
+     The gold shield is a brand mark, not an AM-KNOPF: it stays Relay's own
+     (larger than the 40 px target, no surface) until HB-ASSISTENT. */
   .assistant-fab {
     position: fixed;
     bottom: 20px;
@@ -75,7 +78,7 @@
   .assistant-fab:focus-visible {
     outline: 2px solid var(--am-fokus-ring);
     outline-offset: 2px;
-    border-radius: 8px;
+    border-radius: var(--am-radius-mittel);
     opacity: 1;
   }
 </style>

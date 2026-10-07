@@ -12,6 +12,7 @@
   import AssistantFab from "$lib/components/AssistantFab.svelte";
   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { useSidebarResize } from "$lib/composables/useSidebarResize";
   import { t, translate } from "$lib/i18n";
@@ -39,6 +40,11 @@
 
   // Editor state
   let editorOpen = $state(false);
+  // Focus into the editor's first field when it opens (CI HB-DIALOG).
+  let givenNameInput = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (editorOpen && givenNameInput) givenNameInput.focus();
+  });
   let editingUid = $state<string | null>(null);
   let form = $state<ContactInput>({
     given_name: "", family_name: "", display_name: "",
@@ -197,17 +203,17 @@
   <aside class="ct-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="ct-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="ct-nav-btn ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")} title={$t("contacts.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("contacts.title")} noHover />
     </div>
 
     <div class="ct-tools">
-      <button type="button" class="ct-btn ct-btn-primary" onclick={openCreate}>
+      <button type="button" class="btn btn-primaer" onclick={openCreate}>
         <Symbol name="plus" size={16} />
         {$t("contacts.new")}
       </button>
-      <button type="button" class="ct-btn ct-btn-ghost" onclick={handleRefresh} disabled={syncing}>
+      <button type="button" class="btn btn-still" onclick={handleRefresh} disabled={syncing}>
         {syncing ? $t("common.syncing") : $t("common.refresh")}
       </button>
     </div>
@@ -231,24 +237,26 @@
   <main class="ct-main">
     {#if isNarrow}
       <div class="ct-mobile-header">
-        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
+        <button type="button" class="btn btn-still btn-symbol ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")} title={$t("contacts.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{$t("contacts.title")}</h1>
       </div>
     {/if}
     {#if loading}
       <div class="ct-state">{$t("contacts.loading")}</div>
     {:else if error}
-      <div class="ct-state ct-state-error">
-        <p>{error}</p>
-        <button type="button" class="ct-btn ct-btn-ghost" onclick={loadContacts}>{$t("contacts.reload")}</button>
+      <div class="ct-state">
+        <div class="hinweis" data-art="fehler" role="alert">
+          <Symbol name="achtung" size={16} />
+          <span>{error}</span>
+        </div>
+        <button type="button" class="btn btn-sekundaer" onclick={loadContacts}>{$t("contacts.reload")}</button>
       </div>
     {:else if contacts.length === 0}
-      <div class="ct-state">
-        <p>{search ? $t("contacts.notFound") : $t("contacts.empty")}</p>
-        {#if !search}
-          <button type="button" class="ct-btn ct-btn-ghost" onclick={openCreate}>{$t("contacts.create")}</button>
-        {/if}
-      </div>
+      {#if search}
+        <EmptyState icon="suche" title={$t("contacts.notFound")} />
+      {:else}
+        <EmptyState icon="nutzer" title={$t("contacts.empty")} actionLabel={$t("contacts.create")} onaction={openCreate} />
+      {/if}
     {:else}
       <ul class="ct-list">
         {#each contacts as c (c.vcard_uid)}
@@ -267,7 +275,7 @@
               </span>
             </div>
             <div class="ct-item-actions">
-              <button type="button" class="ct-icon-btn" onclick={() => openEdit(c)} title={$t("contacts.editBtn")}>
+              <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => openEdit(c)} aria-label={$t("contacts.editBtn")} title={$t("contacts.editBtn")}>
                 <Symbol name="bearbeiten" size={16} />
               </button>
             </div>
@@ -278,45 +286,61 @@
   </main>
 
   {#if editorOpen}
+    <!-- HB-DIALOG, narrow: six fields in `.feld`; footer "Speichern", then
+         "Abbrechen", and "Kontakt löschen" pushed away to the far end. -->
     <div
-      class="ct-modal-backdrop"
-      role="button"
-      tabindex="0"
-      aria-label={$t("contacts.closeDialog")}
-      onclick={(e) => { if (e.target === e.currentTarget && !busy) editorOpen = false; }}
-      onkeydown={(e) => { if (e.key === "Escape" || e.key === "Enter") !busy && (editorOpen = false); }}
+      class="dialog-schicht"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ct-editor-title"
+      tabindex="-1"
+      onclick={(e) => { if ((e.target as HTMLElement).classList.contains("dialog-schicht") && !busy) editorOpen = false; }}
+      onkeydown={(e) => { if (e.key === "Escape") !busy && (editorOpen = false); }}
     >
-      <div class="ct-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label={editingUid ? $t("contacts.edit") : $t("contacts.new")}>
-        <h2>{editingUid ? $t("contacts.edit") : $t("contacts.new")}</h2>
-        <label>{$t("contacts.firstName")}
-          <input type="text" bind:value={form.given_name} placeholder={$t("contacts.phFirst")} />
-        </label>
-        <label>{$t("contacts.lastName")}
-          <input type="text" bind:value={form.family_name} placeholder={$t("contacts.phLast")} />
-        </label>
-        <label>{$t("contacts.displayName")}
-          <input type="text" bind:value={form.display_name} placeholder={$t("contacts.phDisplay")} />
-        </label>
-        <label>{$t("contacts.email")}
-          <input type="email" bind:value={form.email} placeholder="max@example.com" />
-        </label>
-        <label>{$t("contacts.phone")}
-          <input type="tel" bind:value={form.phone} placeholder="+49 123 4567890" />
-        </label>
-        <label>{$t("contacts.organization")}
-          <input type="text" bind:value={form.organization} placeholder={$t("contacts.phOrg")} />
-        </label>
-        <div class="ct-modal-actions">
+      <div class="karte dialog-karte" data-breite="schmal">
+        <div class="dialog-kopf">
+          <h2 id="ct-editor-title">{editingUid ? $t("contacts.edit") : $t("contacts.new")}</h2>
+          <button type="button" class="dialog-zu" aria-label={$t("contacts.closeDialog")} title={$t("contacts.closeDialog")} onclick={() => (editorOpen = false)} disabled={busy}>
+            <Symbol name="schliessen" size={20} />
+          </button>
+        </div>
+        <div class="dialog-koerper">
+          <div class="feld">
+            <label for="ct-given-name">{$t("contacts.firstName")}</label>
+            <input id="ct-given-name" type="text" bind:this={givenNameInput} bind:value={form.given_name} placeholder={$t("contacts.phFirst")} />
+          </div>
+          <div class="feld">
+            <label for="ct-family-name">{$t("contacts.lastName")}</label>
+            <input id="ct-family-name" type="text" bind:value={form.family_name} placeholder={$t("contacts.phLast")} />
+          </div>
+          <div class="feld">
+            <label for="ct-display-name">{$t("contacts.displayName")}</label>
+            <input id="ct-display-name" type="text" bind:value={form.display_name} placeholder={$t("contacts.phDisplay")} />
+          </div>
+          <div class="feld">
+            <label for="ct-email">{$t("contacts.email")}</label>
+            <input id="ct-email" type="email" bind:value={form.email} placeholder="max@example.com" />
+          </div>
+          <div class="feld">
+            <label for="ct-phone">{$t("contacts.phone")}</label>
+            <input id="ct-phone" type="tel" bind:value={form.phone} placeholder="+49 123 4567890" />
+          </div>
+          <div class="feld">
+            <label for="ct-organization">{$t("contacts.organization")}</label>
+            <input id="ct-organization" type="text" bind:value={form.organization} placeholder={$t("contacts.phOrg")} />
+          </div>
+        </div>
+        <div class="dialog-fuss">
+          <button type="button" class="btn btn-primaer" onclick={saveContact} disabled={busy}>
+            {busy ? $t("contacts.saving") : $t("common.save")}
+          </button>
+          <button type="button" class="btn btn-sekundaer" onclick={() => editorOpen = false} disabled={busy}>{$t("common.cancel")}</button>
           {#if editingUid}
             {@const target = contacts.find((x) => x.vcard_uid === editingUid)}
             {#if target}
-              <button type="button" class="ct-btn ct-btn-danger" onclick={() => { editorOpen = false; askDelete(target); }} disabled={busy}>{$t("contacts.deleteBtn")}</button>
+              <button type="button" class="btn btn-gefahr ct-delete" onclick={() => { editorOpen = false; askDelete(target); }} disabled={busy}>{$t("contacts.deleteBtn")}</button>
             {/if}
           {/if}
-          <button type="button" class="ct-btn ct-btn-ghost" onclick={() => editorOpen = false} disabled={busy}>{$t("common.cancel")}</button>
-          <button type="button" class="ct-btn ct-btn-primary" onclick={saveContact} disabled={busy}>
-            {busy ? $t("contacts.saving") : $t("common.save")}
-          </button>
         </div>
       </div>
     </div>
@@ -347,6 +371,7 @@
   />
 
 <style>
+  /* ── Contacts shell: sidebar and main pane [RL-KONTAKTE] ─────────────── */
   .ct-app {
     display: flex;
     height: 100vh;
@@ -370,16 +395,6 @@
     flex-shrink: 0;
     margin-bottom: 16px;
   }
-  .ct-back {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 4px;
-    border-radius: var(--am-radius-klein);
-  }
-  .ct-back:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
-  .ct-brand { font-weight: 600; font-size: var(--fs-base); }
 
   .ct-tools { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
   .ct-count {
@@ -390,6 +405,8 @@
     margin-top: 8px;
   }
   .ct-main { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+  /* ── Loading and error state [RL-KONTAKTE] ───────────────────────────── */
   .ct-state {
     display: flex;
     flex-direction: column;
@@ -400,8 +417,9 @@
     color: var(--am-text-gedaempft);
     font-size: var(--fs-base);
   }
-  .ct-state-error { color: var(--am-fehler); }
 
+  /* ── Contact list rows [RL-KONTAKTE] ─────────────────────────────────── */
+  /* List rows stay Relay's own; only the edit icon is a `.btn`. */
   .ct-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; gap: 6px; }
   .ct-item {
     display: flex;
@@ -429,6 +447,7 @@
   .ct-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ct-item-name { font-weight: 600; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ct-item-sub { font-size: var(--fs-xs); color: var(--am-text-gedaempft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Mail address and phone number read as links inside the row. */
   .ct-link {
     color: var(--am-handlung-ruhend);
     text-decoration: none;
@@ -442,74 +461,12 @@
   .ct-sep { margin: 0 4px; opacity: 0.5; }
 
   .ct-item-actions { display: flex; gap: 4px; }
-  .ct-icon-btn {
-    background: none;
-    border: none;
-    color: var(--am-text-gedaempft);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--am-radius-mittel);
-  }
-  .ct-icon-btn:hover { color: var(--am-text-primaer); background: var(--am-flaeche-2); }
 
-  .ct-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .ct-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .ct-btn-primary { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
-  .ct-btn-ghost { border-color: transparent; background: transparent; color: var(--am-text-gedaempft); }
-  .ct-btn-ghost:hover { background: var(--am-flaeche-2); }
-  /* Secondary danger, left in the dialog footer, away from "Speichern" (CI R1/G2). */
-  .ct-btn-danger { margin-right: auto; background: var(--am-seite); border-color: var(--am-fehler); color: var(--am-fehler); }
-  .ct-btn-danger:hover:not(:disabled) { background: var(--am-fehler-flaeche); }
+  /* ── Contact editor dialog [RL-KONTAKTE] ─────────────────────────────── */
+  /* Destructive last in the footer, away from "Speichern" (CI R1/G2). */
+  .ct-delete { margin-left: auto; }
 
-  .ct-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: var(--am-deckschicht);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-  .ct-modal {
-    width: 420px;
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
-    background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-gross);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .ct-modal h2 { margin: 0 0 4px; font-size: var(--fs-md); }
-  .ct-modal label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .ct-modal input {
-    padding: 8px 10px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-klein);
-    background: var(--am-seite);
-    color: var(--am-text-primaer);
-    font-size: var(--fs-sm);
-  }
-  .ct-modal input:focus { outline: none; border-color: var(--am-handlung-ruhend); }
-  .ct-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-
-  /* ── Narrow (mobile ≤768px): sidebar collapses to a slide-in overlay ── */
+  /* ── Narrow (mobile ≤768px): sidebar as slide-in overlay [RL-KONTAKTE] ── */
   .ct-app.narrow .ct-sidebar {
     position: fixed;
     top: 0;
@@ -549,18 +506,4 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .ct-nav-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 44px;
-    min-height: 44px;
-    background: none;
-    border: none;
-    color: var(--am-text-primaer);
-    cursor: pointer;
-    border-radius: var(--am-radius-mittel);
-    font-size: 1.25rem;
-  }
-  .ct-nav-btn:hover { background: var(--am-flaeche-2); }
 </style>

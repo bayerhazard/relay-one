@@ -3,10 +3,6 @@
    Typo: Geist / Geist Mono (self-hosted, OFL)
    ============================================================ */
 
-/* --- Geist / Geist Mono (local variable fonts, font-display: swap) --- */
-@font-face{font-family:'Geist';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/Geist.woff2') format('woff2')}
-@font-face{font-family:'Geist Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/GeistMono.woff2') format('woff2')}
-
 /* ═══════════════════════════════════════════════════════════════════════
    AImighty design system — source of values [AM-TOKEN]
    This block is an unmodified copy of tokens/app.css from the CI repo
@@ -297,10 +293,815 @@ html.dunkel {
 html[data-dichte="normal"] { --am-skalierung: 1; }
 html[data-dichte="kompakt"] { --am-skalierung: 0.9; }
 
-/* ============================================================
-   Relay — what the CI does not (yet) define
-   ============================================================ */
+/* ── Fonts and layer order [RL-SCHRIFT] ──────────────────────────────
+   Geist / Geist Mono, local variable fonts, font-display: swap. */
+@font-face{font-family:'Geist';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/Geist.woff2') format('woff2')}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:100 900;font-display:swap;src:url('./fonts/GeistMono.woff2') format('woff2')}
 
+/* Layer order: the CI's base and components sit below every component's
+   scoped <style>, so Relay's own rules (RL-) win where they must. */
+@layer base, components;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Building blocks from the AImighty CI (bauteile/). Each section is an
+   unmodified copy; checked with werkzeug/bauteile.py from the CI repo.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Zahlen: tabellarisch, rechtsbündig, Geist Mono [AM-BASIS] ───────────────── */
+.am-zahl {
+  font-family: var(--am-schrift-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── Grundstil [AM-BASIS] ─────────────────────────────────────────────────────────── */
+  /* Bewegung reduziert: Der Zustand stellt sich sofort ein, der Weg fällt
+     weg — derselbe Knopf, nur ohne Übergang (kern/bewegung.md im CI:
+     „ist fertig“, nicht „steht still“). Die beiden Schleifen (Schild,
+     Suchbalken) haben eigene Fassungen weiter unten. */
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0s !important; }
+  }
+
+  html {
+    color-scheme: light;
+    background: var(--am-seite);
+  }
+
+  /* Der Dunkelmodus-Umschalter setzt die Klasse; color-scheme muss
+     mitziehen, sonst bleiben Scrollbalken und Formularelemente hell. */
+  html.dunkel {
+    color-scheme: dark;
+  }
+
+  body {
+    color: var(--am-text-primaer);
+    background: var(--am-seite);
+    font-family: var(--am-schrift-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--am-schrift-sans);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  p { text-wrap: pretty; }
+
+  code, .mono {
+    font-family: var(--am-schrift-mono);
+  }
+}
+
+  /* ── Buttons [AM-KNOPF] ──────────────────────────────────────────────────────
+     Primär genau eine Handlung je Ansicht. Sekundär und still beliebig
+     oft. Höhe ist die Zielgröße, nicht Padding-Zufall. */
+@layer components {
+  .btn-reihe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--am-raum-4);
+    align-items: center;
+  }
+
+  .btn {
+    font-family: var(--am-schrift-sans);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    border-radius: var(--am-radius-mittel);
+    border: var(--am-rand-ruhend) solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--am-raum-2);
+    transition:
+      background var(--am-dauer-schnell) var(--am-kurve),
+      color var(--am-dauer-schnell) var(--am-kurve),
+      border-color var(--am-dauer-schnell) var(--am-kurve);
+    height: var(--am-ziel-zeiger);
+    padding: 0 var(--am-raum-6);
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
+  }
+
+  /* **Eine Größe.** Vorher gab es drei: 40 px, 32 px und ein nie
+     benutztes 44 px. Die 32 px unterschritten die Zielgröße, die das
+     Designsystem selbst mit „40 px Zeiger, ohne Ausnahme" vorschreibt —
+     und zwei Höhen nebeneinander lesen sich als Versehen, nicht als
+     Ordnung. `btn-klein` behält seinen Namen (er steht an gut hundert
+     Stellen) und nur noch das engere Seitenpolster, damit dichte
+     Werkzeugleisten nicht umbrechen. */
+  .btn-klein {
+    height: var(--am-ziel-zeiger);
+    padding: 0 var(--am-raum-4);
+    font-size: 0.875rem;
+  }
+
+/* `.btn-gross` entfernt: nirgends verwendet, und eine dritte Höhe
+     wäre genau das Gegenteil dessen, was hier gewollt ist. */
+
+  /* Ein Knopf, der nur ein Zeichen trägt, ist quadratisch. Dieselbe Höhe
+     wie jeder andere — aber das Seitenpolster eines Textknopfes macht aus
+     einem 14-px-Zeichen sonst 49 px Breite, und vier davon nebeneinander
+     schieben eine Tabelle aus ihrem Block. */
+  .btn-symbol {
+    width: var(--am-ziel-zeiger);
+    padding: 0;
+    flex: none;
+  }
+
+  .btn-primaer {
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
+  }
+  .btn-primaer:hover { background: var(--am-handlung-hover); }
+  .btn-primaer:active { background: var(--am-handlung-aktiv); }
+
+  /* Schrift in Textfarbe, Rand betont (ABGLEICH R1): Im Dunkeln wäre die
+     Handlungsfarbe Gold, und Gold für sekundär ist gesperrt. */
+  .btn-sekundaer {
+    background: transparent;
+    color: var(--am-text-primaer);
+    border-color: var(--am-rand-betont-farbe);
+  }
+  .btn-sekundaer:hover { background: var(--am-flaeche-2); }
+
+  .btn-still {
+    background: transparent;
+    color: var(--am-text-sekundaer);
+  }
+  .btn-still:hover {
+    background: var(--am-flaeche-1);
+    color: var(--am-text-primaer);
+  }
+
+  /* Gefahr: nur für das, was etwas wegnimmt, und immer mit Objekt im Wort
+     („Aufnahme löschen“, nicht „Löschen“). Nie still, nie zweimal auf einer
+     Ansicht (kern/schaltflaechen.md, ABGLEICH R1). Schrift wie auf der
+     Handlung: hell Weiß (5,92:1), dunkel Blau 900 (7,37:1) — Weiß auf dem
+     hellen Rot des Dunkelmodus kam auf 2,45:1 (ABGLEICH T9). Beim
+     Überfahren heller wie jede Handlung, nicht dunkler. Bis ci-26.10.3
+     stand die Regel nur in Rocket (RK-SEGMENTLISTE); seit Insilo gehört sie
+     allen (ABGLEICH IN-R1). */
+  .btn-gefahr {
+    background: var(--am-fehler);
+    color: var(--am-handlung-text);
+    border-color: var(--am-fehler);
+  }
+  .btn-gefahr:hover {
+    background: var(--am-fehler-hover);
+    border-color: var(--am-fehler-hover);
+  }
+
+  .btn-gesperrt,
+  .btn:disabled {
+    background: var(--am-flaeche-2);
+    color: var(--am-text-deaktiviert);
+    cursor: not-allowed;
+    border-color: transparent;
+  }
+  .btn:disabled:hover { background: var(--am-flaeche-2); }
+
+  /* Berührung: 44px ohne Ausnahme — auch die kleinen Varianten. */
+  @media (pointer: coarse) {
+    .btn,
+    .btn-klein {
+      height: var(--am-ziel-beruehrung);
+    }
+    .btn-reihe { gap: var(--am-ziel-abstand-beruehrung); }
+  }
+}
+
+  /* ── Formularfelder [AM-FELD] ───────────────────────────────────────────────── */
+@layer components {
+  .feld { margin-bottom: var(--am-raum-6); }
+
+  .feld label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: var(--am-raum-2);
+    color: var(--am-text-primaer);
+  }
+
+  .feld label .optional {
+    font-weight: 400;
+    color: var(--am-text-gedaempft);
+  }
+
+  .feld input:not([type="checkbox"]),
+  .feld select,
+  .feld textarea {
+    width: 100%;
+    min-height: var(--am-ziel-zeiger);
+    padding: 0 var(--am-raum-4);
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
+    font-family: var(--am-schrift-sans);
+    font-size: 0.9375rem;
+  }
+
+  .feld textarea {
+    padding: var(--am-raum-3) var(--am-raum-4);
+    line-height: 1.6;
+    resize: vertical;
+  }
+
+  .feld input:focus-visible,
+  .feld select:focus-visible,
+  .feld textarea:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
+  }
+
+  .feld.fehler input,
+  .feld.fehler select,
+  .feld.fehler textarea {
+    border-color: var(--am-fehler-rand);
+    border-width: var(--am-rand-betont);
+  }
+
+  .feld-fehlertext {
+    color: var(--am-fehler);
+    font-size: 0.8125rem;
+    margin-top: var(--am-raum-2);
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-2);
+  }
+
+  .feld-hinweis {
+    color: var(--am-text-gedaempft);
+    font-size: 0.8125rem;
+    margin-top: var(--am-raum-2);
+  }
+
+  @media (pointer: coarse) {
+    .feld input:not([type="checkbox"]),
+    .feld select,
+    .feld textarea { min-height: var(--am-ziel-beruehrung); }
+  }
+}
+
+/* ── Eingabefeld, aus dem Paket übernommen [AM-FELD] ──────────────────────────── */
+@layer components {
+  .input {
+    padding: 0 var(--am-raum-4);
+    height: var(--am-ziel-zeiger);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
+    font-family: var(--am-schrift-sans);
+    font-size: 0.9375rem;
+    width: 100%;
+  }
+
+  .input:focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
+  }
+
+  .input::placeholder { color: var(--am-text-deaktiviert); }
+
+  /* Der native Pfeil sitzt je nach Browser hart am Rand und ignoriert das
+     Padding. Deshalb abschalten und ein eigenes Zeichen setzen. */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23587898' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--am-raum-4) center;
+    background-size: 1rem 1rem;
+    padding-right: calc(var(--am-raum-4) * 2 + 1rem);
+  }
+
+  html.dunkel select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23afc0d2' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+
+  select[multiple],
+  select[size]:not([size="1"]) {
+    background-image: none;
+    padding-right: var(--am-raum-4);
+  }
+}
+
+/* ── Auswahlfelder haben ein Zeichen [AM-FELD] ──────────────────────────────────
+   Irgendwo in der Grundlage steht `appearance: none` auf Formularfeldern.
+   Damit verlor **jedes** Auswahlfeld der Anwendung sein Zeichen und sah
+   aus wie ein Textfeld: Man sah der Rolle in der Mitgliederliste nicht
+   an, dass man sie ändern kann, und dem Stufenfeld im Firmendialog nicht,
+   dass es eine Liste öffnet.
+
+   Die Farbe steht fest im Bild und folgt keinem Token — ein Data-URI
+   kennt keine CSS-Variablen. `--am-blau-500` ist genau dafür gewählt:
+   „Wendepunkt — als Text in beiden Modi lesbar". Ein Zeichen je
+   Darstellung wäre zwei Dateien für einen Haken.
+
+   Ganz am Ende der Datei, weil `.feld select` spezifischer ist als
+   `select`: Das Polster muss aus einer Regel kommen, die diese Auswahl
+   ebenfalls trifft, und die spätere gewinnt. */
+select,
+.feld select,
+.werkzeugleiste select,
+.mitglied-rolle {
+  /* `background-image`, nicht die Kurzform: `.feld select` setzt
+     `background: var(--am-seite)`, und eine Kurzform löscht das Bild
+     wieder. Beim ersten Versuch stand das Zeichen in einer eigenen
+     `select`-Regel und war deshalb unsichtbar. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%23587898' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--am-raum-3) center;
+  background-size: 12px 8px;
+  padding-right: calc(var(--am-raum-3) + 1.25rem);
+}
+
+  /* ── Häkchen und Schalter [AM-HAKEN] ─────────────────────────────────────────
+     Das Browser-Häkchen ist in keinem System zu Hause. Eines in den
+     Farben des Hauses: ruhend ein Rahmen, gewählt Hanseatenblau mit
+     weißem Haken — im Dunkeln Gold, weil Blau auf Blau nicht trägt. */
+@layer components {
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0;
+    border: var(--am-rand-betont) solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
+    background: var(--am-seite);
+    cursor: pointer;
+    display: inline-grid;
+    place-content: center;
+    vertical-align: -0.2em;
+    transition: background-color var(--am-dauer-schnell) var(--am-kurve), border-color var(--am-dauer-schnell) var(--am-kurve);
+  }
+  input[type="checkbox"]::before {
+    content: "";
+    width: 0.625rem;
+    height: 0.625rem;
+    transform: scale(0);
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
+    background: currentColor;
+    clip-path: polygon(14% 44%, 0 62%, 40% 100%, 100% 22%, 84% 8%, 40% 66%);
+  }
+  input[type="checkbox"]:hover { border-color: var(--am-handlung-ruhend); }
+  input[type="checkbox"]:checked {
+    border-color: var(--am-handlung-ruhend);
+    background: var(--am-handlung-ruhend);
+    color: var(--am-text-auf-farbe);
+  }
+  input[type="checkbox"]:checked::before { transform: scale(1); }
+  input[type="checkbox"]:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+  html.dunkel input[type="checkbox"]:hover { border-color: var(--am-gold-500); }
+  html.dunkel input[type="checkbox"]:checked { border-color: var(--am-gold-500); background: var(--am-gold-500); color: var(--am-blau-900); }
+
+  /* Der Auswahlknopf (eins aus mehreren): derselbe Rahmen, rund; gewählt
+     ein Punkt in Hanseatenblau, im Dunkeln Gold. Seit Insilo (IN-G8). */
+  input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0;
+    border: var(--am-rand-betont) solid var(--am-rand);
+    border-radius: var(--am-radius-voll);
+    background: var(--am-seite);
+    cursor: pointer;
+    display: inline-grid;
+    place-content: center;
+    vertical-align: -0.2em;
+    transition: border-color var(--am-dauer-schnell) var(--am-kurve);
+  }
+  input[type="radio"]::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: var(--am-radius-voll);
+    transform: scale(0);
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
+    background: var(--am-handlung-ruhend);
+  }
+  input[type="radio"]:hover,
+  input[type="radio"]:checked { border-color: var(--am-handlung-ruhend); }
+  input[type="radio"]:checked::before { transform: scale(1); }
+  input[type="radio"]:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  input[type="radio"]:disabled { opacity: 0.5; cursor: not-allowed; }
+  html.dunkel input[type="radio"]:hover,
+  html.dunkel input[type="radio"]:checked { border-color: var(--am-gold-500); }
+  html.dunkel input[type="radio"]::before { background: var(--am-gold-500); }
+
+  .schalter-zeile {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--am-raum-3);
+    margin: var(--am-raum-4) 0;
+  }
+  .schalter {
+    flex: none;
+    position: relative;
+    width: 2.5rem;
+    height: 1.5rem;
+    margin-top: 0.05rem;
+    padding: 0;
+    border: var(--am-rand-betont) solid var(--am-rand);
+    border-radius: var(--am-radius-voll);
+    background: var(--am-flaeche-2);
+    cursor: pointer;
+    transition: background-color var(--am-dauer-schnell) var(--am-kurve), border-color var(--am-dauer-schnell) var(--am-kurve);
+  }
+  .schalter-knauf {
+    position: absolute;
+    top: 50%;
+    left: 0.125rem;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 50%;
+    /* Kein Schatten (ABGLEICH R6): Der Knauf hebt sich durch seinen Rand ab. */
+    background: var(--am-text-auf-farbe);
+    border: var(--am-rand-ruhend) solid var(--am-rand-betont-farbe);
+    box-sizing: border-box;
+    transform: translateY(-50%);
+    transition: transform var(--am-dauer-schnell) var(--am-kurve);
+  }
+  .schalter:hover { border-color: var(--am-handlung-ruhend); }
+  .schalter.an { background: var(--am-handlung-ruhend); border-color: var(--am-handlung-ruhend); }
+  .schalter.an .schalter-knauf { transform: translate(1rem, -50%); }
+  .schalter:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  html.dunkel .schalter:hover { border-color: var(--am-gold-500); }
+  html.dunkel .schalter.an { background: var(--am-gold-500); border-color: var(--am-gold-500); }
+  html.dunkel .schalter.an .schalter-knauf { background: var(--am-blau-900); }
+  .schalter-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--am-text-primaer);
+    cursor: pointer;
+  }
+  .schalter-hinweis {
+    font-size: 0.8125rem;
+    color: var(--am-text-gedaempft);
+  }
+}
+
+  /* ── Karte [AM-KARTE] ────────────────────────────────────────────────────────── */
+@layer components {
+  .karte {
+    background: var(--am-flaeche-1);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    padding: var(--am-raum-6);
+  }
+}
+
+  /* ── Leerzustand [AM-LEER] ──────────────────────────────────────────────────── */
+@layer components {
+  .leerzustand {
+    text-align: center;
+    padding: var(--am-raum-16) var(--am-raum-8);
+    color: var(--am-text-sekundaer);
+  }
+  .leerzustand svg {
+    color: var(--am-blau-300);
+    margin-bottom: var(--am-raum-4);
+  }
+  .leerzustand h4 {
+    color: var(--am-text-primaer);
+    font-size: 1rem;
+    margin-bottom: var(--am-raum-2);
+  }
+  .leerzustand p {
+    max-width: 320px;
+    margin: 0 auto var(--am-raum-6);
+  }
+}
+
+  /* ── Dialogschicht [HB-DIALOG] ────────────────────────────────────────────────
+     Das Paket liefert mit .deckschicht nur die Farbe. Die Lage ist
+     Sache der Anwendung, deshalb steht sie hier und nicht dort. */
+@layer components {
+  .dialog-schicht {
+    position: fixed;
+    inset: 0;
+    z-index: var(--am-ebene-dialog);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--am-raum-4);
+    background: var(--am-deckschicht);
+    overflow-y: auto;
+  }
+}
+
+  /* ── Dialoge [HB-DIALOG] ──────────────────────────────────────────────────────
+     Ein Dialog ist ein Rahmen mit drei Teilen, nicht eine lange Rolle:
+     Kopf und Fuß stehen fest, nur die Mitte rollt. Vorher wanderte
+     „Anlegen“ mit dem Inhalt nach unten aus dem Bild — bei der Firma mit
+     Beschreiben-Feld, Fundbericht und sechs Feldern reichte ein Fenster
+     von 800 px nicht mehr, und man musste erst suchen, wo der Knopf
+     geblieben ist. */
+@layer components {
+  .dialog-karte {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* 46rem gedeckelt: Ein Dialog, der die ganze Bildschirmhöhe nimmt,
+       liest sich wie eine Seite und nicht mehr wie eine Frage. */
+    max-height: min(calc(100dvh - var(--am-raum-8)), 46rem);
+    padding: 0;
+    overflow: hidden;
+    /* Schwebt über der Deckschicht: betonter Rand, der eine Schatten (R6). */
+    border-color: var(--am-rand-betont-farbe);
+    box-shadow: var(--am-schatten-1);
+  }
+  /* Breiten als Varianten statt inline am Bauteil (HB-DIALOG). */
+  .dialog-karte[data-breite="normal"] { width: 100%; max-width: 35rem; }
+  .dialog-karte[data-breite="schmal"] { width: 100%; max-width: 27.5rem; } /* 440 px */
+  .dialog-karte[data-breite="breit"] { width: 100%; max-width: 45rem; } /* 720 px */
+  /* Mitgebrachter Text zum Lesen (Eingang): Umbrüche bleiben, Schrift wie sonst. */
+  .lesetext { margin: 0; white-space: pre-wrap; font-family: var(--am-schrift-sans); font-size: 0.875rem; line-height: 1.6; }
+
+  .dialog-kopf {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-3);
+    padding: var(--am-raum-4) var(--am-raum-6);
+    border-bottom: 1px solid var(--am-trennlinie);
+  }
+
+  .dialog-kopf h2 {
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 1.0625rem;
+  }
+
+  .dialog-zu {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--am-ziel-zeiger);
+    height: var(--am-ziel-zeiger);
+    border: 0;
+    border-radius: var(--am-radius-klein);
+    background: transparent;
+    color: var(--am-text-gedaempft);
+    cursor: pointer;
+  }
+  .dialog-zu:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
+  .dialog-zu:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+
+  /* Das Formular muss Mitte und Fuß umschließen, sonst löst der Knopf im
+     Fuß kein submit aus. Es ist selbst der Flex-Behälter. */
+  .dialog-form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .dialog-koerper {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--am-raum-6);
+  }
+
+  /* Im Dialog stehen die Felder enger als auf einer Seite: raum-6 ergab
+     bei sechs Feldern eine halbe Bildschirmhöhe Luft. */
+  .dialog-koerper .feld { margin-bottom: var(--am-raum-4); }
+  .dialog-koerper .feld:last-child { margin-bottom: 0; }
+
+  .dialog-fuss {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-3);
+    padding: var(--am-raum-4) var(--am-raum-6);
+    border-top: 1px solid var(--am-trennlinie);
+    background: var(--am-flaeche-1);
+  }
+
+  /* Zwei kurze Felder nebeneinander. Unter 30rem Fensterbreite gibt es
+     dafür keinen Platz — dann untereinander. */
+  .feld-paar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--am-raum-4); }
+  @media (max-width: 30rem) {
+    .feld-paar { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .erfassung {
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-flaeche-1);
+    padding: var(--am-raum-3);
+    margin-bottom: var(--am-raum-4);
+  }
+
+  .erfassung-kopf {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-2);
+    margin-bottom: var(--am-raum-2);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--am-text-sekundaer);
+  }
+
+  .erfassung-kopf svg { color: var(--am-gold-beschriftung); flex: none; }
+
+  .erfassung-wurf {
+    position: relative;
+    border-radius: var(--am-radius-klein);
+  }
+
+  .erfassung-wurf[data-ueber="true"]::after {
+    content: "Loslassen";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: var(--am-rand-betont) dashed var(--am-handlung-ruhend);
+    border-radius: var(--am-radius-klein);
+    background: var(--am-seite);
+    color: var(--am-handlung-ruhend);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .erfassung-wurf textarea {
+    width: 100%;
+    padding: var(--am-raum-2) var(--am-raum-3);
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
+    font-family: var(--am-schrift-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .erfassung-wurf textarea:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  .erfassung-wurf textarea::placeholder { color: var(--am-text-deaktiviert); }
+
+  .erfassung-bild {
+    position: relative;
+    display: inline-block;
+    margin-top: var(--am-raum-2);
+  }
+
+  .erfassung-bild img {
+    max-height: 7rem;
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-klein);
+    display: block;
+  }
+
+  .erfassung-bild button {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 1.125rem;
+    height: 1.125rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: var(--am-rand-ruhend) solid var(--am-rand);
+    border-radius: var(--am-radius-voll);
+    background: var(--am-seite);
+    color: var(--am-text-sekundaer);
+    cursor: pointer;
+  }
+
+  .erfassung-leiste {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-2);
+    flex-wrap: wrap;
+    margin-top: var(--am-raum-2);
+  }
+
+  .erfassung-tipp {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--am-raum-1);
+    font-size: 0.75rem;
+    color: var(--am-text-gedaempft);
+  }
+
+  .erfassung-hinweis {
+    margin: var(--am-raum-2) 0 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--am-text-sekundaer);
+  }
+
+  .erfassung-hinweis.warnung { color: var(--am-achtung); }
+  .erfassung-hinweis a { color: inherit; font-weight: 500; }
+}
+
+/* ── Rückfrage [HB-DIALOG] ────────────────────────────────────────────────────────── */
+/* Rückfrage vor einem Schritt mit Folgen [HB-DIALOG] — vorher viermal
+   mit eigenen Inline-Maßen gebaut. */
+.rueckfrage { width: 100%; max-width: 27.5rem; border-color: var(--am-rand-betont-farbe); box-shadow: var(--am-schatten-1); }
+.rueckfrage h2 { font-size: 1.125rem; margin-bottom: var(--am-raum-3); }
+.rueckfrage-text { font-size: 0.875rem; color: var(--am-text-sekundaer); margin-bottom: var(--am-raum-4); }
+
+.eig-archiv { margin-top: var(--am-raum-4); }
+.eig-archiv summary { cursor: pointer; font-size: 0.875rem; font-weight: 500; margin-bottom: var(--am-raum-2); }
+
+@media (max-width: 40rem) {
+  .eig-zeile { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .eig-art, .eig-zahl { display: none; }
+  .eig-archiv .eig-feld { grid-template-columns: minmax(0, 1fr) auto; }
+  .eig-neue-eigenschaft { grid-template-columns: 1fr; }
+  .eig-pflege { padding-left: var(--am-raum-3); }
+}
+
+  /* ── Hinweiszeile [HB-ZUSTAND] ─────────────────────────────────────────────────── */
+@layer components {
+  .hinweis {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--am-raum-2);
+    padding: var(--am-raum-3);
+    border-radius: var(--am-radius-mittel);
+    border: 1px solid var(--am-rand);
+    background: var(--am-flaeche-2);
+    font-size: 0.875rem;
+    color: var(--am-text-sekundaer);
+  }
+
+  /* Das Warnzeichen ist ein Flex-Kind und schrumpfte ohne diese Zeile auf
+     4,6 px zusammen — ein Strich, den niemand als Zeichen liest. Farbe
+     trägt eine Aussage nie allein (DESIGN.md), also muss das Zeichen da
+     sein. Zwei Pixel Versatz, damit es auf der ersten Zeile sitzt. */
+  .hinweis > svg {
+    flex: none;
+    margin-top: 2px;
+  }
+
+  .hinweis[data-art="achtung"] {
+    border-color: var(--am-achtung-rand);
+    background: var(--am-achtung-flaeche);
+    color: var(--am-achtung);
+  }
+
+  .hinweis[data-art="fehler"] {
+    border-color: var(--am-fehler-rand);
+    background: var(--am-fehler-flaeche);
+    color: var(--am-fehler);
+  }
+
+  /* Ein gemessener guter Zustand, etwa „alles bleibt auf der Box“ in
+     Insilos Datenschutz-Nachweis (ABGLEICH IN-B4). Mit Zeichen und Satz wie
+     jeder Zustand; nie als Auszeichnung. */
+  .hinweis[data-art="erfolg"] {
+    border-color: var(--am-erfolg-rand);
+    background: var(--am-erfolg-flaeche);
+    color: var(--am-erfolg);
+  }
+}
+
+/* ── Überfällig [HB-ZUSTAND] ──────────────────────────────────────────────────────── */
+/* Überschrittene Frist: Uhr und Wort neben dem Rot (R7) — Komponente Ueberfaellig. */
+[data-ueberfaellig="true"] { display: inline-flex; align-items: center; gap: var(--am-raum-1); }
+.ueberfaellig-zeichen { flex: none; }
+
+  /* ── Zeichen [HB-SYMBOL] ─────────────────────────────────────────────
+     Die Größe steht am Zeichen (16/20/24/40, components/symbol.tsx). Neben
+     langem Text in einer Flex-Zeile würde es sonst gestaucht — und mit ihm
+     der Strich, der überall 1,5 px sein soll (CI kern/icons.md). */
+@layer components {
+  svg[data-symbol] { flex-shrink: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Relay — what the CI does not (yet) define
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Values [RL-WERTE] ──────────────────────────────────────────────── */
 :root {
   /* Fonts for --am-schrift-sans / --am-schrift-mono */
   --font-geist-sans: "Geist";
@@ -313,59 +1114,47 @@ html[data-dichte="kompakt"] { --am-skalierung: 0.9; }
   --fs-md: 1rem;       /* 16 */
   --fs-lg: 1.125rem;   /* 18 */
   --fs-xl: 1.25rem;    /* 20 */
-
-  color-scheme: light;
 }
 
-html.dunkel {
-  color-scheme: dark;
+/* ── Ground [RL-GRUND] ──────────────────────────────────────────────────
+   In the base layer, below AM-KNOPF and AM-FELD: unlayered, the reset
+   would take the buttons' padding and font size. */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  /* The app fills the window; the columns scroll, not the page. */
+  html,
+  body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-size: 16px;
+    transition: background-color var(--am-dauer-mittel) var(--am-kurve),
+      color var(--am-dauer-mittel) var(--am-kurve);
+  }
+
+  kbd { font-family: var(--am-schrift-mono); }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--am-fokus-ring);
+    outline-offset: 2px;
+  }
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html,
-body {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-  font-family: var(--am-schrift-sans);
-  font-size: 16px;
-  color: var(--am-text-primaer);
-  background: var(--am-seite);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  transition: background-color var(--am-dauer-mittel) var(--am-kurve),
-    color var(--am-dauer-mittel) var(--am-kurve);
-}
-
-/* Mono text (UIDs, meta, technical values) */
-.mono, code, kbd {
-  font-family: var(--am-schrift-mono);
-}
-
-input,
-textarea,
-button {
-  font-family: inherit;
-  font-size: inherit;
-}
-
-input:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--am-fokus-ring);
-}
-
-:focus-visible {
-  outline: 2px solid var(--am-fokus-ring);
-  outline-offset: 2px;
-}
-
-/* Resizable sidebar/list divider (shared by all modules) */
+/* ── Column divider [RL-SPALTEN] ──────────────────────────────────────── */
 .resize-handle {
   width: 5px;
   cursor: col-resize;

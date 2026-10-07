@@ -440,6 +440,8 @@
 </div>
 
 <style>
+  /* ── Message list [RL-POSTLISTE] ─────────────────────────────────────── */
+  /* Mail rows, swipe actions and the menu stay Relay's own (not `.btn`). */
   .message-list {
     height: 100%;
     overflow-y: auto;
@@ -561,7 +563,7 @@
     color: var(--am-text-gedaempft);
   }
 
-  /* ─── Skeleton Loading ─── */
+  /* ── Skeleton while loading [RL-POSTLISTE] ─────────────────────────── */
   .skeleton-list {
     padding-top: 0;
   }
@@ -599,6 +601,12 @@
     height: 10px;
     opacity: 0.6;
   }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Draft badge in the subject line [RL-POSTLISTE] ────────────────── */
   .draft-badge {
     display: inline-block;
     font-size: 0.625rem;
@@ -612,7 +620,7 @@
     letter-spacing: 0.04em;
   }
 
-  /* ─── Plain HTML context menu ─── */
+  /* ── Context menu on a message [RL-MENUE] ──────────────────────────── */
   .ctx-menu-scrim {
     position: fixed;
     inset: 0;
@@ -718,12 +726,8 @@
   .ctx-menu.sheet .ctx-menu-separator {
     margin: 4px 16px;
   }
-  @keyframes shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
 
-  /* ─── iOS-Mail-style swipe gestures ─────────────────────── */
+  /* ── iOS-Mail-style swipe gestures [RL-POSTLISTE] ──────────────────── */
   .swipe-container {
     position: relative;
     overflow: hidden;
