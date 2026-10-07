@@ -51,18 +51,18 @@
     min-width: 0;
     height: 34px;
     padding: 0 12px;
-    border-radius: var(--radius-m);
-    border: 1px solid var(--color-border);
-    background: var(--color-list);
+    border-radius: var(--am-radius-mittel);
+    border: 1px solid var(--am-rand);
+    background: var(--am-seite);
     transition: border-color 0.15s ease-in-out;
   }
   .ss-bar:focus-within {
-    border-color: var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
   }
   .ss-icon {
     display: inline-flex;
     flex-shrink: 0;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     opacity: 0.6;
   }
   .ss-input {
@@ -70,13 +70,13 @@
     min-width: 0;
     border: none;
     background: transparent;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     font-size: var(--fs-base);
     font-family: inherit;
     outline: none;
   }
   .ss-input::placeholder {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .ss-clear {
     display: inline-flex;
@@ -85,12 +85,12 @@
     flex-shrink: 0;
     border: none;
     background: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     cursor: pointer;
     padding: 2px;
-    border-radius: var(--radius-s);
+    border-radius: var(--am-radius-klein);
   }
   .ss-clear:hover {
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 </style>

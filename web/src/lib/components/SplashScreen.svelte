@@ -344,7 +344,7 @@
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -353,8 +353,8 @@
     padding: 24px;
   }
   .splash-card {
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 12px;
     padding: 48px;
     width: 100%;
@@ -371,15 +371,15 @@
     right: 16px;
     display: flex;
     gap: 4px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 6px;
     padding: 2px;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
   }
   .lang-toggle button {
     background: transparent;
     border: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     font-size: 0.75rem;
     font-weight: 600;
     padding: 4px 10px;
@@ -388,11 +388,11 @@
     transition: all 0.15s ease-in-out;
   }
   .lang-toggle button.active {
-    background: var(--color-accent);
-    color: #ffffff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .lang-toggle button:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--am-handlung-ruhend);
     outline-offset: 1px;
   }
   @keyframes fadeIn {
@@ -409,11 +409,11 @@
     font-size: 1.875rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .splash-subtitle {
     font-size: 0.9375rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-bottom: 48px;
     max-width: 500px;
   }
@@ -425,7 +425,7 @@
     margin-bottom: 48px;
   }
   .feature-card {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
     padding-top: 16px;
     text-align: left;
     display: flex;
@@ -434,24 +434,24 @@
   .feature-card h3 {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     margin-bottom: 8px;
   }
   .feature-card p {
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     line-height: 1.5;
   }
   .olares-hint {
     width: 100%;
     text-align: left;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     padding: 16px 20px;
     margin-bottom: 24px;
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
   }
-  .olares-hint-title { font-size: 0.875rem; font-weight: 600; color: var(--color-text); margin-bottom: 8px; }
+  .olares-hint-title { font-size: 0.875rem; font-weight: 600; color: var(--am-text-primaer); margin-bottom: 8px; }
   .olares-hint-list {
     list-style: none;
     margin: 0 0 12px;
@@ -460,27 +460,27 @@
     flex-direction: column;
     gap: 4px;
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
-  .olares-hint-missing { font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 12px; }
+  .olares-hint-missing { font-size: 0.75rem; color: var(--am-text-gedaempft); margin-bottom: 12px; }
   .olares-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   .btn-link {
     background: none;
     border: none;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
     cursor: pointer;
     text-decoration: underline;
     font-size: 0.8125rem;
     padding: 8px 0;
   }
   .btn-link:hover {
-    color: var(--color-accent-hover);
+    color: var(--am-handlung-hover);
   }
 
   .btn-splash-primary {
-    background: var(--color-accent);
-    color: #ffffff;
+    background: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 24px;
@@ -490,7 +490,7 @@
     transition: all 0.15s ease-in-out;
   }
   .btn-splash-primary:hover:not(:disabled) {
-    background: var(--color-accent-hover);
+    background: var(--am-handlung-hover);
   }
   .btn-splash-primary:disabled {
     opacity: 0.5;
@@ -498,8 +498,8 @@
   }
   .btn-splash-secondary {
     background: transparent;
-    border: 1px solid var(--color-border);
-    color: var(--color-text);
+    border: 1px solid var(--am-rand);
+    color: var(--am-text-primaer);
     font-size: 0.875rem;
     font-weight: 600;
     padding: 10px 20px;
@@ -508,7 +508,7 @@
     transition: all 0.15s ease-in-out;
   }
   .btn-splash-secondary:hover {
-    background: var(--color-sidebar);
+    background: var(--am-flaeche-1);
   }
   .splash-form-view {
     display: flex;
@@ -518,7 +518,7 @@
     font-size: 1.375rem;
     font-weight: 700;
     margin-bottom: 8px;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .splash-form {
     display: grid;
@@ -548,7 +548,7 @@
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     user-select: none;
     height: 100%;
   }
@@ -562,7 +562,7 @@
     width: 34px;
     height: 20px;
     border-radius: 999px;
-    background: var(--color-border);
+    background: var(--am-rand);
     transition: background 0.2s ease;
     flex-shrink: 0;
   }
@@ -579,13 +579,13 @@
     transition: transform 0.2s ease;
   }
   .toggle-label .toggle:checked + .toggle-track {
-    background: var(--color-accent);
+    background: var(--am-handlung-ruhend);
   }
   .toggle-label .toggle:checked + .toggle-track::after {
     transform: translateX(14px);
   }
   .toggle-label .toggle:focus-visible + .toggle-track {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 20%, transparent);
   }
   .toggle-text {
     line-height: 1;
@@ -594,7 +594,7 @@
     display: block;
     font-size: 0.6875rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-bottom: 6px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -602,25 +602,25 @@
   .splash-form .form-group input {
     width: 100%;
     padding: 10px 14px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 6px;
     font-size: 0.875rem;
-    color: var(--color-text);
-    background: var(--color-list);
+    color: var(--am-text-primaer);
+    background: var(--am-seite);
     box-shadow: none;
     transition: all 0.15s ease-in-out;
   }
   .splash-form .form-group input:focus {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 12%, transparent);
-    background: var(--color-list);
+    border-color: var(--am-handlung-ruhend);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
+    background: var(--am-seite);
   }
   .splash-actions {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-top: 12px;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
     padding-top: 24px;
   }
   .splash-actions.span-2 {

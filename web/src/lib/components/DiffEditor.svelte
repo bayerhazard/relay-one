@@ -40,7 +40,7 @@
 
 <style>
   .diff-editor {
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     overflow: hidden;
   }
@@ -49,13 +49,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: var(--color-sidebar);
-    border-bottom: 1px solid var(--color-border);
+    background: var(--am-flaeche-1);
+    border-bottom: 1px solid var(--am-rand);
   }
   .diff-title {
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .diff-actions {
     display: flex;
@@ -71,23 +71,23 @@
     border: 1px solid transparent;
   }
   .btn-accept {
-    background: var(--color-success);
-    color: white;
+    background: var(--am-erfolg);
+    color: var(--am-handlung-text);
   }
   .btn-accept:hover {
     opacity: 0.9;
   }
   .btn-reject {
-    background: var(--color-list);
-    color: var(--color-danger);
-    border-color: var(--color-danger);
+    background: var(--am-seite);
+    color: var(--am-fehler);
+    border-color: var(--am-fehler);
   }
   .btn-reject:hover {
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
   }
   .diff-content {
     padding: 12px;
-    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-family: var(--am-schrift-mono);
     font-size: 0.75rem;
     max-height: 400px;
     overflow-y: auto;
@@ -100,23 +100,23 @@
     min-height: 20px;
   }
   .diff-line.added {
-    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    background: color-mix(in srgb, var(--am-erfolg) 12%, transparent);
   }
   .diff-line.removed {
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    background: color-mix(in srgb, var(--am-fehler) 12%, transparent);
   }
   .line-prefix {
     width: 16px;
     text-align: center;
     flex-shrink: 0;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     user-select: none;
   }
   .added .line-prefix {
-    color: var(--color-success);
+    color: var(--am-erfolg);
   }
   .removed .line-prefix {
-    color: var(--color-danger);
+    color: var(--am-fehler);
   }
   .line-text {
     white-space: pre-wrap;

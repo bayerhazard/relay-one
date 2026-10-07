@@ -27,7 +27,7 @@
   .sidebar-footer {
     margin-top: auto;
     padding: 12px;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
   }
   .footer-row {
     display: flex;

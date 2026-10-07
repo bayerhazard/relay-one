@@ -285,10 +285,10 @@
     width: 16px;
     height: 16px;
     flex: none;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .tree-row.active .tree-icon {
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
 
   /* ── Tree Row ────────────────────────────── */
@@ -302,7 +302,7 @@
     cursor: pointer;
     font-size: 0.8125rem;
     font-weight: 400;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     transition: background 0.12s ease, color 0.12s ease;
     user-select: none;
     -webkit-user-select: none;
@@ -310,33 +310,33 @@
   }
 
   .tree-row:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
 
   .tree-row.active {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
     font-weight: 600;
   }
 
   .tree-row.drag-over {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
 
   /* Root row is slightly larger/bolder */
   .root-row {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   .root-row:hover {
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   .root-row.active {
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
 
   .tree-label {
@@ -355,8 +355,8 @@
     font-weight: 700;
     line-height: 1;
     font-variant-numeric: tabular-nums;
-    color: var(--color-unread-badge-text);
-    background: var(--color-unread);
+    color: var(--am-handlung-text);
+    background: var(--am-handlung-ruhend);
     padding: 3px 7px;
     border-radius: 100px;
     min-width: 20px;
@@ -382,7 +382,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     opacity: 0.45;
     transition: opacity 0.12s ease;
     /* Bigger touch target on phones (chevron toggles expand/collapse —
@@ -401,7 +401,7 @@
   /* ── Divider ─────────────────────────────── */
   .account-divider {
     height: 1px;
-    background: var(--color-border);
+    background: var(--am-rand);
     margin: 6px 16px 2px;
     opacity: 0.5;
   }

@@ -177,9 +177,9 @@
 <style>
   .recipient-input {
     position: relative;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
-    background: var(--color-list);
+    background: var(--am-seite);
     transition: all 0.15s ease-in-out;
     display: flex;
     flex-direction: column;
@@ -187,7 +187,7 @@
   }
 
   .recipient-input:focus-within {
-    border-color: var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
   }
 
   .chips {
@@ -204,19 +204,19 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: var(--color-active-wash);
-    border: 1px solid color-mix(in srgb, var(--color-accent) 15%, transparent);
+    background: var(--am-flaeche-2);
+    border: 1px solid color-mix(in srgb, var(--am-handlung-ruhend) 15%, transparent);
     border-radius: 6px;
     padding: 3px 8px 3px 1px;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
     user-select: none;
     transition: all 0.12s ease-in-out;
   }
 
   .chip:hover {
-    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    background: color-mix(in srgb, var(--am-handlung-ruhend) 12%, transparent);
   }
 
   .chip-remove {
@@ -225,7 +225,7 @@
     border: none;
     font-size: 0.9375rem;
     line-height: 1;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
     opacity: 0.5;
     padding: 0;
     display: inline-flex;
@@ -247,11 +247,11 @@
     font-size: 0.875rem;
     padding: 2px 0;
     background: transparent;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .chips input:-webkit-autofill {
-    -webkit-box-shadow: 0 0 0px 1000px var(--color-list) inset !important;
-    -webkit-text-fill-color: var(--color-text) !important;
+    -webkit-box-shadow: 0 0 0px 1000px var(--am-seite) inset !important;
+    -webkit-text-fill-color: var(--am-text-primaer) !important;
   }
 
   .spinner {
@@ -265,8 +265,8 @@
     top: calc(100% + 4px);
     left: 0;
     right: 0;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     max-height: 200px;
     overflow-y: auto;
@@ -287,18 +287,18 @@
 
   .suggestion:hover,
   .suggestion:focus {
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
     outline: none;
   }
 
   .suggestion-name {
     font-weight: 600;
     font-size: 0.8125rem;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
 
   .suggestion-email {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
 </style>

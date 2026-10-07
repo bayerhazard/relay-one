@@ -78,8 +78,8 @@
     max-width: 320px;
     max-height: min(70vh, 560px);
     overflow-y: auto;
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     padding: 6px;
@@ -95,10 +95,10 @@
     border-radius: 6px;
     font-size: 0.875rem;
     cursor: pointer;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     white-space: nowrap;
     font-family: inherit;
   }
-  .ctx-item:hover { background: var(--color-active-wash); }
-  .ctx-item.danger { color: var(--color-danger, #c0392b); }
+  .ctx-item:hover { background: var(--am-flaeche-2); }
+  .ctx-item.danger { color: var(--am-fehler, #c0392b); }
 </style>

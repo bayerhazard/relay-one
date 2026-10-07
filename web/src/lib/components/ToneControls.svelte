@@ -183,13 +183,13 @@
     display: inline-block;
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
     white-space: nowrap;
     text-align: center;
     padding: 2px 10px;
     border-radius: 100px;
-    background: var(--color-sidebar);
-    border: 1px solid var(--color-border);
+    background: var(--am-flaeche-1);
+    border: 1px solid var(--am-rand);
     min-width: 95px;
   }
 
@@ -199,7 +199,7 @@
   .range-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     letter-spacing: 0.01em;
   }
 
@@ -219,9 +219,9 @@
   .slider-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-accent);
-    background: var(--color-list);
-    border: 1px solid var(--color-border);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-seite);
+    border: 1px solid var(--am-rand);
     padding: 2px 10px;
     border-radius: 100px;
     min-width: 95px;
@@ -251,7 +251,7 @@
     right: 0;
     height: 4px;
     border-radius: 2px;
-    background: var(--color-border);
+    background: var(--am-rand);
   }
 
   .track-fill {
@@ -259,7 +259,7 @@
     left: 0;
     height: 4px;
     border-radius: 2px;
-    background: var(--color-accent);
+    background: var(--am-handlung-ruhend);
     transition: width 0.05s linear;
     pointer-events: none;
     z-index: 1;
@@ -291,7 +291,7 @@
   .thumb.dragging .thumb-ring {
     transform: scale(1.25);
     box-shadow:
-0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+0 0 0 2px color-mix(in srgb, var(--am-handlung-ruhend) 30%, transparent);
   }
 
   .track:active .thumb-ring {
@@ -304,7 +304,7 @@
 
   .track:focus-visible .thumb-ring {
     box-shadow:
-0 0 0 2px var(--color-accent);
+0 0 0 2px var(--am-handlung-ruhend);
   }
 
   @container (max-width: 480px) {

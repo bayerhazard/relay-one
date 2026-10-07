@@ -107,8 +107,8 @@
     }
 
     .dialog-panel {
-      background: var(--color-list);
-      border: 1px solid var(--color-border);
+      background: var(--am-seite);
+      border: 1px solid var(--am-rand);
       border-radius: 12px;
       box-shadow: none;
       max-width: 400px;
@@ -135,13 +135,13 @@
       font-size: 1.125rem;
       font-weight: 700;
       margin-bottom: 12px;
-      color: var(--color-text);
+      color: var(--am-text-primaer);
     }
 
     .dialog-message {
       font-size: 0.875rem;
       line-height: 1.5;
-      color: var(--color-text-secondary);
+      color: var(--am-text-gedaempft);
       margin-bottom: 24px;
     }
 
@@ -154,10 +154,10 @@
 
     .btn-cancel {
       padding: 8px 18px;
-      border: 1px solid var(--color-border);
+      border: 1px solid var(--am-rand);
       border-radius: 6px;
-      background: var(--color-list);
-      color: var(--color-text);
+      background: var(--am-seite);
+      color: var(--am-text-primaer);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -165,21 +165,21 @@
     }
 
     .btn-cancel:hover {
-      background: var(--color-sidebar);
-      border-color: var(--color-text-secondary);
+      background: var(--am-flaeche-1);
+      border-color: var(--am-text-gedaempft);
     }
 
     .btn-cancel:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid var(--am-handlung-ruhend);
       outline-offset: 2px;
     }
 
     .btn-alt {
       padding: 8px 18px;
-      border: 1px solid var(--color-border);
+      border: 1px solid var(--am-rand);
       border-radius: 6px;
-      background: var(--color-list);
-      color: var(--color-text);
+      background: var(--am-seite);
+      color: var(--am-text-primaer);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -187,12 +187,12 @@
     }
 
     .btn-alt:hover {
-      background: var(--color-sidebar);
-      border-color: var(--color-text-secondary);
+      background: var(--am-flaeche-1);
+      border-color: var(--am-text-gedaempft);
     }
 
     .btn-alt:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid var(--am-handlung-ruhend);
       outline-offset: 2px;
     }
 
@@ -200,8 +200,8 @@
       padding: 8px 18px;
       border: none;
       border-radius: 6px;
-      background: var(--color-accent);
-      color: #ffffff;
+      background: var(--am-handlung-ruhend);
+      color: var(--am-handlung-text);
       font-size: 0.8125rem;
       font-weight: 600;
       cursor: pointer;
@@ -209,16 +209,16 @@
     }
 
     .btn-confirm:hover {
-      background: var(--color-accent-hover);
+      background: var(--am-handlung-hover);
     }
 
     .btn-confirm:focus-visible {
-      outline: 2px solid var(--color-accent);
+      outline: 2px solid var(--am-handlung-ruhend);
       outline-offset: 2px;
     }
 
     .btn-confirm.danger {
-      background: var(--color-danger);
+      background: var(--am-fehler);
     }
 
     .btn-confirm.danger:hover {

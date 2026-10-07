@@ -36,17 +36,17 @@
     height: 32px;
     background: none;
     border: none;
-    border-radius: var(--radius-m);
-    color: var(--color-text-secondary);
+    border-radius: var(--am-radius-mittel);
+    color: var(--am-text-gedaempft);
     cursor: pointer;
     transition: background 0.15s ease-in-out, color 0.15s ease-in-out;
   }
   .mi-btn:hover {
-    background: var(--color-active-wash);
-    color: var(--color-text);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
   .mi-btn.active {
-    background: var(--color-active-wash);
-    color: var(--color-accent);
+    background: var(--am-flaeche-2);
+    color: var(--am-handlung-ruhend);
   }
 </style>

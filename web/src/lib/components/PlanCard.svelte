@@ -127,38 +127,38 @@
 
 <style>
   .plan-card {
-    border: 1px solid var(--color-border);
-    border-left: 3px solid var(--color-accent);
-    border-radius: var(--radius-m, 8px);
-    background: var(--color-card, var(--color-list));
+    border: 1px solid var(--am-rand);
+    border-left: 3px solid var(--am-handlung-ruhend);
+    border-radius: var(--am-radius-mittel, 8px);
+    background: var(--am-flaeche-1);
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
   .plan-card.external {
-    border-left-color: var(--color-warning, #9f5100);
+    border-left-color: var(--am-achtung, #9f5100);
   }
   .plan-card.executed {
-    border-left-color: var(--color-success, #007e46);
+    border-left-color: var(--am-erfolg, #007e46);
     opacity: 0.9;
   }
   .plan-card.failed {
-    border-left-color: var(--color-danger);
+    border-left-color: var(--am-fehler);
   }
   .plan-head {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .plan-tier {
     display: inline-flex;
-    color: var(--color-accent);
+    color: var(--am-handlung-ruhend);
   }
   .plan-card.external .plan-tier {
-    color: var(--color-warning, #9f5100);
+    color: var(--am-achtung, #9f5100);
   }
   .plan-tier svg {
     width: 15px;
@@ -172,19 +172,19 @@
     font-weight: 600;
     padding: 2px 8px;
     border-radius: 999px;
-    background: var(--color-active-wash);
+    background: var(--am-flaeche-2);
   }
   .plan-status.status-executed {
-    color: var(--color-success, #007e46);
-    background: color-mix(in srgb, var(--color-success, #007e46) 12%, transparent);
+    color: var(--am-erfolg, #007e46);
+    background: color-mix(in srgb, var(--am-erfolg, #007e46) 12%, transparent);
   }
   .plan-status.status-cancelled,
   .plan-status.status-expired {
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .plan-status.status-failed {
-    color: var(--color-danger);
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    color: var(--am-fehler);
+    background: color-mix(in srgb, var(--am-fehler) 12%, transparent);
   }
   .plan-steps {
     display: flex;
@@ -192,14 +192,14 @@
     gap: 8px;
   }
   .plan-step + .plan-step {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--am-rand);
     padding-top: 8px;
   }
   .plan-step-title {
     margin: 0 0 4px;
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .plan-rows {
     margin: 0;
@@ -214,17 +214,17 @@
   }
   .plan-row dt {
     flex: 0 0 96px;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .plan-row dd {
     margin: 0;
-    color: var(--color-text);
+    color: var(--am-text-primaer);
     word-break: break-word;
   }
   .plan-external-warn {
     margin: 0;
     font-size: 0.75rem;
-    color: var(--color-warning, #9f5100);
+    color: var(--am-achtung, #9f5100);
   }
   .plan-actions {
     display: flex;
@@ -236,8 +236,8 @@
     font-size: 0.8125rem;
     font-weight: 600;
     padding: 7px 14px;
-    border-radius: var(--radius-s, 6px);
-    border: 1px solid var(--color-border);
+    border-radius: var(--am-radius-klein, 6px);
+    border: 1px solid var(--am-rand);
     cursor: pointer;
     transition: all 0.15s ease-in-out;
   }
@@ -246,32 +246,32 @@
     cursor: not-allowed;
   }
   .btn-primary {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: #fff;
+    background: var(--am-handlung-ruhend);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-text);
   }
   .btn-primary:hover:not(:disabled) {
     filter: brightness(1.08);
   }
   .btn-secondary {
-    background: var(--color-list);
-    color: var(--color-text);
+    background: var(--am-seite);
+    color: var(--am-text-primaer);
   }
   .btn-secondary:hover:not(:disabled) {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
   }
   .btn-ghost {
     background: transparent;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
   }
   .btn-ghost:hover:not(:disabled) {
-    color: var(--color-text);
+    color: var(--am-text-primaer);
   }
   .btn-danger {
-    background: var(--color-danger);
-    border-color: var(--color-danger);
-    color: #fff;
+    background: var(--am-fehler);
+    border-color: var(--am-fehler);
+    color: var(--am-handlung-text);
   }
   .btn-danger:hover:not(:disabled) {
     filter: brightness(1.08);

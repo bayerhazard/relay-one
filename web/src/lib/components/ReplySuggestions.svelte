@@ -29,15 +29,15 @@
   }
   .suggestions-label {
     font-size: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     width: 100%;
     margin-bottom: 2px;
   }
   .suggestion-chip {
     padding: 4px 12px;
-    border: 1px solid var(--color-border);
+    border: 1px solid var(--am-rand);
     border-radius: 16px;
-    background: var(--color-list);
+    background: var(--am-seite);
     font-size: 0.75rem;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -47,8 +47,8 @@
     text-overflow: ellipsis;
   }
   .suggestion-chip:hover {
-    border-color: var(--color-accent);
-    color: var(--color-accent);
-    background: var(--color-preview);
+    border-color: var(--am-handlung-ruhend);
+    color: var(--am-handlung-ruhend);
+    background: var(--am-seite);
   }
 </style>

@@ -11,7 +11,7 @@
 <style>
   .summary-line {
     font-size: 0.625rem;
-    color: var(--color-text-secondary);
+    color: var(--am-text-gedaempft);
     margin-top: 2px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
