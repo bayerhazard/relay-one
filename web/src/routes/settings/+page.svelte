@@ -2481,6 +2481,12 @@ async function handleSaveCardDav() {
     display: flex;
     gap: 8px;
   }
+  /* Phone: the buttons go below the details instead of to the edge. */
+  @media (max-width: 40rem) {
+    .account-card-item { flex-wrap: wrap; align-items: flex-start; }
+    .account-details { flex: 1 1 0; min-width: 0; }
+    .account-actions { flex: 1 0 100%; justify-content: flex-end; }
+  }
 
   .olares-import-row {
     display: flex;
