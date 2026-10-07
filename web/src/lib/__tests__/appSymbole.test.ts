@@ -47,6 +47,29 @@ describe("app icons", () => {
     expect([...zwecke].sort()).toEqual(["any", "maskable"]);
   });
 
+  it("is ready to install: id, 192 and 512 icons, shortcuts, screenshots", () => {
+    const manifest = JSON.parse(lesen("static/manifest.webmanifest").toString());
+    expect(manifest.id).toBe("/");
+    expect(manifest.display).toBe("standalone");
+    const groessen = (manifest.icons as { sizes: string; purpose?: string }[])
+      .filter((i) => (i.purpose ?? "any") === "any").map((i) => i.sizes);
+    expect(groessen).toEqual(expect.arrayContaining(["192x192", "512x512"]));
+    expect((manifest.shortcuts as { url: string }[]).map((k) => k.url)).toEqual(["/?neu=1", "/calendar", "/contacts"]);
+    const formen = new Set<string>();
+    for (const bild of manifest.screenshots as { src: string; sizes: string; form_factor: string }[]) {
+      const [b, h] = pngGroesse(lesen("static" + bild.src));
+      expect(`${b}x${h}`, bild.src).toBe(bild.sizes);
+      formen.add(bild.form_factor);
+    }
+    expect([...formen].sort()).toEqual(["narrow", "wide"]);
+  });
+
+  it("speaks Sie in the push message", () => {
+    const sw = lesen("static/sw.js").toString();
+    expect(sw).toContain("Sie haben neue Nachrichten");
+    expect(sw).not.toMatch(/\bDu hast\b/);
+  });
+
   it("app.html links tab sign, apple-touch icon and manifest", () => {
     const html = lesen("src/app.html").toString();
     expect(html).toContain('rel="icon" href="%sveltekit.assets%/favicon.svg"');

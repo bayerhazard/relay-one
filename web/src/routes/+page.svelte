@@ -1761,8 +1761,12 @@ let sentFolderName = $state<string | null>(null);
       window.addEventListener("message", handleNavMessage);
     } catch { /* ignore */ }
     let accts: AccountInfo[] = [];
+    // Without an answer (offline) the onboarding stays away: it is only for
+    // a server that says there is no account yet.
+    let kontenBekannt = false;
     try {
       accts = await listAccounts();
+      kontenBekannt = true;
     } catch (e: unknown) {
       console.error("[init] listAccounts fehlgeschlagen:", e);
     }
@@ -1786,7 +1790,7 @@ let sentFolderName = $state<string | null>(null);
           }
         })();
       }
-    } else {
+    } else if (kontenBekannt) {
       showSplash = true;
     }
     initOk = true;
@@ -2589,7 +2593,7 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
-  let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; endgueltig: boolean; timer: ReturnType<typeof setTimeout> } | null>(null);
+  let undoDelete = $state<{ uids: number[]; accountId: number; folder: string; endgueltig: boolean; vorher: Message[]; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   function deleteIsRecoverable(): boolean {
     // In the trash itself — local "Trash" or the provider's — it is for good.
@@ -2620,10 +2624,24 @@ let sentFolderName = $state<string | null>(null);
 
   /** Removes the rows and opens the next mail after them, so Backspace, E
    *  or ! can be pressed again right away — after one mail or a selection. */
-  function entfernenUndWeiter(uids: number[]) {
+  function entfernenUndWeiter(uids: number[]): Message[] {
+    const vorher = $mailbox.messages;
     const weiter = naechsteNach(uids);
     for (const uid of uids) mailbox.removeMessage(uid);
     if (weiter) void handleSelectMessage(weiter.uid);
+    return vorher;
+  }
+
+  /** "Rückgängig": the rows come back at once, at their old places — the
+   *  reload from the server may take seconds while it is busy syncing. */
+  function zeilenZurueck(job: { accountId: number; folder: string; uids: number[]; vorher: Message[] }) {
+    if (job.accountId !== selectedAccountId || job.folder !== selectedFolder) return;
+    const jetzt = $mailbox.messages;
+    const da = new Set(jetzt.map((m) => m.uid));
+    const zurueck = new Set(job.uids);
+    const alt = new Set(job.vorher.map((m) => m.uid));
+    const neu = jetzt.filter((m) => !alt.has(m.uid));
+    mailbox.setMessages([...neu, ...job.vorher.filter((m) => da.has(m.uid) || zurueck.has(m.uid))], selectedFolder, selectedAccountId);
   }
 
   function handleDeleteMessage(uid: number, uids?: number[]) {
@@ -2638,15 +2656,15 @@ let sentFolderName = $state<string | null>(null);
   // ─── Stapel verschieben mit Rückgängig (Aufräumen) ───────────
   // Like the trash: the rows go at once, the server hears of it after
   // UNDO_MS — "Rückgängig" before that only reloads, no new UIDs needed.
-  let undoVerschieben = $state<{ uids: number[]; accountId: number; folder: string; ziel: string; text: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  let undoVerschieben = $state<{ uids: number[]; accountId: number; folder: string; ziel: string; text: string; vorher: Message[]; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   function verschiebenMitRueckgaengig(uids: number[], ziel: string, text: string) {
     if (uids.length === 0 || ziel === selectedFolder) return;
     flushPendingDelete();
     flushVerschieben();
     const job = { uids, accountId: selectedAccountId, folder: selectedFolder, ziel, text };
-    entfernenUndWeiter(uids);
-    undoVerschieben = { ...job, timer: setTimeout(() => flushVerschieben(), UNDO_MS) };
+    const vorher = entfernenUndWeiter(uids);
+    undoVerschieben = { ...job, vorher, timer: setTimeout(() => flushVerschieben(), UNDO_MS) };
   }
 
   function flushVerschieben() {
@@ -2682,6 +2700,7 @@ let sentFolderName = $state<string | null>(null);
     if (!job) return;
     clearTimeout(job.timer);
     undoVerschieben = null;
+    zeilenZurueck(job);
     invalidateFolderCache(job.accountId, job.folder);
     if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder();
     aufraeumenNeuLaden += 1;
@@ -2733,8 +2752,8 @@ let sentFolderName = $state<string | null>(null);
     flushPendingDelete();
     flushVerschieben();
     const job = { uids, accountId: selectedAccountId, folder: selectedFolder, endgueltig };
-    entfernenUndWeiter(uids);
-    undoDelete = { ...job, timer: setTimeout(() => flushPendingDelete(), UNDO_MS) };
+    const vorher = entfernenUndWeiter(uids);
+    undoDelete = { ...job, vorher, timer: setTimeout(() => flushPendingDelete(), UNDO_MS) };
   }
 
   /** Runs a pending trash move now (timer, a second delete, leaving the page). */
@@ -2751,7 +2770,9 @@ let sentFolderName = $state<string | null>(null);
     if (!job) return;
     clearTimeout(job.timer);
     undoDelete = null;
-    // Nothing reached the server yet — reloading brings the mails back.
+    // Nothing reached the server yet: the rows come back now, the reload
+    // only confirms it.
+    zeilenZurueck(job);
     invalidateFolderCache(job.accountId, job.folder);
     if (job.accountId === selectedAccountId && job.folder === selectedFolder) void loadFolder();
     aufraeumenNeuLaden += 1;

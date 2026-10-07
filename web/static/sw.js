@@ -1,11 +1,18 @@
 // Relay — service worker: Web Push + offline app shell.
 // Served from the site root as /sw.js (SvelteKit static adapter copies static/*).
 
-const SHELL_CACHE = "relay-shell-v4";
-const MAX_CACHE_ENTRIES = 50;
+const SHELL_CACHE = "relay-shell-v5";
+const MAX_CACHE_ENTRIES = 200;
 
-self.addEventListener("install", () => {
-  self.skipWaiting();
+// The start page goes into the cache at install, so the installed app opens
+// without a network from the first start on.
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    self.caches.open(SHELL_CACHE)
+      .then((cache) => cache.add("/"))
+      .catch(() => { /* offline at install: the next navigation fills it */ })
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -30,8 +37,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
-          const copy = res.clone();
-          self.caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, copy));
+          if (res.ok) {
+            const copy = res.clone();
+            event.waitUntil(self.caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, copy)));
+          }
           return res;
         })
         .catch(() => self.caches.match(event.request).then((cached) => cached || self.caches.match("/")))
@@ -47,10 +56,9 @@ self.addEventListener("fetch", (event) => {
         return fetch(event.request).then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            self.caches.open(SHELL_CACHE).then((cache) => {
-              cache.put(event.request, copy);
-              trimCache();
-            });
+            event.waitUntil(self.caches.open(SHELL_CACHE)
+              .then((cache) => cache.put(event.request, copy))
+              .then(trimCache));
           }
           return res;
         });
@@ -59,13 +67,18 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+// Trims the oldest files, never a page: the shell must stay.
 async function trimCache() {
   const cache = await self.caches.open(SHELL_CACHE);
   const keys = await cache.keys();
-  if (keys.length > MAX_CACHE_ENTRIES) {
-    await cache.delete(keys[0]);
-    trimCache();
-  }
+  const dateien = keys.filter((req) => !istSeite(req));
+  const zuviel = keys.length - MAX_CACHE_ENTRIES;
+  for (const req of dateien.slice(0, Math.max(0, zuviel))) await cache.delete(req);
+}
+
+function istSeite(req) {
+  const pfad = new URL(req.url).pathname;
+  return pfad === "/" || !/\.[a-z0-9]+$/i.test(pfad);
 }
 
 self.addEventListener("push", (event) => {
