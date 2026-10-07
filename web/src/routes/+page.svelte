@@ -1844,11 +1844,15 @@ let sentFolderName = $state<string | null>(null);
     mailbox.toggleSelect(uid);
   }
 
+  // Where a Shift + arrow selection began; a plain arrow or click forgets it.
+  let auswahlAnker = $state<number | null>(null);
+
   function handleSelectRange(fromIdx: number, toIdx: number) {
     mailbox.selectRange(fromIdx, toIdx, $mailbox.messages);
   }
 
   async function handleSelectMessage(uid: number) {
+    auswahlAnker = null;
     mailbox.selectSingle(uid);
     lastClickedUid = uid;
     loadingBodyUid = uid;
@@ -2204,8 +2208,27 @@ let sentFolderName = $state<string | null>(null);
     // Arrow navigation through the message list (↑/↓)
     if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !showCompose) {
       const msgs = $mailbox.messages;
+      if (msgs.length > 0 && e.shiftKey) {
+        // Shift + arrow grows or shrinks the selection from where it began
+        // (Kai, 7.10.2026), as in Finder and Apple Mail; nothing opens.
+        e.preventDefault();
+        const fokus = $mailbox.lastClickedUid;
+        const fokusIdx = fokus != null ? msgs.findIndex((m) => m.uid === fokus) : -1;
+        if (fokusIdx === -1) {
+          const start = e.key === "ArrowDown" ? 0 : msgs.length - 1;
+          auswahlAnker = msgs[start].uid;
+          mailbox.selectRange(start, start, msgs);
+          return;
+        }
+        if (auswahlAnker == null || !msgs.some((m) => m.uid === auswahlAnker)) auswahlAnker = fokus;
+        const ankerIdx = msgs.findIndex((m) => m.uid === auswahlAnker);
+        const ziel = e.key === "ArrowDown" ? Math.min(fokusIdx + 1, msgs.length - 1) : Math.max(fokusIdx - 1, 0);
+        mailbox.selectRange(ankerIdx, ziel, msgs);
+        return;
+      }
       if (msgs.length > 0) {
         e.preventDefault();
+        auswahlAnker = null;
         const curUid = $mailbox.lastClickedUid;
         const curIdx = curUid != null ? msgs.findIndex((m) => m.uid === curUid) : -1;
         let nextIdx: number;
@@ -2359,8 +2382,9 @@ let sentFolderName = $state<string | null>(null);
   // data currently in the store: during a folder switch the UI label changes
   // BEFORE the new list arrives, and uid is only unique per folder — showing
   // the stale row would display the previous folder's mail under the new one.
+  // With several mails selected the reading pane shows the count, not one.
   let selectedMessage = $derived(
-    $mailbox.lastClickedUid != null &&
+    $mailbox.lastClickedUid != null && $mailbox.selectedUids.length <= 1 &&
       $mailbox.folderId === $mailbox.messagesFolder
       ? $mailbox.messages.find((msg) => msg.uid === $mailbox.lastClickedUid) ?? null
       : null
@@ -2589,10 +2613,10 @@ let sentFolderName = $state<string | null>(null);
     return null;
   }
 
-  /** Removes the rows and moves on to the next mail, so Backspace, E or !
-   *  can be pressed again right away. Only when one mail was open. */
+  /** Removes the rows and opens the next mail after them, so Backspace, E
+   *  or ! can be pressed again right away — after one mail or a selection. */
   function entfernenUndWeiter(uids: number[]) {
-    const weiter = uids.length > 0 && $mailbox.selectedUids.length <= 1 ? naechsteNach(uids) : null;
+    const weiter = naechsteNach(uids);
     for (const uid of uids) mailbox.removeMessage(uid);
     if (weiter) void handleSelectMessage(weiter.uid);
   }
@@ -2881,6 +2905,7 @@ let sentFolderName = $state<string | null>(null);
   <MessageList
     messages={$mailbox.messages}
     selectedUids={$mailbox.selectedUids}
+    fokusUid={$mailbox.lastClickedUid}
     onselect={handleSelectMessage}
     onauswahl={(uid) => mailbox.auswahlUmschalten(uid)}
     onselectToggle={handleSelectToggle}
@@ -3153,7 +3178,11 @@ let sentFolderName = $state<string | null>(null);
       onaction={retryInit}
     />
   {:else}
-    <EmptyState icon="eingang" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
+    {#if $mailbox.selectedUids.length > 1}
+      <EmptyState icon="eingang" title={$t("mail.selectedCount", { count: $mailbox.selectedUids.length })} subtitle={$t("mail.auswahlHinweis")} offsetHeader={true} />
+    {:else}
+      <EmptyState icon="eingang" title={$t("mail.selectMessage")} subtitle={$t("mail.selectMessageDesc")} offsetHeader={true} />
+    {/if}
   {/if}
 {/snippet}
 
