@@ -281,7 +281,9 @@ import {
   let replyCc = $state("");
   let recipientName = $state("");
   let mailChain = $state<MailChainEntry[]>([]);
-  let selectedAccountId = $state<number>(1);
+  // 0 = no account yet; set by initWithAccount. A default of 1 made the
+  // page ask for account 1's mail before any account existed (500).
+  let selectedAccountId = $state<number>(0);
   let senderName = $state("");
   // Assistant hand-off: a fresh compose pre-filled from the AI assistant.
   let assistantCompose = $state<{ to: string; subject: string; body: string } | null>(null);
@@ -1747,6 +1749,7 @@ let sentFolderName = $state<string | null>(null);
   });
 
   async function loadInbox() {
+    if (selectedAccountId <= 0) return;
     mailbox.setLoading(true);
     try {
       const msgs = await fetchMessages(selectedAccountId, 10000, 0, selectedFolder, true);

@@ -240,6 +240,8 @@
       z-index: var(--am-ebene-menue);
     }
     .spalte-offen .relay-spalte { display: flex; }
+    /* The sheet lives in the nav, so the nav must sit above the scrim. */
+    .spalte-offen :global(.huelle-nav) { z-index: var(--am-ebene-menue); }
     .relay-spalte-deckschicht {
       position: fixed;
       inset: var(--am-leistenhoehe) 0 0 0;

@@ -62,3 +62,66 @@ jobs:
 
       - name: build (adapter-static)
         run: npm run build
+
+  # The browser tour (CI ABGLEICH Etappe 7): every page in light and dark, on
+  # desktop and phone, against the real server with an empty data dir.
+  oberflaeche:
+    name: Oberfläche (Rundgang)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-tour-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: build server
+        run: cargo build --locked -p relay-server
+
+      - name: build web
+        working-directory: web
+        run: npm ci --silent && npm run build
+
+      - name: start server
+        run: |
+          mkdir -p "$RUNNER_TEMP/relay-data"
+          RELAY_DATA_DIR="$RUNNER_TEMP/relay-data" \
+          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
+          RELAY_BIND=127.0.0.1:3799 \
+          RELAY_OLARES_FIRSTNAME=Erika RELAY_OLARES_LASTNAME=Muster \
+            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-server.log" 2>&1 &
+
+      - name: install chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: tour
+        working-directory: web
+        run: npm run e2e
+
+      - name: upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rundgang
+          path: |
+            web/e2e-bericht/
+            web/test-results/
+            ${{ runner.temp }}/relay-server.log
+          retention-days: 7
