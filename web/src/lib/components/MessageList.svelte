@@ -415,6 +415,10 @@
               }
             }}
           >
+            {#if !msg.is_read && !pendingReadUids.has(msg.uid)}
+              <!-- Unread: a dot, as in Apple Mail (Kai, 7.10.2026, variant C). -->
+              <span class="ungelesen-punkt" role="img" aria-label={$t("mail.ungelesen")} title={$t("mail.ungelesen")}></span>
+            {/if}
             <div class="msg-header">
               <span class="sender">
                 {extractName(isSentFolder ? msg.to : msg.from) || "Unbekannt"}
@@ -432,6 +436,10 @@
             <div class="msg-subject">
               {#if isDraftFolder}
                 <span class="draft-badge">{$t("mail.draft")}</span>
+              {/if}
+              {#if isUrgent(msg)}
+                <!-- Red for need of action with a word (CI R7), not a red row. -->
+                <span class="dringend-etikett">{$t("mail.dringend")}</span>
               {/if}
               {msg.subject || $t("mail.noSubject")}
             </div>
@@ -518,20 +526,59 @@
   .message-list::-webkit-scrollbar-thumb:hover {
     background: var(--am-text-gedaempft);
   }
+  /* ── Row states [RL-POSTLISTE] (Kai, 7.10.2026, variant C) ─────────────
+     One means per state: unread is a dot, the open or selected mail a full
+     surface, urgent a red word, flagged the gold flag. No bar on the left —
+     the same blue bar for unread and open read as one thing. */
   .message-item {
-    padding: 10px 16px;
-    border-left: 3px solid transparent;
+    position: relative;
+    padding: 10px 16px 10px 26px;
     border-bottom: 1px solid var(--am-rand);
     cursor: pointer;
     contain: layout style paint;
-    transition: all var(--am-dauer-schnell) var(--am-kurve);
+    transition: background var(--am-dauer-schnell) var(--am-kurve), color var(--am-dauer-schnell) var(--am-kurve);
   }
   .message-item:hover {
     background: var(--am-flaeche-1);
   }
-  .message-item.selected {
-    background: var(--am-flaeche-2);
-    border-left-color: var(--am-handlung-ruhend);
+  .ungelesen-punkt {
+    position: absolute;
+    left: 10px;
+    top: 16px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--am-handlung-ruhend);
+  }
+  .message-item.selected,
+  .message-item.selected:hover {
+    background: var(--am-handlung-ruhend);
+  }
+  .message-item.selected .sender,
+  .message-item.selected .msg-subject,
+  .message-item.selected .date,
+  .message-item.selected .attach-indicator,
+  .message-item.selected :global(.summary-line) {
+    color: var(--am-handlung-text);
+  }
+  .message-item.selected .ungelesen-punkt {
+    background: var(--am-handlung-text);
+  }
+  .dringend-etikett {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--am-fehler);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--am-fehler);
+    vertical-align: 1px;
+  }
+  .message-item.selected .dringend-etikett {
+    color: var(--am-handlung-text);
+    border-color: var(--am-handlung-text);
   }
   .msg-header {
     display: flex;
@@ -577,36 +624,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--am-text-primaer);
-  }
-  .unread .sender {
-    font-weight: 500;
-    color: var(--am-text-primaer);
-  }
-  .unread .msg-subject {
-    font-weight: 500;
-  }
-  .unread {
-    background: var(--am-flaeche-1);
-    border-left-color: var(--am-handlung-ruhend);
-  }
-  .unread:hover {
-    background: var(--am-flaeche-2);
-  }
-  /* Urgent: same marking as unread, in red (AI-detected or manually marked).
-     Declared after .unread so it wins when both apply. */
-  .urgent {
-    background: var(--am-fehler-flaeche);
-    border-left-color: var(--am-fehler);
-  }
-  .urgent:hover {
-    background: var(--am-fehler-flaeche);
-  }
-  .urgent .sender {
-    font-weight: 500;
-    color: var(--am-text-primaer);
-  }
-  .urgent .msg-subject {
-    font-weight: 500;
   }
   .loading-indicator {
     text-align: center;

@@ -11,6 +11,7 @@
   import { t } from "$lib/i18n";
   import { assistantAction } from "$lib/stores/assistantAction";
   import { applyAppearance } from "$lib/stores/appearance";
+  import { appDienstStarten } from "$lib/pwa";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -23,6 +24,7 @@
   // Appearance is applied in one place for every module (CI RL-T2); the
   // inline script in app.html has already set the class before first paint.
   onMount(() => applyAppearance());
+  onMount(() => { void appDienstStarten(); });
 
   onMount(async () => {
     try {

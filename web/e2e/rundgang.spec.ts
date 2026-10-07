@@ -209,6 +209,55 @@ test("Web-App-Symbole zeigen das richtige Bild", async ({ page }, info) => {
   expect(await abstand(kachel, form("tab", 512), 512), "Gegenprobe").toBeGreaterThan(20);
 });
 
+// The installed app (Kai, 7.10.2026): the service worker runs without push
+// switched on, and Relay opens without a network from its shell.
+test("PWA: Service Worker ohne Push, Start ohne Netz", async ({ page, context }, info) => {
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const aktiv = await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.ready;
+    return !!reg.active;
+  });
+  expect(aktiv, "Service Worker aktiv").toBe(true);
+  // A second load under the worker puts the shell into its cache.
+  // (The shell, or the onboarding where the server has no account yet.)
+  await page.reload();
+  await page.getByRole("button", { name: "Assistent öffnen" }).waitFor();
+  await page.waitForFunction(async () => {
+    const namen = await caches.keys();
+    if (!namen.length) return false;
+    const cache = await caches.open(namen[0]);
+    const pfade = (await cache.keys()).map((r) => new URL(r.url).pathname);
+    const geladen = performance.getEntriesByType("resource")
+      .map((e) => new URL(e.name).pathname)
+      .filter((p) => p.startsWith("/_app/"));
+    return pfade.includes("/") && geladen.length > 0 && geladen.every((p) => pfade.includes(p));
+  });
+  await context.setOffline(true);
+  try {
+    await page.reload();
+    await expect(page.locator(".kopfleiste"), "Hülle ohne Netz").toBeVisible();
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
+// The app icon's shortcut "Neue E-Mail" (manifest /?neu=1) opens the
+// compose window and leaves a clean address.
+test("PWA: Abkürzung Neue E-Mail", async ({ page, context }, info) => {
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  test.skip(!DATEN, "braucht ein Konto, sonst kommt die Einrichtung");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/?neu=1");
+  await expect(page.getByRole("button", { name: "Schließen" }).first()).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+});
+
 // "Abo beenden" (List-Unsubscribe): only where the sender offers it. The test
 // server's newsletter names a one-click address that does not resolve, so
 // Relay falls back to the unsubscribe mail, which the test server accepts.
