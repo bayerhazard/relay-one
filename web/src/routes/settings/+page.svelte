@@ -2541,15 +2541,17 @@ async function handleSaveCardDav() {
 
   .export-account {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding: 8px 4px;
   }
 
+  /* Takes the line on a phone, the buttons wrap below (tour with data). */
   .export-account-name {
+    flex: 1 1 180px;
     font-size: 0.85rem;
     font-weight: 600;
-    min-width: 180px;
   }
 
   .delete-queue-list {
