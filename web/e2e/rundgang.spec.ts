@@ -11,6 +11,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { lagePruefen } from "./lage";
 import { WEB, ZIELE, form } from "../scripts/app-symbole-formen.mjs";
@@ -167,6 +169,53 @@ test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page })
     const antwort = await page.request.get(pfad);
     expect(antwort.status(), pfad).toBe(200);
     expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
+  }
+});
+
+// Installable behind the box's sign-in (Kai, 7.10.2026: Chrome offered no
+// install). Olares lets only requests with the sign-in cookie through and
+// answers the rest with its login page; Chrome fetches the manifest without
+// cookies unless the link asks for them. Here a gate does what the box does,
+// and Chrome itself says whether Relay can be installed.
+test("PWA: installierbar hinter der Anmeldung der Box", async ({ page, context, baseURL }, info) => {
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  const ziel = new URL(baseURL ?? "http://127.0.0.1:3000");
+  // The gate: a proxy in front of Relay that lets through only requests
+  // carrying the sign-in cookie, as the box's entrance does.
+  const ohneCookie: string[] = [];
+  const tor = http.createServer((anfrage, antwort) => {
+    if (!(anfrage.headers.cookie ?? "").includes("box_anmeldung=1")) {
+      ohneCookie.push(anfrage.url ?? "");
+      antwort.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Anmelden</title>");
+      return;
+    }
+    const weiter = http.request(
+      { host: ziel.hostname, port: ziel.port, path: anfrage.url, method: anfrage.method, headers: anfrage.headers },
+      (r) => { antwort.writeHead(r.statusCode ?? 502, r.headers); r.pipe(antwort); },
+    );
+    weiter.on("error", () => antwort.writeHead(502).end());
+    anfrage.pipe(weiter);
+  });
+  await new Promise<void>((ok) => tor.listen(0, "127.0.0.1", ok));
+  const port = (tor.address() as AddressInfo).port;
+  try {
+    await context.addCookies([{ name: "box_anmeldung", value: "1", domain: "127.0.0.1", path: "/" }]);
+    await context.addInitScript(() => {
+      try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+    });
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    const cdp = await context.newCDPSession(page);
+    const { errors, data } = await cdp.send("Page.getAppManifest");
+    expect(errors, "Manifest ohne Fehler").toEqual([]);
+    expect(JSON.parse(data ?? "{}").name, "das echte Manifest, nicht die Anmeldeseite").toBe("Relay");
+    const { installabilityErrors } = await cdp.send("Page.getInstallabilityErrors");
+    // Playwright's contexts are private windows, which Chrome never installs from.
+    const fehler = installabilityErrors.map((f) => f.errorId).filter((id) => id !== "in-incognito");
+    expect(fehler, "Chrome bietet „Installieren“ an").toEqual([]);
+    expect(ohneCookie, "keine Anfrage ohne Anmelde-Cookie").toEqual([]);
+  } finally {
+    tor.close();
   }
 });
 
