@@ -70,3 +70,20 @@ pub async fn remove_delete_queue(
     }
     Ok(Json(serde_json::json!({ "ok": true, "id": id })))
 }
+
+/// `GET /api/v1/messages/loesch-stand` — how many deleted mails the provider
+/// still has after five attempts (Kai, 7.10.2026: the mail page says so).
+pub async fn loesch_stand(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let n = with_db(&state, |conn| {
+        crate::cache::provider_ops::geloescht_gescheitert(conn).map_err(|e| e.to_string())
+    })?;
+    Ok(Json(serde_json::json!({ "gescheitert": n })))
+}
+
+/// `POST /api/v1/messages/loesch-erneut` — try the given-up deletions again.
+pub async fn loesch_erneut(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
+    let n = with_db(&state, |conn| {
+        crate::cache::provider_ops::geloescht_erneut(conn).map_err(|e| e.to_string())
+    })?;
+    Ok(Json(serde_json::json!({ "erneut": n })))
+}

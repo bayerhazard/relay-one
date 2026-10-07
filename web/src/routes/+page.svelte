@@ -29,7 +29,7 @@ import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
     listAccounts, listImapFolders, createLocalFolder, deleteFolder,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
-    getMoveToTrash, getUnreadCounts, discardDraft, searchMessages,
+    getMoveToTrash, getUnreadCounts, discardDraft, searchMessages, getLoeschStand, loeschenErneut,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
     openEventStream, type AttachmentInfo,
     getFollowups, createPlanFromSuggestion, parseCachedFollowups, type FollowupSuggestion,
@@ -1747,6 +1747,32 @@ let sentFolderName = $state<string | null>(null);
     }
   }
 
+  // ─── Deletes that did not reach the provider (Kai, 7.10.2026) ──────────
+  // After five failed tries the server stops; the list says so, quietly,
+  // and offers to try again.
+  let loeschGescheitert = $state(0);
+  async function loeschStandLaden() {
+    try { loeschGescheitert = (await getLoeschStand()).gescheitert; } catch { /* next time */ }
+  }
+  async function loeschenNochmal() {
+    try {
+      await loeschenErneut();
+      loeschGescheitert = 0;
+    } catch (e) {
+      mailbox.setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  onMount(() => {
+    void loeschStandLaden();
+    const takt = setInterval(() => void loeschStandLaden(), 5 * 60_000);
+    // Closing the tab within the five seconds of "Rückgängig" sent nothing:
+    // the mail stayed. Now what is pending goes out at once (the requests
+    // carry keepalive, so they outlive the page).
+    const weg = () => { flushPendingDelete(); flushVerschieben(); };
+    window.addEventListener("pagehide", weg);
+    return () => { clearInterval(takt); window.removeEventListener("pagehide", weg); };
+  });
+
   onMount(async () => {
     // Olares-Desktop öffnet Apps ggf. mit `?pathto=<route>` (z.B. beim
     // Öffnen der App-Einstellungen) — Route direkt anspringen.
@@ -2237,6 +2263,10 @@ let sentFolderName = $state<string | null>(null);
 
     // Don't fire shortcuts when typing in input fields
     if (isInputFocused()) return;
+
+    // In the open mail the keys scroll it (it is reachable by Tab now).
+    if ((e.target as HTMLElement | null)?.closest?.(".preview-scroll-wrapper")
+      && ["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(e.key)) return;
 
     // Arrow navigation through the message list (↑/↓)
     if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !showCompose) {
@@ -3076,7 +3106,10 @@ let sentFolderName = $state<string | null>(null);
         </div>
       </div>
       
-      <div class="preview-scroll-wrapper">
+      <!-- Reachable by keyboard, so a long mail can be scrolled without a mouse
+           (axe scrollable-region-focusable, once the AI suggestions take room). -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div class="preview-scroll-wrapper" tabindex="0" role="region" aria-label={$t("mail.lesebereich")}>
         <div class="preview-content-area">
           <!-- h2: the page's one h1 is the folder in the list head. -->
           <h2 class="preview-subject-large">{selectedMessage.subject || $t("mail.noSubject")}</h2>
@@ -3365,6 +3398,13 @@ let sentFolderName = $state<string | null>(null);
             {/if}
             {@render zeichen("schliessen", $t("mail.auswahlAufheben"), () => mailbox.clearSelection(), "Esc")}
           </div>
+        </div>
+      {/if}
+      {#if loeschGescheitert > 0}
+        <div class="hinweis loesch-hinweis" data-art="achtung" role="status">
+          <Symbol name="achtung" size={16} />
+          <span>{loeschGescheitert === 1 ? $t("mail.loeschGescheitertEine") : $t("mail.loeschGescheitert", { count: loeschGescheitert })}</span>
+          <button type="button" class="btn btn-still btn-klein" onclick={loeschenNochmal}>{$t("mail.loeschErneut")}</button>
         </div>
       {/if}
       {#if aehnlichAktiv && !$mailbox.loading && $mailbox.messages.length > 0}
@@ -3851,6 +3891,9 @@ let sentFolderName = $state<string | null>(null);
     align-items: center;
     gap: var(--am-raum-2);
   }
+  /* Deletes the provider did not take: over the list, with "Erneut versuchen". */
+  .loesch-hinweis { margin: var(--am-raum-2) var(--am-raum-3); align-items: center; }
+  .loesch-hinweis .btn { margin-left: auto; flex-shrink: 0; }
   /* Similar mails: a quiet line over the list, count and "Alle auswählen". */
   .aehnlich-leiste {
     display: flex;

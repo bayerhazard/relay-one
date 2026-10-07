@@ -248,6 +248,15 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         CREATE INDEX IF NOT EXISTS idx_provider_ops_state ON provider_ops(state, account_id);
 
+        -- Folders with mails flagged as deleted that still need an EXPUNGE
+        -- (Kai, 7.10.2026): kept here, not only in memory, so a restart
+        -- in between does not leave them flagged on the provider.
+        CREATE TABLE IF NOT EXISTS expunge_offen (
+            account_id INTEGER NOT NULL,
+            folder TEXT NOT NULL,
+            PRIMARY KEY (account_id, folder)
+        );
+
         -- Sync state per folder (CONDSTORE modseq + last UID) — Phase 4K
         CREATE TABLE IF NOT EXISTS sync_state (
             folder_id INTEGER PRIMARY KEY,

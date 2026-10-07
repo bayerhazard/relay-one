@@ -138,6 +138,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/push/unsubscribe", post(push::unsubscribe))
         // Delete queue (verify pipeline review)
         .route("/archive/delete-queue", get(delete_queue::list_delete_queue))
+        .route("/messages/loesch-stand", get(delete_queue::loesch_stand))
+        .route("/messages/loesch-erneut", post(delete_queue::loesch_erneut))
         .route("/archive/queue-retry", post(delete_queue::retry_delete_queue))
         .route("/archive/queue-remove", post(delete_queue::remove_delete_queue))
         // Export (EML/MBox)

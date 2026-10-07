@@ -562,3 +562,32 @@ test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request
     await request.post("/api/v1/settings/aufraeumen", { data: false });
   }
 });
+
+// Closing the tab within the five seconds of "Rückgängig" (Kai, 7.10.2026):
+// the delete was lost, the mail stayed. Now it goes out as the page goes.
+// Put back afterwards, so the dummy data stay the same.
+test("Löschen übersteht das Schließen des Tabs", async ({ page, context, request }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  const betreff = "Wartung am Wochenende";
+  const finden = async (ordner: string) => {
+    const r = await request.get(`/api/v1/messages?account_id=1&folder=${ordner}&limit=500&list_only=true`);
+    return ((await r.json()) as { uid: number; subject?: string }[]).find((m) => m.subject === betreff);
+  };
+  await page.goto("/");
+  const zeile = page.locator(".message-item").filter({ hasText: betreff });
+  await zeile.click();
+  await page.locator(".message-list").focus();
+  await page.keyboard.press("Backspace");
+  await expect(page.getByRole("status")).toContainText("Mail in den Papierkorb verschoben");
+  await page.close({ runBeforeUnload: true });
+  await expect.poll(async () => !!(await finden("Trash")), { message: "in Relays Papierkorb", timeout: 10_000 }).toBe(true);
+  const mail = (await finden("Trash"))!;
+  await request.post("/api/v1/messages/move", {
+    data: { account_id: 1, uid: mail.uid, source_folder: "Trash", target_folder: "INBOX", raw_source_folder: "", raw_target_folder: "" },
+  });
+  await expect.poll(async () => !!(await finden("INBOX")), { timeout: 10_000 }).toBe(true);
+});

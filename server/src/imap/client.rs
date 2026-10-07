@@ -813,6 +813,64 @@ impl ImapClient {
         .await
     }
 
+    /// The numbers of the mails in `folder` with this Message-ID.
+    pub async fn uids_by_message_id(&self, folder: &str, message_id: &str) -> Result<Vec<u32>, AppError> {
+        let folder = folder.to_string();
+        let mid = message_id.trim().replace('\\', "\\\\").replace('"', "\\\"");
+        if mid.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[cfg(test)]
+        if self.test_override.is_some() {
+            return Ok(vec![1]);
+        }
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "uids_by_message_id", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let uids = session
+                .uid_search(&format!("HEADER Message-ID \"{}\"", mid))
+                .map_err(|e| AppError::imap(format!("UID SEARCH Message-ID fehlgeschlagen: {}", e), "uid_search_mid"))?;
+            let mut v: Vec<u32> = uids.into_iter().collect();
+            v.sort_unstable();
+            Ok(v)
+        })
+        .await
+    }
+
+    /// Flag \Deleted every mail in `folder` with this Message-ID (UID SEARCH
+    /// HEADER). Used for the provider's trash, where a moved mail has a new
+    /// number. Returns how many were flagged; EXPUNGE is batched as usual.
+    pub async fn delete_by_message_id(&self, folder: &str, message_id: &str) -> Result<usize, AppError> {
+        let folder = folder.to_string();
+        let mid = message_id.trim().replace('\\', "\\\\").replace('"', "\\\"");
+        if mid.is_empty() {
+            return Ok(0);
+        }
+        #[cfg(test)]
+        if let Some(ref o) = self.test_override {
+            if o.fail_delete {
+                return Err(AppError::imap("simulierter Loeschfehler", "delete_by_message_id"));
+            }
+            return Ok(1);
+        }
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "delete_by_message_id", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let uids = session
+                .uid_search(&format!("HEADER Message-ID \"{}\"", mid))
+                .map_err(|e| AppError::imap(format!("UID SEARCH Message-ID fehlgeschlagen: {}", e), "uid_search_mid"))?;
+            if uids.is_empty() {
+                return Ok(0);
+            }
+            let menge: Vec<String> = uids.iter().map(|u| u.to_string()).collect();
+            session
+                .uid_store(menge.join(","), "+FLAGS (\\Deleted)")
+                .map_err(|e| AppError::imap(format!("STORE DELETED fehlgeschlagen: {}", e), "store_deleted"))?;
+            Ok(uids.len())
+        })
+        .await
+    }
+
     /// Expunge all messages flagged \Deleted in `folder` (sync connection).
     pub async fn expunge_folder_sync(&self, folder: &str) -> Result<(), AppError> {
         let folder = folder.to_string();

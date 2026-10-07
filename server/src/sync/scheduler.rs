@@ -21,14 +21,42 @@ pub fn queue_expunge(account_id: u32, folder: &str) {
     reg.lock().unwrap().insert((account_id, folder.to_string()));
 }
 
+/// Register a folder for EXPUNGE in memory and in the database, so a
+/// restart before the next flush does not leave mails flagged \Deleted on
+/// the provider (Kai, 7.10.2026).
+/// Never call it while holding `cache_db` (the lock is not re-entrant):
+/// under a held guard use `expunge_vormerken_mit` with that connection.
+fn expunge_vormerken(state: &AppState, account_id: u32, folder: &str) {
+    let db_guard = state.cache_db.lock();
+    expunge_vormerken_mit(db_guard.as_ref(), account_id, folder);
+}
+
+fn expunge_vormerken_mit(conn: Option<&rusqlite::Connection>, account_id: u32, folder: &str) {
+    queue_expunge(account_id, folder);
+    if let Some(conn) = conn {
+        let _ = crate::cache::provider_ops::expunge_merken(conn, account_id as i64, folder);
+    }
+}
+
 /// How often queued \Deleted flags are expunged per folder.
 const EXPUNGE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Drain the pending-expunge set and run one EXPUNGE per (account, folder).
 async fn run_periodic_expunge(state: &AppState) {
     let reg = EXPUNGE_PENDING.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    // What the database still lists (e.g. from before a restart) joins in.
+    let gemerkt: Vec<(i64, String)> = {
+        let db_guard = state.cache_db.lock();
+        db_guard
+            .as_ref()
+            .and_then(|c| crate::cache::provider_ops::expunge_liste(c).ok())
+            .unwrap_or_default()
+    };
     let pending: Vec<(u32, String)> = {
         let mut guard = reg.lock().unwrap();
+        for (a, f) in gemerkt {
+            guard.insert((a as u32, f));
+        }
         if guard.is_empty() {
             return;
         }
@@ -40,7 +68,14 @@ async fn run_periodic_expunge(state: &AppState) {
             guard.get(&account_id).cloned()
         };
         let Some(client) = client else { continue };
-        if let Err(e) = client.expunge_folder_sync(&folder).await {
+        let ergebnis = client.expunge_folder_sync(&folder).await;
+        if ergebnis.is_ok() {
+            let db_guard = state.cache_db.lock();
+            if let Some(conn) = db_guard.as_ref() {
+                let _ = crate::cache::provider_ops::expunge_erledigt(conn, account_id as i64, &folder);
+            }
+        }
+        if let Err(e) = ergebnis {
             tracing::warn!(
                 "periodic EXPUNGE in '{}' (account {}) fehlgeschlagen: {} — erneut im nächsten Flush",
                 folder, account_id, e
@@ -623,7 +658,12 @@ async fn run_delete_queue(state: &AppState) {
         }
 
         let result = if ok {
-            client.hard_delete_message_sync(row.uid as u32, &row.folder).await
+            // Gmail only archives on \Deleted: there the mail goes into its trash.
+            let ordner = client.list_folders_sync().await.unwrap_or_default();
+            match entfernen_wie(&ordner, &row.folder) {
+                Entfernen::InPapierkorb(trash) => client.move_message_sync(row.uid as u32, &row.folder, &trash).await,
+                Entfernen::Markieren => client.hard_delete_message_sync(row.uid as u32, &row.folder).await,
+            }
         } else {
             // Soft fallback: move into the PROVIDER trash folder (never the
             // local-only "Trash" — that name does not exist on the server).
@@ -657,7 +697,7 @@ async fn run_delete_queue(state: &AppState) {
                 }
                 // \Deleted was just set on the source folder — batch the
                 // EXPUNGE instead of paying for one per delete.
-                queue_expunge(row.account_id as u32, &row.folder);
+                expunge_vormerken_mit(db_guard.as_ref(), row.account_id as u32, &row.folder);
                 tracing::info!("delete_queue {}: Provider-Kopie entfernt (uid {})", row.id, row.uid);
             }
             Err(e) => {
@@ -701,8 +741,23 @@ async fn run_provider_ops(state: &AppState) {
             guard.get(&account_id).cloned()
         };
         let Some(client) = client else { continue };
+        // The folder list once per account and cycle, only when an op needs
+        // it: "Trash" means the provider's real trash, and Gmail deletes by
+        // moving there (Kai, 7.10.2026).
+        // Without the list (a dropped connection) the op fails and is tried
+        // again; an empty list would have read as "no trash" and the delete
+        // would have counted as done without doing anything.
+        let mut ordner: Option<Vec<(String, String, String, String)>> = None;
         for op in rows {
-            let result = match op.kind.as_str() {
+            let braucht_liste = matches!(op.kind.as_str(), "delete" | "delete_mid" | "move_mid")
+                || op.target_folder.as_deref() == Some("Trash");
+            if braucht_liste && ordner.is_none() {
+                ordner = client.list_folders().await.ok();
+            }
+            let liste = ordner.as_deref().unwrap_or(&[]);
+            let result = if braucht_liste && ordner.is_none() {
+                Err(crate::error::AppError::imap("Ordnerliste nicht lesbar", "provider_ops"))
+            } else { match op.kind.as_str() {
                 "flag" => match op.flag.as_deref() {
                     Some(flag) => client
                         .mark_flag(op.uid as u32, flag, op.set_flag, Some(op.folder.clone()))
@@ -712,6 +767,11 @@ async fn run_provider_ops(state: &AppState) {
                 },
                 "move" => match op.target_folder.as_deref() {
                     Some(target) => {
+                        // Relay's "Trash" is the provider's real trash where it
+                        // has one; a folder "Trash" is only made where it has
+                        // none (on Gmail that was a label, the mail stayed).
+                        let papierkorb = if target == "Trash" { papierkorb_waehlen(liste) } else { None };
+                        let target = papierkorb.as_deref().unwrap_or(target);
                         match client.move_message(op.uid as u32, &op.folder, target).await {
                             Ok(()) => Ok(()),
                             // The old sync path pre-created "Trash" before every
@@ -732,7 +792,48 @@ async fn run_provider_ops(state: &AppState) {
                     }
                     None => Err(crate::error::AppError::imap("move-Op ohne Zielordner", "provider_ops")),
                 },
-                "delete" => client.delete_message(op.uid as u32, &op.folder).await,
+                "delete" => match entfernen_wie(liste, &op.folder) {
+                    Entfernen::InPapierkorb(trash) => client.move_message(op.uid as u32, &op.folder, &trash).await,
+                    Entfernen::Markieren => client.delete_message(op.uid as u32, &op.folder).await,
+                },
+                // Final delete from the provider's trash, by Message-ID (the
+                // mail has a new number there). Nothing found is done too:
+                // in archive mode the provider copy is already gone.
+                "delete_mid" => match (papierkorb_waehlen(liste), op.flag.as_deref()) {
+                    (Some(trash), Some(kopf)) => match client.delete_by_message_id(&trash, kopf).await {
+                        Ok(n) => {
+                            tracing::info!("provider_ops {}: {} Mail(s) im Papierkorb '{}' nach Message-ID gelöscht", op.id, n, trash);
+                            if n > 0 {
+                                expunge_vormerken(state, account_id, &trash);
+                            }
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    },
+                    _ => Ok(()),
+                },
+                // Restore from Relay's trash: found in the provider's trash by
+                // Message-ID and moved to the target there.
+                "move_mid" => match (papierkorb_waehlen(liste), op.flag.as_deref(), op.target_folder.as_deref()) {
+                    (Some(trash), Some(kopf), Some(ziel)) => match client.uids_by_message_id(&trash, kopf).await {
+                        Ok(uids) => {
+                            let mut ergebnis = Ok(());
+                            for u in &uids {
+                                if let Err(e) = client.move_message(*u, &trash, ziel).await {
+                                    ergebnis = Err(e);
+                                    break;
+                                }
+                            }
+                            tracing::info!("provider_ops {}: {} Mail(s) aus '{}' nach '{}' (Message-ID)", op.id, uids.len(), trash, ziel);
+                            if !uids.is_empty() && ergebnis.is_ok() {
+                                expunge_vormerken(state, account_id, &trash);
+                            }
+                            ergebnis
+                        }
+                        Err(e) => Err(e),
+                    },
+                    _ => Ok(()),
+                },
                 other => {
                     tracing::warn!("provider_ops {}: unbekannter Typ '{}'", op.id, other);
                     let db_guard = state.cache_db.lock();
@@ -741,7 +842,7 @@ async fn run_provider_ops(state: &AppState) {
                     }
                     continue;
                 }
-            };
+            } };
             let db_guard = state.cache_db.lock();
             match result {
                 Ok(()) => {
@@ -749,7 +850,7 @@ async fn run_provider_ops(state: &AppState) {
                         let _ = crate::cache::provider_ops::mark_done(conn, op.id);
                     }
                     if op.kind == "move" || op.kind == "delete" {
-                        queue_expunge(account_id, &op.folder);
+                        expunge_vormerken_mit(db_guard.as_ref(), account_id, &op.folder);
                     }
                 }
                 Err(e) => {
@@ -773,12 +874,22 @@ async fn find_provider_trash_folder(
     client: &Arc<crate::imap::client::ImapClient>,
 ) -> Option<String> {
     let folders = client.list_folders_sync().await.ok()?;
+    papierkorb_waehlen(&folders)
+}
+
+/// The provider's trash from a folder list (name, raw, delimiter, tag): the
+/// folder marked \Trash first (tag "trash": Gmail's "[Gmail]/Papierkorb",
+/// GMX's "Gelöscht"), else by its usual names.
+pub(crate) fn papierkorb_waehlen(folders: &[(String, String, String, String)]) -> Option<String> {
+    if let Some((name, ..)) = folders.iter().find(|(_, _, _, tag)| tag == "trash") {
+        return Some(name.clone());
+    }
     // Common trash names across providers, checked case-insensitively.
     const TRASH_ALIASES: [&str; 7] = [
         "trash", "gelöscht", "papierkorb", "deleted", "deleted items",
         "deleted messages", "corbeille",
     ];
-    for (name, _raw, _delim, tag) in &folders {
+    for (name, _raw, _delim, tag) in folders {
         if tag == "noselect" || tag == "sammel" {
             continue;
         }
@@ -788,6 +899,32 @@ async fn find_provider_trash_folder(
         }
     }
     None
+}
+
+/// Gmail: "\Deleted + EXPUNGE" only archives there (Gmail's default), the
+/// mail stays in All Mail. Deleting means moving it into Gmail's trash,
+/// which Gmail empties after 30 days (Kai, 7.10.2026).
+pub(crate) fn ist_gmail(folders: &[(String, String, String, String)]) -> bool {
+    folders.iter().any(|(name, ..)| {
+        let l = name.to_lowercase();
+        l.starts_with("[gmail]") || l.starts_with("[google mail]")
+    })
+}
+
+/// How to take a mail off the provider: the folder list decides.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Entfernen {
+    /// \Deleted + EXPUNGE in the folder itself.
+    Markieren,
+    /// MOVE into the provider's trash (Gmail; the trash empties itself).
+    InPapierkorb(String),
+}
+
+pub(crate) fn entfernen_wie(folders: &[(String, String, String, String)], ordner: &str) -> Entfernen {
+    match papierkorb_waehlen(folders) {
+        Some(trash) if ist_gmail(folders) && trash != ordner => Entfernen::InPapierkorb(trash),
+        _ => Entfernen::Markieren,
+    }
 }
 
 async fn run_removal_check(state: &AppState) {
@@ -1927,6 +2064,37 @@ async fn process_sync_task(
 
             Ok(0)
         }
+    }
+}
+
+#[cfg(test)]
+mod loeschen_tests {
+    use super::*;
+
+    fn f(name: &str, tag: &str) -> (String, String, String, String) {
+        (name.to_string(), name.to_string(), "/".to_string(), tag.to_string())
+    }
+
+    #[test]
+    fn gmail_deletes_into_its_trash() {
+        let gmail = vec![f("INBOX", "folder"), f("[Google Mail]", "noselect"), f("[Google Mail]/Alle Nachrichten", "sammel"), f("[Google Mail]/Papierkorb", "trash")];
+        assert!(ist_gmail(&gmail));
+        assert_eq!(papierkorb_waehlen(&gmail).as_deref(), Some("[Google Mail]/Papierkorb"));
+        assert_eq!(entfernen_wie(&gmail, "INBOX"), Entfernen::InPapierkorb("[Google Mail]/Papierkorb".into()));
+        // In the trash itself, \Deleted + EXPUNGE deletes for good on Gmail too.
+        assert_eq!(entfernen_wie(&gmail, "[Google Mail]/Papierkorb"), Entfernen::Markieren);
+    }
+
+    #[test]
+    fn other_providers_flag_and_expunge() {
+        let gmx = vec![f("INBOX", "folder"), f("Gelöscht", "trash"), f("Spamverdacht", "folder")];
+        assert!(!ist_gmail(&gmx));
+        assert_eq!(papierkorb_waehlen(&gmx).as_deref(), Some("Gelöscht"));
+        assert_eq!(entfernen_wie(&gmx, "INBOX"), Entfernen::Markieren);
+        // Without the \Trash mark the usual names still find it.
+        let alt = vec![f("INBOX", "folder"), f("Deleted Messages", "folder")];
+        assert_eq!(papierkorb_waehlen(&alt).as_deref(), Some("Deleted Messages"));
+        assert_eq!(papierkorb_waehlen(&[f("INBOX", "folder")]), None);
     }
 }
 

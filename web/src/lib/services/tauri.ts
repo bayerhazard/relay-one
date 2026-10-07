@@ -34,10 +34,15 @@ async function apiCall<T>(
   userMessage: string,
 ): Promise<T> {
   try {
+    const json = body !== undefined ? JSON.stringify(body) : undefined;
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: json,
+      // Small changes (delete, move, flag) reach the server even when the
+      // tab closes right after (Kai, 7.10.2026). Browsers allow 64 KB in
+      // flight for keepalive, so large bodies (a mail with files) go without.
+      keepalive: method !== "GET" && (json?.length ?? 0) < 32_000,
     });
     if (!res.ok) {
       let detail = `HTTP ${res.status}`;
@@ -208,12 +213,24 @@ export async function getDeleteQueue(): Promise<DeleteQueueRow[]> {
   return get("/archive/delete-queue", "Die Lösch-Queue konnte nicht geladen werden.");
 }
 
+// The server's routes are /archive/queue-retry and /archive/queue-remove
+// with the id in the body; the buttons called addresses it does not have.
 export async function retryDeleteQueueRow(id: number): Promise<{ ok: boolean }> {
-  return post(`/archive/delete-queue/${id}/retry`, {}, "Der Eintrag konnte nicht erneut eingereiht werden.");
+  return post("/archive/queue-retry", { id }, "Der Eintrag konnte nicht erneut eingereiht werden.");
 }
 
 export async function removeDeleteQueueRow(id: number): Promise<{ ok: boolean }> {
-  return post(`/archive/delete-queue/${id}/remove`, {}, "Der Eintrag konnte nicht entfernt werden.");
+  return post("/archive/queue-remove", { id }, "Der Eintrag konnte nicht entfernt werden.");
+}
+
+/** Try the given-up provider deletions again. */
+export async function loeschenErneut(): Promise<{ erneut: number }> {
+  return post("/messages/loesch-erneut", {}, "Das Löschen konnte nicht erneut gestartet werden.");
+}
+
+/** Mails deleted in Relay that the provider still has after five tries. */
+export async function getLoeschStand(): Promise<{ gescheitert: number }> {
+  return get("/messages/loesch-stand", "Der Löschstand konnte nicht geladen werden.");
 }
 
 /** Download the EML/MBox export for an account (browser download). */

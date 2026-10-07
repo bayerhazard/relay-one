@@ -89,6 +89,40 @@ pub fn enqueue_delete(
     Ok(conn.last_insert_rowid())
 }
 
+/// Enqueue the final delete of a mail from the provider's trash, found by
+/// its Message-ID (Kai, 7.10.2026): a mail moved there has a new number in
+/// the trash that Relay does not know, so it is looked up by its header.
+/// The Message-ID rides in the `flag` column.
+pub fn enqueue_aus_papierkorb(
+    conn: &Connection,
+    account_id: i64,
+    message_id_kopf: &str,
+) -> Result<i64, rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO provider_ops (account_id, kind, uid, folder, flag)
+         VALUES (?1, 'delete_mid', 0, 'Trash', ?2)",
+        params![account_id, message_id_kopf],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Enqueue a move out of Relay's trash (restore), found in the provider's
+/// trash by its Message-ID: the row's number belongs to the folder the mail
+/// came from, not to the trash (Kai, 7.10.2026).
+pub fn enqueue_aus_papierkorb_verschieben(
+    conn: &Connection,
+    account_id: i64,
+    message_id_kopf: &str,
+    target: &str,
+) -> Result<i64, rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO provider_ops (account_id, kind, uid, folder, target_folder, flag)
+         VALUES (?1, 'move_mid', 0, 'Trash', ?2, ?3)",
+        params![account_id, target, message_id_kopf],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
 /// Oldest pending ops for one account (FIFO, bounded).
 pub fn take_pending_for_account(
     conn: &Connection,
@@ -202,5 +236,95 @@ mod tests {
         assert_eq!(rows.len(), 10);
         assert!(rows.iter().all(|r| r.account_id == 1));
         assert_eq!(pending_count(&conn).unwrap(), 13, "take does not consume — only done/failed change state");
+    }
+}
+
+/// Remember a folder for the batched EXPUNGE, across restarts.
+pub fn expunge_merken(conn: &Connection, account_id: i64, folder: &str) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO expunge_offen (account_id, folder) VALUES (?1, ?2)",
+        params![account_id, folder],
+    )?;
+    Ok(())
+}
+
+/// All folders still waiting for their EXPUNGE.
+pub fn expunge_liste(conn: &Connection) -> Result<Vec<(i64, String)>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT account_id, folder FROM expunge_offen")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// The folder's EXPUNGE ran.
+pub fn expunge_erledigt(conn: &Connection, account_id: i64, folder: &str) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM expunge_offen WHERE account_id = ?1 AND folder = ?2",
+        params![account_id, folder],
+    )?;
+    Ok(())
+}
+
+/// Mails the provider still has although the user deleted them: provider
+/// ops and delete-queue rows that gave up after five attempts.
+pub fn geloescht_gescheitert(conn: &Connection) -> Result<i64, rusqlite::Error> {
+    let ops: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM provider_ops WHERE kind IN ('delete', 'move', 'delete_mid', 'move_mid') AND state = 'failed' AND attempts >= 5",
+        [],
+        |r| r.get(0),
+    )?;
+    let queue: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM delete_queue WHERE state = 'failed' AND attempts >= 5",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(ops + queue)
+}
+
+/// Try the given-up provider deletions again from the start.
+pub fn geloescht_erneut(conn: &Connection) -> Result<usize, rusqlite::Error> {
+    let a = conn.execute(
+        "UPDATE provider_ops SET state = 'pending', attempts = 0, updated_at = datetime('now')
+         WHERE kind IN ('delete', 'move', 'delete_mid', 'move_mid') AND state = 'failed'",
+        [],
+    )?;
+    let b = conn.execute(
+        "UPDATE delete_queue SET state = 'pending', attempts = 0, updated_at = datetime('now')
+         WHERE state = 'failed'",
+        [],
+    )?;
+    Ok(a + b)
+}
+
+#[cfg(test)]
+mod loesch_tests {
+    use super::*;
+
+    #[test]
+    fn expunge_list_survives_and_clears() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        expunge_merken(&conn, 1, "INBOX").unwrap();
+        expunge_merken(&conn, 1, "INBOX").unwrap();
+        expunge_merken(&conn, 2, "Archiv").unwrap();
+        let mut l = expunge_liste(&conn).unwrap();
+        l.sort();
+        assert_eq!(l, vec![(1, "INBOX".to_string()), (2, "Archiv".to_string())]);
+        expunge_erledigt(&conn, 1, "INBOX").unwrap();
+        assert_eq!(expunge_liste(&conn).unwrap(), vec![(2, "Archiv".to_string())]);
+    }
+
+    #[test]
+    fn given_up_deletes_count_and_retry() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::cache::db::init_db(&conn).unwrap();
+        let id = enqueue_delete(&conn, 1, 7, "INBOX").unwrap();
+        enqueue_aus_papierkorb(&conn, 1, "<a@b>").unwrap();
+        for _ in 0..5 {
+            mark_failed(&conn, id, "boom").unwrap();
+        }
+        assert_eq!(geloescht_gescheitert(&conn).unwrap(), 1);
+        assert_eq!(geloescht_erneut(&conn).unwrap(), 1);
+        assert_eq!(geloescht_gescheitert(&conn).unwrap(), 0);
+        assert_eq!(take_pending_for_account(&conn, 1, 10).unwrap().len(), 2);
     }
 }
