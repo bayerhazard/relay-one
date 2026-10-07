@@ -47,6 +47,12 @@ import {
   import { isDark, tokenValue } from "$lib/stores/appearance";
 
   let listWidth = $state(380);
+  // The header follows the columns below it (Kai, 7.10.2026): the shell
+  // reads the list's width to make the search exactly as wide.
+  $effect(() => {
+    document.documentElement.style.setProperty("--relay-liste-breite", `${listWidth}px`);
+    return () => document.documentElement.style.removeProperty("--relay-liste-breite");
+  });
   let showCompose = $state(false);
 
   // ─── Responsive layout ────────────────────────────────────
