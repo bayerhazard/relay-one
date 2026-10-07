@@ -2838,9 +2838,6 @@ let sentFolderName = $state<string | null>(null);
     const leaf = getLeafName(selectedFolder, folderDelimiters[selectedFolder] || ".");
     return customFolderNames[leaf] || $t(translateFolder(leaf));
   });
-  let ordnerUngelesen = $derived(
-    !searchActive && selectedFolder === "INBOX" ? (unreadByAccount[selectedAccountId] ?? 0) : 0
-  );
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -2946,7 +2943,7 @@ let sentFolderName = $state<string | null>(null);
               {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten([msg.uid]), "!")}
             {/if}
             {#if deleteIsRecoverable()}
-              {@render zeichen("loeschen", $t("mail.inPapierkorb"), () => handleDeleteMessage(msg.uid), "⌫")}
+              {@render zeichen("loeschen", $t("mail.inPapierkorb"), () => handleDeleteMessage(msg.uid), $t("mail.tasteEntf"))}
             {:else}
               <!-- Final: red, with its object and a question (CI G2). -->
               <button type="button" class="btn btn-gefahr btn-klein" onclick={() => handleDeleteMessage(msg.uid)}>
@@ -3207,9 +3204,6 @@ let sentFolderName = $state<string | null>(null);
       <div class="seitenkopf mail-kopf">
         <div class="seitenkopf-zeile">
           <h1>{ordnerTitel}</h1>
-          {#if ordnerUngelesen > 0}
-            <span class="seitenkopf-zahl" title={$t("mail.unreadCount", { count: ordnerUngelesen })}>{ordnerUngelesen}</span>
-          {/if}
         </div>
         <div class="btn-reihe">
           <button
@@ -3252,7 +3246,7 @@ let sentFolderName = $state<string | null>(null);
               {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten(), "!")}
             {/if}
             {#if deleteIsRecoverable()}
-              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, "⌫")}
+              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, $t("mail.tasteEntf"))}
             {:else}
               <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected}>
                 {$t("mail.deleteFinalN")}
@@ -3592,6 +3586,9 @@ let sentFolderName = $state<string | null>(null);
   .mail-spalte :global(.tree-row.active) {
     background: none;
     box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+    /* Straight edge: round only on the right, as AM-HUELLE does — with
+       all four corners round the edge bends into a bracket. */
+    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
     color: var(--am-text-primaer);
     font-weight: 600;
   }
@@ -3677,11 +3674,22 @@ let sentFolderName = $state<string | null>(null);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* A column head, not a page head (Kai, 07.10.2026): one band of the
+     header's height beside the column and the reading pane, everything on
+     its middle line, the folder at 20 px instead of the page title's 28. */
   .mail-kopf {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--am-raum-2);
+    box-sizing: border-box;
+    height: var(--am-leistenhoehe);
+    min-height: 0;
+    padding-block: 0;
+  }
+  .mail-kopf h1 {
+    font-size: 1.25rem;
+    line-height: 1.3;
   }
   .mail-kopf .btn-reihe {
     flex-shrink: 0;
@@ -3690,9 +3698,11 @@ let sentFolderName = $state<string | null>(null);
     margin: 0;
   }
   .mail-kopf .mail-neu-kopf { margin-left: var(--am-raum-2); }
+  /* Centred on the same line as the list head and the reading pane's head:
+     the column starts 16 px lower, the band is 56 px high. */
   .mail-neu-spalte {
     width: calc(100% - 2 * var(--am-raum-4));
-    margin: 0 var(--am-raum-4) var(--am-raum-3);
+    margin: calc(-1 * var(--am-raum-2) - 1px) var(--am-raum-4) var(--am-raum-4);
     justify-content: center;
   }
   @media (min-width: 1024px) {
@@ -3707,7 +3717,7 @@ let sentFolderName = $state<string | null>(null);
     .mail-neu-wort { display: none; }
   }
   @media (max-width: 40rem) {
-    .mail-kopf { padding: var(--am-raum-3) var(--am-raum-4); }
+    .mail-kopf { padding: 0 var(--am-raum-4); }
   }
   .selection-toolbar {
     display: flex;
@@ -3766,6 +3776,7 @@ let sentFolderName = $state<string | null>(null);
     font-weight: 600;
     color: var(--am-text-primaer);
     box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
   }
   .mail-aufraeumen.aktiv :global(svg) { color: var(--am-gold-beschriftung); }
   .mail-aufraeumen:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
@@ -3799,7 +3810,7 @@ let sentFolderName = $state<string | null>(null);
      reading pane, a third button such as "Abo beenden"). */
   .preview-pane-header {
     min-height: var(--am-leistenhoehe);
-    padding: var(--am-raum-2) 24px;
+    padding: 6px 24px;
     display: flex;
     flex-wrap: wrap;
     gap: var(--am-raum-2) var(--am-raum-4);

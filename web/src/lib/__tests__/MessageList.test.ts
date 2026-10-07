@@ -78,7 +78,7 @@ describe("MessageList", () => {
       expect(screen.getByRole("menu")).toBeTruthy();
       expect(screen.getByRole("menuitem", { name: "Antworten" })).toBeTruthy();
       expect(screen.getByRole("menuitem", { name: "Weiterleiten" })).toBeTruthy();
-      expect(screen.getByRole("menuitem", { name: "Mail löschen" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "In den Papierkorb" })).toBeTruthy();
     });
 
     it("closes the context menu on outside click", async () => {
@@ -95,7 +95,7 @@ describe("MessageList", () => {
       render(MessageList, { ...defaultProps, ondelete, messages: [makeMessage({ uid: 99 })] });
 
       await fireEvent.contextMenu(getFirstItem());
-      await fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }));
+      await fireEvent.click(screen.getByRole("menuitem", { name: "In den Papierkorb" }));
 
       expect(ondelete).toHaveBeenCalledOnce();
       expect(ondelete).toHaveBeenCalledWith(99, [99]);
@@ -105,7 +105,7 @@ describe("MessageList", () => {
       render(MessageList, { ...defaultProps, ondelete: undefined });
 
       await fireEvent.contextMenu(getFirstItem());
-      expect(() => fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }))).not.toThrow();
+      expect(() => fireEvent.click(screen.getByRole("menuitem", { name: "In den Papierkorb" }))).not.toThrow();
     });
 
     it("triggers onreply callback with correct uid when reply is clicked", async () => {
