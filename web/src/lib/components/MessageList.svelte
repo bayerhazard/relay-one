@@ -236,6 +236,7 @@
     const oben = idx * itemHeight;
     const unten = oben + itemHeight;
     const sicht = scrollElement.clientHeight;
+    if (sicht <= 0) return; // not laid out (hidden, or a test without layout)
     if (oben < scrollElement.scrollTop) scrollElement.scrollTop = oben;
     else if (unten > scrollElement.scrollTop + sicht) scrollElement.scrollTop = unten - sicht;
   });

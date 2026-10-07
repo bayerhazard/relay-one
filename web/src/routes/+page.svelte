@@ -2382,9 +2382,8 @@ let sentFolderName = $state<string | null>(null);
   // data currently in the store: during a folder switch the UI label changes
   // BEFORE the new list arrives, and uid is only unique per folder — showing
   // the stale row would display the previous folder's mail under the new one.
-  // With several mails selected the reading pane shows the count, not one.
   let selectedMessage = $derived(
-    $mailbox.lastClickedUid != null && $mailbox.selectedUids.length <= 1 &&
+    $mailbox.lastClickedUid != null &&
       $mailbox.folderId === $mailbox.messagesFolder
       ? $mailbox.messages.find((msg) => msg.uid === $mailbox.lastClickedUid) ?? null
       : null
@@ -2956,7 +2955,9 @@ let sentFolderName = $state<string | null>(null);
       prefill={assistantCompose}
       initialAttachments={draftInitialAttachments}
     />
-  {:else if selectedMessage}
+  {:else if selectedMessage && $mailbox.selectedUids.length <= 1}
+    <!-- With several mails selected the pane shows the count (below), not
+         one of them; selectedMessage itself stays, an effect relies on it. -->
     {@const msg = selectedMessage}
     {@const imSpam = istSpamOrdner(selectedFolder)}
     <div class="preview-layout">
