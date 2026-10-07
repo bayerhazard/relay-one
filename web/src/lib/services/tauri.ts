@@ -323,6 +323,75 @@ export async function searchMessages(
   return get(`/messages/search?${q}`, "Die Suche konnte nicht durchgeführt werden.");
 }
 
+// ─── Aufräumen (clean-up) ──────────────────────────────────
+// Every action only moves; the server takes at most 500 uids per call.
+
+export const STAPEL_MAX = 500;
+
+export async function moveMessagesBatch(
+  accountId: number,
+  uids: number[],
+  sourceFolder: string,
+  targetFolder: string,
+  rawSourceFolder?: string,
+  rawTargetFolder?: string,
+): Promise<{ verschoben: number; fehler: number }> {
+  return post("/messages/move-batch", {
+    account_id: accountId,
+    uids,
+    source_folder: sourceFolder,
+    target_folder: targetFolder,
+    raw_source_folder: rawSourceFolder ?? "",
+    raw_target_folder: rawTargetFolder ?? "",
+  }, "Die Mails konnten nicht verschoben werden.");
+}
+
+export interface Absender {
+  adresse: string;
+  name: string;
+  anzahl: number;
+  ungelesen: number;
+  neueste: string | null;
+  uids: number[];
+}
+
+export async function getSenders(accountId: number, folder: string): Promise<Absender[]> {
+  const q = new URLSearchParams({ account_id: String(accountId), folder });
+  return get(`/messages/senders?${q}`, "Die Absender konnten nicht geladen werden.");
+}
+
+export async function getAufraeumen(): Promise<boolean> {
+  return get("/settings/aufraeumen", "Die Einstellung konnte nicht geladen werden.");
+}
+
+export async function setAufraeumen(an: boolean): Promise<void> {
+  return post("/settings/aufraeumen", an, "Die Einstellung konnte nicht gespeichert werden.");
+}
+
+// ─── Abo beenden (List-Unsubscribe) ────────────────────────
+// The server reads the header itself; the browser only names the mail.
+
+export type AbmeldeArt = "ein_klick" | "mail" | "link";
+
+export async function getUnsubscribeOffer(
+  accountId: number,
+  uid: number,
+  folder?: string,
+): Promise<{ art: AbmeldeArt | null; ziel: string | null }> {
+  const q = new URLSearchParams({ account_id: String(accountId), uid: String(uid) });
+  if (folder) q.set("folder", folder);
+  return get(`/messages/unsubscribe?${q}`, "Die Abmeldung konnte nicht geprüft werden.");
+}
+
+export async function unsubscribe(
+  accountId: number,
+  uid: number,
+  folder?: string,
+): Promise<{ ok: boolean; art: AbmeldeArt; ziel: string | null; url: string | null }> {
+  return post("/messages/unsubscribe", { account_id: accountId, uid, folder },
+    "Das Abo konnte nicht beendet werden.");
+}
+
 export async function fetchRawMessage(
    accountId: number,
    uid: number,

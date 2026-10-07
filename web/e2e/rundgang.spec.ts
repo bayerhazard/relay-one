@@ -166,3 +166,103 @@ test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page })
     expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
   }
 });
+
+// "Abo beenden" (List-Unsubscribe): only where the sender offers it. The test
+// server's newsletter names a one-click address that does not resolve, so
+// Relay falls back to the unsubscribe mail, which the test server accepts.
+test("Abo beenden am Newsletter", async ({ page, context }) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem("relay_onboarding_done", "1");
+    } catch {
+      /* sandboxed frame */
+    }
+  });
+  await page.goto("/");
+  await page.locator(".message-item").first().waitFor();
+  const knopf = page.getByRole("button", { name: "Abo beenden" });
+  await page.locator(".message-item", { hasText: "Newsletter Stadtwerke" }).click();
+  await expect(knopf).toBeVisible();
+  await knopf.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("stadtwerke.example");
+  await expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Abo beenden" }).click();
+  await expect(page.getByRole("status")).toContainText("abmelden@stadtwerke.example");
+
+  // A mail without List-Unsubscribe gets no button (fresh list: on the phone
+  // the reading view covers it).
+  await page.goto("/");
+  await page.locator(".message-item", { hasText: "Jonas Weber" }).first().click();
+  await page.waitForTimeout(1000);
+  await expect(knopf, "kein Knopf an einer Mail ohne List-Unsubscribe").toHaveCount(0);
+});
+
+// Aufräumen (Kai, 7.10.2026). Every batch is undone again, so the dummy data
+// stays the same for the other tests.
+test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Mehrfachauswahl mit Strg-Klick");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const vorher = await zeilen.count();
+  await zeilen.nth(1).click();
+  await zeilen.nth(2).click({ modifiers: ["Control"] });
+  await page.locator(".selection-toolbar").getByRole("button", { name: "Archivieren", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("2 Mails ins Archiv verschoben");
+  await expect(zeilen).toHaveCount(vorher - 2);
+  await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+  await expect(zeilen).toHaveCount(vorher);
+});
+
+test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request }) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  const schalter = await request.post("/api/v1/settings/aufraeumen", { data: true });
+  expect(schalter.ok()).toBeTruthy();
+  try {
+    await page.goto("/");
+    await page.locator(".message-item").first().waitFor();
+    const spalte = page.locator("#relay-spalte");
+    if (!(await spalte.isVisible())) await page.getByRole("button", { name: "Spalte öffnen" }).click();
+    await spalte.getByRole("button", { name: "Aufräumen" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Aufräumen" })).toBeVisible();
+
+    // Jonas Weber wrote twice: archive both, then take it back.
+    const zeile = page.locator(".aufraeumen-zeile", { hasText: "jonas.weber@beispiel.de" });
+    await zeile.getByRole("button", { name: "Alle 2 archivieren" }).click();
+    await expect(page.getByRole("status")).toContainText("2 Mails ins Archiv verschoben");
+    await expect(zeile).toHaveCount(0);
+    await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+    await expect(page.locator(".aufraeumen-zeile", { hasText: "jonas.weber@beispiel.de" })).toBeVisible();
+    // The newsletter offers "Abo beenden" here too.
+    await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })
+      .getByRole("button", { name: "Abo beenden" })).toBeVisible();
+
+    const ueberlauf = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(ueberlauf, "Seite breiter als der Bildschirm").toBeLessThanOrEqual(1);
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(axe.violations.filter((v) => v.impact === "critical" || v.impact === "serious").map((v) => v.id)).toEqual([]);
+
+    // Durchgehen: one mail at a time, keys included.
+    await page.getByRole("button", { name: "Durchgehen" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Durchgehen" })).toBeVisible();
+    await expect(page.locator(".seitenkopf-zahl")).toHaveText(/^1 von \d+$/);
+    await page.getByRole("button", { name: "Behalten" }).click();
+    await expect(page.locator(".seitenkopf-zahl")).toHaveText(/^2 von \d+$/);
+    await page.keyboard.press("e");
+    await expect(page.getByRole("status")).toContainText("Mail ins Archiv verschoben");
+    await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+    await page.getByRole("button", { name: "Beenden" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Aufräumen" })).toBeVisible();
+  } finally {
+    await request.post("/api/v1/settings/aufraeumen", { data: false });
+  }
+});

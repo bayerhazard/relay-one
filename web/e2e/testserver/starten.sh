@@ -20,10 +20,14 @@ mkdir -p "$LAUF"
 # GreenMail: one jar from Maven Central, cached in $LAUF.
 JAR="$LAUF/greenmail-standalone-$GREENMAIL_VERSION.jar"
 if [ ! -f "$JAR" ]; then
-  url="https://repo1.maven.org/maven2/com/icegreen/greenmail-standalone/$GREENMAIL_VERSION/greenmail-standalone-$GREENMAIL_VERSION.jar"
-  for i in 1 2 3 4; do
-    curl -sSfL -o "$JAR.tmp" "$url" && mv "$JAR.tmp" "$JAR" && break
-    sleep $((i * 4))
+  # Maven Central's CDN answers 404/429 now and then — try its mirrors in
+  # turn (release.yml's tour once failed on a single 404 burst).
+  pfad="com/icegreen/greenmail-standalone/$GREENMAIL_VERSION/greenmail-standalone-$GREENMAIL_VERSION.jar"
+  for runde in 1 2 3; do
+    for basis in https://repo1.maven.org/maven2 https://repo.maven.apache.org/maven2 https://maven-central.storage-download.googleapis.com/maven2; do
+      curl -sSfL -o "$JAR.tmp" "$basis/$pfad" && mv "$JAR.tmp" "$JAR" && break 2
+    done
+    sleep $((runde * 5))
   done
   [ -f "$JAR" ] || { echo "GreenMail konnte nicht geladen werden." >&2; exit 1; }
 fi

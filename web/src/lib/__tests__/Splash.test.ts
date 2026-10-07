@@ -48,6 +48,10 @@ vi.mock("$lib/services/tauri", () => ({
   saveDraft: vi.fn(),
   discardDraft: vi.fn(),
   openEventStream: vi.fn(() => null),
+  getAufraeumen: vi.fn().mockResolvedValue(false),
+  getUnsubscribeOffer: vi.fn().mockResolvedValue({}),
+  moveMessagesBatch: vi.fn().mockResolvedValue({ verschoben: 0, fehler: 0 }),
+  STAPEL_MAX: 500,
 }));
 
 // Mock Svelte transition and others if needed

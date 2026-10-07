@@ -637,6 +637,26 @@ impl ImapClient {
         self.fetch_raw_message_in_folder(uid, None).await
     }
 
+    /// Only the header block of a message (`BODY.PEEK[HEADER]`, no body, no
+    /// \Seen flag) — for header fields such as List-Unsubscribe.
+    pub async fn fetch_header(&self, uid: u32, folder: Option<String>) -> Result<Vec<u8>, AppError> {
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "fetch_header", move |session| {
+            if let Some(f) = &folder {
+                ensure_selected(session, &tracker, f)?;
+            }
+            let msgs = session
+                .uid_fetch(uid.to_string(), "(BODY.PEEK[HEADER])")
+                .map_err(|e| AppError::imap(e.to_string(), "fetch_header"))?;
+            let msg = msgs
+                .iter()
+                .next()
+                .ok_or(AppError::not_found("Nachricht nicht gefunden", "fetch_header"))?;
+            Ok(msg.header().unwrap_or(b"").to_vec())
+        })
+        .await
+    }
+
     /// Fetch raw message with optional folder selection.
     pub async fn fetch_raw_message_in_folder(&self, uid: u32, folder: Option<String>) -> Result<String, AppError> {
         self.with_session_blocking("fetch_raw_message", move |session| {

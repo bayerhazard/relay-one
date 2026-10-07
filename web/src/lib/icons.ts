@@ -25,6 +25,7 @@ const NAMES: Record<string, SymbolName> = {
   rename: "bearbeiten",
   reply: "antworten",
   resetName: "neu-laden",
+  select: "aufgabe",
   sent: "senden",
   show: "anzeigen",
   starred: "standard",

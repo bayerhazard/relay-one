@@ -196,7 +196,7 @@ describe("Mailbox Page - Neue Nachricht (Bug 2)", () => {
 
   it("opens compose with empty An: field when clicking new mail button", async () => {
     await renderPageWithAccount();
-    await fireEvent.click(screen.getByTitle("Neue E-Mail (Strg+N / Cmd+N)"));
+    await fireEvent.click(screen.getAllByTitle("Neue E-Mail (Strg+N / Cmd+N)")[0]);
     expect(screen.getByText("Neue Nachricht")).toBeTruthy();
     const toInput = screen.getByPlaceholderText("Name oder E-Mail-Adresse") as HTMLInputElement;
     expect(toInput.value).toBe("");
@@ -204,7 +204,7 @@ describe("Mailbox Page - Neue Nachricht (Bug 2)", () => {
 
   it("opens compose with empty Betreff field for new mail", async () => {
     await renderPageWithAccount();
-    await fireEvent.click(screen.getByTitle("Neue E-Mail (Strg+N / Cmd+N)"));
+    await fireEvent.click(screen.getAllByTitle("Neue E-Mail (Strg+N / Cmd+N)")[0]);
     const subjectInput = screen.getByPlaceholderText("Betreff") as HTMLInputElement;
     expect(subjectInput.value).toBe("");
   });
@@ -222,11 +222,15 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3, CI RL-R2)", () => {
     vi.useRealTimers();
   });
 
+  // The trash is a sign named "In den Papierkorb"; with the trash off the
+  // final delete is a word, "Mail endgültig löschen" (CI G2/G4).
+  const LOESCHEN = /^(In den Papierkorb|Mail endgültig löschen)$/;
+
   async function clickDeleteButton() {
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Mail löschen" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: LOESCHEN })).toBeTruthy();
     });
-    await fireEvent.click(screen.getByRole("button", { name: "Mail löschen" }));
+    await fireEvent.click(screen.getByRole("button", { name: LOESCHEN }));
   }
 
   function getDialog() {
@@ -310,7 +314,7 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3, CI RL-R2)", () => {
 
   it("does not render delete button when no message is selected", async () => {
     await renderPageWithAccount(true, null);
-    expect(screen.queryByRole("button", { name: "Mail löschen" })).toBeNull();
+    expect(screen.queryByRole("button", { name: LOESCHEN })).toBeNull();
   });
 
   it("shows empty-state hint when no message is selected", async () => {
@@ -400,7 +404,7 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
     await rightClickRow("Erste Mail", [101, 102]);
     // To the trash: no question; the move runs after the undo window (RL-R2).
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }));
+    await fireEvent.click(screen.getByRole("menuitem", { name: "In den Papierkorb" }));
     vi.advanceTimersByTime(5000);
     vi.useRealTimers();
     await waitFor(() => {
@@ -415,7 +419,7 @@ describe("Kontextmenü Mail-Zeile — Multiselektion (Regression 26.9.135)", () 
     await rightClickRow("Dritte Mail", [101]);
     // To the trash: no question; the move runs after the undo window (RL-R2).
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Mail löschen" }));
+    await fireEvent.click(screen.getByRole("menuitem", { name: "In den Papierkorb" }));
     vi.advanceTimersByTime(5000);
     vi.useRealTimers();
     await waitFor(() => {
@@ -499,9 +503,11 @@ describe("reply buttons at the mail", () => {
     expect(screen.queryByRole("button", { name: "Allen antworten" })).toBeNull();
   });
 
-  it("offers Allen antworten next to Antworten with several recipients", async () => {
+  it("offers Allen antworten under Mehr with several recipients", async () => {
     await renderPageWithAccount(true, 42, [{ ...testMessage, to: "Ich <test@example.com>, Anna <anna@example.com>", cc: "Ben <ben@example.com>" }]);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Allen antworten" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mehr" })).toBeTruthy());
     expect(screen.getByRole("button", { name: "Antworten" })).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "Mehr" }));
+    expect(screen.getByRole("menuitem", { name: "Allen antworten" })).toBeTruthy();
   });
 });

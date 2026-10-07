@@ -10,6 +10,9 @@
       onconfirm: () => void;
       oncancel: () => void;
       danger?: boolean;
+      /** Enter confirms. Off for anything that cannot be taken back, also when
+       * it is not red (e.g. "Abo beenden"): Enter then activates the focus. */
+      enterConfirms?: boolean;
     }
 
     let {
@@ -21,13 +24,14 @@
       onconfirm,
       oncancel,
       danger = false,
+      enterConfirms = !danger,
     }: Props = $props();
 
     function handleKeydown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         oncancel();
-      } else if (e.key === "Enter" && !danger) {
+      } else if (e.key === "Enter" && enterConfirms) {
         // A destructive question must not confirm on Enter: focus starts on
         // "Abbrechen" (CI HB-DIALOG), so Enter activates whatever is focused.
         e.preventDefault();

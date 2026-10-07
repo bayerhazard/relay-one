@@ -6,6 +6,7 @@
 pub mod accounts;
 pub mod ai;
 pub mod attachments;
+pub mod aufraeumen;
 pub mod backup;
 pub mod calendars;
 pub mod contacts;
@@ -25,6 +26,7 @@ pub mod quick_add;
 pub mod send;
 pub mod settings;
 pub mod todos;
+pub mod unsubscribe;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -80,6 +82,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/messages/body", get(messages::fetch_message_body))
         .route("/messages/reparse", post(messages::reparse_eml_bodies))
         .route("/messages/raw", get(messages::fetch_raw_message))
+        .route("/messages/unsubscribe", get(unsubscribe::angebot).post(unsubscribe::abmelden))
         .route("/messages/attachments", get(messages::fetch_attachments))
         .route("/messages/attachment", get(messages::fetch_attachment_content))
         .route("/messages/read", post(messages::mark_as_read))
@@ -91,6 +94,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/messages/move-cross-account", post(messages::move_cross_account))
         .route("/messages/delete", post(messages::delete_message))
         .route("/messages/move", post(messages::move_message))
+        .route("/messages/move-batch", post(aufraeumen::stapel_verschieben))
+        .route("/messages/senders", get(aufraeumen::absender))
+        .route("/settings/aufraeumen", get(aufraeumen::get_schalter).post(aufraeumen::set_schalter))
         // Drafts (local)
         .route("/draft/save", post(send::save_draft))
         .route("/draft/discard", post(send::discard_draft))
