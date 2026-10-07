@@ -40,6 +40,20 @@ describe("MessageList", () => {
     expect(screen.getByText("Test Betreff")).toBeTruthy();
   });
 
+  // Row states (Kai, 7.10.2026, variant C): one means per state.
+  it("marks an unread mail with a named dot, a read one without", () => {
+    const messages = [makeMessage({ uid: 1, is_read: false, subject: "Neu" }), makeMessage({ uid: 2, subject: "Alt" })];
+    const { container } = render(MessageList, { ...defaultProps, messages });
+    expect(screen.getAllByRole("img", { name: "Ungelesen" })).toHaveLength(1);
+    expect(container.querySelectorAll(".ungelesen-punkt")).toHaveLength(1);
+  });
+
+  it("shows urgency as the word Dringend before the subject", () => {
+    const messages = [makeMessage({ uid: 1, is_urgent: true } as never)];
+    render(MessageList, { ...defaultProps, messages });
+    expect(screen.getByText("Dringend")).toBeTruthy();
+  });
+
   it("renders multiple messages", () => {
     const messages = [
       makeMessage({ uid: 1, subject: "Erste" }),
