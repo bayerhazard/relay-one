@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 /**
  * Kennungen in the CSS (CI ABGLEICH RL-K, Etappe 4; after Rocket's and
  * Insilo's globals.css). Guarded here:
- * - every CI building block Relay carries (web/ci/bauteile/) stands in
- *   styles/global.css word for word — the CI is the source, never edit it here;
+ * - every CI building block global.css names stands there word for word as
+ *   in the CI copy (web/ci/bauteile/) — the CI is the source, never edit it
+ *   here; which blocks Relay carries is pinned in ci-stand.test.ts;
  * - every section header in global.css names a Kennung;
  * - every component's <style> starts with a section header naming an RL-
  *   Kennung, and components never claim AM-/HB- (those live in global.css).
@@ -46,17 +47,14 @@ function style(path: string): string | null {
   return m ? m[1] : null;
 }
 
+// The AM-/HB- blocks global.css carries (its section headers name them).
+const GETRAGEN = [...new Set([...GLOBAL.matchAll(/\/\* ── [^\n]*\[((?:AM|HB)-[A-Z]+)\]/g)].map((m) => m[1]))]
+  .filter((k) => k !== "AM-TOKEN")
+  .sort();
+
 describe("Kennungen", () => {
-  const bloecke = readdirSync(BAUTEILE).filter((n) => n.endsWith(".css"));
-
-  it("carries at least the blocks of Etappe 4", () => {
-    expect(bloecke.map((n) => n.replace(".css", "")).sort()).toEqual(
-      expect.arrayContaining(["AM-BASIS", "AM-FELD", "AM-HAKEN", "AM-KARTE", "AM-KNOPF", "AM-LEER", "HB-DIALOG", "HB-SYMBOL", "HB-ZUSTAND"]),
-    );
-  });
-
-  it.each(bloecke)("%s stands in global.css word for word", (name) => {
-    const text = readFileSync(join(BAUTEILE, name), "utf8");
+  it.each(GETRAGEN)("%s stands in global.css word for word", (kennung) => {
+    const text = readFileSync(join(BAUTEILE, `${kennung}.css`), "utf8");
     expect(text.startsWith(GENERIERT)).toBe(true);
     const block = text.slice(GENERIERT.length).replace(/^\n+|\n+$/g, "");
     expect(GLOBAL.includes(block)).toBe(true);
