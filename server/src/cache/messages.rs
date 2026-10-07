@@ -1238,20 +1238,85 @@ pub fn delete_local_folder(
     Ok(deleted)
 }
 
-/// Build a safe FTS5 MATCH expression from free user input.
-/// Each whitespace-separated term becomes a quoted prefix query, ANDed
-/// together. Quoting neutralises FTS5 operators so arbitrary input cannot
-/// break the query or inject syntax. Returns None if there is no usable term.
-fn build_fts_query(raw: &str) -> Option<String> {
-    let terms: Vec<String> = raw
-        .split_whitespace()
-        .filter_map(|t| {
-            // `is:flagged` is a search operator, not an FTS term.
-            if t.eq_ignore_ascii_case("is:flagged") || t.eq_ignore_ascii_case("is:flag") {
-                return None;
+/// A search query taken apart: free words for the full-text index and the
+/// operators that filter by metadata.
+///
+/// Operators (Kai, 7.10.2026, "Ähnliche E-Mails"): `is:flagged`,
+/// `von:<address>` (also `from:`), `domain:<domain>` and `betreff:<text>`
+/// (also `subject:`). A value may be quoted: `betreff:"Ihr Einkauf bei"`.
+#[derive(Debug, Default, PartialEq)]
+pub struct Suchanfrage {
+    pub woerter: Vec<String>,
+    pub markiert: bool,
+    pub von: Option<String>,
+    pub domain: Option<String>,
+    pub betreff: Option<String>,
+}
+
+impl Suchanfrage {
+    pub fn lesen(raw: &str) -> Self {
+        let mut a = Suchanfrage::default();
+        let zeichen: Vec<char> = raw.chars().collect();
+        let mut i = 0;
+        while i < zeichen.len() {
+            if zeichen[i].is_whitespace() {
+                i += 1;
+                continue;
             }
-            // Strip characters that are meaningless inside a quoted token and
-            // escape embedded double quotes per FTS5 rules ("" = literal ").
+            // One token: up to the next blank outside quotes.
+            let mut wort = String::new();
+            let mut in_zitat = false;
+            while i < zeichen.len() && (in_zitat || !zeichen[i].is_whitespace()) {
+                if zeichen[i] == '"' {
+                    in_zitat = !in_zitat;
+                } else {
+                    wort.push(zeichen[i]);
+                }
+                i += 1;
+            }
+            let klein = wort.to_lowercase();
+            if klein == "is:flagged" || klein == "is:flag" {
+                a.markiert = true;
+                continue;
+            }
+            let wert = |praefix: &str| -> Option<String> {
+                klein.strip_prefix(praefix)?;
+                wort.get(praefix.len()..).map(|v| v.trim().to_string())
+            };
+            if let Some(v) = wert("von:").or_else(|| wert("from:")) {
+                if !v.is_empty() { a.von = Some(v.to_lowercase()); }
+                continue;
+            }
+            if let Some(v) = wert("domain:") {
+                let v = v.trim_start_matches('@').to_lowercase();
+                if !v.is_empty() { a.domain = Some(v); }
+                continue;
+            }
+            if let Some(v) = wert("betreff:").or_else(|| wert("subject:")) {
+                if !v.is_empty() { a.betreff = Some(v); }
+                continue;
+            }
+            if !wort.is_empty() {
+                a.woerter.push(wort);
+            }
+        }
+        a
+    }
+
+    fn hat_filter(&self) -> bool {
+        self.markiert || self.von.is_some() || self.domain.is_some() || self.betreff.is_some()
+    }
+}
+
+/// Build a safe FTS5 MATCH expression from the free words.
+/// Each word becomes a quoted prefix query, ANDed together. Quoting
+/// neutralises FTS5 operators so arbitrary input cannot break the query or
+/// inject syntax. Returns None if there is no usable term.
+fn build_fts_query(woerter: &[String]) -> Option<String> {
+    let terms: Vec<String> = woerter
+        .iter()
+        .filter_map(|t| {
+            // Escape embedded double quotes per FTS5 rules ("" = literal ").
             let cleaned = t.replace('"', "\"\"");
             let cleaned = cleaned.trim();
             if cleaned.is_empty() {
@@ -1268,10 +1333,9 @@ fn build_fts_query(raw: &str) -> Option<String> {
     }
 }
 
-/// Does the query contain the `is:flagged` operator?
-fn query_has_flag_operator(raw: &str) -> bool {
-    raw.split_whitespace()
-        .any(|t| t.eq_ignore_ascii_case("is:flagged") || t.eq_ignore_ascii_case("is:flag"))
+/// A LIKE pattern piece with `%`, `_` and `\` taken literally (ESCAPE '\').
+fn like_woertlich(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 /// Full-text search over cached messages (subject, sender, recipient, body)
@@ -1282,13 +1346,20 @@ pub fn search_messages(
     query: &str,
     limit: i64,
 ) -> Result<Vec<MessageRecord>, rusqlite::Error> {
-    // `is:flagged` is a metadata filter, not an FTS term: it must be applied
-    // even when the rest of the query has no text terms (e.g. "is:flagged"
-    // alone should return all flagged mail).
-    let flag_only = query_has_flag_operator(query);
-    let fts_terms = build_fts_query(query);
+    search_messages_in(conn, account_id, query, limit, None)
+}
 
-    if fts_terms.is_none() && !flag_only {
+/// As [`search_messages`], within one folder when `folder` is given.
+pub fn search_messages_in(
+    conn: &Connection,
+    account_id: i64,
+    query: &str,
+    limit: i64,
+    folder: Option<&str>,
+) -> Result<Vec<MessageRecord>, rusqlite::Error> {
+    let anfrage = Suchanfrage::lesen(query);
+    let fts_terms = build_fts_query(&anfrage.woerter);
+    if fts_terms.is_none() && !anfrage.hat_filter() {
         return Ok(Vec::new());
     }
 
@@ -1298,22 +1369,53 @@ pub fn search_messages(
                 m.ai_fraud_score, m.is_read, m.is_flagged, m.is_urgent, m.synced, m.has_attachments
          FROM messages m",
     );
-    if let Some(_) = &fts_terms {
+    let mut werte: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    if fts_terms.is_some() {
         sql.push_str(" JOIN messages_fts f ON m.id = f.rowid");
     }
     sql.push_str(" WHERE m.account_id = ?");
-    if let Some(_) = &fts_terms {
+    werte.push(Box::new(account_id));
+    if let Some(expr) = fts_terms {
         sql.push_str(" AND f.messages_fts MATCH ?");
+        werte.push(Box::new(expr));
     }
-    if flag_only {
+    if anfrage.markiert {
         sql.push_str(" AND m.is_flagged = 1");
+    }
+    if let Some(von) = &anfrage.von {
+        // The address alone or in angle brackets: "service@x.de" must not
+        // also find "kundenservice@x.de".
+        sql.push_str(" AND (LOWER(m.from_addr) = ? OR LOWER(m.from_addr) LIKE ? ESCAPE '\\')");
+        werte.push(Box::new(von.clone()));
+        werte.push(Box::new(format!("%<{}>%", like_woertlich(von))));
+    }
+    if let Some(domain) = &anfrage.domain {
+        // The domain and its subdomains (mail.paypal.de), not paypal.de.example.
+        let d = like_woertlich(domain);
+        sql.push_str(
+            " AND (LOWER(m.from_addr) LIKE ? ESCAPE '\\' OR LOWER(m.from_addr) LIKE ? ESCAPE '\\'
+                   OR LOWER(m.from_addr) LIKE ? ESCAPE '\\' OR LOWER(m.from_addr) LIKE ? ESCAPE '\\')",
+        );
+        werte.push(Box::new(format!("%@{}>%", d)));
+        werte.push(Box::new(format!("%@{}", d)));
+        werte.push(Box::new(format!("%.{}>%", d)));
+        werte.push(Box::new(format!("%@%.{}", d)));
+    }
+    if let Some(betreff) = &anfrage.betreff {
+        sql.push_str(" AND m.subject LIKE ? ESCAPE '\\'");
+        werte.push(Box::new(format!("%{}%", like_woertlich(betreff))));
+    }
+    if let Some(name) = folder {
+        sql.push_str(" AND m.folder_id = (SELECT id FROM folders WHERE account_id = ? AND name = ?)");
+        werte.push(Box::new(account_id));
+        werte.push(Box::new(name.to_string()));
     }
     sql.push_str(" AND (m.flags NOT LIKE '%\\\\Deleted%' OR m.flags IS NULL)");
     sql.push_str(" ORDER BY m.date DESC LIMIT ?");
+    werte.push(Box::new(limit));
 
     let mut stmt = conn.prepare(&sql)?;
-
-    let mapper = |row: &rusqlite::Row| {
+    let rows = stmt.query_map(rusqlite::params_from_iter(werte.iter().map(|w| w.as_ref())), |row| {
         Ok(MessageRecord {
             id: row.get(0)?,
             account_id: row.get(1)?,
@@ -1337,12 +1439,7 @@ pub fn search_messages(
             synced: row.get::<_, i32>(18)? != 0,
             has_attachments: row.get::<_, i32>(19)? != 0,
         })
-    };
-
-    let rows = match &fts_terms {
-        Some(match_expr) => stmt.query_map(params![account_id, match_expr, limit], mapper)?,
-        None => stmt.query_map(params![account_id, limit], mapper)?,
-    };
+    })?;
 
     let mut result = Vec::new();
     for row in rows {
@@ -1439,6 +1536,58 @@ mod tests {
             |r| r.get(0),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn suchanfrage_liest_operatoren() {
+        let a = Suchanfrage::lesen(r#"Rechnung von:Service@PayPal.de betreff:"Ihr Einkauf bei" is:flagged"#);
+        assert_eq!(a.woerter, vec!["Rechnung".to_string()]);
+        assert_eq!(a.von.as_deref(), Some("service@paypal.de"));
+        assert_eq!(a.betreff.as_deref(), Some("Ihr Einkauf bei"));
+        assert!(a.markiert);
+        assert_eq!(Suchanfrage::lesen("domain:@paypal.de").domain.as_deref(), Some("paypal.de"));
+        assert_eq!(Suchanfrage::lesen("from:a@b.de").von.as_deref(), Some("a@b.de"));
+        // An empty operator is no filter and no word.
+        assert_eq!(Suchanfrage::lesen("von: "), Suchanfrage::default());
+    }
+
+    fn mail(conn: &Connection, account: i64, folder: i64, uid: i64, from: &str, subject: &str) {
+        conn.execute(
+            "INSERT INTO messages (account_id, folder_id, uid, subject, from_addr, body_text, synced) VALUES (?1, ?2, ?3, ?4, ?5, 'Text', 1)",
+            params![account, folder, uid, subject, from],
+        )
+        .unwrap();
+    }
+
+    fn uids(conn: &Connection, account: i64, q: &str, folder: Option<&str>) -> Vec<i64> {
+        let mut u: Vec<i64> = search_messages_in(conn, account, q, 100, folder).unwrap().iter().map(|m| m.uid).collect();
+        u.sort();
+        u
+    }
+
+    #[test]
+    fn aehnliche_mails_nach_absender_domain_betreff_und_ordner() {
+        let conn = setup_db();
+        let a = create_test_account(&conn);
+        let inbox = insert_folder(&conn, a, "INBOX", false);
+        let archiv = insert_folder(&conn, a, "Archiv", false);
+        mail(&conn, a, inbox, 1, "PayPal <service@paypal.de>", "Ihr Einkauf bei Travelscape");
+        mail(&conn, a, inbox, 2, "service@paypal.de", "Ihr Einkauf bei Shop 2");
+        mail(&conn, a, inbox, 3, "PayPal <noreply@mail.paypal.de>", "Vorabinformationen");
+        mail(&conn, a, inbox, 4, "Kunde <kundenservice@paypal.de>", "Frage");
+        mail(&conn, a, inbox, 5, "Falsch <service@paypal.de.example>", "Ihr Einkauf bei 100%_Shop");
+        mail(&conn, a, archiv, 6, "PayPal <service@paypal.de>", "Ihr Einkauf bei Alt");
+
+        // The address exactly, not kundenservice@ and not another domain.
+        assert_eq!(uids(&conn, a, "von:service@paypal.de", None), vec![1, 2, 6]);
+        // The domain with its subdomains, not paypal.de.example.
+        assert_eq!(uids(&conn, a, "domain:paypal.de", None), vec![1, 2, 3, 4, 6]);
+        assert_eq!(uids(&conn, a, r#"betreff:"Ihr Einkauf bei""#, None), vec![1, 2, 5, 6]);
+        // LIKE signs are literal.
+        assert_eq!(uids(&conn, a, r#"betreff:"100%_""#, None), vec![5]);
+        // Only the open folder.
+        assert_eq!(uids(&conn, a, "von:service@paypal.de", Some("INBOX")), vec![1, 2]);
+        assert_eq!(uids(&conn, a, "von:service@paypal.de", Some("Archiv")), vec![6]);
     }
 
     #[test]

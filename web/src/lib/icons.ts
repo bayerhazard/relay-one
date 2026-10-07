@@ -5,6 +5,7 @@ import { SYMBOLE, type SymbolName, type Symbolgroesse } from "$lib/symbole";
 
 const NAMES: Record<string, SymbolName> = {
   archive: "archiv",
+  back: "zurueck",
   browser: "browser",
   delete: "loeschen",
   download: "herunterladen",
@@ -23,12 +24,14 @@ const NAMES: Record<string, SymbolName> = {
   newSubFolder: "ordner-neu",
   open: "dokument",
   rename: "bearbeiten",
+  search: "suche",
   reply: "antworten",
   resetName: "neu-laden",
   select: "aufgabe",
   sent: "senden",
   show: "anzeigen",
   starred: "standard",
+  submenu: "chevron-rechts",
   trash: "loeschen",
   urgent: "dringend",
 };

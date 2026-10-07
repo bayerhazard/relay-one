@@ -317,9 +317,11 @@ export async function searchMessages(
   accountId: number,
   query: string,
   limit?: number,
+  folder?: string,
 ): Promise<Message[]> {
   const q = new URLSearchParams({ account_id: String(accountId), query });
   if (limit) q.set("limit", String(limit));
+  if (folder) q.set("folder", folder);
   return get(`/messages/search?${q}`, "Die Suche konnte nicht durchgeführt werden.");
 }
 
