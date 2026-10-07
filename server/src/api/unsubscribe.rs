@@ -239,6 +239,13 @@ pub struct AbmeldenAntwort {
     pub url: Option<String>,
 }
 
+/// Fraud score from which the list shows its warning.
+pub const BETRUG_AB: f32 = 0.6;
+
+fn betrug_verdacht(score: f32) -> bool {
+    score > BETRUG_AB
+}
+
 fn ist_spam_ordner(ordner: &str) -> bool {
     let o = ordner.to_lowercase();
     ["spam", "junk", "unerwünscht", "unerwunscht"].iter().any(|s| o.contains(s))
@@ -252,12 +259,17 @@ async fn kopf_holen(state: &AppState, account_id: u32, uid: u32, folder: Option<
         cache::messages::fetch_message_body_with_folder(conn, account_id as i64, uid as i64, folder.as_deref())
             .map_err(|e| e.to_string())
     })?;
-    let (id, ordner) = match &gefunden {
-        Some((m, f)) => (Some(m.id), Some(f.clone())),
-        None => (None, folder.clone()),
+    let (id, ordner, betrug) = match &gefunden {
+        Some((m, f)) => (Some(m.id), Some(f.clone()), m.ai_fraud_score),
+        None => (None, folder.clone(), None),
     };
     if ordner.as_deref().is_some_and(ist_spam_ordner) {
         return Err(ApiError("Aus dem Spam-Ordner meldet Relay nicht ab.".into()));
+    }
+    // The same line as the fraud warning in the list (MessageList.svelte):
+    // for a suspected phishing mail "Spam" is the answer, not a click back.
+    if betrug.is_some_and(betrug_verdacht) {
+        return Err(ApiError("Bei Verdacht auf Betrug meldet Relay nicht ab — verschieben Sie die Mail in den Spam.".into()));
     }
     if let Some(id) = id {
         let raw_path: Option<String> = with_db(state, |conn| {
@@ -399,6 +411,13 @@ mod tests {
         for ip in ["93.184.215.14", "2606:4700::1111"] {
             assert!(!adresse_gesperrt(ip.parse().unwrap()), "{ip} is public");
         }
+    }
+
+    #[test]
+    fn suspected_fraud_gets_no_unsubscribe() {
+        assert!(betrug_verdacht(0.9));
+        assert!(!betrug_verdacht(0.6));
+        assert!(!betrug_verdacht(0.1));
     }
 
     #[test]
