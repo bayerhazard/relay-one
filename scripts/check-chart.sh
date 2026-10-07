@@ -61,8 +61,8 @@ done
 
 echo "→ helm lint und helm template"
 if command -v helm >/dev/null; then
-  helm lint $CHART >/dev/null || melde "helm lint"
-  helm template relay $CHART >/dev/null || melde "helm template"
+  helm lint $CHART -f scripts/olares-werte.yaml >/dev/null || melde "helm lint"
+  helm template relay $CHART -f scripts/olares-werte.yaml >/dev/null || melde "helm template"
 else
   echo "  (kein helm hier — prüft release.yml)"
 fi

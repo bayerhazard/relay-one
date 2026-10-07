@@ -1,0 +1,5 @@
+# What Olares injects into the chart at install time, for helm lint and
+# helm template in scripts/check-chart.sh only (never packaged).
+userspace:
+  appData: /olares/rootfs/userspace/pvc-appdata/relay
+  appCommon: /olares/rootfs/userspace/pvc-appcommon
