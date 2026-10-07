@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
@@ -907,7 +908,7 @@
   <aside class="cal-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="cal-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")}>←</button>
+        <button type="button" class="cal-icon-btn cal-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("calendar.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("calendar.title")} noHover />
     </div>
@@ -973,23 +974,24 @@
                 type="button"
                 class="cal-inv-draft"
                 title={$t("calendar.aiDraft")}
+                aria-label={$t("calendar.aiDraft")}
                 disabled={invDraftBusy}
                 onclick={() => draftRsvp(inv, "ACCEPTED")}
-              >✎</button>
+              ><Symbol name="ai" size={16} /></button>
               <button
                 type="button"
                 class="cal-inv-accept"
                 title={$t("calendar.accept")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "ACCEPTED")}
-              >✓</button>
+              >{$t("calendar.accept")}</button>
               <button
                 type="button"
                 class="cal-inv-decline"
                 title={$t("calendar.decline")}
                 disabled={invBusy !== null}
                 onclick={() => respondToInvitation(inv, "DECLINED")}
-              >✕</button>
+              >{$t("calendar.decline")}</button>
             </div>
           </div>
           {#if invDraft?.uid === inv.event_uid}
@@ -1007,7 +1009,7 @@
         {#each upcoming as ev (evKey(ev))}
           <button type="button" class="cal-upcoming-item" onclick={() => selectEvent(ev)}
                   oncontextmenu={(e) => { e.preventDefault(); evCtx = { x: e.clientX, y: e.clientY, event: ev }; }}>
-            <span class="cal-upcoming-bell" aria-hidden>◷</span>
+            <span class="cal-upcoming-bell"><Symbol name="zeitplan" size={16} /></span>
             <div class="cal-upcoming-info">
               <span class="cal-upcoming-title">{ev.summary ?? $t("calendar.untitled")}</span>
               <span class="cal-upcoming-when">{fmtUpcomingWhen(ev)}</span>
@@ -1043,7 +1045,7 @@
     <header class="cal-toolbar">
       <div class="cal-toolbar-left">
         {#if isNarrow}
-          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+          <button type="button" class="cal-icon-btn cal-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("calendar.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         {/if}
         <h1 class="cal-month">{periodLabel}</h1>
         <button type="button" class="cal-btn cal-btn-ghost cal-nav" onclick={() => shiftPeriod(-1)} aria-label={$t("calendar.prevPeriod")}>‹</button>
@@ -1066,7 +1068,7 @@
           title={syncing ? $t("common.syncing") : $t("common.refresh")}
           aria-label={$t("common.refresh")}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <Symbol name="neu-laden" size={16} />
         </button>
         <button type="button" class="cal-btn cal-btn-primary" onclick={() => openNewEvent()}>{$t("calendar.newEvent")}</button>
       </div>
@@ -1145,7 +1147,7 @@
       <div class="cal-dayview">
         <div class="cal-digest-bar">
           <button type="button" class="cal-btn cal-btn-ghost" disabled={digestBusy} onclick={loadDigest}>
-            {digestBusy ? "…" : $t("calendar.morningDigest")}
+            <Symbol name="ai" size={16} /> {digestBusy ? "…" : $t("calendar.morningDigest")}
           </button>
         </div>
         {#if digest}
@@ -1200,30 +1202,30 @@
 
         <div class="cal-detail-rows">
           <div class="cal-detail-row">
-            <span class="cal-detail-ico" aria-hidden>◷</span>
+            <span class="cal-detail-ico"><Symbol name="zeitplan" size={16} /></span>
             <span>{fmtEventRange(ev)}</span>
           </div>
           {#if ev.location}
             <div class="cal-detail-row">
-              <span class="cal-detail-ico" aria-hidden>⚲</span>
+              <span class="cal-detail-ico"><Symbol name="ort" size={16} /></span>
               <span>{ev.location}</span>
             </div>
           {/if}
           {#if ev.rrule}
             <div class="cal-detail-row">
-              <span class="cal-detail-ico" aria-hidden>↻</span>
+              <span class="cal-detail-ico"><Symbol name="wiederholen" size={16} /></span>
               <span>{$t("calendar.recurring")}</span>
             </div>
           {/if}
           {#if ev.organizer}
             <div class="cal-detail-row">
-              <span class="cal-detail-ico" aria-hidden>✉</span>
+              <span class="cal-detail-ico"><Symbol name="post" size={16} /></span>
               <span>{ev.organizer}</span>
             </div>
           {/if}
           {#if ev.attendees?.length}
             <div class="cal-detail-row">
-              <span class="cal-detail-ico" aria-hidden>👥</span>
+              <span class="cal-detail-ico"><Symbol name="team" size={16} /></span>
               <div class="cal-attendees">
                 {#each ev.attendees as a (a.email)}
                   {@const ps = a.part_stat?.toLowerCase() ?? 'needsaction'}
@@ -1248,7 +1250,7 @@
         </div>
       </div>
     {:else}
-      <EmptyState title={$t("calendar.selectEvent")} icon="&#x1F4C5;" />
+      <EmptyState title={$t("calendar.selectEvent")} icon="kalender" />
     {/if}
   </aside>
 </div>
@@ -1277,7 +1279,7 @@
           class="cal-btn cal-btn-ghost"
           disabled={nlBusy || !nlText.trim()}
           onclick={applyTimeExtraction}
-        >{nlBusy ? "…" : $t("calendar.extractTime")}</button>
+        ><Symbol name="ai" size={16} /> {nlBusy ? "…" : $t("calendar.extractTime")}</button>
       </div>
 
       <div class="cal-field-row">
@@ -1294,9 +1296,10 @@
       {#if conflicts.length > 0}
         <div class="cal-conflict">
           <div class="cal-conflict-head">
+            <Symbol name="achtung" size={16} />
             <span>{$t("calendar.conflict", { n: conflicts.length, unit: conflicts.length === 1 ? $t("calendar.conflictUnit") : $t("calendar.conflictUnitPlural") })}</span>
             <button type="button" class="cal-btn cal-btn-ghost cal-conflict-ai" disabled={conflictBusy} onclick={loadAlternatives}>
-              {conflictBusy ? "…" : $t("calendar.aiAlternatives")}
+              <Symbol name="ai" size={16} /> {conflictBusy ? "…" : $t("calendar.aiAlternatives")}
             </button>
           </div>
           <ul class="cal-conflict-list">
@@ -1322,10 +1325,10 @@
 
       <div class="cal-ai-row">
         <button type="button" class="cal-btn cal-btn-ghost" disabled={prepBusy || !form.start} onclick={loadMeetingPrep}>
-          {prepBusy ? "…" : $t("calendar.meetingPrep")}
+          <Symbol name="ai" size={16} /> {prepBusy ? "…" : $t("calendar.meetingPrep")}
         </button>
         <button type="button" class="cal-btn cal-btn-ghost" disabled={smartBusy} onclick={loadSmartSchedule}>
-          {smartBusy ? "…" : $t("calendar.smartScheduling")}
+          <Symbol name="ai" size={16} /> {smartBusy ? "…" : $t("calendar.smartScheduling")}
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { iconSVG, folderIconFor } from "$lib/icons";
   import { t } from "$lib/i18n";
 
@@ -153,9 +154,9 @@
   // Chevron SVG — inline, compact
   function chevronSVG(open: boolean): string {
     if (open) {
-      return `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5l3 3 3-3"/></svg>`;
+      return `<Symbol name="chevron" size={16} />`;
     }
-    return `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l3 3-3 3"/></svg>`;
+    return `<Symbol name="chevron-rechts" size={16} />`;
   }
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { searchContacts } from '$lib/services/tauri';
   import type { ContactInfo } from '$lib/services/tauri';
   import { t } from '$lib/i18n';
@@ -144,7 +145,7 @@
       aria-label={$t("recipient.aria")}
     />
     {#if loading}
-      <span class="spinner">⏳</span>
+      <span class="spinner"><Symbol name="laden" size={16} /></span>
     {/if}
   </div>
 

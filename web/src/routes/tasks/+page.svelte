@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import {
     listTodos, createTodo, toggleTodo, patchTodo, deleteTodo, succeedTodo,
@@ -571,7 +572,7 @@
   <aside class="tk-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="tk-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="tk-nav-btn tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")}>←</button>
+        <button type="button" class="tk-nav-btn tk-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("tasks.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("tasks.title")} noHover />
     </div>
@@ -645,10 +646,10 @@
   <main class="tk-main">
     {#if isNarrow}
       <div class="tk-mobile-header">
-        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <button type="button" class="tk-nav-btn tk-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("tasks.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{selectionLabel()}</h1>
         <button type="button" class="tk-nav-btn tk-mobile-new" onclick={focusQuickAdd} aria-label={$t("tasks.new")}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <Symbol name="plus" size={20} />
         </button>
       </div>
     {/if}
@@ -656,7 +657,7 @@
     <!-- Quick Add: instant capture with live parse chips -->
     <div class="tk-quickadd" class:focused={qaFocused}>
       <span class="tk-qa-plus" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <Symbol name="plus" size={16} />
       </span>
       <input
         bind:this={qaInput}
@@ -682,13 +683,13 @@
         <span class="tk-chip tk-chip-title">{qaParsed.title || $t("tasks.untitled")}</span>
         {#if qaParsed.due}
           <span class="tk-chip">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <Symbol name="kalender" size={16} />
             {fmtDateByLang(qaParsed.due, fmtLocaleTag())}{qaParsed.dueHasTime ? ` ${String(qaParsed.due.getHours()).padStart(2, "0")}:${String(qaParsed.due.getMinutes()).padStart(2, "0")}` : ""}
           </span>
         {/if}
         {#if qaParsed.rrule}
           <span class="tk-chip">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+            <Symbol name="wiederholen" size={16} />
             {recurLabel(qaParsed.rrule)}
           </span>
         {/if}
@@ -760,7 +761,7 @@
                   onclick={() => onToggle(todo)}
                   aria-label={isDone(todo) ? $t("tasks.reopen") : $t("tasks.markDone")}
                 >
-                  {#if isDone(todo)}✓{/if}
+                  {#if isDone(todo)}<Symbol name="erfolg" size={16} />{/if}
                 </button>
                 <button type="button" class="tk-item-body" onclick={() => openDetail(todo)}>
                   <span class="tk-item-summary">{todo.summary || $t("tasks.untitled")}</span>
@@ -768,14 +769,14 @@
                   {#if todo.due_at || todo.labels.length || todo.rrule || isBlocked(todo)}
                     <span class="tk-item-meta">
                       {#if isBlocked(todo)}
-                        <span class="tk-item-blocked" title={$t("tasks.blockedHint")}>⛓ {openBlockers(todo).length}</span>
+                        <span class="tk-item-blocked" title={$t("tasks.blockedHint")}><Symbol name="schloss" size={16} /> {openBlockers(todo).length}</span>
                       {/if}
                       {#if todo.due_at}
                         <span class="tk-item-due" class:overdue={isOverdue(todo)}>{dueLabel(todo)}</span>
                       {/if}
                       {#if todo.rrule}
                         <span class="tk-item-rep" title={recurLabel(todo.rrule)}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+                          <Symbol name="wiederholen" size={16} />
                         </span>
                       {/if}
                       {#each todo.labels as l (l)}<span class="tk-tag">{l}</span>{/each}
@@ -793,7 +794,7 @@
                   {#each subtasksOf.get(todo.uid) ?? [] as sub (sub.uid)}
                     <li class="tk-subtask">
                       <button type="button" class="tk-check tk-check-sm" class:checked={isDone(sub)} onclick={() => onToggle(sub)} aria-label={isDone(sub) ? $t("tasks.reopen") : $t("tasks.markDone")}>
-                        {#if isDone(sub)}✓{/if}
+                        {#if isDone(sub)}<Symbol name="erfolg" size={16} />{/if}
                       </button>
                       <button type="button" class="tk-subtask-title" class:done={isDone(sub)} onclick={() => openDetail(sub)}>{sub.summary || $t("tasks.untitled")}</button>
                     </li>
@@ -814,7 +815,7 @@
   <aside class="tk-detail" role="dialog" aria-modal="true" tabindex="-1" aria-label={$t("tasks.details")}>
     <header class="tk-detail-head">
       <h2>{$t("tasks.details")}</h2>
-      <button type="button" class="tk-icon-btn" onclick={closeDetail} aria-label={$t("tasks.closeDialog")}>✕</button>
+      <button type="button" class="tk-icon-btn" onclick={closeDetail} aria-label={$t("tasks.closeDialog")}><Symbol name="schliessen" size={16} /></button>
     </header>
 
     <label class="tk-field">

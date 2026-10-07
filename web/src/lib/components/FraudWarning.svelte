@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   interface Props {
     score: number;
     warnings: string[];
@@ -11,7 +12,7 @@
 
 {#if score > 0.6}
   <div class="fraud-warning">
-    <span class="fraud-icon">&#x26A0;</span>
+    <span class="fraud-icon"><Symbol name="achtung" size={16} /></span>
     <div class="fraud-body">
       <span class="fraud-title">{$t("fraud.suspected")}</span>
       {#if warnings.length > 0}

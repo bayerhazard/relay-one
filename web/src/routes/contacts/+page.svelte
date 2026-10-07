@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
@@ -196,14 +197,14 @@
   <aside class="ct-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="ct-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="ct-nav-btn ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")}>←</button>
+        <button type="button" class="ct-nav-btn ct-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("contacts.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("contacts.title")} noHover />
     </div>
 
     <div class="ct-tools">
       <button type="button" class="ct-btn ct-btn-primary" onclick={openCreate}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <Symbol name="plus" size={16} />
         {$t("contacts.new")}
       </button>
       <button type="button" class="ct-btn ct-btn-ghost" onclick={handleRefresh} disabled={syncing}>
@@ -230,7 +231,7 @@
   <main class="ct-main">
     {#if isNarrow}
       <div class="ct-mobile-header">
-        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <button type="button" class="ct-nav-btn ct-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("contacts.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{$t("contacts.title")}</h1>
       </div>
     {/if}
@@ -267,7 +268,7 @@
             </div>
             <div class="ct-item-actions">
               <button type="button" class="ct-icon-btn" onclick={() => openEdit(c)} title={$t("contacts.editBtn")}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                <Symbol name="bearbeiten" size={16} />
               </button>
             </div>
           </li>

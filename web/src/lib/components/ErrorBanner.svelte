@@ -1,4 +1,5 @@
   <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
     import { t } from "$lib/i18n";
 
     interface Props {
@@ -16,7 +17,7 @@
 
   <div class="error-banner" role="alert" aria-live="polite">
     <div class="error-banner-body">
-      <span class="error-icon">&#x26A0;</span>
+      <span class="error-icon"><Symbol name="achtung" size={16} /></span>
       <p class="error-text">{message}</p>
     </div>
     {#if onretry}

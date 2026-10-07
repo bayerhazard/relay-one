@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import { onMount } from "svelte";
   import {
     listMeetings, getMeeting, triggerMeetingScan, deleteMeeting, openEventStream,
@@ -298,7 +299,7 @@
   <aside class="mt-sidebar" style={isNarrow ? "" : `width: ${$sidebarWidth}px; min-width: ${$sidebarWidth}px;`}>
     <div class="mt-sidebar-header">
       {#if isNarrow}
-        <button type="button" class="mt-nav-btn mt-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("meetings.close")}>←</button>
+        <button type="button" class="mt-nav-btn mt-sidebar-close" onclick={() => (sidebarOpen = false)} aria-label={$t("meetings.close")}><Symbol name="seitenleiste-zu" size={20} /></button>
       {/if}
       <ModuleLogo to="/" label={$t("meetings.title")} noHover />
     </div>
@@ -356,7 +357,7 @@
   <main class="mt-main">
     {#if isNarrow}
       <div class="mt-mobile-header">
-        <button type="button" class="mt-nav-btn mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <button type="button" class="mt-nav-btn mt-menu-toggle" onclick={() => (sidebarOpen = true)} aria-label={$t("meetings.menu")}><Symbol name="seitenleiste-auf" size={20} /></button>
         <h1>{$t("meetings.title")}</h1>
       </div>
     {/if}
@@ -368,7 +369,7 @@
         <p>{detailError}</p>
       </div>
     {:else if !detail}
-      <EmptyState title={$t("meetings.selectHint")} icon="&#x1F5D3;" />
+      <EmptyState title={$t("meetings.selectHint")} icon="besprechung" />
     {:else}
       <article class="mt-detail">
         <header class="mt-detail-header">

@@ -21,8 +21,8 @@ describe("DiffEditor", () => {
       onaccept: vi.fn(),
       onreject: vi.fn(),
     });
-    expect(screen.getByText("✓ Übernehmen")).toBeTruthy();
-    expect(screen.getByText("✕ Ablehnen")).toBeTruthy();
+    expect(screen.getByText("Übernehmen")).toBeTruthy();
+    expect(screen.getByText("Ablehnen")).toBeTruthy();
   });
 
   it("calls onaccept when accept button is clicked", async () => {
@@ -34,7 +34,7 @@ describe("DiffEditor", () => {
       onreject: vi.fn(),
     });
 
-    await fireEvent.click(screen.getByText("✓ Übernehmen"));
+    await fireEvent.click(screen.getByText("Übernehmen"));
     expect(onaccept).toHaveBeenCalledTimes(1);
   });
 
@@ -47,7 +47,7 @@ describe("DiffEditor", () => {
       onreject,
     });
 
-    await fireEvent.click(screen.getByText("✕ Ablehnen"));
+    await fireEvent.click(screen.getByText("Ablehnen"));
     expect(onreject).toHaveBeenCalledTimes(1);
   });
 

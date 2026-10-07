@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   // Confirmation card for an ActionPlan (Concept §10.3). Presentational: the
   // parent (Drawer) performs the confirm/discard/undo calls and passes the
   // resulting plan back. External-tier plans need a second, explicit stage.
@@ -52,15 +53,9 @@
   <header class="plan-head">
     <span class="plan-tier" aria-hidden="true">
       {#if isExternal}
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
+        <Symbol name="achtung" size={16} />
       {:else}
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
+        <Symbol name="erfolg" size={16} />
       {/if}
     </span>
     <span class="plan-stepcount">{stepLabel}</span>
@@ -159,10 +154,6 @@
   }
   .plan-card.external .plan-tier {
     color: var(--am-achtung);
-  }
-  .plan-tier svg {
-    width: 15px;
-    height: 15px;
   }
   .plan-stepcount {
     font-weight: 600;

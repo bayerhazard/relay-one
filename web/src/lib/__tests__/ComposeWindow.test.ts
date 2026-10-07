@@ -60,7 +60,7 @@ describe("ComposeWindow - mode new", () => {
   it("calls onclose when close button is clicked", async () => {
     const onclose = vi.fn();
     render(ComposeWindow, { ...defaultProps, onclose });
-    const closeBtn = screen.getByText("\u2715");
+    const closeBtn = screen.getByRole("button", { name: "Schließen" });
     await fireEvent.click(closeBtn);
     expect(onclose).toHaveBeenCalledOnce();
   });
@@ -378,7 +378,7 @@ describe("ComposeWindow - initial attachments", () => {
       expect(editor.textContent).toBe("Inhalt");
     });
 
-    const closeBtn = screen.getByText("\u2715");
+    const closeBtn = screen.getByRole("button", { name: "Schließen" });
     await fireEvent.click(closeBtn);
     const saveBtn = screen.getByText("Speichern");
     await fireEvent.click(saveBtn);

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="-1 -1 26 26">
+<!-- The sign in the browser tab: only Relay's paper plane (CI icon `senden`),
+     no tile, no shield. At 16 px the tile would be a gold dot with a blue
+     spot and every AImighty app would look the same (CI ABGLEICH G7,
+     medien/app.md). The colour follows the tab bar: light Gold 800, dark
+     Gold 500. -->
+<style>
+  g { stroke: #8c6c1f; }
+  @media (prefers-color-scheme: dark) { g { stroke: #caa960; } }
+</style>
+<g fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>
+</g>
+</svg>

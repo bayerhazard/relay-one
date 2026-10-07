@@ -2,8 +2,13 @@
   // Unified empty / informational state used across the mailbox (empty folder,
   // no selection, no search results, offline). Keeps the visual language
   // consistent: centered icon + title + optional subtitle + optional action.
+  // The icon is a name from the CI set (HB-SYMBOL), 40 px as in every empty
+  // state (CI R2) — no more emoji guessed into icons (RL-Z1).
+  import Symbol from "./Symbol.svelte";
+  import type { SymbolName } from "$lib/symbole";
+
   interface Props {
-    icon?: string;
+    icon?: SymbolName;
     title: string;
     subtitle?: string;
     actionLabel?: string;
@@ -13,7 +18,7 @@
   }
 
   let {
-    icon = "",
+    icon,
     title,
     subtitle = "",
     actionLabel = "",
@@ -21,83 +26,13 @@
     tone = "neutral",
     offsetHeader = false,
   }: Props = $props();
-
-  let iconName = $derived.by(() => {
-    if (!icon) return "";
-    const clean = icon.trim();
-    const cp = clean.codePointAt(0);
-
-    // Envelope check (✉ is 0x2709, or keyword, or starts with envelope)
-    if (cp === 0x2709 || clean.includes("envelope") || clean.includes("✉") || clean.includes("2709")) return "envelope";
-
-    // Inbox check (📬 is 0x1F4ED, 📭 is 0x1F4EB, 📪 is 0x1F4EA, 📩 is 0x1F4E9, 📥 is 0x1F4E5, or keywords)
-    if (
-      cp === 0x1F4ED ||
-      cp === 0x1F4EB ||
-      cp === 0x1F4EA ||
-      cp === 0x1F4E9 ||
-      cp === 0x1F4E5 ||
-      clean.includes("inbox") ||
-      clean.includes("📬") ||
-      clean.includes("📭") ||
-      clean.includes("📪") ||
-      clean.includes("📥") ||
-      clean.includes("1F4ED") ||
-      clean.includes("1F4EB") ||
-      clean.includes("1F4EA")
-    ) {
-      return "inbox";
-    }
-
-    // Search check (🔍 is 0x1F50D, or keyword search)
-    if (cp === 0x1F50D || clean.includes("search") || clean.includes("🔍") || clean.includes("1F50D")) return "search";
-
-    // Warning check (⚠ is 0x26A0, or warning)
-    if (cp === 0x26A0 || clean.includes("warning") || clean.includes("⚠") || clean.includes("26A0")) return "warning";
-
-    // Calendar check (📅 is 0x1F4C5, 🗓 variants 0x1F5D2/3, or keyword)
-    if (cp === 0x1F4C5 || cp === 0x1F5D2 || cp === 0x1F5D3 || clean.includes("calendar") || clean.includes("📅") || clean.includes("1F4C5") || clean.includes("1F5D3")) return "calendar";
-
-    return "";
-  });
 </script>
 
 <div class="empty-state" class:error={tone === "error"} class:offset-header={offsetHeader}>
   {#if icon}
-    {#if iconName}
-      <div class="empty-state-icon-wrapper" aria-hidden="true">
-        {#if iconName === "envelope"}
-          <svg class="empty-state-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-          </svg>
-        {:else if iconName === "inbox"}
-          <svg class="empty-state-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 10v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V10" />
-            <path d="M2 10l10-6 10 6" />
-            <path d="M2 10l10 7 10-7" />
-          </svg>
-        {:else if iconName === "search"}
-          <svg class="empty-state-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-        {:else if iconName === "warning"}
-          <svg class="empty-state-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-        {:else if iconName === "calendar"}
-          <svg class="empty-state-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-          </svg>
-        {/if}
-      </div>
-    {:else}
-      <div class="empty-state-icon" aria-hidden="true">{icon}</div>
-    {/if}
+    <div class="empty-state-icon-wrapper">
+      <Symbol name={icon} size={40} />
+    </div>
   {/if}
   <p class="empty-state-title">{title}</p>
   {#if subtitle}
@@ -125,32 +60,14 @@
   .empty-state.offset-header {
     padding-top: calc(72px + 48px);
   }
+  /* The icon stands free, as in AM-LEER: 40 px, Blau 300, no circle. */
   .empty-state-icon-wrapper {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 64px;
-    height: 64px;
-    border-radius: 50%;
-    background: var(--am-flaeche-2);
-    color: var(--am-handlung-ruhend);
-    margin-bottom: 12px;
-    transition: all var(--am-dauer-mittel) var(--am-kurve);
-  }
-  .empty-state-svg {
-    width: 28px;
-    height: 28px;
-    stroke-width: 1.5;
+    color: var(--am-blau-300);
+    margin-bottom: var(--am-raum-4);
   }
   .empty-state.error .empty-state-icon-wrapper {
-    background: color-mix(in srgb, var(--am-fehler) 10%, transparent);
     color: var(--am-fehler);
-  }
-  .empty-state-icon {
-    font-size: 2.5rem;
-    margin-bottom: 12px;
-    opacity: 0.35;
-    line-height: 1;
   }
   .empty-state-title {
     font-size: 0.9375rem;

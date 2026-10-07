@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import type { Snippet } from "svelte";
 
   let {
@@ -29,14 +30,14 @@
 <div class="ss-bar">
   {#if showIcon}
     <span class="ss-icon" aria-hidden="true">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <Symbol name="suche" size={16} />
     </span>
   {/if}
   <input type="text" class="ss-input" {placeholder} aria-label={ariaLabel} bind:value oninput={onInput} onfocus={onFocus} onblur={onBlur} onkeydown={onKeydown} />
   {@render children?.()}
   {#if value}
     <button type="button" class="ss-clear" onclick={() => (value = "")} aria-label={clearLabel}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      <Symbol name="schliessen" size={16} />
     </button>
   {/if}
 </div>

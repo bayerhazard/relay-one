@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Symbol from "$lib/components/Symbol.svelte";
   import DiffEditor from "./DiffEditor.svelte";
   import ToneControls from "./ToneControls.svelte";
   import { t, translate } from "$lib/i18n";
@@ -560,7 +561,7 @@
   <div class="compose-header">
     <h2>{mode === "new" ? $t("compose.newMessage") : mode === "forward" ? $t("compose.forwardTitle") : $t("compose.replyTitle")}</h2>
     <button type="button" class="close-btn" onclick={handleClose} title={$t("compose.close")} aria-label={$t("compose.close")}>
-      <span class="close-icon-desktop">&#x2715;</span>
+      <span class="close-icon-desktop"><Symbol name="schliessen" size={16} /></span>
       <span class="close-icon-mobile">&#8592; {$t("compose.back")}</span>
     </button>
   </div>
@@ -644,22 +645,22 @@
           <span>{$t("mail.yourMessage")}</span>
           <div class="fmt-toolbar">
             <button type="button" class="fmt-btn" onclick={() => execCmd("bold")} title={$t("mail.fmtBold")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/></svg>
+              <Symbol name="fett" size={16} />
             </button>
             <button type="button" class="fmt-btn" onclick={() => execCmd("italic")} title={$t("mail.fmtItalic")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+              <Symbol name="kursiv" size={16} />
             </button>
             <button type="button" class="fmt-btn" onclick={execHeading} title={$t("mail.fmtHeading")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/></svg>
+              <Symbol name="ueberschrift" size={16} />
             </button>
             <button type="button" class="fmt-btn" onclick={() => execCmd("insertUnorderedList")} title={$t("mail.fmtList")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>
+              <Symbol name="aufzaehlung" size={16} />
             </button>
             <button type="button" class="fmt-btn" onclick={execLink} title={$t("mail.fmtLink")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <Symbol name="verknuepfung" size={16} />
             </button>
             <button type="button" class="fmt-btn" onclick={execCode} title={$t("mail.fmtCode")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <Symbol name="code" size={16} />
             </button>
           </div>
         </div>
@@ -709,9 +710,7 @@
   <div class="editor-toolbar">
     <button type="button" class="btn-ai" class:recording={isRecording} onclick={handleGenerateClick} disabled={isGenerating}>
       <span class="toggle-mic" class:voice-enabled={voiceEnabled} onclick={handleMicToggle} title={isRecording ? $t("compose.recordingStop") : $t("compose.dictationStart")}>
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-        </svg>
+        <Symbol name="mikrofon" size={16} />
       </span>
       {#if false && voiceEnabled}
         <span class="mic-divider" aria-hidden="true"></span>
@@ -1106,7 +1105,6 @@
   .toggle-mic.voice-enabled { display: flex; }
   .toggle-mic:hover { background: transparent; }
   .btn-ai.recording .toggle-mic:hover { background: transparent; }
-  .toggle-mic svg { width: 14px; height: 14px; }
   /*
    * DISABLED — Mic-Divider (deaktiviert, nicht gelöscht). Zum Wiederaktivieren
    * den Markup-Block `{#if false && voiceEnabled}` auf `{#if voiceEnabled}`
