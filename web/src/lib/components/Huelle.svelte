@@ -203,6 +203,16 @@
   }
   .relay-bereich:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
 
+  /* The search sits flush with the content below it (HB-KOPFLEISTE, Kai
+     07.10.2026). Pages pad 32 px and the mark already lands there; the mail
+     list pads only 16, so beside it the mark takes the column's width less
+     the gap and the search starts over "Posteingang". */
+  @media (min-width: 1024px) {
+    .relay-huelle:not(.ohne-spalte):has(:global(.mail-kopf)) .kopfleiste-marke {
+      width: calc(var(--am-navigation-breite) - var(--am-raum-3));
+    }
+  }
+
   /* ── The inside of the area [RL-SPALTE] ──────────────────────────────────
      Desktop: the whole column, scrolling with it. Phone: a sheet from the
      left under the header, floating over the content (betonter Rand, the
