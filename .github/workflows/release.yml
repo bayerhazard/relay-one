@@ -1,0 +1,180 @@
+name: release
+
+# Builds the image ghcr.io/bayerhazard/relay-one:<version>, packs the chart
+# and, for a new version, creates tag and release with chart and icon
+# attached — the files markt.yml then takes into the market (CI ABGLEICH
+# RL-V2, Kai 6.10.2026: "wie Rocket"; replaces build-image.yml and the tag
+# by hand). Nobody pushes tags any more: not the sessions, not the box.
+#
+# Triggers:
+#
+# - Merge to main with a new version in chart/relay/Chart.yaml (the normal
+#   case): build, then tag v<version> and release — only after a good
+#   build, so a failed build leaves no tag. Is the tag there already, nothing
+#   happens: a merge without a version bump is no release. The tag is made
+#   with GITHUB_TOKEN and so does not start this workflow a second time.
+# - A tag pushed by hand (v<version>): build only, as before.
+# - Run workflow: with "probe" (the default) it checks and packs the chart
+#   of the current main and stops — no image, no tag, no release. Without
+#   "probe" it builds the image for the given version, without a tag.
+
+on:
+  # A PR that touches the chart or this workflow checks and packs the chart.
+  pull_request:
+    paths: [chart/relay/**, scripts/check-chart.sh, .github/workflows/release.yml]
+  push:
+    branches: [main]
+    paths: [chart/relay/Chart.yaml, .github/workflows/release.yml]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "Probe: check and pack the chart only (no image, no tag)"
+        type: boolean
+        default: true
+      version:
+        description: "Without probe: image tag without v (e.g. 26.10.3); empty = Chart.yaml"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: which version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      proceed: ${{ steps.v.outputs.proceed }}
+      build: ${{ steps.v.outputs.build }}
+      create_tag: ${{ steps.v.outputs.create_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags decide
+
+      - id: v
+        run: |
+          CHART_VERSION="$(grep -E '^version:' chart/relay/Chart.yaml | awk '{print $2}' | tr -d '"')"
+          PROCEED=true; BUILD=true; CREATE=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            V="$CHART_VERSION"; BUILD=false
+            echo "### PR: Chart $V prüfen und packen" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ inputs.version }}"; [ -n "$V" ] || V="$CHART_VERSION"
+            if [ "${{ inputs.probe }}" = "true" ]; then
+              BUILD=false
+              echo "### Probelauf für $V — Chart prüfen und packen, kein Abbild, kein Tag" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="$CHART_VERSION"
+            if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+              PROCEED=false
+              echo "### v$V ist schon getaggt — kein Release" >> "$GITHUB_STEP_SUMMARY"
+            else
+              CREATE=true
+              echo "### Neue Version $V — bauen, dann v$V taggen" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "create_tag=$CREATE" >> "$GITHUB_OUTPUT"
+
+  chart:
+    name: chart · check and pack
+    needs: version
+    if: needs.version.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.2"
+
+      - name: scripts/check-chart.sh
+        run: bash scripts/check-chart.sh
+
+      - name: chart version must be the version to release
+        if: github.event_name == 'push' && github.ref_type != 'tag'
+        run: |
+          CHART_VERSION="$(grep -E '^version:' chart/relay/Chart.yaml | awk '{print $2}' | tr -d '"')"
+          [ "$VERSION" = "$CHART_VERSION" ] || { echo "::error::$VERSION is not Chart.yaml version $CHART_VERSION"; exit 1; }
+
+      - name: pack chart, add icon
+        run: |
+          mkdir -p dist
+          helm package chart/relay -d dist
+          cp icon.png dist/icon.png
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+
+  image:
+    name: image
+    needs: [version, chart]
+    if: needs.version.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: bayerhazard
+          # GITHUB_TOKEN is denied write_package for this user-owned package,
+          # so a PAT with write:packages (RL-V2: GHCR_PAT stays for now).
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/bayerhazard/relay-one:${{ needs.version.outputs.version }}
+          # no-cache (2026-09-13): the GHA cache ran a stale `COPY web/` —
+          # 26.9.156 held the old web build. Build fresh, without cache.
+          no-cache: true
+
+  # Only once the image is out: tag and release, chart and icon attached —
+  # the same files markt.yml takes into the market.
+  release:
+    name: tag and release
+    needs: [version, image]
+    if: needs.version.outputs.create_tag == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+
+      - name: create tag and release
+        run: |
+          gh release create "v$VERSION" "dist/relay-$VERSION.tgz" dist/icon.png \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "v$VERSION" \
+            --notes "Relay $VERSION — image ghcr.io/bayerhazard/relay-one:$VERSION, chart and icon attached. Created by release.yml after the merge."
+          echo "### Tag und Release v$VERSION angelegt" >> "$GITHUB_STEP_SUMMARY"

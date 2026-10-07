@@ -1,0 +1,3 @@
+# Market texts and release notes go to the market through markt.yml,
+# not into the chart package.
+markt/

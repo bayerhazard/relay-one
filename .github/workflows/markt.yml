@@ -1,0 +1,236 @@
+name: markt
+
+# Brings a new Relay version into the market (bayerhazard/aimighty-market)
+# without a hand on the box (CI ABGLEICH RL-V2, Kai 6.10.2026: "wie
+# Rocket", Marc goes along): after a good release it builds the entry on the
+# market's fresh main (scripts/markt-eintrag.py), proves it with wrangler
+# (scripts/markt-beweis.sh), opens a PR in the market and merges it, then
+# checks main and waits for the deploy. OpenCode no longer writes into the
+# market directly, and no session ever does.
+#
+# Needs the secret MARKT_TOKEN: a fine-grained token from Marc that may push
+# a branch to bayerhazard/aimighty-market and open and merge PRs there.
+# Without it the action only reports and does nothing.
+#
+# Run workflow with "probe" (the default) builds and proves the entry for
+# the current chart against the market's main and stops before anything is
+# written — no token needed, the market is public.
+
+on:
+  # A PR that touches the chart, the market texts or this machinery runs the
+  # probe for the newest note — before the merge, not after the release.
+  pull_request:
+    paths: [chart/relay/**, scripts/markt-*, .github/workflows/markt.yml]
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "Probe: build and prove the entry, write nothing"
+        type: boolean
+        default: true
+      version:
+        description: "Relay version without v (e.g. 26.10.3); empty = Chart.yaml"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markt
+  cancel-in-progress: false
+
+jobs:
+  eintrag:
+    # Only a real release: a run of release.yml that built without tagging
+    # (merge without a version bump) ends in "Der Markt kennt … schon".
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      MARKT_TOKEN: ${{ secrets.MARKT_TOKEN }}
+      UPSTREAM: bayerhazard/aimighty-market
+      # The id the boxes registered the market under. Case matters: under
+      # another id a box takes no update (Rocket, 6.10.2026).
+      MARKT_QUELLE: market.aimighty
+      PROBE: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.probe) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Version
+        id: v
+        run: |
+          V="${{ inputs.version }}"
+          if [ -z "$V" ] && [ "${{ github.event_name }}" = "pull_request" ]; then
+            # The newest note: the version the next release will bring.
+            V=$(ls chart/relay/markt | sed -n 's/^\([0-9]*\.[0-9]*\.[0-9]*\)\.md$/\1/p' | sort -V | tail -1)
+          fi
+          [ -n "$V" ] || V=$(awk '/^version:/{print $2}' chart/relay/Chart.yaml | tr -d '"')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "$PROBE" = "true" ]; then
+            echo "### Probelauf: Relay $V für den Markt bauen und beweisen, nichts schreiben" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Relay $V in den Markt" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Token vorhanden?
+        id: token
+        run: |
+          if [ "$PROBE" = "true" ]; then
+            echo "weiter=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$MARKT_TOKEN" ]; then
+            echo "Kein Geheimnis MARKT_TOKEN — Marc legt es in relay-one an (ABGLEICH RL-V2). Nichts geschrieben." >> "$GITHUB_STEP_SUMMARY"
+            echo "weiter=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "weiter=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The release asset is the chart that goes into the market. A probe of
+      # a version without release packs the chart of this commit instead.
+      - uses: azure/setup-helm@v4
+        if: steps.token.outputs.weiter == 'true'
+        with:
+          version: "v3.16.2"
+
+      - name: Chart holen
+        if: steps.token.outputs.weiter == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          if gh release download "v$V" -p "relay-$V.tgz" -D "$RUNNER_TEMP"; then
+            echo "Chart aus dem Release v$V." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$PROBE" = "true" ]; then
+            helm package chart/relay -d "$RUNNER_TEMP" --version "$V" --app-version "$V"
+            echo "Kein Release v$V — Chart aus diesem Stand gepackt (nur Probe)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Release v$V hat kein relay-$V.tgz"; exit 1
+          fi
+          echo "SHA=$(sha256sum "$RUNNER_TEMP/relay-$V.tgz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Markt frisch holen, Eintrag bauen
+        if: steps.token.outputs.weiter == 'true'
+        id: bau
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          if [ -n "$MARKT_TOKEN" ]; then
+            git clone -q "https://x-access-token:${MARKT_TOKEN}@github.com/${UPSTREAM}.git" "$RUNNER_TEMP/markt"
+          else
+            git clone -q "https://github.com/${UPSTREAM}.git" "$RUNNER_TEMP/markt"
+          fi
+          cd "$RUNNER_TEMP/markt"
+          BASIS=$(git rev-parse HEAD)
+          echo "basis=$BASIS" >> "$GITHUB_OUTPUT"
+          # What moved in the market since the last Relay entry — goes into
+          # the PR, so a change by Marc or another app is visible.
+          LETZTER=$(git log --format=%H --grep='^relay ' -1 || true)
+          {
+            echo ""
+            echo "Seit dem letzten Relay-Eintrag auf main:"
+            echo '```'
+            if [ -n "$LETZTER" ]; then git log --format='%h %an %s' "$LETZTER..HEAD" -- functions/; fi
+            echo '```'
+          } > "$RUNNER_TEMP/seit.md"
+          set +e
+          TITEL=$(python3 "$GITHUB_WORKSPACE/scripts/markt-eintrag.py" --markt . \
+            --chart "$RUNNER_TEMP/relay-$V.tgz" --version "$V" \
+            --notizen "$GITHUB_WORKSPACE/chart/relay/markt" --pr-text "$RUNNER_TEMP/pr.md" \
+            --manifest "$GITHUB_WORKSPACE/chart/relay/OlaresManifest.yaml" \
+            --texte "$GITHUB_WORKSPACE/chart/relay/markt" --quelle "$MARKT_QUELLE" \
+            --icon "https://github.com/${{ github.repository }}/releases/download/v$V/icon.png")
+          RC=$?
+          set -e
+          if [ $RC -eq 3 ]; then
+            echo "Der Markt kennt Relay $V schon — nichts zu tun." >> "$GITHUB_STEP_SUMMARY"
+            echo "noetig=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          [ $RC -eq 0 ] || exit $RC
+          cat "$RUNNER_TEMP/seit.md" >> "$RUNNER_TEMP/pr.md"
+          echo "titel=$TITEL" >> "$GITHUB_OUTPUT"
+          echo "noetig=true" >> "$GITHUB_OUTPUT"
+          { echo '```'; git diff --stat; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        if: steps.bau.outputs.noetig == 'true'
+        with:
+          node-version: 22
+
+      - name: Mit wrangler beweisen
+        if: steps.bau.outputs.noetig == 'true'
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: bash scripts/markt-beweis.sh "$RUNNER_TEMP/markt" "$V" "$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Probe endet hier
+        if: steps.bau.outputs.noetig == 'true' && env.PROBE == 'true'
+        run: |
+          {
+            echo "Probe bestanden — so ginge der PR in den Markt:"
+            echo ""
+            cat "$RUNNER_TEMP/pr.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Zweig, PR, Merge
+        if: steps.bau.outputs.noetig == 'true' && env.PROBE != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MARKT_TOKEN }}
+          V: ${{ steps.v.outputs.version }}
+          TITEL: ${{ steps.bau.outputs.titel }}
+          BASIS: ${{ steps.bau.outputs.basis }}
+        run: |
+          cd "$RUNNER_TEMP/markt"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b "relay-$V"
+          git add functions/_apps.ts functions/_lib.ts
+          # An entry changes both files, a fix of the market id only _lib.ts.
+          case "$(git diff --cached --name-only | sort | tr '\n' ' ')" in
+            "functions/_apps.ts functions/_lib.ts "|"functions/_lib.ts ") ;;
+            *) echo "unerwartete Dateien"; git diff --cached --name-only; exit 1 ;;
+          esac
+          git commit -q -m "$TITEL"
+          git push -q -f origin "relay-$V"
+          # main must not have moved since the build — the timestamp might
+          # no longer be above the water mark. Then start the workflow again.
+          JETZT=$(git ls-remote origin refs/heads/main | cut -f1)
+          [ "$JETZT" = "$BASIS" ] || { echo "main hat sich bewegt ($BASIS → $JETZT) — Workflow neu starten" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
+          URL=$(gh pr create -R "$UPSTREAM" --base main --head "relay-$V" --title "$TITEL" --body-file "$RUNNER_TEMP/pr.md")
+          echo "PR: $URL" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh pr merge "$URL" --squash --delete-branch --subject "$TITEL (#${URL##*/})" --match-head-commit "$(git rev-parse HEAD)"
+          echo "PR_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Auf main prüfen und Deploy abwarten
+        if: steps.bau.outputs.noetig == 'true' && env.PROBE != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MARKT_TOKEN }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          [ "$(gh pr view "$PR_URL" --json state -q .state)" = "MERGED" ] || { echo "PR nicht gemergt"; exit 1; }
+          rm -rf "$RUNNER_TEMP/pruef"
+          git clone -q --depth 1 "https://github.com/${UPSTREAM}.git" "$RUNNER_TEMP/pruef"
+          python3 - "$RUNNER_TEMP/pruef/functions/_lib.ts" "$V" "$SHA" <<'PY'
+          import base64, hashlib, re, sys
+          lib, v, sha = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
+          keys = re.findall(r'"(relay-[0-9.]+\.tgz)": "([A-Za-z0-9+/=]+)"', lib)
+          assert [k for k, _ in keys] == [f"relay-{v}.tgz"], f"Relay-Schlüssel auf main: {[k for k, _ in keys]}"
+          assert hashlib.sha256(base64.b64decode(keys[0][1])).hexdigest() == sha, "Chart auf main weicht ab"
+          print(f"main: relay-{v}.tgz byte-gleich, keine alten Schlüssel")
+          PY
+          grep -qF "export const SOURCE_ID = \"$MARKT_QUELLE\";" "$RUNNER_TEMP/pruef/functions/_lib.ts" \
+            || { echo "SOURCE_ID auf main ist nicht $MARKT_QUELLE"; exit 1; }
+          MERGE=$(gh pr view "$PR_URL" --json mergeCommit -q .mergeCommit.oid)
+          for _ in $(seq 1 30); do
+            RUN=$(gh run list -R "$UPSTREAM" --workflow deploy.yml --commit "$MERGE" --json databaseId -q '.[0].databaseId' || true)
+            [ -n "$RUN" ] && break; sleep 10
+          done
+          if [ -n "$RUN" ]; then
+            gh run watch "$RUN" -R "$UPSTREAM" --exit-status > /dev/null
+            echo "Cloudflare-Deploy auf main grün ($MERGE)." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Deploy-Lauf nicht gefunden — bitte auf der Box nachsehen." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Relay $V steht im Markt: $PR_URL" >> "$GITHUB_STEP_SUMMARY"

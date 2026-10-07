@@ -4,7 +4,10 @@ workloads:
 
 image:
   repository: ghcr.io/bayerhazard/relay-one
-  tag: 26.10.2
+  # Empty: the image follows the chart version (templates/deployment.yaml).
+  # Olares plays back the values of the installation on an upgrade, so a tag
+  # here would freeze the image (scripts/check-chart.sh).
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Pin the pod to the main node: the relay data volume is hostPath-backed

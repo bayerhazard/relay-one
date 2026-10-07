@@ -18,11 +18,11 @@ Datei.
 1. **Zweige und PRs.** Jede Änderung auf einem eigenen Zweig (Claude:
    `claude/…`) mit PR nach `main`. Marc oder Kai prüfen vor
    dem Merge. Niemand schreibt direkt auf `main`.
-2. **Release und Markt aus den Actions** (ABGLEICH RL-V2): Sobald
-   `release.yml` und `markt.yml` in diesem Repo stehen (Etappe 8), kommen
-   Version, Tag, Release und Markteintrag nur noch von dort — keine Tags von
-   Hand, kein direktes Schreiben in `bayerhazard/aimighty-market`. Agenten
-   pushen nie Tags und schreiben nie in den Markt.
+2. **Release und Markt nur aus den Actions** (ABGLEICH RL-V2): Version,
+   Tag, Release und Markteintrag kommen aus `release.yml` und `markt.yml`
+   — keine Tags von Hand, kein direktes Schreiben in
+   `bayerhazard/aimighty-market`. Agenten pushen nie Tags und schreiben nie
+   in den Markt. Wie es geht: unten „Veröffentlichen“.
 3. **Sprache:** Oberfläche und Doku auf Deutsch in der **Sie-Form**, „AI“
    statt „KI“, keine Modell- oder Bausteinnamen im Fließtext (RL-R3, RL-R4;
    `web/src/lib/__tests__/wording.test.ts` wacht). Code, Kommentare und
@@ -67,6 +67,35 @@ Was sich ändern soll, ändert sich **zuerst im CI** (PR dort, neuer Stand),
 dann wird geholt — nie hier still angepasst. Die Wachen
 `ci-stand.test.ts`, `kennungen.test.ts` und `symbole.test.ts` schlagen an,
 wenn die Kopie oder Relay abweicht.
+
+## Veröffentlichen
+
+Ein Release ist ein PR, der die Version hebt. Nach dem Merge läuft alles
+von selbst:
+
+1. **Version `YY.M.n`** (Monat ohne führende Null, Zähler je Monat) an vier
+   Stellen: `chart/relay/Chart.yaml` (`version`, `appVersion`) und
+   `chart/relay/OlaresManifest.yaml` (`metadata.version`,
+   `spec.versionName`). Oben in `upgradeDescription` eine Zeile
+   `v<version>: …`. `values.yaml` bleibt ohne Tag — das Abbild folgt der
+   Chart-Version.
+2. **Notiz `chart/relay/markt/<version>.md`**: `# Titel`, darunter Englisch
+   ab `v<version>: `, nach `## Deutsch` derselbe Text auf Deutsch (Sie-Form,
+   „AI“). Die Beschreibung im Markt steht in
+   `chart/relay/markt/beschreibung.{en,de}.md`.
+3. **Prüfen**: `bash scripts/check-chart.sh`. Im PR laufen `release.yml`
+   (Chart prüfen und packen) und `markt.yml` als Probe mit: Sie bauen den
+   Markteintrag für die neueste Notiz gegen den aktuellen Markt und
+   beweisen ihn mit wrangler, ohne etwas zu schreiben.
+4. **Nach dem Merge** baut `release.yml` das Abbild
+   `ghcr.io/bayerhazard/relay-one:<version>` (Geheimnis `GHCR_PAT`) und
+   legt Tag und Release mit Chart und Icon an. Danach öffnet `markt.yml`
+   den PR im Markt, mergt ihn, prüft `main` und wartet auf den Deploy
+   (Geheimnis `MARKT_TOKEN` von Marc; ohne es meldet die Action nur).
+
+Von Hand, unter „Run workflow“: `release` und `markt` mit „probe“ (Vorgabe)
+prüfen nur. Ohne „probe“ baut `release` ein Abbild ohne Tag, `markt`
+schreibt den Eintrag für eine Version, die schon ein Release hat.
 
 ## Prüfen vor jedem PR
 
