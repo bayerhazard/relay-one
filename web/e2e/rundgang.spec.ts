@@ -165,7 +165,9 @@ test("Web-App-Symbole: Favicon, Apple-Touch-Icon und Manifest", async ({ page })
   expect(touch && manifestPfad, "Link-Tags im Kopf").toBeTruthy();
   const manifest = await (await page.request.get(manifestPfad!)).json();
   expect(manifest.short_name).toBe("Relay");
-  for (const pfad of [touch!, ...manifest.icons.map((i: { src: string }) => i.src)]) {
+  // iOS: embedded, nothing to fetch behind the box's sign-in.
+  expect(touch!, "Apple-Touch-Icon eingebettet").toMatch(/^data:image\/png;base64,/);
+  for (const pfad of manifest.icons.map((i: { src: string }) => i.src)) {
     const antwort = await page.request.get(pfad);
     expect(antwort.status(), pfad).toBe(200);
     expect(antwort.headers()["content-type"].split(";")[0], pfad).toBe("image/png");
@@ -253,6 +255,9 @@ test("Web-App-Symbole zeigen das richtige Bild", async ({ page }, info) => {
     const png = readFileSync(join(WEB, ziel)).toString("base64");
     expect(await abstand(png, form(art, groesse), groesse), `${ziel} zeigt nicht ${art}`).toBeLessThan(4);
   }
+  // The icon iOS takes is the one embedded in the page as delivered.
+  const touch = await page.evaluate(() => document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute("href") ?? "");
+  expect(await abstand(touch.replace(/^data:image\/png;base64,/, ""), form("voll", 180), 180), "iOS-Icon zeigt nicht voll").toBeLessThan(4);
   // The check tells pictures apart: the tile is not the sign of the tab.
   const kachel = readFileSync(join(WEB, "static/icon.png")).toString("base64");
   expect(await abstand(kachel, form("tab", 512), 512), "Gegenprobe").toBeGreaterThan(20);
@@ -405,6 +410,58 @@ test("Ähnliche E-Mails: Absender, Domain, Betreff", async ({ page, context }, i
   await aehnlich("Betreff „Angebot Messestand Frühjahr …“");
   await expect(leiste).toContainText("1 ähnliche E-Mail in diesem Ordner");
   await expect(page.locator(".kopfleiste input").first()).toHaveValue('betreff:"Angebot Messestand Frühjahr"');
+});
+
+// The search stays in the open folder (Kai, 7.10.2026): the archived
+// "Vertrag Messe 2025" has the same number as a mail in the inbox, and
+// every action works on the open folder — from the inbox it would have hit
+// the wrong mail. The head names the folder searched.
+test("Suche bleibt im geöffneten Ordner", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const suche = page.locator(".kopfleiste input").first();
+  await suche.fill("Vertrag");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Suche in Posteingang");
+  await expect(zeilen).toHaveCount(0);
+  await suche.fill("");
+  await page.locator(".mail-spalte").getByText("Archiv", { exact: true }).click();
+  await expect(zeilen.filter({ hasText: "Vertrag Messe 2025" })).toHaveCount(1);
+  await suche.fill("Vertrag");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Suche in Archiv");
+  await expect(zeilen).toHaveCount(1);
+});
+
+// The calendar on the phone (Kai, 7.10.2026: "GUI nicht gut"): the head
+// in two short lines, refresh and import behind "Mehr", the weekday row
+// slim, the month as dots and the chosen day's events in a list below.
+test("Kalender am Handy: kompakter Kopf, Punkte, Tagesliste", async ({ page, context }, info) => {
+  test.skip(info.project.name !== "handy", "nur am Handy");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/calendar");
+  const liste = page.locator(".cal-tagesliste");
+  await expect(liste).toBeVisible();
+  const kopf = await page.locator(".cal-grid-head-cell").first().boundingBox();
+  expect(kopf!.height, "Wochentagszeile schmal").toBeLessThan(40);
+  await expect(page.getByRole("button", { name: "Neuer Termin" })).toBeVisible();
+  await expect(page.getByRole("button", { name: ".ics importieren" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Mehr" }).click();
+  await expect(page.getByRole("menuitem", { name: ".ics importieren" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // The whole month above the fold: the last week's row ends on screen.
+  const letzte = await page.locator(".cal-cell").last().boundingBox();
+  expect(letzte!.y + letzte!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  // A tap on another day lists that day.
+  await page.locator(".cal-cell:not(.other-month)").nth(14).click();
+  await expect(liste.getByRole("heading", { level: 2 })).toContainText("15.");
+  if (DATEN) await expect(page.locator(".cal-punkt").first()).toBeVisible();
 });
 
 // Backspace deletes and moves on (Kai, 7.10.2026): the next mail opens at

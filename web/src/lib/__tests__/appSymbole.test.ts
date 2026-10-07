@@ -74,7 +74,10 @@ describe("app icons", () => {
     const html = lesen("src/app.html").toString();
     expect(html).toContain('rel="icon" href="%sveltekit.assets%/favicon.svg"');
     expect(html).toContain('rel="icon" href="%sveltekit.assets%/favicon-32.png"');
-    expect(html).toContain('rel="apple-touch-icon"');
+    // iOS: embedded, byte for byte the generated icon (touch-icon-einbetten.mjs).
+    const touch = html.match(/rel="apple-touch-icon"[^>]*href="data:image\/png;base64,([^"]+)"/);
+    expect(touch, "apple-touch-icon embedded").toBeTruthy();
+    expect(Buffer.from(touch![1], "base64").equals(lesen("static/apple-touch-icon.png"))).toBe(true);
     expect(html).toMatch(/rel="manifest"[^>]*crossorigin="use-credentials"/);
     expect(pngGroesse(lesen("static/apple-touch-icon.png"))).toEqual([180, 180]);
     expect(pngGroesse(lesen("static/favicon-32.png"))).toEqual([32, 32]);
