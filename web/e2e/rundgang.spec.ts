@@ -34,7 +34,7 @@ interface Seite {
 
 const SEITEN: Seite[] = [
   { name: DATEN ? "Mail" : "Mail (Einrichtung)", pfad: "/", oeffnen: ".message-item", inhalt: "Angebot Messestand Frühjahr" },
-  { name: "Kontakte", pfad: "/contacts", inhalt: "Jonas Weber", oeffnen: ".ct-item" },
+  { name: "Kontakte", pfad: "/contacts", inhalt: "Jonas Weber", oeffnen: '.ct-item:has-text("Jonas Weber")' },
   // The phone shows only the time in a month cell.
   { name: "Kalender", pfad: "/calendar", inhalt: "12:30" },
   { name: "Meetings", pfad: "/meetings" },
@@ -86,7 +86,8 @@ for (const { name, pfad, teil, inhalt, oeffnen } of SEITEN) {
       await page.locator(oeffnen).first().click();
       await page.waitForTimeout(800);
     }
-    if (DATEN && inhalt) await expect(page.getByText(inhalt).first(), "Beispieldaten sichtbar").toBeVisible();
+    // The first visible one: on the phone an opened entry hides its list.
+    if (DATEN && inhalt) await expect(page.getByText(inhalt).filter({ visible: true }).first(), "Beispieldaten sichtbar").toBeVisible();
 
     const lage = await page.evaluate(() => {
       const kopf = document.querySelector(".seitenkopf");
