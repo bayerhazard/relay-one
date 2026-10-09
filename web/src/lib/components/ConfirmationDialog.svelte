@@ -1,4 +1,5 @@
   <script lang="ts">
+    import type { Snippet } from "svelte";
     import { t } from "$lib/i18n";
 
     interface Props {
@@ -13,6 +14,8 @@
       /** Enter confirms. Off for anything that cannot be taken back, also when
        * it is not red (e.g. "Abo beenden"): Enter then activates the focus. */
       enterConfirms?: boolean;
+      /** More under the question (e.g. a choice to tick). */
+      children?: Snippet;
     }
 
     let {
@@ -25,6 +28,7 @@
       oncancel,
       danger = false,
       enterConfirms = !danger,
+      children,
     }: Props = $props();
 
     function handleKeydown(e: KeyboardEvent) {
@@ -71,6 +75,7 @@
       <div class="karte rueckfrage">
         <h2 id="dialog-title">{title || $t("confirmation.title")}</h2>
         <p id="dialog-message" class="rueckfrage-text">{message}</p>
+        {@render children?.()}
         <div class="btn-reihe">
           <button type="button" class="btn {danger ? 'btn-gefahr' : 'btn-primaer'}" onclick={onconfirm}>
             {confirmLabel || $t("confirmation.confirm")}

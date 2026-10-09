@@ -34,10 +34,23 @@
   let laedt = $state(true);
   let fehler = $state<string | null>(null);
   let filter = $state("");
-  // "Abo beenden" per sender, asked of the server for the newest mail.
+  // "Abo beenden" per sender (Kai, 9.10.2026): the sync marks every mail
+  // that offers it, so the button stands at each such sender, not only at
+  // the 25 most frequent; where the sync has not asked yet, the server is
+  // asked for the newest mail of the senders in view.
   let angebote = $state<Record<string, { uid: number; art: AbmeldeArt; ziel: string }>>({});
   let frage = $state<{ adresse: string; uid: number; art: AbmeldeArt; ziel: string } | null>(null);
   let laeuft = $state(false);
+  // "Nur Abos": only the senders that offer "Abo beenden".
+  let nurAbos = $state(false);
+  // Unsubscribe and clean up in one step: afterwards all of the sender's
+  // mails go to the trash (with "Rückgängig" as always).
+  let danachLoeschen = $state(true);
+  let gefragt = new Set<string>();
+
+  /** A sender whose mail offers "Abo beenden" (known from the sync, or
+   *  found by asking the server). */
+  const hatAbo = (a: Absender) => a.abo === true || !!angebote[a.adresse];
 
   async function laden() {
     laedt = true;
@@ -45,7 +58,7 @@
     try {
       absender = await getSenders(accountId, folder);
       angebote = {};
-      void angeboteHolen(absender.slice(0, 25));
+      gefragt = new Set();
     } catch (e: unknown) {
       fehler = e instanceof Error ? e.message : String(e);
     } finally {
@@ -53,18 +66,53 @@
     }
   }
 
-  // One after the other, so the server is never asked twenty-five times at once.
+  // One after the other, so the server is never asked many times at once.
+  // Only senders the sync has not judged yet (abo null), each once.
   async function angeboteHolen(liste: Absender[]) {
     if (istSpamOrdner) return; // no unsubscribe from the spam folder
     const stand = `${accountId}/${folder}`;
     for (const a of liste) {
       if (`${accountId}/${folder}` !== stand) return;
+      if (a.abo !== null && a.abo !== undefined) continue;
+      if (gefragt.has(a.adresse)) continue;
+      gefragt.add(a.adresse);
       const uid = a.uids[0];
       if (uid == null) continue;
       try {
         const o = await getUnsubscribeOffer(accountId, uid, folder);
         if (o.art) angebote = { ...angebote, [a.adresse]: { uid, art: o.art, ziel: o.ziel ?? a.adresse } };
       } catch { /* no button */ }
+    }
+  }
+
+  // The senders in view (the first 25, or what the search shows).
+  $effect(() => {
+    const blick = sichtbar.slice(0, 25);
+    void angeboteHolen(blick);
+  });
+
+  // The button: what the sender offers, asked of the server for the mail
+  // that has the header, then the question.
+  async function abmeldenFragen(a: Absender) {
+    if (istSpamOrdner || laeuft) return;
+    const bekannt = angebote[a.adresse];
+    if (bekannt) {
+      frage = { adresse: a.adresse, ...bekannt };
+      return;
+    }
+    const uid = a.abo_uid ?? a.uids[0];
+    if (uid == null) return;
+    try {
+      const o = await getUnsubscribeOffer(accountId, uid, folder);
+      if (!o.art) {
+        onmeldung($t("mail.unsubscribeNichtMehr"));
+        return;
+      }
+      const angebot = { uid, art: o.art, ziel: o.ziel ?? a.adresse };
+      angebote = { ...angebote, [a.adresse]: angebot };
+      frage = { adresse: a.adresse, ...angebot };
+    } catch (e: unknown) {
+      onmeldung(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -76,9 +124,9 @@
   });
 
   let sichtbar = $derived(
-    filter.trim()
-      ? absender.filter((a) => (a.name + " " + a.adresse).toLowerCase().includes(filter.trim().toLowerCase()))
-      : absender,
+    absender.filter((a) =>
+      (!nurAbos || hatAbo(a))
+      && (!filter.trim() || (a.name + " " + a.adresse).toLowerCase().includes(filter.trim().toLowerCase()))),
   );
 
   function handeln(a: Absender, art: Art) {
@@ -101,6 +149,9 @@
         const { [f.adresse]: _, ...rest } = angebote;
         angebote = rest;
       }
+      // Clean up in the same step: the sender's mails into the trash.
+      const a = absender.find((x) => x.adresse === f.adresse);
+      if (a && danachLoeschen) handeln(a, "papierkorb");
     } catch (e: unknown) {
       onmeldung(e instanceof Error ? e.message : String(e));
     } finally {
@@ -137,13 +188,21 @@
 
   <div class="aufraeumen-inhalt">
     <p class="aufraeumen-untertitel">{$t("mail.aufraeumenUntertitel")}</p>
-    <div class="feld aufraeumen-filter">
-      <input
-        type="search"
-        bind:value={filter}
-        placeholder={$t("mail.absenderSuchen")}
-        aria-label={$t("mail.absenderSuchen")}
-      />
+    <div class="aufraeumen-werkzeuge">
+      <div class="feld aufraeumen-filter">
+        <input
+          type="search"
+          bind:value={filter}
+          placeholder={$t("mail.absenderSuchen")}
+          aria-label={$t("mail.absenderSuchen")}
+        />
+      </div>
+      {#if !istSpamOrdner}
+        <label class="aufraeumen-schalter">
+          <input type="checkbox" bind:checked={nurAbos} />
+          <span>{$t("mail.nurAbos")}</span>
+        </label>
+      {/if}
     </div>
 
     {#if laedt}
@@ -151,7 +210,7 @@
     {:else if fehler}
       <div class="hinweis" data-art="fehler"><Symbol name="achtung" size={16} /><span>{fehler}</span></div>
     {:else if sichtbar.length === 0}
-      <p class="aufraeumen-hinweis">{$t("mail.aufraeumenLeer")}</p>
+      <p class="aufraeumen-hinweis">{nurAbos ? $t("mail.keineAbos") : $t("mail.aufraeumenLeer")}</p>
     {:else}
       <ul class="aufraeumen-liste">
         {#each sichtbar as a (a.adresse)}
@@ -168,9 +227,9 @@
               </span>
             </div>
             <div class="aufraeumen-knoepfe">
-              {#if angebote[a.adresse]}
+              {#if !istSpamOrdner && hatAbo(a)}
                 <button type="button" class="btn btn-sekundaer btn-klein" disabled={laeuft}
-                  onclick={() => (frage = { adresse: a.adresse, ...angebote[a.adresse] })}>
+                  onclick={() => abmeldenFragen(a)}>
                   {$t("mail.unsubscribe")}
                 </button>
               {/if}
@@ -201,7 +260,17 @@
     enterConfirms={false}
     onconfirm={abmelden}
     oncancel={() => (frage = null)}
-  />
+  >
+    {@const wer = absender.find((x) => x.adresse === frage?.adresse)}
+    {#if wer}
+      <label class="aufraeumen-danach">
+        <input type="checkbox" bind:checked={danachLoeschen} />
+        <span>{wer.anzahl === 1
+          ? $t("mail.danachEineLoeschen", { name: wer.name })
+          : $t("mail.danachAlleLoeschen", { count: wer.anzahl, name: wer.name })}</span>
+      </label>
+    {/if}
+  </ConfirmationDialog>
 {/if}
 
 <style>
@@ -226,9 +295,27 @@
     margin: 0;
     color: var(--am-text-sekundaer);
   }
+  .aufraeumen-werkzeuge {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--am-raum-2) var(--am-raum-4);
+  }
   .aufraeumen-filter {
+    flex: 1 1 14rem;
     max-width: 24rem;
     margin-bottom: 0;
+  }
+  .aufraeumen-schalter,
+  .aufraeumen-danach {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--am-raum-2);
+    color: var(--am-text-primaer);
+    cursor: pointer;
+  }
+  .aufraeumen-danach {
+    margin: 0 0 var(--am-raum-4);
   }
   .aufraeumen-liste {
     list-style: none;

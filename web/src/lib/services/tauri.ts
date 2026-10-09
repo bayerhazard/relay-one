@@ -385,6 +385,11 @@ export interface Absender {
   ungelesen: number;
   neueste: string | null;
   uids: number[];
+  /** A mail of the sender offers "Abo beenden": true, none does: false,
+   *  not known yet (the sync is still asking): null. */
+  abo?: boolean | null;
+  /** The newest mail that offers it. */
+  abo_uid?: number | null;
 }
 
 export async function getSenders(accountId: number, folder: string): Promise<Absender[]> {

@@ -1391,6 +1391,30 @@ pub fn wartende_zeilen(conn: &Connection, account_id: i64, folder: &str) -> Resu
     .collect()
 }
 
+/// Numbers in `folder` (confirmed by the server) not yet asked whether they
+/// offer "Abo beenden", newest first, at most `grenze`.
+pub fn abo_offen(conn: &Connection, account_id: i64, folder: &str, grenze: i64) -> Result<Vec<i64>, rusqlite::Error> {
+    conn.prepare(
+        "SELECT m.uid FROM messages m JOIN folders f ON f.id = m.folder_id
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.abo IS NULL AND m.synced = 1
+         ORDER BY m.uid DESC LIMIT ?3",
+    )?
+    .query_map(params![account_id, folder, grenze], |r| r.get(0))?
+    .collect()
+}
+
+/// Mark the answers: `(uid, has List-Unsubscribe)`.
+pub fn abo_setzen(conn: &Connection, account_id: i64, folder: &str, antworten: &[(u32, bool)]) -> Result<(), rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "UPDATE messages SET abo = ?1 WHERE account_id = ?2 AND uid = ?3
+         AND folder_id = (SELECT id FROM folders WHERE account_id = ?2 AND name = ?4)",
+    )?;
+    for (uid, ja) in antworten {
+        stmt.execute(params![*ja as i64, account_id, *uid as i64, folder])?;
+    }
+    Ok(())
+}
+
 /// Folders Relay mirrored that the provider no longer lists (renamed or
 /// deleted in Gmail's web view or another client; Kai, 9.10.2026): before,
 /// they stayed in Relay as ghosts with their old mails. Only folders the
