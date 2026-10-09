@@ -1025,6 +1025,35 @@ export async function setCalDavSettings(settings: CalDavSettings): Promise<void>
     "Die CalDAV-Einstellungen konnten nicht gespeichert werden.");
 }
 
+/** Calendar, tasks and contacts of a mail account (26.10.18). */
+export interface KontoDavStand {
+  anbieter: { name: string; caldav: string | null; carddav: string | null; nur_google_anmeldung: boolean } | null;
+  caldav_url: string;
+  carddav_url: string;
+  kalender: boolean;
+  aufgaben: boolean;
+  kontakte: boolean;
+}
+
+export interface KontoDavWahl {
+  kalender: boolean;
+  aufgaben: boolean;
+  kontakte: boolean;
+  caldav_url?: string;
+  carddav_url?: string;
+}
+
+export async function getKontoDav(accountId: number): Promise<KontoDavStand> {
+  return get(`/accounts/${accountId}/dav`, "Kalender und Kontakte des Kontos konnten nicht geladen werden.");
+}
+
+export async function setKontoDav(
+  accountId: number,
+  wahl: KontoDavWahl,
+): Promise<{ ok: boolean; kalender_gefunden: number; adressbuecher_gefunden: number }> {
+  return post(`/accounts/${accountId}/dav`, wahl, "Kalender und Kontakte konnten nicht verbunden werden.");
+}
+
 export async function listCalDavAccounts(): Promise<CalDavAccount[]> {
   return get("/calendars/caldav-accounts", "Die CalDAV-Konten konnten nicht geladen werden.");
 }

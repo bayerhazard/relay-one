@@ -177,6 +177,8 @@ jobs:
   #   umlaut, deleted, the trash emptied.
   # - folgeprobe: Relay follows the server — a mail restored there comes
   #   back, a folder renamed there leaves no ghost.
+  # - kontoprobe: an account's calendar, tasks and contacts switched on from
+  #   the DAV server's root (found below the principal), then off again.
   proben:
     name: Probe ${{ matrix.probe }}
     needs: aenderungen
@@ -193,6 +195,8 @@ jobs:
             frist: 1800
           - probe: folgeprobe
             frist: 2400
+          - probe: kontoprobe
+            frist: 900
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/vorbereiten

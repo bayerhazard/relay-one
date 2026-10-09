@@ -29,6 +29,16 @@ pub struct CalDavSettings {
     pub username: String,
     pub password: String,
     pub sync_interval_minutes: u64,
+    /// Events from this account (Kai, 9.10.2026, 26.10.18: per account
+    /// "Kalender" and "Aufgaben" can be switched apart).
+    #[serde(default = "default_enabled")]
+    pub kalender: bool,
+    /// Tasks (VTODO) from this account.
+    #[serde(default = "default_enabled")]
+    pub aufgaben: bool,
+    /// The mail account this one was set up from, if any.
+    #[serde(default)]
+    pub mail_konto: Option<i64>,
 }
 
 fn default_enabled() -> bool {
@@ -45,6 +55,9 @@ impl Default for CalDavSettings {
             username: String::new(),
             password: String::new(),
             sync_interval_minutes: 30,
+            kalender: true,
+            aufgaben: true,
+            mail_konto: None,
         }
     }
 }

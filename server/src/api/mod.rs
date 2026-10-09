@@ -10,6 +10,7 @@ pub mod aufraeumen;
 pub mod backup;
 pub mod calendars;
 pub mod contacts;
+pub mod konto_dav;
 pub mod delete_queue;
 pub mod export;
 pub mod health;
@@ -172,6 +173,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/voice/transcribe", post(profile::transcribe_voice))
         .route("/voice/speak", post(profile::speak_voice))
         // CardDAV
+        .route("/accounts/:id/dav", get(konto_dav::dav_stand).post(konto_dav::dav_setzen))
         .route("/carddav/settings", get(settings::get_carddav_settings).post(settings::set_carddav_settings))
         .route("/carddav/sync", post(settings::sync_carddav))
         .route("/carddav/search", post(settings::search_carddav))

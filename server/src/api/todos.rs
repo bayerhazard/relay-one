@@ -30,7 +30,15 @@ mod serde_with_optional {
 /// Build a CalDAV client from the first configured account (VTODOs live in
 /// the primary calendar account).
 fn caldav_client(state: &AppState) -> Result<CalDavClient, ApiError> {
-    match state.caldav_accounts.read().first().cloned() {
+    // The first account switched on for tasks (26.10.18), else the first.
+    let konten = state.caldav_accounts.read();
+    let gewaehlt = konten
+        .iter()
+        .find(|a| a.enabled && a.aufgaben)
+        .or_else(|| konten.first())
+        .cloned();
+    drop(konten);
+    match gewaehlt {
         Some(settings) => Ok(CalDavClient::new(settings)),
         None => Err(ApiError(
             "Kein CalDAV-Server konfiguriert — bitte zuerst im Settings-Tab verbinden.".to_string(),

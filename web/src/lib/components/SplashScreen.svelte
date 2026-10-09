@@ -2,6 +2,7 @@
   import Symbol from "$lib/components/Symbol.svelte";
     import { onMount, tick } from "svelte";
     import { connectAccount, deleteAccount, saveSettings, getOlaresMailStatus } from "$lib/services/tauri";
+    import KontoDav from "$lib/components/KontoDav.svelte";
     import type { OlaresMailStatus } from "$lib/services/tauri";
     import type { AccountInfo } from "$lib/stores/accounts";
     import { t, lang, setLang, translate, localizeError } from "$lib/i18n";
@@ -12,7 +13,7 @@
 
     let { oncomplete }: Props = $props();
 
-    let splashStep = $state<"intro" | "setup_mail" | "setup_llm">("intro");
+    let splashStep = $state<"intro" | "setup_mail" | "setup_dav" | "setup_llm">("intro");
 
     // Values Olares injected via the chart's env mapping (secrets only present/absent).
     let olares = $state<OlaresMailStatus | null>(null);
@@ -76,7 +77,8 @@
           splashUseOlaresPassword,
         );
         splashCreatedAccount = acct;
-        splashStep = "setup_llm";
+        // Calendar, tasks and contacts of the account come next (26.10.18).
+        splashStep = "setup_dav";
       } catch (e: unknown) {
         splashAcctError = localizeError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -206,7 +208,7 @@
       {:else if splashStep === "setup_mail"}
         <div class="splash-form-view">
           <h2>{$t("splash.connectTitle")}</h2>
-          <p class="splash-subtitle">{$t("splash.step1Of2")}</p>
+          <p class="splash-subtitle">{$t("splash.schritt1")}</p>
           
           <div class="splash-form">
             <div class="feld span-2">
@@ -299,10 +301,19 @@
             </div>
           </div>
         </div>
+      {:else if splashStep === "setup_dav" && splashCreatedAccount}
+        <div class="splash-form-view">
+          <h2>{$t("splash.davTitel")}</h2>
+          <p class="splash-subtitle">{$t("splash.schritt2")}</p>
+          <KontoDav accountId={splashCreatedAccount.id} art="einrichtung" onfertig={() => (splashStep = "setup_llm")} />
+          <button type="button" class="btn btn-still btn-klein splash-zurueck" onclick={handleSplashBackToMail}>
+            {$t("common.back")}
+          </button>
+        </div>
       {:else if splashStep === "setup_llm"}
         <div class="splash-form-view">
           <h2>{$t("splash.llmTitle")}</h2>
-          <p class="splash-subtitle">{$t("splash.step2Of2")}</p>
+          <p class="splash-subtitle">{$t("splash.schritt3")}</p>
           
           <div class="splash-form">
             <div class="feld span-2">
@@ -323,7 +334,7 @@
             {/if}
 
             <div class="splash-actions span-2">
-              <button type="button" class="btn btn-sekundaer" onclick={handleSplashBackToMail}>
+              <button type="button" class="btn btn-sekundaer" onclick={() => (splashStep = "setup_dav")}>
                 {$t("common.back")}
               </button>
               <button type="button" class="btn btn-primaer" onclick={handleSplashCompleteSetup} disabled={splashAiSaving}>
@@ -517,4 +528,6 @@
     border-top: 1px solid var(--am-rand);
     padding-top: 24px;
   }
+  /* Back from the calendar step, under its own buttons. */
+  .splash-zurueck { margin-top: var(--am-raum-3); }
 </style>

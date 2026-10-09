@@ -1,6 +1,7 @@
 pub mod caldav;
 pub mod carddav;
 pub mod client;
+pub mod finden;
 pub mod ics;
 pub mod reqwest_digest_auth;
 pub mod scheduler;
