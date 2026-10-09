@@ -118,5 +118,14 @@ cd web && npm run check && npx vitest run && npm run build
 cd server && cargo test --locked && cargo clippy --all-targets --no-deps
 ```
 
+**Was die CI je PR laufen lässt** (Kai, 9.10.2026, `ci.yml`, Job „Was
+läuft“): Backend und Frontend immer. Der Rundgang im Browser nicht bei
+reiner Doku (`*.md`, `docs/`, Marktnotizen). Die Proben gegen den
+Mailserver (Löschen, Ordner, Folgen, Gmail) nur, wenn `server/`,
+`Cargo.*`, `web/e2e/testserver/` oder `.github/` sich ändern — dann
+nebeneinander, je auf eigenem Runner. Auf `main`, jede Nacht und von Hand
+läuft immer alles. Lokal gilt dasselbe: Proben vor einem PR, der Server-Code
+ändert.
+
 In Marcs Umgebung (4 GiB RAM) Vitest höchstens mit
 `NODE_OPTIONS="--max-old-space-size=3072"` (`HANDOFF.md`).
