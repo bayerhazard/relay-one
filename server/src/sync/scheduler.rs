@@ -1688,6 +1688,31 @@ async fn ordner_abgleichen(
             return Err(e.to_string());
         }
     };
+    // Rows moved here that the server's row never replaced: asked by their
+    // Message-ID, gone from the folder means gone (see wartende_zeilen).
+    let wartend = {
+        let db_guard = state.cache_db.lock();
+        let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+        let lokal = storage_folder != "Trash"
+            && crate::cache::messages::is_local_only_folder(conn, account_id as i64, storage_folder).unwrap_or(false);
+        if lokal {
+            Vec::new()
+        } else {
+            crate::cache::messages::wartende_zeilen(conn, account_id as i64, storage_folder).unwrap_or_default()
+        }
+    };
+    for (zeile, kopf) in wartend {
+        if let Ok(uids) = client.uids_by_message_id_sync(folder_name, &kopf).await {
+            if uids.is_empty() {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::messages::delete_message_row(conn, zeile);
+                    tracing::info!("'{}' (Konto {}): {} liegt dort beim Anbieter nicht mehr — Zeile entfernt", storage_folder, account_id, kopf);
+                }
+            }
+        }
+    }
+
     let db_guard = state.cache_db.lock();
     let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
     // Local-only folders are NOT mirrors of an IMAP folder — never prune
@@ -1889,7 +1914,10 @@ async fn process_sync_task(
                         // folder elsewhere (archived or deleted in Gmail's
                         // web view, on the phone). Before, that only
                         // happened when new mail came in (Kai, 9.10.2026).
-                        if abgleich_faellig(task.account_id, &storage_folder, is_inbox) {
+                        // The inbox and the trash every cycle (restored or
+                        // archived elsewhere shows at once), others every ten
+                        // minutes.
+                        if abgleich_faellig(task.account_id, &storage_folder, is_inbox || storage_folder == "Trash") {
                             let _ = ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter, papierkorb_spiegeln).await;
                         }
                         break;

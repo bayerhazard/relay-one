@@ -1370,6 +1370,27 @@ pub fn ordner_austragen(conn: &Connection, account_id: i64, name: &str, delim: &
     Ok(entfernt)
 }
 
+/// Rows moved into `folder` locally (synced = 0) whose move is done at the
+/// provider (no op waiting on their Message-ID) and that have waited longer
+/// than two minutes for the server's own row: (row id, Message-ID). When
+/// the mail left that folder elsewhere before the sync saw it there (a mail
+/// deleted in Relay and restored in Gmail a moment later), that row never
+/// comes, and the provisional one stayed for good (Kai, 9.10.2026).
+pub fn wartende_zeilen(conn: &Connection, account_id: i64, folder: &str) -> Result<Vec<(i64, String)>, rusqlite::Error> {
+    conn.prepare(
+        "SELECT m.id, m.message_id FROM messages m JOIN folders f ON f.id = m.folder_id
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.synced = 0
+           AND m.message_id IS NOT NULL AND TRIM(m.message_id) != ''
+           AND m.updated_at <= datetime('now', '-2 minutes')
+           AND NOT EXISTS (SELECT 1 FROM provider_ops o
+                           WHERE o.account_id = ?1 AND o.state IN ('pending', 'failed') AND o.attempts < 5
+                             AND (o.flag = m.message_id OR o.kopf = m.message_id))
+         LIMIT 50",
+    )?
+    .query_map(params![account_id, folder], |r| Ok((r.get(0)?, r.get(1)?)))?
+    .collect()
+}
+
 /// Folders Relay mirrored that the provider no longer lists (renamed or
 /// deleted in Gmail's web view or another client; Kai, 9.10.2026): before,
 /// they stayed in Relay as ghosts with their old mails. Only folders the

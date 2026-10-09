@@ -1627,3 +1627,23 @@ fn a_folder_numbered_anew_is_fetched_again() {
     assert_eq!(crate::cache::sync_state::get(&conn, account, "Vorstand").unwrap().last_uid, 0);
     assert_eq!(crate::cache::sync_state::uidvalidity(&conn, account, "Vorstand"), Some(222));
 }
+
+#[test]
+fn rows_moved_here_whose_move_is_done_are_asked_for_after_two_minutes() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "wartend");
+    crate::cache::messages::create_local_folder(&conn, account, "Trash").unwrap();
+    for (uid, mid) in [(1, "<fertig@x>"), (2, "<unterwegs@x>"), (3, "<frisch@x>")] {
+        save_message(&conn, account, &make_cached_message_mit_id(uid, mid, "x"), "INBOX").unwrap();
+        crate::cache::messages::update_folder_from(&conn, account, uid as i64, "INBOX", "Trash").unwrap();
+    }
+    conn.execute(
+        "UPDATE messages SET updated_at = datetime('now', '-5 minutes') WHERE message_id IN ('<fertig@x>', '<unterwegs@x>')",
+        [],
+    )
+    .unwrap();
+    // Its move still waits at the provider: not asked for yet.
+    crate::cache::provider_ops::enqueue_verschieben(&conn, account, 2, "INBOX", "Trash", Some("<unterwegs@x>")).unwrap();
+    let w = crate::cache::messages::wartende_zeilen(&conn, account, "Trash").unwrap();
+    assert_eq!(w.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>(), vec!["<fertig@x>"]);
+}
