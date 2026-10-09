@@ -96,6 +96,26 @@ pub struct Absender {
     pub neueste: Option<String>,
     /// Newest mail first; the view asks it for "Abo beenden".
     pub uids: Vec<i64>,
+    /// Whether a mail of the sender offers "Abo beenden" (List-Unsubscribe):
+    /// true when one does, false when the sync knows none does, null while
+    /// it has not asked for every mail yet (Kai, 9.10.2026).
+    pub abo: Option<bool>,
+    /// The newest mail that offers it — the one to unsubscribe with.
+    pub abo_uid: Option<i64>,
+}
+
+/// Fill `abo`/`abo_uid` from the per-mail answers (uid → abo column).
+pub fn abo_eintragen(liste: &mut [Absender], abo: &HashMap<i64, Option<bool>>) {
+    for a in liste.iter_mut() {
+        a.abo_uid = a.uids.iter().copied().find(|u| abo.get(u).copied().flatten() == Some(true));
+        a.abo = if a.abo_uid.is_some() {
+            Some(true)
+        } else if a.uids.iter().all(|u| abo.get(u).copied().flatten() == Some(false)) {
+            Some(false)
+        } else {
+            None
+        };
+    }
 }
 
 /// "Name <a@b.de>" → ("Name", "a@b.de"); a bare address stands for both.
@@ -127,6 +147,8 @@ pub fn gruppieren(zeilen: Vec<(i64, String, Option<String>, bool)>) -> Vec<Absen
             ungelesen: 0,
             neueste: date.clone(),
             uids: Vec::new(),
+            abo: None,
+            abo_uid: None,
         });
         e.anzahl += 1;
         if !gelesen {
@@ -148,7 +170,7 @@ pub async fn absender(
     let zeilen = with_db(&state, |conn| {
         let mut stmt = conn
             .prepare(
-                "SELECT m.uid, COALESCE(m.from_addr, ''), m.date, m.is_read
+                "SELECT m.uid, COALESCE(m.from_addr, ''), m.date, m.is_read, m.abo
                    FROM messages m JOIN folders f ON f.id = m.folder_id
                   WHERE m.account_id = ?1 AND f.name = ?2
                     AND (m.flags NOT LIKE '%\\Deleted%' OR m.flags IS NULL)
@@ -157,14 +179,20 @@ pub async fn absender(
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(params![q.account_id as i64, q.folder], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, bool>(3)?))
+                Ok((
+                    (r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, bool>(3)?),
+                    r.get::<_, Option<i64>>(4)?.map(|v| v != 0),
+                ))
             })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         Ok::<_, String>(rows)
     })?;
-    Ok(Json(gruppieren(zeilen)))
+    let abo: HashMap<i64, Option<bool>> = zeilen.iter().map(|(z, a)| (z.0, *a)).collect();
+    let mut liste = gruppieren(zeilen.into_iter().map(|(z, _)| z).collect());
+    abo_eintragen(&mut liste, &abo);
+    Ok(Json(liste))
 }
 
 /// `GET /api/v1/settings/aufraeumen`
@@ -212,5 +240,25 @@ mod tests {
         assert_eq!(liste[0].ungelesen, 2);
         assert_eq!(liste[0].uids, vec![5, 3, 2]);
         assert_eq!(liste[1].anzahl, 1);
+    }
+
+    #[test]
+    fn a_sender_offers_abo_beenden_when_one_of_its_mails_does() {
+        let z = |uid, f: &str| (uid, f.to_string(), Some("2026-10-09".to_string()), true);
+        let mut liste = gruppieren(vec![
+            z(9, "News <n@x.de>"),
+            z(8, "News <n@x.de>"),
+            z(7, "Jonas <j@b.de>"),
+            z(6, "Neu <neu@c.de>"),
+        ]);
+        let abo: HashMap<i64, Option<bool>> =
+            [(9, Some(false)), (8, Some(true)), (7, Some(false)), (6, None)].into_iter().collect();
+        abo_eintragen(&mut liste, &abo);
+        let von = |a: &str| liste.iter().find(|x| x.adresse == a).unwrap();
+        // The newest mail without the header does not hide the offer.
+        assert_eq!((von("n@x.de").abo, von("n@x.de").abo_uid), (Some(true), Some(8)));
+        assert_eq!(von("j@b.de").abo, Some(false));
+        // Not asked yet: unknown, the view may still ask the server.
+        assert_eq!(von("neu@c.de").abo, None);
     }
 }

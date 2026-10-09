@@ -542,6 +542,28 @@ test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request
     await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })
       .getByRole("button", { name: "Abo beenden" })).toBeVisible();
 
+    // "Nur Abos" (Kai, 9.10.2026): only senders that offer it.
+    const zeilen = page.locator(".aufraeumen-zeile");
+    const alle = await zeilen.count();
+    await page.getByLabel("Nur Abos").check();
+    await expect(zeilen.filter({ hasText: "stadtwerke.example" })).toHaveCount(1);
+    const abos = await zeilen.count();
+    expect(abos).toBeLessThan(alle);
+    await expect(zeilen.getByRole("button", { name: "Abo beenden" })).toHaveCount(abos);
+    await page.getByLabel("Nur Abos").uncheck();
+    await expect(zeilen).toHaveCount(alle);
+
+    // Unsubscribe and clean up in one step, taken back after.
+    await page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })
+      .getByRole("button", { name: "Abo beenden" }).click();
+    const dialog = page.getByRole("alertdialog");
+    const danach = dialog.getByRole("checkbox", { name: /in den Papierkorb/ });
+    await expect(danach).toBeChecked();
+    await dialog.getByRole("button", { name: "Abo beenden" }).click();
+    await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })).toHaveCount(0);
+    await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+    await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })).toBeVisible();
+
     const ueberlauf = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(ueberlauf, "Seite breiter als der Bildschirm").toBeLessThanOrEqual(1);
     const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();

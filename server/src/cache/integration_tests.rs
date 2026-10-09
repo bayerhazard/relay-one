@@ -1647,3 +1647,20 @@ fn rows_moved_here_whose_move_is_done_are_asked_for_after_two_minutes() {
     let w = crate::cache::messages::wartende_zeilen(&conn, account, "Trash").unwrap();
     assert_eq!(w.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>(), vec!["<fertig@x>"]);
 }
+
+#[test]
+fn the_sync_marks_which_mails_offer_abo_beenden() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "abo");
+    for uid in [1, 2, 3] {
+        save_message(&conn, account, &make_cached_message_mit_id(uid, &format!("<{uid}@x>"), "x"), "INBOX").unwrap();
+    }
+    // Newest first, only the ones not asked yet.
+    assert_eq!(crate::cache::messages::abo_offen(&conn, account, "INBOX", 10).unwrap(), vec![3, 2, 1]);
+    crate::cache::messages::abo_setzen(&conn, account, "INBOX", &[(3, true), (2, false)]).unwrap();
+    assert_eq!(crate::cache::messages::abo_offen(&conn, account, "INBOX", 10).unwrap(), vec![1]);
+    let abo: Option<i64> = conn
+        .query_row("SELECT abo FROM messages WHERE message_id = '<3@x>'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(abo, Some(1));
+}

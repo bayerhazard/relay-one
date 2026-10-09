@@ -1588,6 +1588,33 @@ pub(crate) fn ordner_reparieren_mit(conn: &rusqlite::Connection, account_id: u32
     let _ = crate::cache::settings::set_setting(conn, &schluessel, "1");
 }
 
+/// Ask the provider which mails of a folder offer "Abo beenden" (a
+/// List-Unsubscribe header; Kai, 9.10.2026): up to 500 not yet known per
+/// folder and cycle, new ones and the history alike. The clean-up view
+/// shows the button and the "Nur Abos" filter by it.
+async fn abo_nachtragen(
+    state: &AppState,
+    client: &Arc<crate::imap::client::ImapClient>,
+    account_id: u32,
+    folder_name: &str,
+    storage_folder: &str,
+) {
+    let offen = {
+        let db_guard = state.cache_db.lock();
+        let Some(conn) = db_guard.as_ref() else { return };
+        crate::cache::messages::abo_offen(conn, account_id as i64, storage_folder, 500).unwrap_or_default()
+    };
+    if offen.is_empty() {
+        return;
+    }
+    let menge = offen.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let Ok(antworten) = client.abo_koepfe_sync(folder_name, &menge).await else { return };
+    let db_guard = state.cache_db.lock();
+    if let Some(conn) = db_guard.as_ref() {
+        let _ = crate::cache::messages::abo_setzen(conn, account_id as i64, storage_folder, &antworten);
+    }
+}
+
 /// Compare the folder's UIDVALIDITY with the one Relay saw; when the
 /// provider numbered it anew, fetch it again (see neu_nummeriert).
 async fn uidvalidity_pruefen(
@@ -1870,6 +1897,12 @@ async fn process_sync_task(
                         folder_name, task.account_id, e
                     );
                     continue;
+                }
+
+                // Which mails offer "Abo beenden" (not the spam or the trash:
+                // from there Relay never unsubscribes).
+                if !is_spam && storage_folder != "Trash" {
+                    abo_nachtragen(state, &client, task.account_id, folder_name, &storage_folder).await;
                 }
 
                 // Folder id (scoping for AI + body updates) is constant per

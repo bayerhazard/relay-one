@@ -1106,6 +1106,29 @@ impl ImapClient {
         .await
     }
 
+    /// Which of the numbers carry a List-Unsubscribe header (sync
+    /// connection): one FETCH of that header field for the whole set.
+    pub async fn abo_koepfe_sync(&self, folder: &str, uid_set: &str) -> Result<Vec<(u32, bool)>, AppError> {
+        let folder = folder.to_string();
+        let uid_set = uid_set.to_string();
+        let tracker = self.tracker(Slot::Sync);
+        self.with_slot_blocking(Slot::Sync, "abo_koepfe", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let antworten = session
+                .uid_fetch(&uid_set, "(UID BODY.PEEK[HEADER.FIELDS (LIST-UNSUBSCRIBE)])")
+                .map_err(|e| AppError::imap(format!("FETCH List-Unsubscribe fehlgeschlagen: {}", e), "abo_koepfe"))?;
+            Ok(antworten
+                .iter()
+                .filter_map(|m| {
+                    let uid = m.uid?;
+                    let kopf = String::from_utf8_lossy(m.header().or_else(|| m.body()).unwrap_or(b"")).to_lowercase();
+                    Some((uid, kopf.contains("list-unsubscribe:")))
+                })
+                .collect())
+        })
+        .await
+    }
+
     /// The folder's UIDVALIDITY (STATUS, nothing selected) on the sync
     /// connection.
     pub async fn uidvalidity_sync(&self, folder: &str) -> Result<Option<u32>, AppError> {
