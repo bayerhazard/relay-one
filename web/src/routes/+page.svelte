@@ -3315,11 +3315,6 @@ let sentFolderName = $state<string | null>(null);
       <!-- The inside of the mail area: accounts and their folder trees (RL-G2).
            On the phone the shell shows it as a sheet; a folder closes it. -->
       <div class="mail-spalte">
-        <!-- The page's one primary, where Gmail and Outlook put it. -->
-        <button type="button" class="btn btn-primaer mail-neu-spalte" onclick={handleNewMail} title={$t("mail.newMail")}>
-          <Symbol name="plus" size={16} />
-          {$t("mail.new")}
-        </button>
         {#each $accounts.groups as group}
           <AccountGroup
             account={group.account}
@@ -3373,14 +3368,18 @@ let sentFolderName = $state<string | null>(null);
   <div class="app-container" class:compact={isCompact} class:narrow={isNarrow} class:preview-open={previewOpen}>
     <main class="list-pane" style={isCompact ? "" : `width: ${listWidth}px; min-width: ${listWidth}px;`}>
       <!-- HB-SEITENKOPF in a narrow column: one line, the folder with its
-           unread count left, the list's signs right (Kai, 07.10.2026). The
-           one primary "Neue E-Mail" sits atop the column on the desktop and
-           only here where the column is a sheet. -->
+           unread count left, the list's signs right (Kai, 07.10.2026).
+           "Neue E-Mail" is the last sign there, a letter with a plus on a
+           light face, at every width; the column's big button is gone
+           (Kai's mock-up, 9.10.2026). -->
       <div class="seitenkopf mail-kopf">
         <div class="seitenkopf-zeile">
           <h1>{ordnerTitel}</h1>
         </div>
         <div class="btn-reihe">
+          <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
+            <Symbol name="neu-laden" size={20} />
+          </button>
           <button
             type="button"
             class="btn btn-still btn-symbol"
@@ -3391,13 +3390,11 @@ let sentFolderName = $state<string | null>(null);
           >
             <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
           </button>
-          <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
-            <Symbol name="neu-laden" size={20} />
-          </button>
-          <!-- On the phone the plus alone, as in the CI's phone head (G5). -->
-          <button type="button" class="btn btn-primaer btn-klein mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
-            <Symbol name="plus" size={16} />
-            <span class="mail-neu-wort">{$t("mail.new")}</span>
+          <button type="button" class="btn btn-symbol mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
+            <span class="brief-plus" aria-hidden="true">
+              <Symbol name="post" size={20} />
+              <span class="brief-plus-zeichen"><Symbol name="plus" size={16} /></span>
+            </span>
           </button>
         </div>
       </div>
@@ -3806,12 +3803,10 @@ let sentFolderName = $state<string | null>(null);
   .mail-spalte :global(.tree-row:hover) {
     background: var(--am-flaeche-2);
   }
+  /* Chosen: bold dark text and the gold symbol, no gold edge — in the mail
+     column the edge is gone (Kai, 9.10.2026); the other columns keep CI G1. */
   .mail-spalte :global(.tree-row.active) {
     background: none;
-    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
-    /* Straight edge: round only on the right, as AM-HUELLE does — with
-       all four corners round the edge bends into a bracket. */
-    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
     color: var(--am-text-primaer);
     font-weight: 600;
   }
@@ -3920,24 +3915,30 @@ let sentFolderName = $state<string | null>(null);
     gap: 2px;
     margin: 0;
   }
-  .mail-kopf .mail-neu-kopf { margin-left: var(--am-raum-2); }
-  /* Centred on the same line as the list head and the reading pane's head:
-     the column starts 16 px lower, the band is 56 px high. */
-  .mail-neu-spalte {
-    width: calc(100% - 2 * var(--am-raum-4));
-    margin: calc(-1 * var(--am-raum-2) - 1px) var(--am-raum-4) var(--am-raum-4);
-    justify-content: center;
+  /* "Neue E-Mail": a little clearer than the signs beside it — a light
+     face and the primary's colour, the plus set on the letter's corner. */
+  .mail-kopf .mail-neu-kopf {
+    margin-left: var(--am-raum-1);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
   }
-  @media (min-width: 1024px) {
-    .mail-kopf .mail-neu-kopf { display: none; }
+  .mail-kopf .mail-neu-kopf:hover { background: var(--am-flaeche-3); }
+  .brief-plus { position: relative; display: inline-flex; }
+  .brief-plus-zeichen {
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    display: inline-flex;
+    border-radius: 50%;
+    background: var(--am-flaeche-2);
+    padding: 1px;
   }
-  @media (max-width: 1023px) {
-    .mail-neu-spalte { display: none; }
-  }
+  /* The CI's sizes start at 16; the plus on the corner is smaller. */
+  .brief-plus-zeichen :global(svg) { width: 11px; height: 11px; stroke-width: 3; }
+  .mail-kopf .mail-neu-kopf:hover .brief-plus-zeichen { background: var(--am-flaeche-3); }
   @media (max-width: 40rem) {
     .mail-kopf { flex-direction: row; align-items: center; }
     .mail-kopf .mail-neu-kopf { width: var(--am-ziel-beruehrung); height: var(--am-ziel-beruehrung); padding: 0; justify-content: center; }
-    .mail-neu-wort { display: none; }
   }
   @media (max-width: 40rem) {
     .mail-kopf { padding: 0 var(--am-raum-4); }
@@ -4017,8 +4018,6 @@ let sentFolderName = $state<string | null>(null);
   .mail-aufraeumen.aktiv {
     font-weight: 600;
     color: var(--am-text-primaer);
-    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
-    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
   }
   .mail-aufraeumen.aktiv :global(svg) { color: var(--am-gold-beschriftung); }
   .mail-aufraeumen:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
