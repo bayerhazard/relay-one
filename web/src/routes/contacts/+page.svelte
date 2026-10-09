@@ -616,11 +616,11 @@
   .ct-detail-titel h2 { margin: 0; font-size: 1.375rem; overflow-wrap: anywhere; }
   .ct-detail-firma { margin: 2px 0 0; color: var(--am-text-sekundaer); }
   .ct-herkunft { margin: var(--am-raum-1) 0 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .ct-detail-aktionen { margin: var(--am-raum-5) 0; flex-wrap: wrap; }
+  .ct-detail .ct-detail-aktionen { margin: var(--am-raum-4) 0 var(--am-raum-6); flex-wrap: wrap; }
   .ct-angaben {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: var(--am-raum-2) var(--am-raum-5);
+    gap: var(--am-raum-2) var(--am-raum-6);
     margin: 0 0 var(--am-raum-6);
     font-size: var(--fs-base);
   }
