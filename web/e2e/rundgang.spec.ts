@@ -391,10 +391,38 @@ test("Mail: Symbole nach Ort", async ({ page, context }, info) => {
   expect(await lese.getByRole("button").count()).toBeLessThanOrEqual(5);
   await expect(kopf.getByRole("button")).toHaveCount(3);
   await kopf.getByRole("button", { name: "Mehr" }).click();
-  for (const eintrag of ["Archivieren", "In Ordner verschieben", /gelesen/, "Aktualisieren"]) {
+  for (const eintrag of ["Archivieren", "In Ordner verschieben", /^Als (un)?gelesen markieren$/, "Nur ungelesene", "Aktualisieren"]) {
     await expect(page.getByRole("menuitem", { name: eintrag })).toBeVisible();
   }
   await page.keyboard.press("Escape");
+});
+
+// Only unread (Kai, 9.10.2026): the count at the account shows only the
+// unread mails of the inbox, clicked again all of them.
+test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Ordnerspalte sichtbar");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const alle = await zeilen.count();
+  const zahl = page.locator(".unread-badge").first();
+  await expect(zahl).toBeVisible();
+  const ungelesen = Number(await zahl.textContent());
+  expect(ungelesen).toBeLessThan(alle);
+
+  await zahl.click();
+  const titel = page.locator(".mail-kopf h1");
+  await expect(titel).toHaveText("Posteingang – ungelesen");
+  await expect(zeilen).toHaveCount(ungelesen);
+  await expect(zeilen.locator(".ungelesen-punkt")).toHaveCount(ungelesen);
+
+  await zahl.click();
+  await expect(titel).toHaveText("Posteingang");
+  await expect(zeilen).toHaveCount(alle);
 });
 
 // "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails

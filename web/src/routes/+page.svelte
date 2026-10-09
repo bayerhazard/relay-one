@@ -1,6 +1,6 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { untrack } from "svelte";
   import { goto } from "$app/navigation";
   import MessageList from "$lib/components/MessageList.svelte";
@@ -1154,6 +1154,9 @@ let sentFolderName = $state<string | null>(null);
   // Select folder from a specific account
   function handleAccountFolderSelect(accountId: number, folder: string) {
     ansicht = "liste";
+    // A click on the open folder's name leaves a filter (only unread, only
+    // flagged): it shows all its mails again.
+    if (accountId === selectedAccountId && folder === selectedFolder && searchActive) clearSearch();
     if (accountId !== selectedAccountId) {
       const acct = accountList.find(a => a.id === accountId);
       if (acct) {
@@ -1573,6 +1576,38 @@ let sentFolderName = $state<string | null>(null);
   let flaggedSearchActive = $derived(
     ["is:flagged", "is:flag"].includes(searchQuery.trim().toLowerCase())
   );
+
+  // Only unread (Kai, 9.10.2026): the count at the account opens its inbox
+  // with only the unread mails; clicked again, all. A mail read here stays
+  // in the list until the filter is left — the hits are not asked again.
+  let unreadSearchActive = $derived(
+    ["is:unread", "is:ungelesen"].includes(searchQuery.trim().toLowerCase())
+  );
+
+  async function zeigeUngelesene(accountId: number) {
+    if (accountId === selectedAccountId && selectedFolder === "INBOX" && unreadSearchActive) {
+      clearSearch();
+      return;
+    }
+    if (accountId !== selectedAccountId || selectedFolder !== "INBOX") {
+      handleAccountFolderSelect(accountId, "INBOX");
+      // The folder switch leaves any search; the filter comes after it.
+      await tick();
+    }
+    ansicht = "liste";
+    folderSheetOpen = false;
+    toggleUnreadFilter(true);
+  }
+
+  function toggleUnreadFilter(an = !unreadSearchActive) {
+    if (!an) {
+      clearSearch();
+      return;
+    }
+    searchQuery = "is:unread";
+    searchSeen = searchQuery;
+    runSearch();
+  }
 
   function toggleFlagFilter() {
     if (flaggedSearchActive) {
@@ -2653,6 +2688,10 @@ let sentFolderName = $state<string | null>(null);
         });
       }
     }
+    eintraege.push({
+      label: unreadSearchActive ? translate("mail.alleZeigen") : translate("mail.nurUngelesene"),
+      action: () => toggleUnreadFilter(),
+    });
     eintraege.push({ label: translate("mail.refresh"), action: () => loadFolder(true) });
     if (markiert > 1) {
       eintraege.push({ label: translate("mail.auswahlAufheben"), action: () => mailbox.clearSelection() });
@@ -3023,6 +3062,7 @@ let sentFolderName = $state<string | null>(null);
   // it under (own name, else the translated leaf), and the account's unread
   // count where the server has one — the inbox.
   let ordnerTitel = $derived.by(() => {
+    if (unreadSearchActive) return $t("mail.ungelesenIn", { ordner: ordnerName() });
     if (searchActive) return $t("mail.searchIn", { ordner: ordnerName() });
     return ordnerName();
   });
@@ -3331,6 +3371,7 @@ let sentFolderName = $state<string | null>(null);
             bind:dragSource
             bind:dragTarget
             onSelectFolder={handleAccountFolderSelect}
+            onUnreadClick={zeigeUngelesene}
             onToggleCollapse={handleToggleCollapse}
             onToggleFolder={handleToggleFolder}
             onMoveMessage={handleMoveMessage}
@@ -3915,15 +3956,13 @@ let sentFolderName = $state<string | null>(null);
   .brief-plus { position: relative; display: inline-flex; }
   .brief-plus-zeichen {
     position: absolute;
-    right: -5px;
-    bottom: -4px;
+    right: -8px;
+    bottom: -7px;
     display: inline-flex;
     border-radius: 50%;
     background: var(--am-flaeche-2);
     padding: 1px;
   }
-  /* The CI's sizes start at 16; the plus on the corner is smaller. */
-  .brief-plus-zeichen :global(svg) { width: 11px; height: 11px; stroke-width: 3; }
   .mail-kopf .mail-neu-kopf:hover .brief-plus-zeichen { background: var(--am-flaeche-3); }
   @media (max-width: 40rem) {
     .mail-kopf { flex-direction: row; align-items: center; }

@@ -27,6 +27,8 @@
     dragSource?: string | null;
     dragTarget?: string | null;
     onSelectFolder?: (accountId: number, folder: string) => void;
+    /** The unread count was clicked: the inbox, only its unread mails. */
+    onUnreadClick?: (accountId: number) => void;
     onToggleCollapse?: (accountId: number) => void;
     onToggleFolder?: (accountId: number, folderName: string) => void;
     onMoveMessage?: (uid: number, targetFolder: string, targetAccountId?: number) => void;
@@ -43,6 +45,7 @@
     dragSource = $bindable(null),
     dragTarget = $bindable(null),
     onSelectFolder = () => {},
+    onUnreadClick = () => {},
     onToggleCollapse = () => {},
     onToggleFolder = () => {},
     onMoveMessage = () => {},
@@ -186,11 +189,17 @@
     <span class="tree-icon">{@html iconSVG("inbox", 20)}</span>
     <span class="tree-label">{account.name}</span>
     {#if unreadCount > 0}
+      <!-- A click on the count shows only the unread mails (Kai, 9.10.2026).
+           Not a button of its own inside the row's button; by keyboard the
+           same filter is "Nur ungelesene" under "Mehr" in the list head. -->
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <span
         class="unread-badge"
         class:unread-bump={bump}
-        title={$t("mail.unreadCount", { count: unreadCount })}
-        aria-label={$t("mail.unreadCount", { count: unreadCount })}
+        title={unreadCount === 1 ? $t("mail.unreadCount1") : $t("mail.unreadCount", { count: unreadCount })}
+        aria-label={unreadCount === 1 ? $t("mail.unreadCount1") : $t("mail.unreadCount", { count: unreadCount })}
+        onclick={(e) => { e.stopPropagation(); onUnreadClick(account.id); }}
+        ondblclick={(e) => e.stopPropagation()}
       >{unreadCount > 99 ? "99+" : unreadCount}</span>
     {/if}
   </div>
@@ -354,6 +363,7 @@
   /* Unread-INBOX badge (root row). Signals "new mail at this account" — the
      gold/blue fill distinguishes it from the neutral header count. */
   .unread-badge {
+    cursor: pointer;
     flex: none;
     font-size: 0.6875rem;
     font-weight: 700;

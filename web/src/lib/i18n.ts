@@ -377,6 +377,10 @@ export const translations: Record<Lang, Dict> = {
     "mail.newMail": "Neue E-Mail (Strg+N / Cmd+N)",
     "mail.new": "Neue E-Mail",
     "mail.unreadCount": "{count} ungelesene Mails",
+    "mail.unreadCount1": "1 ungelesene Mail",
+    "mail.ungelesenIn": "{ordner} – ungelesen",
+    "mail.nurUngelesene": "Nur ungelesene",
+    "mail.alleZeigen": "Alle Mails zeigen",
     "mail.refresh": "Aktualisieren (Strg+R / Cmd+R)",
     "mail.selectedCount": "{count} ausgewählt",
 
@@ -1170,6 +1174,10 @@ export const translations: Record<Lang, Dict> = {
     "mail.newMail": "New email (Ctrl+N / Cmd+N)",
     "mail.new": "New email",
     "mail.unreadCount": "{count} unread emails",
+    "mail.unreadCount1": "1 unread email",
+    "mail.ungelesenIn": "{ordner} – unread",
+    "mail.nurUngelesene": "Unread only",
+    "mail.alleZeigen": "Show all emails",
     "mail.refresh": "Refresh (Ctrl+R / Cmd+R)",
     "mail.selectedCount": "{count} selected",
 

@@ -1509,12 +1509,14 @@ pub fn delete_local_folder(
 /// operators that filter by metadata.
 ///
 /// Operators (Kai, 7.10.2026, "Ähnliche E-Mails"): `is:flagged`,
+/// `is:unread` (Kai, 9.10.2026, the unread count at the account),
 /// `von:<address>` (also `from:`), `domain:<domain>` and `betreff:<text>`
 /// (also `subject:`). A value may be quoted: `betreff:"Ihr Einkauf bei"`.
 #[derive(Debug, Default, PartialEq)]
 pub struct Suchanfrage {
     pub woerter: Vec<String>,
     pub markiert: bool,
+    pub ungelesen: bool,
     pub von: Option<String>,
     pub domain: Option<String>,
     pub betreff: Option<String>,
@@ -1546,6 +1548,10 @@ impl Suchanfrage {
                 a.markiert = true;
                 continue;
             }
+            if klein == "is:unread" || klein == "is:ungelesen" {
+                a.ungelesen = true;
+                continue;
+            }
             let wert = |praefix: &str| -> Option<String> {
                 klein.strip_prefix(praefix)?;
                 wort.get(praefix.len()..).map(|v| v.trim().to_string())
@@ -1571,7 +1577,7 @@ impl Suchanfrage {
     }
 
     fn hat_filter(&self) -> bool {
-        self.markiert || self.von.is_some() || self.domain.is_some() || self.betreff.is_some()
+        self.markiert || self.ungelesen || self.von.is_some() || self.domain.is_some() || self.betreff.is_some()
     }
 }
 
@@ -1648,6 +1654,9 @@ pub fn search_messages_in(
     }
     if anfrage.markiert {
         sql.push_str(" AND m.is_flagged = 1");
+    }
+    if anfrage.ungelesen {
+        sql.push_str(" AND m.is_read = 0");
     }
     if let Some(von) = &anfrage.von {
         // The address alone or in angle brackets: "service@x.de" must not
@@ -1812,6 +1821,9 @@ mod tests {
         assert_eq!(a.von.as_deref(), Some("service@paypal.de"));
         assert_eq!(a.betreff.as_deref(), Some("Ihr Einkauf bei"));
         assert!(a.markiert);
+        assert!(!a.ungelesen);
+        assert!(Suchanfrage::lesen("is:unread").ungelesen);
+        assert!(Suchanfrage::lesen("is:Ungelesen").ungelesen);
         assert_eq!(Suchanfrage::lesen("domain:@paypal.de").domain.as_deref(), Some("paypal.de"));
         assert_eq!(Suchanfrage::lesen("from:a@b.de").von.as_deref(), Some("a@b.de"));
         // An empty operator is no filter and no word.
@@ -1855,6 +1867,21 @@ mod tests {
         // Only the open folder.
         assert_eq!(uids(&conn, a, "von:service@paypal.de", Some("INBOX")), vec![1, 2]);
         assert_eq!(uids(&conn, a, "von:service@paypal.de", Some("Archiv")), vec![6]);
+    }
+
+    #[test]
+    fn nur_ungelesene_im_ordner() {
+        let conn = setup_db();
+        let a = create_test_account(&conn);
+        let inbox = insert_folder(&conn, a, "INBOX", false);
+        let archiv = insert_folder(&conn, a, "Archiv", false);
+        mail(&conn, a, inbox, 1, "a@b.de", "Neu");
+        mail(&conn, a, inbox, 2, "a@b.de", "Gelesen");
+        mail(&conn, a, archiv, 3, "a@b.de", "Neu im Archiv");
+        conn.execute("UPDATE messages SET is_read = 1 WHERE uid = 2", []).unwrap();
+
+        assert_eq!(uids(&conn, a, "is:unread", Some("INBOX")), vec![1]);
+        assert_eq!(uids(&conn, a, "is:unread", None), vec![1, 3]);
     }
 
     #[test]
