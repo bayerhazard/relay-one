@@ -106,6 +106,13 @@ fn mailto_lesen(uri: &str) -> Option<Abmeldemail> {
     Some(Abmeldemail { an, betreff, text })
 }
 
+/// Whether a header block offers "Abo beenden" at all (what the sync notes
+/// per mail; the button then asks for the details).
+pub fn hat_abmeldung(kopf: &str) -> bool {
+    let a = angebot_lesen(kopf);
+    a.ein_klick.is_some() || a.mail.is_some() || a.link.is_some()
+}
+
 /// Reads List-Unsubscribe and List-Unsubscribe-Post from a header block.
 pub fn angebot_lesen(kopf: &str) -> Angebot {
     let mut a = Angebot::default();

@@ -3508,14 +3508,6 @@ let sentFolderName = $state<string | null>(null);
 {/if}
 
 
-  {#if undoDelete}
-    <div class="undo-toast" role="status" aria-live="polite">
-      <span>{undoDelete.endgueltig
-        ? (undoDelete.uids.length === 1 ? $t("mail.geloeschtEine") : $t("mail.geloeschtViele", { count: undoDelete.uids.length }))
-        : (undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length }))}</span>
-      <button type="button" class="btn btn-sekundaer" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
-    </div>
-  {/if}
 
   {#if mehrMenue && selectedMessage}
     {@const msg = selectedMessage}
@@ -3542,18 +3534,31 @@ let sentFolderName = $state<string | null>(null);
     />
   {/if}
 
-  {#if undoVerschieben}
-    <div class="undo-toast" role="status" aria-live="polite">
-      <span>{undoVerschieben.text}</span>
-      <button type="button" class="btn btn-sekundaer" onclick={undoVerschiebenRueckgaengig}>{$t("mail.undo")}</button>
-    </div>
-  {/if}
+  <!-- The notes at the bottom, one above the other: "Abo beendet" and the
+       move it brought along ("Rückgängig") came at once and lay on top of
+       each other, the upper one covering "Rückgängig" (Kai, 9.10.2026). -->
+  <div class="toast-stapel">
+    {#if undoDelete}
+      <div class="undo-toast" role="status" aria-live="polite">
+        <span>{undoDelete.endgueltig
+          ? (undoDelete.uids.length === 1 ? $t("mail.geloeschtEine") : $t("mail.geloeschtViele", { count: undoDelete.uids.length }))
+          : (undoDelete.uids.length === 1 ? $t("mail.trashedOne") : $t("mail.trashedMany", { count: undoDelete.uids.length }))}</span>
+        <button type="button" class="btn btn-sekundaer" onclick={undoPendingDelete}>{$t("mail.undo")}</button>
+      </div>
+    {/if}
+    {#if undoVerschieben}
+      <div class="undo-toast" role="status" aria-live="polite">
+        <span>{undoVerschieben.text}</span>
+        <button type="button" class="btn btn-sekundaer" onclick={undoVerschiebenRueckgaengig}>{$t("mail.undo")}</button>
+      </div>
+    {/if}
 
-  {#if abmeldeMeldung}
-    <div class="undo-toast" role="status" aria-live="polite">
-      <span>{abmeldeMeldung}</span>
-    </div>
-  {/if}
+    {#if abmeldeMeldung}
+      <div class="undo-toast" role="status" aria-live="polite">
+        <span>{abmeldeMeldung}</span>
+      </div>
+    {/if}
+  </div>
 
   {#if showDeleteFolderConfirm}
     <ConfirmationDialog
@@ -4018,12 +4023,20 @@ let sentFolderName = $state<string | null>(null);
   .mail-aufraeumen.aktiv :global(svg) { color: var(--am-gold-beschriftung); }
   .mail-aufraeumen:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
 
-  .undo-toast {
+  .toast-stapel {
     position: fixed;
     left: 50%;
     bottom: calc(var(--am-raum-8) + env(safe-area-inset-bottom, 0px));
     transform: translateX(-50%);
     z-index: var(--am-ebene-menue);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--am-raum-2);
+    pointer-events: none;
+  }
+  .undo-toast {
+    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: var(--am-raum-4);

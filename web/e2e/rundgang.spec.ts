@@ -561,6 +561,8 @@ test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request
     await expect(danach).toBeChecked();
     await dialog.getByRole("button", { name: "Abo beenden" }).click();
     await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })).toHaveCount(0);
+    // Both notes stand, one above the other: "Abo beendet" and the move.
+    await expect(page.getByRole("status").filter({ hasText: "abmelden@stadtwerke.example" })).toBeVisible();
     await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
     await expect(page.locator(".aufraeumen-zeile", { hasText: "stadtwerke.example" })).toBeVisible();
 
@@ -576,8 +578,10 @@ test("Aufräumen: nach Absender und Durchgehen", async ({ page, context, request
     await page.getByRole("button", { name: "Behalten" }).click();
     await expect(page.locator(".seitenkopf-zahl")).toHaveText(/^2 von \d+$/);
     await page.keyboard.press("e");
-    await expect(page.getByRole("status")).toContainText("Mail ins Archiv verschoben");
-    await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
+    // The note of the unsubscribe above may still stand beside it.
+    const archiviert = page.getByRole("status").filter({ hasText: "Mail ins Archiv verschoben" });
+    await expect(archiviert).toBeVisible();
+    await archiviert.getByRole("button", { name: "Rückgängig" }).click();
     await page.getByRole("button", { name: "Beenden" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Aufräumen" })).toBeVisible();
   } finally {
