@@ -4,8 +4,51 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Every night the whole suite on main, the probes included, whatever the
+  # day's PRs skipped (Kai, 9.10.2026).
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
 
 jobs:
+  # What a PR touches decides what it runs (Kai, 9.10.2026, "nicht immer
+  # alle Tests"): the probes against the mail server only when the server,
+  # the probes or this workflow change; the tour not for a change of words
+  # in docs alone. Unsure means everything: main, the nightly run, a run by
+  # hand, or a diff that cannot be read.
+  aenderungen:
+    name: Was läuft
+    runs-on: ubuntu-latest
+    outputs:
+      rundgang: ${{ steps.wahl.outputs.rundgang }}
+      proben: ${{ steps.wahl.outputs.proben }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: wahl
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          EREIGNIS: ${{ github.event_name }}
+        run: |
+          alles() { echo "rundgang=true" >> "$GITHUB_OUTPUT"; echo "proben=true" >> "$GITHUB_OUTPUT"; echo "Alles: $1"; exit 0; }
+          [ "$EREIGNIS" = "pull_request" ] || alles "$EREIGNIS"
+          dateien=$(git diff --name-only "$BASE"...HEAD) || alles "kein Diff lesbar"
+          [ -n "$dateien" ] || alles "leerer Diff"
+          echo "$dateien"
+          # Probes: the server, its build, the probes, this workflow.
+          if echo "$dateien" | grep -Eq '^(server/|Cargo\.(toml|lock)$|web/e2e/testserver/|\.github/)'; then
+            echo "proben=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proben=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The tour: anything but docs and market notes.
+          if echo "$dateien" | grep -Evq '(\.md$|^docs/|^chart/relay/markt/)'; then
+            echo "rundgang=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rundgang=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend:
     name: Backend (Rust)
     runs-on: ubuntu-latest
@@ -68,36 +111,13 @@ jobs:
   # dir, once filled from the test servers (web/e2e/testserver/).
   oberflaeche:
     name: Oberfläche (Rundgang)
+    needs: aenderungen
+    if: needs.aenderungen.outputs.rundgang == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-tour-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: build server
-        run: cargo build --locked -p relay-server
-
-      - name: build web
-        working-directory: web
-        run: npm ci --silent && npm run build
+      - uses: ./.github/actions/vorbereiten
 
       - name: start server
         run: |
@@ -115,14 +135,6 @@ jobs:
       - name: tour
         working-directory: web
         run: npm run e2e
-
-      # The GreenMail jar and Radicale's venv, so the tour does not depend on
-      # Maven Central answering on every run.
-      - name: Cache test servers
-        uses: actions/cache@v4
-        with:
-          path: web/e2e/testserver/.lauf
-          key: testserver-${{ runner.os }}-${{ hashFiles('web/e2e/testserver/starten.sh') }}
 
       - name: test servers with dummy data
         run: |
@@ -142,47 +154,6 @@ jobs:
           RELAY_URL: http://127.0.0.1:3800
         run: npm run e2e
 
-      # Deleting in Relay must reach the mail server (Kai, 7.10.2026): a mail
-      # of its own is deleted, then deleted for good from the trash, and the
-      # test server is asked until it is really gone from both.
-      - name: deleting reaches the mail server
-        run: timeout 1800 python3 web/e2e/testserver/loeschprobe.py --relay http://127.0.0.1:3800
-
-      # Moving must keep the mail on the mail server (Kai, 9.10.2026): two
-      # mails archived where the server has no archive, two moved into a
-      # folder Relay knew empty, a star right after a move, one dragged
-      # into the trash, one back out of the archive; then folders created,
-      # renamed with an umlaut, deleted and the trash emptied.
-      - name: moving keeps the mail on the mail server
-        run: timeout 1800 python3 web/e2e/testserver/ordnerprobe.py --relay http://127.0.0.1:3800
-
-      # Relay follows the mail server (Kai, 9.10.2026): a mail restored from
-      # the server's trash by IMAP comes back, a folder renamed there leaves
-      # no ghost.
-      - name: Relay follows the mail server
-        run: timeout 2400 python3 web/e2e/testserver/folgeprobe.py --relay http://127.0.0.1:3800
-
-      # Against a real Gmail account (Kai, 9.10.2026): GreenMail has no
-      # labels and no "All Mail". Runs only where the repository has the
-      # secrets GMAIL_TEST_USER and GMAIL_TEST_PASSWORT (an app password of
-      # an account kept for tests); without them the probe skips itself.
-      - name: Gmail behaves as Gmail does
-        env:
-          GMAIL_TEST_USER: ${{ secrets.GMAIL_TEST_USER }}
-          GMAIL_TEST_PASSWORT: ${{ secrets.GMAIL_TEST_PASSWORT }}
-        run: |
-          if [ -z "$GMAIL_TEST_USER" ]; then
-            python3 web/e2e/testserver/gmailprobe.py
-            exit 0
-          fi
-          mkdir -p "$RUNNER_TEMP/relay-gmail"
-          RELAY_DATA_DIR="$RUNNER_TEMP/relay-gmail" \
-          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
-          RELAY_BIND=127.0.0.1:3801 \
-            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-gmail.log" 2>&1 &
-          sleep 5
-          timeout 3600 python3 web/e2e/testserver/gmailprobe.py --relay http://127.0.0.1:3801
-
       - name: upload report
         if: failure()
         uses: actions/upload-artifact@v4
@@ -193,6 +164,97 @@ jobs:
             web/test-results/
             ${{ runner.temp }}/relay-server.log
             ${{ runner.temp }}/relay-daten.log
-            ${{ runner.temp }}/relay-gmail.log
             web/e2e/testserver/.lauf/*.log
+          retention-days: 7
+
+  # The probes against the mail server, each on its own runner, side by side
+  # (they ran one after the other, 12 minutes together):
+  # - loeschprobe: deleting reaches the mail server (Kai, 7.10.2026) — a
+  #   mail of its own is deleted, then for good, until it is gone from both.
+  # - ordnerprobe: moving keeps the mail on the server (Kai, 9.10.2026) —
+  #   archived without a server archive, moved into an empty folder, starred
+  #   after a move, dragged to the trash; folders created, renamed with an
+  #   umlaut, deleted, the trash emptied.
+  # - folgeprobe: Relay follows the server — a mail restored there comes
+  #   back, a folder renamed there leaves no ghost.
+  proben:
+    name: Probe ${{ matrix.probe }}
+    needs: aenderungen
+    if: needs.aenderungen.outputs.proben == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - probe: loeschprobe
+            frist: 1800
+          - probe: ordnerprobe
+            frist: 1800
+          - probe: folgeprobe
+            frist: 2400
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/vorbereiten
+
+      - name: test servers with dummy data
+        run: |
+          web/e2e/testserver/starten.sh
+          mkdir -p "$RUNNER_TEMP/relay-daten"
+          RELAY_DATA_DIR="$RUNNER_TEMP/relay-daten" \
+          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
+          RELAY_BIND=127.0.0.1:3800 \
+          RELAY_OLARES_FIRSTNAME=Erika RELAY_OLARES_LASTNAME=Muster \
+            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-daten.log" 2>&1 &
+          python3 web/e2e/testserver/befuellen.py --relay http://127.0.0.1:3800
+
+      - name: ${{ matrix.probe }}
+        run: timeout ${{ matrix.frist }} python3 web/e2e/testserver/${{ matrix.probe }}.py --relay http://127.0.0.1:3800
+
+      - name: upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.probe }}
+          path: |
+            ${{ runner.temp }}/relay-daten.log
+            web/e2e/testserver/.lauf/*.log
+          retention-days: 7
+
+  # Against a real Gmail account (Kai, 9.10.2026): GreenMail has no labels
+  # and no "All Mail". Runs only where the repository has the secrets
+  # GMAIL_TEST_USER and GMAIL_TEST_PASSWORT (an app password of an account
+  # kept for tests); without them the probe skips itself.
+  gmail:
+    name: Probe Gmail
+    needs: aenderungen
+    if: needs.aenderungen.outputs.proben == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      GMAIL_TEST_USER: ${{ secrets.GMAIL_TEST_USER }}
+      GMAIL_TEST_PASSWORT: ${{ secrets.GMAIL_TEST_PASSWORT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: without the secrets
+        if: env.GMAIL_TEST_USER == ''
+        run: python3 web/e2e/testserver/gmailprobe.py
+      - uses: ./.github/actions/vorbereiten
+        if: env.GMAIL_TEST_USER != ''
+      - name: Gmail behaves as Gmail does
+        if: env.GMAIL_TEST_USER != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/relay-gmail"
+          RELAY_DATA_DIR="$RUNNER_TEMP/relay-gmail" \
+          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
+          RELAY_BIND=127.0.0.1:3801 \
+            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-gmail.log" 2>&1 &
+          sleep 5
+          timeout 3600 python3 web/e2e/testserver/gmailprobe.py --relay http://127.0.0.1:3801
+      - name: upload log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmail
+          path: ${{ runner.temp }}/relay-gmail.log
           retention-days: 7

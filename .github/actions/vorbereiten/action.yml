@@ -1,0 +1,43 @@
+name: vorbereiten
+description: >
+  Builds relay-server (debug) and the web app for a job that runs them —
+  the tour and each probe run on their own runner, side by side.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-tour-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ runner.os }}-cargo-
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    - name: build server
+      shell: bash
+      run: cargo build --locked -p relay-server
+
+    - name: build web
+      shell: bash
+      working-directory: web
+      run: npm ci --silent && npm run build
+
+    # The GreenMail jar and Radicale's venv, so a run does not depend on
+    # Maven Central answering every time.
+    - name: Cache test servers
+      uses: actions/cache@v4
+      with:
+        path: web/e2e/testserver/.lauf
+        key: testserver-${{ runner.os }}-${{ hashFiles('web/e2e/testserver/starten.sh') }}
