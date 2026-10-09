@@ -95,7 +95,8 @@ pub fn absolut(basis: &str, href: &str) -> Option<String> {
 
 /// The user's home set below `url`, or `url` itself when the server names
 /// no principal there. An error only when the server refuses the login.
-pub async fn heimat(url: &str, user: &str, pass: &str, art: Art) -> Result<String, String> {
+/// `google`: the mail account whose Google token signs in (Gmail).
+pub async fn heimat(url: &str, user: &str, pass: &str, art: Art, google: Option<i64>) -> Result<String, String> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .connect_timeout(std::time::Duration::from_secs(10))
@@ -104,6 +105,7 @@ pub async fn heimat(url: &str, user: &str, pass: &str, art: Art) -> Result<Strin
     let http = reqwest_digest_auth::ClientBuilder::new(http)
         .username(user.to_string())
         .password(pass.to_string())
+        .google(google)
         .build();
 
     let propfind = |ziel: String, body: &'static str| {

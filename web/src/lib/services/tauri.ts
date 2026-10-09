@@ -1028,6 +1028,9 @@ export async function setCalDavSettings(settings: CalDavSettings): Promise<void>
 /** Calendar, tasks and contacts of a mail account (26.10.18). */
 export interface KontoDavStand {
   anbieter: { name: string; caldav: string | null; carddav: string | null; nur_google_anmeldung: boolean } | null;
+  /** Only for Gmail: whether the box has a Google project, and the Google
+   *  account this mail account signed in with. */
+  google: { eingerichtet: boolean; angemeldet: string | null } | null;
   caldav_url: string;
   carddav_url: string;
   kalender: boolean;
@@ -1050,8 +1053,33 @@ export async function getKontoDav(accountId: number): Promise<KontoDavStand> {
 export async function setKontoDav(
   accountId: number,
   wahl: KontoDavWahl,
-): Promise<{ ok: boolean; kalender_gefunden: number; adressbuecher_gefunden: number }> {
+): Promise<{ ok: boolean; kalender_gefunden: number; adressbuecher_gefunden: number; aufgabenlisten_gefunden: number }> {
   return post(`/accounts/${accountId}/dav`, wahl, "Kalender und Kontakte konnten nicht verbunden werden.");
+}
+
+/** The box's Google project (client ID; the secret never comes back). */
+export interface GoogleApp {
+  eingerichtet: boolean;
+  client_id: string | null;
+  /** Path below the page's origin to register at Google. */
+  rueckweg: string;
+}
+
+export async function getGoogleApp(): Promise<GoogleApp> {
+  return get("/google/app", "Die Google-Anmeldung konnte nicht geladen werden.");
+}
+
+export async function setGoogleApp(client_id: string, client_secret: string): Promise<GoogleApp> {
+  return post("/google/app", { client_id, client_secret }, "Das Google-Projekt konnte nicht gespeichert werden.");
+}
+
+/** Google's sign-in page for this mail account. */
+export async function startGoogle(accountId: number, origin: string): Promise<{ url: string }> {
+  return post(`/accounts/${accountId}/google/start`, { origin }, "Die Anmeldung bei Google konnte nicht starten.");
+}
+
+export async function trenneGoogle(accountId: number): Promise<{ ok: boolean }> {
+  return post(`/accounts/${accountId}/google/trennen`, {}, "Die Google-Anmeldung konnte nicht getrennt werden.");
 }
 
 export async function listCalDavAccounts(): Promise<CalDavAccount[]> {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test servers for the browser tour with data: GreenMail for IMAP/SMTP and
-# Radicale for CalDAV/CardDAV, both on 127.0.0.1, no Docker needed.
+# Radicale for CalDAV/CardDAV, both on 127.0.0.1, no Docker needed; and a
+# stand-in for Google (google.py) for the Google sign-in.
 #
 #   web/e2e/testserver/starten.sh          # start both, wait until they answer
 #   python3 web/e2e/testserver/befuellen.py  # fill them and connect Relay
@@ -8,7 +9,9 @@
 # Needs java (17+) and python3. Everything lands in $TESTSERVER_DIR
 # (default web/e2e/testserver/.lauf): the GreenMail jar, a venv with
 # Radicale, Radicale's storage and both logs. Ports: IMAP 3143, SMTP 3025,
-# DAV 5232. The one user is erika / geheim (erika@relay.test).
+# DAV 5232, Google stand-in 5299 (start Relay with
+# RELAY_GOOGLE_TEST_BASIS=http://127.0.0.1:5299). The one user is erika /
+# geheim (erika@relay.test).
 set -euo pipefail
 
 HIER="$(cd "$(dirname "$0")" && pwd)"
@@ -66,8 +69,11 @@ echo $! > "$LAUF/greenmail.pid"
 nohup "$LAUF/venv/bin/radicale" --config "$LAUF/radicale/config" > "$LAUF/radicale.log" 2>&1 &
 echo $! > "$LAUF/radicale.pid"
 
+nohup python3 "$HIER/google.py" > "$LAUF/google.log" 2>&1 &
+echo $! > "$LAUF/google.pid"
+
 # Wait until all three ports answer (30 s at most).
-for port in 3143 3025 5232; do
+for port in 3143 3025 5232 5299; do
   for _ in $(seq 60); do
     (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null && break
     sleep 0.5
@@ -77,4 +83,4 @@ for port in 3143 3025 5232; do
     exit 1
   }
 done
-echo "Testserver laufen: IMAP 127.0.0.1:3143, SMTP 127.0.0.1:3025, DAV http://127.0.0.1:5232/"
+echo "Testserver laufen: IMAP 127.0.0.1:3143, SMTP 127.0.0.1:3025, DAV http://127.0.0.1:5232/, Google http://127.0.0.1:5299/"

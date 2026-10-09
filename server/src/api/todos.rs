@@ -46,6 +46,19 @@ fn caldav_client(state: &AppState) -> Result<CalDavClient, ApiError> {
     }
 }
 
+/// The Gmail account and Google URL of a task that lives in Google Tasks.
+fn google_aufgabe(state: &AppState, uid: &str) -> Option<(i64, String)> {
+    let (url, cal_id): (String, i64) = with_db(state, |conn| {
+        conn.query_row("SELECT url, calendar_id FROM todos WHERE uid = ?1", [uid], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())
+    })
+    .ok()?;
+    if !crate::google::aufgaben::ist_aufgabe(&url) {
+        return None;
+    }
+    google_konto_der_liste(state, cal_id).map(|k| (k, url))
+}
+
 /// `GET /api/v1/todos?completed=` — list to-dos.
 #[derive(Deserialize)]
 pub struct TodosQuery {
@@ -164,12 +177,52 @@ fn parse_due(s: &str) -> Result<chrono::DateTime<chrono::Utc>, ApiError> {
     Err(ApiError(format!("Ungültiges Fälligkeitsdatum: {s}")))
 }
 
+/// The Gmail account behind a calendar row of a Google task list.
+fn google_konto_der_liste(state: &AppState, cal_id: i64) -> Option<i64> {
+    let konto_id: String = with_db(state, |conn| {
+        conn.query_row("SELECT caldav_account_id FROM calendars WHERE id = ?1", [cal_id], |r| r.get(0))
+            .map_err(|e| e.to_string())
+    })
+    .ok()?;
+    state
+        .caldav_accounts
+        .read()
+        .iter()
+        .find(|a| a.id == konto_id && a.google)
+        .and_then(|a| a.mail_konto)
+}
+
 /// Resolve the `(id, url)` of the calendar a todo should be written to:
 /// the requested project when given, else the first calendar (Inbox default).
+/// When the account chosen for tasks is a Gmail one, its first task list.
 fn resolve_target_calendar(
     state: &AppState,
     project_id: Option<i64>,
 ) -> Result<(i64, String), ApiError> {
+    if project_id.is_none() {
+        let google = state
+            .caldav_accounts
+            .read()
+            .iter()
+            .find(|a| a.enabled && a.aufgaben)
+            .filter(|a| a.google)
+            .map(|a| a.id.clone());
+        if let Some(konto_id) = google {
+            let muster = format!("{}/lists/%", crate::google::endpunkte().aufgaben);
+            let liste = with_db(state, |conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT id, url FROM calendars WHERE caldav_account_id = ?1 AND url LIKE ?2 ORDER BY id LIMIT 1",
+                        rusqlite::params![konto_id, muster],
+                        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+                    )
+                    .ok())
+            })?;
+            if let Some(l) = liste {
+                return Ok(l);
+            }
+        }
+    }
     with_db(state, |conn| {
         let row = match project_id {
             Some(pid) => conn.query_row(
@@ -188,12 +241,47 @@ fn resolve_target_calendar(
     .map_err(ApiError)
 }
 
+/// Write a new task into its project: a Google task list through Google
+/// Tasks, anything else as VTODO over CalDAV. Returns the calendar row, the
+/// object URL, the UID it ends up with and the ICS kept as raw.
+async fn im_ziel_anlegen(
+    state: &AppState,
+    project_id: Option<i64>,
+    spec: &crate::dav::ics::TodoSpec<'_>,
+) -> Result<(i64, String, String, String), ApiError> {
+    let (cal_id, cal_url) = match resolve_target_calendar(state, project_id) {
+        Ok(z) => z,
+        // No calendar at all: say what to set up.
+        Err(e) => return Err(caldav_client(state).err().unwrap_or(e)),
+    };
+    if crate::google::aufgaben::ist_aufgabe(&cal_url) {
+        let konto = google_konto_der_liste(state, cal_id)
+            .ok_or_else(|| ApiError("Diese Aufgabenliste gehört zu keinem angemeldeten Google-Konto.".into()))?;
+        let faellig = spec.due.map(|d| d.to_rfc3339());
+        let (url, uid) = crate::google::aufgaben::anlegen(
+            konto,
+            &cal_url,
+            &crate::google::aufgaben::Felder {
+                titel: spec.summary,
+                notizen: spec.description,
+                faellig: faellig.as_deref(),
+                erledigt: spec.completed,
+            },
+        )
+        .await
+        .map_err(ApiError)?;
+        return Ok((cal_id, url, uid, String::new()));
+    }
+    let client = caldav_client(state)?;
+    let ics = crate::dav::ics::build_todo(spec).map_err(ApiError)?;
+    let url = client.create_event(&cal_url, &ics).await.map_err(ApiError)?;
+    Ok((cal_id, url, spec.uid.to_string(), ics))
+}
+
 pub async fn create_todo(
     State(state): State<AppState>,
     Json(req): Json<CreateTodoRequest>,
 ) -> ApiResult<TodoRow> {
-    let client = caldav_client(&state)?;
-
     let has_time = req
         .due_has_time
         .unwrap_or_else(|| req.due.as_deref().map(due_has_time).unwrap_or(false));
@@ -202,7 +290,7 @@ pub async fn create_todo(
         None => None,
     };
     let uid = format!("relay-todo-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-    let ics = crate::dav::ics::build_todo(&crate::dav::ics::TodoSpec {
+    let spec = crate::dav::ics::TodoSpec {
         uid: &uid,
         summary: &req.summary,
         due,
@@ -214,11 +302,8 @@ pub async fn create_todo(
         labels: &req.labels,
         parent_uid: req.parent_uid.as_deref(),
         dependencies: &req.dependencies,
-    })
-    .map_err(ApiError)?;
-
-    let (cal_id, cal_url) = resolve_target_calendar(&state, req.project_id)?;
-    let url = client.create_event(&cal_url, &ics).await.map_err(ApiError)?;
+    };
+    let (cal_id, url, uid, ics) = im_ziel_anlegen(&state, req.project_id, &spec).await?;
 
     let todo = crate::dav::ics::IcsTodo {
         uid: uid.clone(),
@@ -306,8 +391,26 @@ pub async fn toggle_todo(
     };
     with_db(&state, |conn| cache::todo::update_todo(conn, &uid, &update))?;
 
-    // 3. Best-effort CalDAV write-back with the full, current field set.
-    if let Ok(client) = caldav_client(&state) {
+    // 3. Best-effort write-back with the full, current field set: Google
+    //    Tasks for a Gmail task, else CalDAV.
+    if let Some((konto, url)) = google_aufgabe(&state, &uid) {
+        if let Some(t) = with_db(&state, |conn| cache::todo::find_todo(conn, &uid))? {
+            if let Err(e) = crate::google::aufgaben::aendern(
+                konto,
+                &url,
+                &crate::google::aufgaben::Felder {
+                    titel: t.summary.as_deref().unwrap_or_default(),
+                    notizen: t.description.as_deref(),
+                    faellig: t.due_at.as_deref(),
+                    erledigt: t.status == "COMPLETED",
+                },
+            )
+            .await
+            {
+                tracing::warn!("Google Tasks: Änderung an '{uid}' nicht übertragen: {e}");
+            }
+        }
+    } else if let Ok(client) = caldav_client(&state) {
         let current = with_db(&state, |conn| cache::todo::find_todo(conn, &uid))?;
         if let Some(t) = current {
             let done = t.status == "COMPLETED";
@@ -495,9 +598,20 @@ pub async fn succeed_todo(
         .unwrap_or_else(chrono::Utc::now);
     let next_due = next_occurrence(base, &rule);
 
-    let client = caldav_client(&state)?;
+    // A done Google task is written back as done.
+    if let Some((konto, url)) = google_aufgabe(&state, &uid) {
+        let erledigt = crate::google::aufgaben::Felder {
+            titel: current.summary.as_deref().unwrap_or_default(),
+            notizen: current.description.as_deref(),
+            faellig: current.due_at.as_deref(),
+            erledigt: true,
+        };
+        if let Err(e) = crate::google::aufgaben::aendern(konto, &url, &erledigt).await {
+            tracing::warn!("Google Tasks: '{uid}' nicht als erledigt übertragen: {e}");
+        }
+    }
     let new_uid = format!("relay-todo-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-    let ics = crate::dav::ics::build_todo(&crate::dav::ics::TodoSpec {
+    let spec = crate::dav::ics::TodoSpec {
         uid: &new_uid,
         summary: current.summary.as_deref().unwrap_or_default(),
         due: Some(next_due),
@@ -509,11 +623,10 @@ pub async fn succeed_todo(
         labels: &current.labels,
         parent_uid: current.parent_uid.as_deref(),
         dependencies: &current.dependencies,
-    })
-    .map_err(ApiError)?;
-
-    let (cal_id, cal_url) = resolve_target_calendar(&state, current.project_id)?;
-    let url = client.create_event(&cal_url, &ics).await.map_err(ApiError)?;
+    };
+    // Into the task's own list or calendar.
+    let ziel = if current.project_id.is_some() { current.project_id } else { Some(current.calendar_id) };
+    let (cal_id, url, new_uid, ics) = im_ziel_anlegen(&state, ziel, &spec).await?;
     let new_todo = crate::dav::ics::IcsTodo {
         uid: new_uid.clone(),
         url,
@@ -580,6 +693,10 @@ pub async fn delete_todo(
     State(state): State<AppState>,
     Path(uid): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    // A Google task would come back with the next sync.
+    if let Some((konto, url)) = google_aufgabe(&state, &uid) {
+        crate::google::aufgaben::loeschen(konto, &url).await.map_err(ApiError)?;
+    }
     with_db(&state, |conn| cache::todo::delete_todo(conn, &uid))?;
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
