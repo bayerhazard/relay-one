@@ -358,16 +358,18 @@ test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, i
   const vorher = await zeilen.count();
   await zeilen.nth(1).click();
   await zeilen.nth(2).click({ modifiers: ["Control"] });
-  await page.locator(".mail-kopf").getByRole("button", { name: "Archivieren", exact: true }).click();
+  await page.locator(".mail-kopf").getByRole("button", { name: "Mehr" }).click();
+  await page.getByRole("menuitem", { name: "Archivieren", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2 Mails ins Archiv verschoben");
   await expect(zeilen).toHaveCount(vorher - 2);
   await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
   await expect(zeilen).toHaveCount(vorher);
 });
 
-// Signs by place (Kai, 9.10.2026): the reading pane only for the content,
-// the list head for the marked mails, never more than five in a row.
-test("Mail: Symbole nach Ort, höchstens fünf", async ({ page, context }, info) => {
+// Signs by place (Kai, 9.10.2026): the reading pane only for the content;
+// the list head keeps "only flagged", "Neue E-Mail" and "Mehr", the rest
+// for the marked mails stands under "Mehr".
+test("Mail: Symbole nach Ort", async ({ page, context }, info) => {
   test.skip(!DATEN, "braucht die Beispieldaten");
   test.skip(info.project.name !== "desktop", "Lesebereich neben der Liste");
   await context.addInitScript(() => {
@@ -387,11 +389,40 @@ test("Mail: Symbole nach Ort, höchstens fünf", async ({ page, context }, info)
     await expect(lese.getByRole("button", { name: weg })).toHaveCount(0);
   }
   expect(await lese.getByRole("button").count()).toBeLessThanOrEqual(5);
-  await expect(kopf.getByRole("button")).toHaveCount(5);
-  await expect(kopf.getByRole("button", { name: "Archivieren", exact: true })).toBeVisible();
+  await expect(kopf.getByRole("button")).toHaveCount(3);
   await kopf.getByRole("button", { name: "Mehr" }).click();
-  await expect(page.getByRole("menuitem", { name: /gelesen/ })).toBeVisible();
+  for (const eintrag of ["Archivieren", "In Ordner verschieben", /^Als (un)?gelesen markieren$/, "Nur ungelesene", "Aktualisieren"]) {
+    await expect(page.getByRole("menuitem", { name: eintrag })).toBeVisible();
+  }
   await page.keyboard.press("Escape");
+});
+
+// Only unread (Kai, 9.10.2026): the count at the account shows only the
+// unread mails of the inbox, clicked again all of them.
+test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Ordnerspalte sichtbar");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  const alle = await zeilen.count();
+  const zahl = page.locator(".unread-badge").first();
+  await expect(zahl).toBeVisible();
+  const ungelesen = Number(await zahl.textContent());
+  expect(ungelesen).toBeLessThan(alle);
+
+  await zahl.click();
+  const titel = page.locator(".mail-kopf h1");
+  await expect(titel).toHaveText("Posteingang – ungelesen");
+  await expect(zeilen).toHaveCount(ungelesen);
+  await expect(zeilen.locator(".ungelesen-punkt")).toHaveCount(ungelesen);
+
+  await zahl.click();
+  await expect(titel).toHaveText("Posteingang");
+  await expect(zeilen).toHaveCount(alle);
 });
 
 // "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails
@@ -423,7 +454,8 @@ test("Ähnliche E-Mails: Absender, Domain, Betreff", async ({ page, context }, i
   await expect(zeilen.filter({ hasText: "Vertrag Messe 2025" }), "nicht aus dem Archiv").toHaveCount(0);
 
   await page.getByRole("button", { name: "Alle auswählen" }).click();
-  await page.locator(".mail-kopf").getByRole("button", { name: /Papierkorb/ }).click();
+  await page.locator(".mail-kopf").getByRole("button", { name: "Mehr" }).click();
+  await page.getByRole("menuitem", { name: /Papierkorb/ }).click();
   await expect(zeilen).toHaveCount(0);
   await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
   await expect(zeilen).toHaveCount(2);

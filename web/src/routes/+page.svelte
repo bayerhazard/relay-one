@@ -1,6 +1,6 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { untrack } from "svelte";
   import { goto } from "$app/navigation";
   import MessageList from "$lib/components/MessageList.svelte";
@@ -1154,6 +1154,9 @@ let sentFolderName = $state<string | null>(null);
   // Select folder from a specific account
   function handleAccountFolderSelect(accountId: number, folder: string) {
     ansicht = "liste";
+    // A click on the open folder's name leaves a filter (only unread, only
+    // flagged): it shows all its mails again.
+    if (accountId === selectedAccountId && folder === selectedFolder && searchActive) clearSearch();
     if (accountId !== selectedAccountId) {
       const acct = accountList.find(a => a.id === accountId);
       if (acct) {
@@ -1573,6 +1576,38 @@ let sentFolderName = $state<string | null>(null);
   let flaggedSearchActive = $derived(
     ["is:flagged", "is:flag"].includes(searchQuery.trim().toLowerCase())
   );
+
+  // Only unread (Kai, 9.10.2026): the count at the account opens its inbox
+  // with only the unread mails; clicked again, all. A mail read here stays
+  // in the list until the filter is left — the hits are not asked again.
+  let unreadSearchActive = $derived(
+    ["is:unread", "is:ungelesen"].includes(searchQuery.trim().toLowerCase())
+  );
+
+  async function zeigeUngelesene(accountId: number) {
+    if (accountId === selectedAccountId && selectedFolder === "INBOX" && unreadSearchActive) {
+      clearSearch();
+      return;
+    }
+    if (accountId !== selectedAccountId || selectedFolder !== "INBOX") {
+      handleAccountFolderSelect(accountId, "INBOX");
+      // The folder switch leaves any search; the filter comes after it.
+      await tick();
+    }
+    ansicht = "liste";
+    folderSheetOpen = false;
+    toggleUnreadFilter(true);
+  }
+
+  function toggleUnreadFilter(an = !unreadSearchActive) {
+    if (!an) {
+      clearSearch();
+      return;
+    }
+    searchQuery = "is:unread";
+    searchSeen = searchQuery;
+    runSearch();
+  }
 
   function toggleFlagFilter() {
     if (flaggedSearchActive) {
@@ -2614,28 +2649,51 @@ let sentFolderName = $state<string | null>(null);
   // "Mehr" in the list head: what is rarer for the marked mails, and the
   // list's own signs while mails are marked (Kai, 9.10.2026).
   let listenMehr = $state<{ x: number; y: number } | null>(null);
-  function listenMehrEintraege(): { label: string; action: () => void }[] {
-    const uids = gemeinteUids();
-    const erste = $mailbox.messages.find((m) => m.uid === uids[0]);
-    const mehrere = uids.length > 1 ? uids : undefined;
-    const eintraege: { label: string; action: () => void }[] = [];
-    if (erste) {
+  function listenMehrEintraege(): { label: string; danger?: boolean; action: () => void }[] {
+    const eintraege: { label: string; danger?: boolean; action: () => void }[] = [];
+    const markiert = $mailbox.selectedUids.length;
+    if (markiert > 0) {
+      const uids = gemeinteUids();
+      const erste = $mailbox.messages.find((m) => m.uid === uids[0]);
+      const mehrere = uids.length > 1 ? uids : undefined;
+      const ort = listenMehr;
+      eintraege.push({ label: translate("mail.archive"), action: () => archivieren() });
+      eintraege.push(deleteIsRecoverable()
+        ? { label: translate("mail.inPapierkorb"), action: handleDeleteSelected }
+        : {
+            label: markiert === 1 ? translate("mail.deleteFinal1") : translate("mail.deleteFinalN"),
+            danger: true,
+            action: handleDeleteSelected,
+          });
       eintraege.push({
-        label: erste.is_read ? translate("mail.markUnread") : translate("mail.markRead"),
-        action: () => handleToggleRead(erste.uid, mehrere),
+        label: translate("mail.moveFolderTitle"),
+        action: () => {
+          const sections = buildMoveSections();
+          if (sections.every((sec) => sec.items.length === 0) || !ort) return;
+          // Opens where "Mehr" stood; the menu closes first, then this.
+          setTimeout(() => (moveMenu = { x: ort.x, y: ort.y, sections }), 0);
+        },
       });
-      eintraege.push({
-        label: erste.is_flagged ? translate("mail.flagOff") : translate("mail.flagOn"),
-        action: () => handleToggleFlag(erste.uid, mehrere),
-      });
+      eintraege.push(istSpamOrdner(selectedFolder)
+        ? { label: translate("mail.notSpam"), action: () => spamUmschalten() }
+        : { label: translate("mail.alsSpam"), action: () => spamUmschalten() });
+      if (erste) {
+        eintraege.push({
+          label: erste.is_read ? translate("mail.markUnread") : translate("mail.markRead"),
+          action: () => handleToggleRead(erste.uid, mehrere),
+        });
+        eintraege.push({
+          label: erste.is_flagged ? translate("mail.flagOff") : translate("mail.flagOn"),
+          action: () => handleToggleFlag(erste.uid, mehrere),
+        });
+      }
     }
-    eintraege.push({ label: translate("mail.new"), action: handleNewMail });
-    eintraege.push({ label: translate("mail.refresh"), action: () => loadFolder(true) });
     eintraege.push({
-      label: flaggedSearchActive ? translate("mail.flagHide") : translate("mail.flagOnly"),
-      action: toggleFlagFilter,
+      label: unreadSearchActive ? translate("mail.alleZeigen") : translate("mail.nurUngelesene"),
+      action: () => toggleUnreadFilter(),
     });
-    if ($mailbox.selectedUids.length > 1) {
+    eintraege.push({ label: translate("mail.refresh"), action: () => loadFolder(true) });
+    if (markiert > 1) {
       eintraege.push({ label: translate("mail.auswahlAufheben"), action: () => mailbox.clearSelection() });
     }
     return eintraege;
@@ -3004,6 +3062,7 @@ let sentFolderName = $state<string | null>(null);
   // it under (own name, else the translated leaf), and the account's unread
   // count where the server has one — the inbox.
   let ordnerTitel = $derived.by(() => {
+    if (unreadSearchActive) return $t("mail.ungelesenIn", { ordner: ordnerName() });
     if (searchActive) return $t("mail.searchIn", { ordner: ordnerName() });
     return ordnerName();
   });
@@ -3312,6 +3371,7 @@ let sentFolderName = $state<string | null>(null);
             bind:dragSource
             bind:dragTarget
             onSelectFolder={handleAccountFolderSelect}
+            onUnreadClick={zeigeUngelesene}
             onToggleCollapse={handleToggleCollapse}
             onToggleFolder={handleToggleFolder}
             onMoveMessage={handleMoveMessage}
@@ -3365,55 +3425,31 @@ let sentFolderName = $state<string | null>(null);
                the folder stays marked in the column. -->
           <h1>{$mailbox.selectedUids.length > 1 ? $t("mail.selectedCount", { count: $mailbox.selectedUids.length }) : ordnerTitel}</h1>
         </div>
-        <!-- The list head's signs (Kai, 9.10.2026), at most five: with mails
-             marked (or one open) what acts on them — archive, trash, move,
-             spam, and "Mehr" for read, flag and the rest; with none, refresh,
-             "only flagged" and "Neue E-Mail". The selection bar is gone. -->
+        <!-- The list head keeps three signs (Kai, 9.10.2026): "only flagged",
+             "Neue E-Mail" and "Mehr". What acts on the marked mails —
+             archive, trash, move, spam, read, flag — and refresh stand
+             under "Mehr"; the keys (E, Entf, !) and the context menu stay. -->
         <div class="btn-reihe" role="toolbar" aria-label={$t("mail.listenAktionen")}>
-          {#if $mailbox.selectedUids.length > 0}
-            {@render zeichen("archiv", $t("mail.archive"), () => archivieren(), "E")}
-            {#if deleteIsRecoverable()}
-              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, $t("mail.tasteEntf"))}
-            {:else}
-              <!-- Final: red, with its object; instead of a question five
-                   seconds of "Rückgängig" (Kai, 7.10.2026, CI exception RL). -->
-              <button type="button" class="btn btn-gefahr btn-klein" onclick={handleDeleteSelected}>
-                {$mailbox.selectedUids.length === 1 ? $t("mail.deleteFinal1") : $t("mail.deleteFinalN")}
-              </button>
-            {/if}
-            {@render zeichen("verschieben", $t("mail.moveFolderTitle"), moveSelectedToFolder)}
-            {#if istSpamOrdner(selectedFolder)}
-              <button type="button" class="btn btn-still btn-klein" onclick={() => spamUmschalten()} title={$t("mail.notSpamTitle")}>
-                {$t("mail.notSpam")}
-              </button>
-            {:else}
-              {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten(), "!")}
-            {/if}
-            {@render zeichen("mehr", $t("common.more"), (e) => {
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              listenMehr = { x: r.right - 220, y: r.bottom + 4 };
-            })}
-          {:else}
-            <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
-              <Symbol name="neu-laden" size={20} />
-            </button>
-            <button
-              type="button"
-              class="btn btn-still btn-symbol"
-              onclick={toggleFlagFilter}
-              title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
-              aria-label={$t("mail.flagOnly")}
-              aria-pressed={flaggedSearchActive}
-            >
-              <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
-            </button>
-            <button type="button" class="btn btn-symbol mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
-              <span class="brief-plus" aria-hidden="true">
-                <Symbol name="post" size={20} />
-                <span class="brief-plus-zeichen"><Symbol name="plus" size={16} /></span>
-              </span>
-            </button>
-          {/if}
+          <button
+            type="button"
+            class="btn btn-still btn-symbol"
+            onclick={toggleFlagFilter}
+            title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
+            aria-label={$t("mail.flagOnly")}
+            aria-pressed={flaggedSearchActive}
+          >
+            <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
+          </button>
+          <button type="button" class="btn btn-symbol mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
+            <span class="brief-plus" aria-hidden="true">
+              <Symbol name="post" size={20} />
+              <span class="brief-plus-zeichen"><Symbol name="plus" size={16} /></span>
+            </span>
+          </button>
+          {@render zeichen("mehr", $t("common.more"), (e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            listenMehr = { x: r.right - 220, y: r.bottom + 4 };
+          })}
         </div>
       </div>
       {#if $mailbox.error}
@@ -3912,7 +3948,7 @@ let sentFolderName = $state<string | null>(null);
   /* "Neue E-Mail": a little clearer than the signs beside it — a light
      face and the primary's colour, the plus set on the letter's corner. */
   .mail-kopf .mail-neu-kopf {
-    margin-left: var(--am-raum-1);
+    margin-inline: var(--am-raum-1);
     background: var(--am-flaeche-2);
     color: var(--am-text-primaer);
   }
@@ -3920,15 +3956,13 @@ let sentFolderName = $state<string | null>(null);
   .brief-plus { position: relative; display: inline-flex; }
   .brief-plus-zeichen {
     position: absolute;
-    right: -5px;
-    bottom: -4px;
+    right: -8px;
+    bottom: -7px;
     display: inline-flex;
     border-radius: 50%;
     background: var(--am-flaeche-2);
     padding: 1px;
   }
-  /* The CI's sizes start at 16; the plus on the corner is smaller. */
-  .brief-plus-zeichen :global(svg) { width: 11px; height: 11px; stroke-width: 3; }
   .mail-kopf .mail-neu-kopf:hover .brief-plus-zeichen { background: var(--am-flaeche-3); }
   @media (max-width: 40rem) {
     .mail-kopf { flex-direction: row; align-items: center; }

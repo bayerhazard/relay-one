@@ -561,9 +561,10 @@
     background: var(--am-text-gedaempft);
   }
   /* ── Row states [RL-POSTLISTE] (Kai, 7.10.2026, variant C) ─────────────
-     One means per state: unread is a dot, the open or selected mail a full
-     surface, urgent a red word, flagged the gold flag. No bar on the left —
-     the same blue bar for unread and open read as one thing. */
+     One means per state: unread is a dot, the open or selected mail a light
+     blue surface (Kai, 9.10.2026), urgent a red word, flagged the gold
+     flag. No bar on the left — the same blue bar for unread and open read
+     as one thing. */
   .message-item {
     position: relative;
     padding: 10px 16px 10px 26px;
@@ -586,17 +587,7 @@
   }
   .message-item.selected,
   .message-item.selected:hover {
-    background: var(--am-handlung-ruhend);
-  }
-  .message-item.selected .sender,
-  .message-item.selected .msg-subject,
-  .message-item.selected .date,
-  .message-item.selected .attach-indicator,
-  .message-item.selected :global(.summary-line) {
-    color: var(--am-handlung-text);
-  }
-  .message-item.selected .ungelesen-punkt {
-    background: var(--am-handlung-text);
+    background: var(--rl-zeile-auswahl);
   }
   .dringend-etikett {
     display: inline-block;
@@ -609,10 +600,6 @@
     line-height: 1.5;
     color: var(--am-fehler);
     vertical-align: 1px;
-  }
-  .message-item.selected .dringend-etikett {
-    color: var(--am-handlung-text);
-    border-color: var(--am-handlung-text);
   }
   .msg-header {
     display: flex;

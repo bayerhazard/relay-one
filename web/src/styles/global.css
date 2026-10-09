@@ -2173,6 +2173,13 @@ select,
   --fs-md: 1rem;       /* 16 */
   --fs-lg: 1.125rem;   /* 18 */
   --fs-xl: 1.25rem;    /* 20 */
+
+  /* The open or selected mail in the list: a light blue face, the text
+     stays dark (Kai, 9.10.2026: the full action colour was too strong). */
+  --rl-zeile-auswahl: var(--am-blau-100);
+}
+html.dunkel {
+  --rl-zeile-auswahl: var(--am-blau-700);
 }
 
 /* ── Ground [RL-GRUND] ──────────────────────────────────────────────────
