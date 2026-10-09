@@ -1588,6 +1588,62 @@ pub(crate) fn ordner_reparieren_mit(conn: &rusqlite::Connection, account_id: u32
     let _ = crate::cache::settings::set_setting(conn, &schluessel, "1");
 }
 
+/// Compare the folder's UIDVALIDITY with the one Relay saw; when the
+/// provider numbered it anew, fetch it again (see neu_nummeriert).
+async fn uidvalidity_pruefen(
+    state: &AppState,
+    client: &Arc<crate::imap::client::ImapClient>,
+    account_id: u32,
+    folder_name: &str,
+    storage_folder: &str,
+) {
+    let Ok(Some(jetzt)) = client.uidvalidity_sync(folder_name).await else { return };
+    let jetzt = jetzt as i64;
+    let db_guard = state.cache_db.lock();
+    let Some(conn) = db_guard.as_ref() else { return };
+    match crate::cache::sync_state::uidvalidity(conn, account_id as i64, storage_folder) {
+        Some(alt) if alt != jetzt => match crate::cache::sync_state::neu_nummeriert(conn, account_id as i64, storage_folder, jetzt) {
+            Ok(n) => tracing::warn!(
+                "Ordner '{}' (Konto {}) beim Anbieter neu nummeriert (UIDVALIDITY {} → {}): {} Zeilen werden neu geholt",
+                storage_folder, account_id, alt, jetzt, n
+            ),
+            Err(e) => tracing::warn!("UIDVALIDITY '{}': {}", storage_folder, e),
+        },
+        Some(_) => {}
+        None => {
+            let _ = crate::cache::sync_state::set_uidvalidity(conn, account_id as i64, storage_folder, jetzt);
+        }
+    }
+}
+
+/// Folders the provider no longer lists leave Relay's index (mirror mode;
+/// see cache::messages::verschwundene_ordner).
+fn verschwundene_austragen(state: &AppState, account_id: u32, folders: &[(String, String, String, String)]) {
+    let beim_anbieter: Vec<String> = folders
+        .iter()
+        .filter(|(n, _, _, t)| wird_gespiegelt(folders, n, t))
+        .map(|(n, _, _, t)| storage_folder_name(n, t))
+        .collect();
+    let db_guard = state.cache_db.lock();
+    let Some(conn) = db_guard.as_ref() else { return };
+    let spiegel: bool = conn
+        .query_row(
+            "SELECT sync_mode != 'archive' FROM accounts WHERE id = ?1",
+            rusqlite::params![account_id as i64],
+            |r| r.get(0),
+        )
+        .unwrap_or(false);
+    if !spiegel || beim_anbieter.is_empty() {
+        return;
+    }
+    for name in crate::cache::messages::verschwundene_ordner(conn, account_id as i64, &beim_anbieter).unwrap_or_default() {
+        match crate::cache::messages::ordner_austragen(conn, account_id as i64, &name, "") {
+            Ok(n) => tracing::info!("Ordner '{}' (Konto {}) gibt es beim Anbieter nicht mehr: {} Zeilen ausgetragen", name, account_id, n),
+            Err(e) => tracing::warn!("Ordner '{}' austragen: {}", name, e),
+        }
+    }
+}
+
 /// When the folder is due for a comparison with the server although
 /// nothing new came: the inbox every cycle (one UID SEARCH), the others
 /// every ten minutes. `immer` marks one done now.
@@ -1617,8 +1673,9 @@ async fn ordner_abgleichen(
     folder_name: &str,
     storage_folder: &str,
     filter: Option<&str>,
+    papierkorb_spiegeln: bool,
 ) -> Result<(), String> {
-    if storage_folder == "Trash" {
+    if storage_folder == "Trash" && !papierkorb_spiegeln {
         return Ok(());
     }
     let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name, filter).await {
@@ -1631,11 +1688,39 @@ async fn ordner_abgleichen(
             return Err(e.to_string());
         }
     };
+    // Rows moved here that the server's row never replaced: asked by their
+    // Message-ID, gone from the folder means gone (see wartende_zeilen).
+    let wartend = {
+        let db_guard = state.cache_db.lock();
+        let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+        let lokal = storage_folder != "Trash"
+            && crate::cache::messages::is_local_only_folder(conn, account_id as i64, storage_folder).unwrap_or(false);
+        if lokal {
+            Vec::new()
+        } else {
+            crate::cache::messages::wartende_zeilen(conn, account_id as i64, storage_folder).unwrap_or_default()
+        }
+    };
+    for (zeile, kopf) in wartend {
+        if let Ok(uids) = client.uids_by_message_id_sync(folder_name, &kopf).await {
+            if uids.is_empty() {
+                let db_guard = state.cache_db.lock();
+                if let Some(conn) = db_guard.as_ref() {
+                    let _ = crate::cache::messages::delete_message_row(conn, zeile);
+                    tracing::info!("'{}' (Konto {}): {} liegt dort beim Anbieter nicht mehr — Zeile entfernt", storage_folder, account_id, kopf);
+                }
+            }
+        }
+    }
+
     let db_guard = state.cache_db.lock();
     let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
     // Local-only folders are NOT mirrors of an IMAP folder — never prune
-    // them against server UIDs (archive mode).
-    if crate::cache::messages::is_local_only_folder(conn, account_id as i64, storage_folder).unwrap_or(false) {
+    // them against server UIDs (archive mode). Relay's trash is one, but in
+    // mirror mode it mirrors the provider's (papierkorb_spiegeln).
+    if storage_folder != "Trash"
+        && crate::cache::messages::is_local_only_folder(conn, account_id as i64, storage_folder).unwrap_or(false)
+    {
         return Ok(());
     }
     match crate::cache::messages::delete_messages_not_in(conn, account_id as i64, storage_folder, &server_uids) {
@@ -1681,6 +1766,30 @@ async fn process_sync_task(
 
             let folders = client.list_folders_sync().await.map_err(|e| e.to_string())?;
             ordner_reparieren(state, task.account_id, &folders);
+            verschwundene_austragen(state, task.account_id, &folders);
+            // Relay's trash mirrors the provider's in mirror mode (Kai,
+            // 9.10.2026): a mail restored or purged there leaves it here too.
+            // Only where one provider folder feeds it, and never in archive
+            // mode (there Relay keeps deleted mail itself).
+            let papierkorb_spiegeln = {
+                let quellen = folders
+                    .iter()
+                    .filter(|(n, _, _, t)| wird_gespiegelt(&folders, n, t) && storage_folder_name(n, t) == "Trash")
+                    .count();
+                let spiegel = {
+                    let db_guard = state.cache_db.lock();
+                    db_guard.as_ref().map(|conn| {
+                        conn.query_row(
+                            "SELECT sync_mode != 'archive' FROM accounts WHERE id = ?1",
+                            rusqlite::params![task.account_id as i64],
+                            |r| r.get::<_, bool>(0),
+                        )
+                        .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
+                };
+                quellen == 1 && spiegel
+            };
 
             let mut total_new: usize = 0;
             // Backfill fairness budget: bounds how many large batches one account
@@ -1727,6 +1836,11 @@ async fn process_sync_task(
                         folder_name, task.account_id
                     );
                     continue;
+                }
+
+                // Numbered anew by the provider? Every ten minutes (STATUS).
+                if storage_folder != "Trash" && abgleich_faellig(task.account_id, &format!("uidvalidity:{storage_folder}"), false) {
+                    uidvalidity_pruefen(state, &client, task.account_id, folder_name, &storage_folder).await;
                 }
 
                 // Per-folder error handling: a TagMismatch or transient error in
@@ -1800,8 +1914,11 @@ async fn process_sync_task(
                         // folder elsewhere (archived or deleted in Gmail's
                         // web view, on the phone). Before, that only
                         // happened when new mail came in (Kai, 9.10.2026).
-                        if abgleich_faellig(task.account_id, &storage_folder, is_inbox) {
-                            let _ = ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter).await;
+                        // The inbox and the trash every cycle (restored or
+                        // archived elsewhere shows at once), others every ten
+                        // minutes.
+                        if abgleich_faellig(task.account_id, &storage_folder, is_inbox || storage_folder == "Trash") {
+                            let _ = ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter, papierkorb_spiegeln).await;
                         }
                         break;
                     }
@@ -1939,7 +2056,7 @@ async fn process_sync_task(
                     // Cleanup: remove locally cached messages that no longer
                     // exist on the IMAP server (deleted from another client).
                     abgleich_faellig(task.account_id, &storage_folder, true);
-                    if ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter).await.is_err() {
+                    if ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter, papierkorb_spiegeln).await.is_err() {
                         break;
                     }
 

@@ -816,6 +816,15 @@ impl ImapClient {
 
     /// The numbers of the mails in `folder` with this Message-ID.
     pub async fn uids_by_message_id(&self, folder: &str, message_id: &str) -> Result<Vec<u32>, AppError> {
+        self.uids_by_message_id_on(Slot::User, folder, message_id).await
+    }
+
+    /// The same on the sync connection (the scheduler's comparison).
+    pub async fn uids_by_message_id_sync(&self, folder: &str, message_id: &str) -> Result<Vec<u32>, AppError> {
+        self.uids_by_message_id_on(Slot::Sync, folder, message_id).await
+    }
+
+    async fn uids_by_message_id_on(&self, slot: Slot, folder: &str, message_id: &str) -> Result<Vec<u32>, AppError> {
         let folder = folder.to_string();
         let mid = message_id.trim().replace('\\', "\\\\").replace('"', "\\\"");
         if mid.is_empty() {
@@ -825,8 +834,8 @@ impl ImapClient {
         if self.test_override.is_some() {
             return Ok(vec![1]);
         }
-        let tracker = self.tracker(Slot::User);
-        self.with_slot_blocking(Slot::User, "uids_by_message_id", move |session| {
+        let tracker = self.tracker(slot);
+        self.with_slot_blocking(slot, "uids_by_message_id", move |session| {
             ensure_selected(session, &tracker, &folder)?;
             let uids = session
                 .uid_search(&format!("HEADER Message-ID \"{}\"", mid))
@@ -1093,6 +1102,19 @@ impl ImapClient {
                     FolderEntry { name, raw_name: raw, delimiter: delim, tag: tag.to_string(), attributes }
                 })
                 .collect())
+        })
+        .await
+    }
+
+    /// The folder's UIDVALIDITY (STATUS, nothing selected) on the sync
+    /// connection.
+    pub async fn uidvalidity_sync(&self, folder: &str) -> Result<Option<u32>, AppError> {
+        let folder = encode_imap_utf7(folder);
+        self.with_slot_blocking(Slot::Sync, "uidvalidity", move |session| {
+            let mb = session
+                .status(&folder, "(UIDVALIDITY)")
+                .map_err(|e| AppError::imap(format!("STATUS fehlgeschlagen: {}", e), "uidvalidity"))?;
+            Ok(mb.uid_validity)
         })
         .await
     }

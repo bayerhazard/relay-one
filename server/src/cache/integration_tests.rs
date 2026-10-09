@@ -1536,3 +1536,114 @@ fn emptying_the_trash_removes_its_rows_and_eml_files() {
     assert_eq!(rest, 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Gmail as Gmail works (Kai, 9.10.2026)
+// ---------------------------------------------------------------------------
+
+fn anzahl_mit(conn: &Connection, account: i64, folder: &str, mid: &str) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.message_id = ?3",
+        params![account, folder, mid],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_mail_restored_at_the_provider_comes_back_a_delete_in_flight_does_not() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "zurueck");
+    crate::cache::messages::create_local_folder(&conn, account, "Trash").unwrap();
+    // Deleted in Relay, the provider op still on its way: the trash row is
+    // provisional, and the inbox copy the server still lists stays out.
+    save_message(&conn, account, &make_cached_message_mit_id(5, "<weg@x>", "W"), "INBOX").unwrap();
+    crate::cache::messages::update_folder_from(&conn, account, 5, "INBOX", "Trash").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(5, "<weg@x>", "W"), "INBOX").unwrap();
+    assert_eq!(anzahl_mit(&conn, account, "INBOX", "<weg@x>"), 0);
+    // The provider's trash brings its own row: it replaces the provisional one.
+    save_message(&conn, account, &make_cached_message_mit_id(77, "<weg@x>", "W"), "Trash").unwrap();
+    let (uid, synced): (i64, i64) = conn
+        .query_row("SELECT uid, synced FROM messages WHERE message_id = '<weg@x>'", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((uid, synced), (77, 1));
+    // Restored in Gmail's web view: back in the inbox with a new number.
+    save_message(&conn, account, &make_cached_message_mit_id(9, "<weg@x>", "W"), "INBOX").unwrap();
+    assert_eq!(anzahl_mit(&conn, account, "INBOX", "<weg@x>"), 1);
+}
+
+#[test]
+fn a_mail_in_two_folders_is_summarized_once() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "ki");
+    let mut eingang = make_cached_message_mit_id(3, "<doppelt@x>", "D");
+    eingang.ai_summary = Some("Rechnung über 40 €".into());
+    eingang.ai_priority = Some(2.0);
+    save_message(&conn, account, &eingang, "INBOX").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<doppelt@x>", "D"), "Vorstand").unwrap();
+    let (zus, prio): (Option<String>, Option<f64>) = conn
+        .query_row(
+            "SELECT m.ai_summary, m.ai_priority FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE f.name = 'Vorstand' AND m.message_id = '<doppelt@x>'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(zus.as_deref(), Some("Rechnung über 40 €"));
+    assert_eq!(prio, Some(2.0));
+}
+
+#[test]
+fn folders_the_provider_no_longer_lists_leave_relay() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "verschwunden");
+    for (ordner, uid) in [("INBOX", 1), ("Vorstand", 2), ("Alt", 3)] {
+        save_message(&conn, account, &make_cached_message_mit_id(uid, &format!("<{ordner}@x>"), "x"), ordner).unwrap();
+        crate::cache::sync_state::set(&conn, account, ordner, uid as i64, 0).unwrap();
+    }
+    // Made by Relay, not fetched yet, a move waiting to create it: stays.
+    crate::cache::messages::ziel_anlegen(&conn, account, "Archive").unwrap();
+    crate::cache::messages::create_local_folder(&conn, account, "Familie").unwrap();
+    let beim_anbieter = vec!["INBOX".to_string(), "Vorstand".to_string()];
+    let weg = crate::cache::messages::verschwundene_ordner(&conn, account, &beim_anbieter).unwrap();
+    assert_eq!(weg, vec!["Alt".to_string()]);
+}
+
+#[test]
+fn a_folder_numbered_anew_is_fetched_again() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "uidvalidity");
+    save_message(&conn, account, &make_cached_message_mit_id(40, "<alt@x>", "A"), "Vorstand").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<hier@x>", "H"), "INBOX").unwrap();
+    crate::cache::messages::update_folder_from(&conn, account, 1, "INBOX", "Vorstand").unwrap();
+    crate::cache::sync_state::set(&conn, account, "Vorstand", 40, 0).unwrap();
+    crate::cache::sync_state::set_uidvalidity(&conn, account, "Vorstand", 111).unwrap();
+    assert_eq!(crate::cache::sync_state::uidvalidity(&conn, account, "Vorstand"), Some(111));
+
+    let weg = crate::cache::sync_state::neu_nummeriert(&conn, account, "Vorstand", 222).unwrap();
+    assert_eq!(weg, 1, "nur die bestätigte Zeile");
+    assert_eq!(anzahl_mit(&conn, account, "Vorstand", "<hier@x>"), 1, "die verschobene wartet auf ihre");
+    assert_eq!(crate::cache::sync_state::get(&conn, account, "Vorstand").unwrap().last_uid, 0);
+    assert_eq!(crate::cache::sync_state::uidvalidity(&conn, account, "Vorstand"), Some(222));
+}
+
+#[test]
+fn rows_moved_here_whose_move_is_done_are_asked_for_after_two_minutes() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "wartend");
+    crate::cache::messages::create_local_folder(&conn, account, "Trash").unwrap();
+    for (uid, mid) in [(1, "<fertig@x>"), (2, "<unterwegs@x>"), (3, "<frisch@x>")] {
+        save_message(&conn, account, &make_cached_message_mit_id(uid, mid, "x"), "INBOX").unwrap();
+        crate::cache::messages::update_folder_from(&conn, account, uid as i64, "INBOX", "Trash").unwrap();
+    }
+    conn.execute(
+        "UPDATE messages SET updated_at = datetime('now', '-5 minutes') WHERE message_id IN ('<fertig@x>', '<unterwegs@x>')",
+        [],
+    )
+    .unwrap();
+    // Its move still waits at the provider: not asked for yet.
+    crate::cache::provider_ops::enqueue_verschieben(&conn, account, 2, "INBOX", "Trash", Some("<unterwegs@x>")).unwrap();
+    let w = crate::cache::messages::wartende_zeilen(&conn, account, "Trash").unwrap();
+    assert_eq!(w.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>(), vec!["<fertig@x>"]);
+}
