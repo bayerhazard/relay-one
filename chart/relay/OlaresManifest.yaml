@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.14
+  version: 26.10.15
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.14
+  versionName: 26.10.15
   upgradeDescription: |
+    v26.10.15: The mail view is calmer. The chosen folder is marked by bold text, without the gold bar. "New email" moves from the folder column into the list head as a letter with a plus. The signs follow their place, at most five in a row: above the open mail only what concerns its content (reply, forward, "More"); in the list head, while mails are marked, what acts on them (archive, trash, move, spam, and "More" for read and flag), otherwise refresh, "Flagged only" and "New email". The separate selection bar is gone; the right-click menu keeps everything.
     v26.10.14: "Unsubscribe" in "Clean up" works for every sender. Relay now notes for each mail whether it offers unsubscribing, so the button stands at every newsletter, not only at the 25 most frequent senders; "Subscriptions only" shows just those senders. Unsubscribing can clean up in the same step: tick "Afterwards move all emails to the trash" in the question, and "Undo" takes them back as always.
     v26.10.13: Relay follows what happens at your mail server, wherever it happened. A mail restored from the trash in Gmail or on the phone comes back in Relay; before, Relay kept it hidden for good. Relay's trash shows what the provider's trash holds, so mail restored or emptied there leaves it here too. Labels renamed or deleted in Gmail no longer stay behind in Relay, and a folder the server numbered anew is fetched again instead of mixing up its mails. A mail in two folders (the inbox and a label) gets its AI summary once.
     v26.10.12: Folders work at your mail server. A new folder is created there (on Gmail as a label); before, it existed only in Relay, and mail moved into it left the server. Renaming keeps the mails and folders below it and leaves no old copy behind in Relay, names with umlauts included; "Move to …" in a folder's menu moves it under another folder or to the top. Deleting a folder sends its mails to the trash (on Gmail only the label goes, the mails stay in the archive), and when the server refuses, Relay says so instead of clearing its copy. Trash and spam can be emptied from their menu, and a folder kept only in Relay can be created at the provider, with its mails.

@@ -302,6 +302,7 @@ export const translations: Record<Lang, Dict> = {
     "mail.dringend": "Dringend",
     "mail.tasteEntf": "Entf",
     "mail.auswahlAufheben": "Auswahl aufheben",
+    "mail.listenAktionen": "Aktionen der Liste",
     "mail.aktionen": "Aktionen für diese Mail",
     "common.more": "Mehr",
     "mail.deleteFinal1": "Mail endgültig löschen",
@@ -380,7 +381,6 @@ export const translations: Record<Lang, Dict> = {
     "mail.unreadCount": "{count} ungelesene Mails",
     "mail.refresh": "Aktualisieren (Strg+R / Cmd+R)",
     "mail.selectedCount": "{count} ausgewählt",
-    "mail.markReadTitle": "Als gelesen markieren",
 
     "mail.markUnread": "Als ungelesen markieren",
     "mail.markRead": "Als gelesen markieren",
@@ -1097,6 +1097,7 @@ export const translations: Record<Lang, Dict> = {
     "mail.dringend": "Urgent",
     "mail.tasteEntf": "Del",
     "mail.auswahlAufheben": "Clear selection",
+    "mail.listenAktionen": "List actions",
     "mail.aktionen": "Actions for this mail",
     "common.more": "More",
     "mail.deleteFinal1": "Delete mail for good",
@@ -1175,7 +1176,6 @@ export const translations: Record<Lang, Dict> = {
     "mail.unreadCount": "{count} unread emails",
     "mail.refresh": "Refresh (Ctrl+R / Cmd+R)",
     "mail.selectedCount": "{count} selected",
-    "mail.markReadTitle": "Mark as read",
 
     "mail.markUnread": "Mark as unread",
     "mail.markRead": "Mark as read",
