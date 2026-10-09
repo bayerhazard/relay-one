@@ -303,9 +303,22 @@ export async function renameFolder(
     "Der Ordner konnte nicht umbenannt werden.");
 }
 
+// On the provider in mirror mode (on Gmail a label), in Relay in archive mode.
 export async function createLocalFolder(accountId: number, name: string): Promise<{ ok: boolean; name: string; local_only: boolean }> {
   return post("/folders", { account_id: accountId, name },
-    "Der lokale Ordner konnte nicht angelegt werden.");
+    "Der Ordner konnte nicht angelegt werden.");
+}
+
+/** The trash or the spam folder emptied for good, on the provider too. */
+export async function emptyFolder(accountId: number, name: string): Promise<{ ok: boolean; deleted: number }> {
+  return post("/folders/empty", { account_id: accountId, name },
+    "Der Ordner konnte nicht geleert werden.");
+}
+
+/** A folder kept only in Relay goes to the provider, with its mails. */
+export async function folderToProvider(accountId: number, name: string): Promise<{ ok: boolean; mails: number }> {
+  return post("/folders/zum-anbieter", { account_id: accountId, name },
+    "Der Ordner konnte nicht beim Anbieter angelegt werden.");
 }
 
 export async function deleteFolder(accountId: number, name: string): Promise<{ ok: boolean }> {

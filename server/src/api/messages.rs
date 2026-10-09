@@ -285,11 +285,66 @@ async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_
     }
 }
 
-/// `POST /api/v1/folders` — create a local-only folder.
+/// `POST /api/v1/folders` — create a folder: on the provider in mirror mode
+/// (on Gmail a label; Kai, 9.10.2026 — before it was always "only in
+/// Relay" and every mail moved there went off the provider), in Relay in
+/// archive mode. `name` is the full path (parent + delimiter + name).
 #[derive(Deserialize)]
 pub struct CreateFolderRequest {
     pub account_id: u32,
     pub name: String,
+}
+
+/// Whether the account keeps its folders in Relay (archive mode).
+fn archiv_modus(state: &AppState, account_id: u32) -> bool {
+    with_db(state, |conn| {
+        Ok::<_, String>(
+            conn.query_row(
+                "SELECT sync_mode = 'archive' FROM accounts WHERE id = ?1",
+                rusqlite::params![account_id as i64],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap_or(false),
+        )
+    })
+    .unwrap_or(false)
+}
+
+/// The account's IMAP client, connected, and its folder list.
+async fn client_mit_liste(
+    state: &AppState,
+    account_id: u32,
+) -> Result<(std::sync::Arc<client::ImapClient>, Vec<(String, String, String, String)>), ApiError> {
+    let client = state
+        .imap_clients
+        .read()
+        .get(&account_id)
+        .cloned()
+        .ok_or(ApiError("Das Konto ist gerade nicht mit dem Mailserver verbunden.".into()))?;
+    if !client.is_connected().await {
+        let _ = client.reconnect().await;
+    }
+    let liste = match client.list_folders().await {
+        Ok(l) => l,
+        Err(_) => {
+            let _ = client.reconnect().await;
+            client
+                .list_folders()
+                .await
+                .map_err(|e| ApiError(format!("Der Mailserver antwortet nicht: {e}")))?
+        }
+    };
+    Ok((client, liste))
+}
+
+/// The delimiter of a provider folder ("" where Relay does not know it).
+fn trenner_von(liste: &[(String, String, String, String)], name: &str) -> String {
+    liste
+        .iter()
+        .find(|(n, ..)| n == name)
+        .map(|(_, _, d, _)| d.clone())
+        .or_else(|| liste.iter().find(|(n, ..)| n.eq_ignore_ascii_case("INBOX")).map(|(_, _, d, _)| d.clone()))
+        .unwrap_or_default()
 }
 
 pub async fn create_folder(
@@ -300,11 +355,24 @@ pub async fn create_folder(
     if name.is_empty() {
         return Err(ApiError("Ordnername darf nicht leer sein".into()));
     }
+    if archiv_modus(&state, req.account_id) {
+        with_db(&state, |conn| {
+            cache::messages::create_local_folder(conn, req.account_id as i64, &name).map_err(|e| e.to_string())
+        })?;
+        tracing::info!("Lokal-only Ordner angelegt: {} (account {})", name, req.account_id);
+        return Ok(Json(serde_json::json!({ "ok": true, "name": name, "local_only": true })));
+    }
+    let (client, _) = client_mit_liste(&state, req.account_id).await?;
+    client
+        .create_folder(&name)
+        .await
+        .map_err(|e| ApiError(format!("Der Mailserver hat den Ordner nicht angelegt: {e}")))?;
     with_db(&state, |conn| {
-        cache::messages::create_local_folder(conn, req.account_id as i64, &name).map_err(|e| e.to_string())
+        cache::messages::ziel_anlegen(conn, req.account_id as i64, &name).map_err(|e| e.to_string())
     })?;
-    tracing::info!("Lokal-only Ordner angelegt: {} (account {})", name, req.account_id);
-    Ok(Json(serde_json::json!({ "ok": true, "name": name, "local_only": true })))
+    state.folder_cache.write().invalidate_account(req.account_id as i64);
+    tracing::info!("Ordner beim Anbieter angelegt: {} (account {})", name, req.account_id);
+    Ok(Json(serde_json::json!({ "ok": true, "name": name, "local_only": false })))
 }
 
 /// `POST /api/v1/folders/rename` — rename local-only folders locally;
@@ -802,11 +870,20 @@ pub struct RenameFolderRequest {
     pub new_name: String,
 }
 
-/// `POST /api/v1/folders/rename`
+/// `POST /api/v1/folders/rename` — rename or move a folder (the new name is
+/// the full path: another parent moves it). Decoded names (UTF-7 is done
+/// once, inside the IMAP client: the raw names sent before were encoded a
+/// second time, and a folder with an umlaut could not be renamed). On the
+/// provider first; Relay's index follows only when it did, with the folders
+/// below (Kai, 9.10.2026).
 pub async fn rename_folder(
     State(state): State<AppState>,
     Json(req): Json<RenameFolderRequest>,
 ) -> ApiResult<()> {
+    let neu = req.new_name.trim().to_string();
+    if neu.is_empty() || neu == req.old_name {
+        return Ok(Json(()));
+    }
     // Local-only folders: rename purely in the cache (no IMAP involved).
     let is_local = with_db(&state, |conn| {
         cache::messages::is_local_only_folder(conn, req.account_id as i64, &req.old_name)
@@ -815,33 +892,36 @@ pub async fn rename_folder(
     .unwrap_or(false);
     if is_local {
         with_db(&state, |conn| {
-            cache::messages::rename_local_folder(conn, req.account_id as i64, &req.old_name, &req.new_name)
+            cache::messages::ordner_umbenennen(conn, req.account_id as i64, &req.old_name, &neu, ".")
                 .map_err(|e| e.to_string())
         })?;
         state.folder_cache.write().invalidate_account(req.account_id as i64);
         return Ok(Json(()));
     }
 
-    let client = {
-        let guard = state.imap_clients.read();
-        guard
-            .get(&req.account_id)
-            .cloned()
-            .ok_or(ApiError("IMAP-Client nicht gefunden".into()))?
-    };
+    let (client, liste) = client_mit_liste(&state, req.account_id).await?;
+    let delim = trenner_von(&liste, &req.old_name);
     client
-        .rename_folder(&req.old_name, &req.new_name)
+        .rename_folder(&req.old_name, &neu)
         .await
-        .map(|_| {
-            state.folder_cache.write().invalidate_account(req.account_id as i64);
-            Json(())
-        })
-        .map_err(|e| ApiError(e.to_string()))
+        .map_err(|e| ApiError(format!("Der Mailserver hat den Ordner nicht umbenannt: {e}")))?;
+    with_db(&state, |conn| {
+        cache::messages::ordner_umbenennen(conn, req.account_id as i64, &req.old_name, &neu, &delim)
+            .map_err(|e| e.to_string())
+    })?;
+    state.folder_cache.write().invalidate_account(req.account_id as i64);
+    tracing::info!("Ordner '{}' → '{}' (account {})", req.old_name, neu, req.account_id);
+    Ok(Json(()))
 }
 
-/// `POST /api/v1/folders/delete` — delete a folder.
-/// Local-only folders are removed from the cache (incl. EML files);
-/// IMAP folders are deleted on the provider.
+/// `POST /api/v1/folders/delete` — delete a folder and the folders below it.
+/// Local-only folders are removed from the cache (incl. EML files).
+/// Provider folders (Kai, 9.10.2026): their mails go into the provider's
+/// trash first (IMAP DELETE takes them with it on most servers); on Gmail
+/// only the label goes, the mails stay in "All Mail" (Relay's archive) and
+/// their other labels. The provider first; when it refuses, nothing changes
+/// in Relay and the error is shown — before, Relay cleared its copy and
+/// said "done" while the folder and its mails stayed on the server.
 #[derive(Deserialize)]
 pub struct DeleteFolderRequest {
     pub account_id: u32,
@@ -852,8 +932,9 @@ pub async fn delete_folder(
     State(state): State<AppState>,
     Json(req): Json<DeleteFolderRequest>,
 ) -> ApiResult<serde_json::Value> {
-    // Every branch below removes rows or the folder itself — one account-wide
-    // bust at the entry covers all of them.
+    if req.name.eq_ignore_ascii_case("INBOX") || req.name == "Trash" || req.name == "Archive" {
+        return Err(ApiError("Dieser Ordner gehört zum Postfach und lässt sich nicht löschen.".into()));
+    }
     state.folder_cache.write().invalidate_account(req.account_id as i64);
     let is_local = with_db(&state, |conn| {
         cache::messages::is_local_only_folder(conn, req.account_id as i64, &req.name)
@@ -869,48 +950,138 @@ pub async fn delete_folder(
         return Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted })));
     }
 
-    let client = {
-        let guard = state.imap_clients.read();
-        guard.get(&req.account_id).cloned()
-    };
-    if let Some(client) = client {
-        // Try the IMAP deletion; the folder may exist only locally (e.g. a
-        // migration target folder that the sync mirrored but GMX doesn't
-        // know). If the remote deletion fails for any reason, still remove
-        // the local rows — the user explicitly asked to delete this folder.
-        match client.delete_folder(&req.name).await {
-            Ok(()) => {
-                with_db(&state, |conn| {
-                    conn.execute(
-                        "DELETE FROM messages WHERE account_id = ?1 AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
-                        rusqlite::params![req.account_id as i64, req.name],
-                    )
-                    .map_err(|e| e.to_string())?;
-                    conn.execute(
-                        "DELETE FROM folders WHERE account_id = ?1 AND name = ?2",
-                        rusqlite::params![req.account_id as i64, req.name],
-                    )
-                    .map_err(|e| e.to_string())
-                })?;
-                return Ok(Json(serde_json::json!({ "ok": true })));
+    let (client, liste) = client_mit_liste(&state, req.account_id).await?;
+    let delim = trenner_von(&liste, &req.name);
+    let gmail = crate::sync::scheduler::ist_gmail(&liste);
+    // Where the server has no trash yet, one is made (as for a deleted
+    // mail): IMAP DELETE would take the mails with it.
+    let papierkorb = match crate::sync::scheduler::papierkorb_waehlen(&liste) {
+        Some(t) => Some(t),
+        None if !gmail => {
+            if let Err(e) = client.create_folder("Trash").await {
+                if !e.to_string().to_lowercase().contains("exists") {
+                    return Err(ApiError(format!("Der Mailserver hat keinen Papierkorb und legt keinen an: {e}")));
+                }
             }
-            Err(e) => {
-                tracing::warn!(
-                    "IMAP-Löschung '{}' fehlgeschlagen ({}), lösche lokal weiter",
-                    req.name, e
-                );
+            Some("Trash".to_string())
+        }
+        None => None,
+    };
+    // The folder and those below it, deepest first (a server may refuse to
+    // delete a folder with children).
+    let mut betroffen: Vec<String> = liste
+        .iter()
+        .map(|(n, ..)| n.clone())
+        .filter(|n| n == &req.name || (!delim.is_empty() && n.starts_with(&format!("{}{}", req.name, delim))))
+        .collect();
+    if betroffen.is_empty() {
+        // Not on the provider (any more): only Relay's rows remain.
+        let entfernt = with_db(&state, |conn| {
+            cache::messages::ordner_austragen(conn, req.account_id as i64, &req.name, &delim).map_err(|e| e.to_string())
+        })?;
+        return Ok(Json(serde_json::json!({ "ok": true, "deleted": entfernt })));
+    }
+    betroffen.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    let mut in_papierkorb = 0usize;
+    for ordner in &betroffen {
+        if !gmail {
+            match &papierkorb {
+                Some(trash) if trash != ordner && !trash.starts_with(&format!("{}{}", ordner, delim)) => {
+                    in_papierkorb += client
+                        .alle_verschieben(ordner, trash)
+                        .await
+                        .map_err(|e| ApiError(format!("Die Mails in „{ordner}“ kamen nicht in den Papierkorb: {e}")))?;
+                }
+                _ => {}
             }
         }
-    } else {
-        tracing::warn!("Kein IMAP-Client — Ordner '{}' wird nur lokal gelöscht", req.name);
+        client
+            .delete_folder(ordner)
+            .await
+            .map_err(|e| ApiError(format!("Der Mailserver hat „{ordner}“ nicht gelöscht: {e}")))?;
     }
-    // Local fallback: remove the folder rows + EML archives regardless of
-    // the IMAP state (folder may not exist remotely, or no session is up).
-    let deleted = with_db(&state, |conn| {
-        cache::messages::delete_local_folder(conn, &state.data_root, req.account_id as i64, &req.name)
+    let entfernt = with_db(&state, |conn| {
+        cache::messages::ordner_austragen(conn, req.account_id as i64, &req.name, &delim).map_err(|e| e.to_string())
     })?;
-    tracing::info!("Ordner '{}' lokal gelöscht ({} Mails)", req.name, deleted);
-    Ok(Json(serde_json::json!({ "ok": true, "deleted": deleted, "local_only": true })))
+    tracing::info!(
+        "Ordner '{}' gelöscht (account {}, {} Ordner, {} Mails in den Papierkorb, {} Zeilen ausgetragen)",
+        req.name, req.account_id, betroffen.len(), in_papierkorb, entfernt
+    );
+    Ok(Json(serde_json::json!({ "ok": true, "deleted": entfernt, "in_papierkorb": in_papierkorb, "gmail": gmail })))
+}
+
+/// `POST /api/v1/folders/empty` — empty the trash or the spam folder for
+/// good (Kai, 9.10.2026): on the provider (\Deleted + EXPUNGE; on Gmail
+/// that deletes for good there too) and in Relay, with the EML files.
+pub async fn empty_folder(
+    State(state): State<AppState>,
+    Json(req): Json<DeleteFolderRequest>,
+) -> ApiResult<serde_json::Value> {
+    let rolle_ok = req.name == "Trash" || crate::sync::scheduler::ist_spam_ordner(&req.name);
+    if !rolle_ok {
+        return Err(ApiError("Nur der Papierkorb und der Spam-Ordner lassen sich leeren.".into()));
+    }
+    let archiv = archiv_modus(&state, req.account_id);
+    let mut beim_anbieter = 0usize;
+    if !(archiv && req.name == "Trash") {
+        let (client, liste) = client_mit_liste(&state, req.account_id).await?;
+        if let Some(ordner) = crate::sync::scheduler::provider_ordner(&liste, &req.name) {
+            if liste.iter().any(|(n, ..)| n == &ordner) {
+                beim_anbieter = client
+                    .ordner_leeren(&ordner)
+                    .await
+                    .map_err(|e| ApiError(format!("Der Mailserver hat „{ordner}“ nicht geleert: {e}")))?;
+            }
+        }
+    }
+    let in_relay = with_db(&state, |conn| {
+        cache::messages::ordner_leeren(conn, &state.data_root, req.account_id as i64, &req.name).map_err(|e| e.to_string())
+    })?;
+    state.folder_cache.write().invalidate_account(req.account_id as i64);
+    tracing::info!("Ordner '{}' geleert (account {}): {} beim Anbieter, {} in Relay", req.name, req.account_id, beim_anbieter, in_relay);
+    Ok(Json(serde_json::json!({ "ok": true, "deleted": in_relay.max(beim_anbieter) })))
+}
+
+/// `POST /api/v1/folders/zum-anbieter` — a folder kept only in Relay goes to
+/// the provider (Kai, 9.10.2026): the folder is made there and its mails are
+/// put back on the server (found there, from its trash, else from the EML).
+pub async fn folder_to_provider(
+    State(state): State<AppState>,
+    Json(req): Json<DeleteFolderRequest>,
+) -> ApiResult<serde_json::Value> {
+    if req.name == "Trash" || archiv_modus(&state, req.account_id) {
+        return Err(ApiError("Dieser Ordner bleibt in Relay.".into()));
+    }
+    let (client, liste) = client_mit_liste(&state, req.account_id).await?;
+    if !liste.iter().any(|(n, ..)| n == &req.name) {
+        client
+            .create_folder(&req.name)
+            .await
+            .map_err(|e| ApiError(format!("Der Mailserver hat den Ordner nicht angelegt: {e}")))?;
+    }
+    let anzahl = with_db(&state, |conn| {
+        conn.execute(
+            "UPDATE folders SET local_only = 0 WHERE account_id = ?1 AND name = ?2",
+            rusqlite::params![req.account_id as i64, req.name],
+        )
+        .map_err(|e| e.to_string())?;
+        let koepfe: Vec<String> = conn
+            .prepare(
+                "SELECT DISTINCT m.message_id FROM messages m JOIN folders f ON f.id = m.folder_id
+                 WHERE m.account_id = ?1 AND f.name = ?2 AND m.message_id IS NOT NULL AND TRIM(m.message_id) != ''",
+            )
+            .and_then(|mut st| {
+                st.query_map(rusqlite::params![req.account_id as i64, req.name], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|e| e.to_string())?;
+        for k in &koepfe {
+            cache::provider_ops::enqueue_retten(conn, req.account_id as i64, &req.name, k).map_err(|e| e.to_string())?;
+        }
+        Ok::<_, String>(koepfe.len())
+    })?;
+    state.folder_cache.write().invalidate_account(req.account_id as i64);
+    Ok(Json(serde_json::json!({ "ok": true, "mails": anzahl })))
 }
 
 /// `GET /api/v1/messages/{uid}/raw?account_id=…`

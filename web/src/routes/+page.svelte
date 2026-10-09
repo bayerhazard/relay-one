@@ -27,7 +27,7 @@
   import { assistantAction } from "$lib/stores/assistantAction";
 import {
     fetchMessages, fetchMessageBody, markAsRead, markAsUnseen, markBatchAsRead, markBatchAsUnseen, sendMessage,
-    listAccounts, listImapFolders, createLocalFolder, deleteFolder,
+    listAccounts, listImapFolders, createLocalFolder, deleteFolder, emptyFolder, folderToProvider,
     deleteMessageCmd, moveMessageCmd, moveMessageCrossAccount, renameFolder, flagMessageCmd, urgentMessageCmd,
     getMoveToTrash, getUnreadCounts, discardDraft, searchMessages, getLoeschStand, loeschenErneut,
     triggerFolderSummaries, fetchAttachments, loadAttachmentContent, saveAttachment,
@@ -662,6 +662,7 @@ let sentFolderName = $state<string | null>(null);
       await reloadFolders();
     } catch (e) {
       console.error("createLocalFolder failed", e);
+      mailbox.setError(translate("mail.newFolderFailed") + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -729,62 +730,39 @@ let sentFolderName = $state<string | null>(null);
     if (!trimmedLeaf || trimmedLeaf === leafName) return;
 
     const newPath = parentPath ? `${parentPath}${delim}${trimmedLeaf}` : trimmedLeaf;
+    await ordnerUmbenennen(originalName, newPath, translate("mail.renameFailed"));
+  }
+
+  // Rename or move a folder (Kai, 9.10.2026): the decoded names, the
+  // server encodes once (the raw names sent before were encoded twice: a
+  // folder with an umlaut could not be renamed). Relay's view follows the
+  // provider's list afterwards, the folders below included.
+  async function ordnerUmbenennen(originalName: string, newPath: string, fehlerText: string) {
+    if (!selectedAccountId || newPath === originalName) return;
     try {
-      const rawOld = folderRawNames[originalName] || originalName;
-      const rawParentPath = parentPath ? (folderRawNames[parentPath] || parentPath) : "";
-      const rawNewPath = rawParentPath ? `${rawParentPath}${delim}${trimmedLeaf}` : trimmedLeaf;
-
-      await renameFolder(selectedAccountId, rawOld, rawNewPath);
-
-      // Update local state (reassign so $derived visibleFolders recomputes)
-      const idx = folderNames.indexOf(originalName);
-      if (idx !== -1) {
-        const nextNames = [...folderNames];
-        nextNames[idx] = newPath;
-        folderNames = nextNames;
-        if (selectedFolder === originalName) selectedFolder = newPath;
+      await renameFolder(selectedAccountId, originalName, newPath);
+      const unter = (n: string) => n === originalName || n.startsWith(originalName + (folderDelimiters[originalName] || "."));
+      const neuName = (n: string) => newPath + n.slice(originalName.length);
+      if (unter(selectedFolder)) {
+        selectedFolder = neuName(selectedFolder);
+        mailbox.setFolderId(selectedFolder);
       }
-      // Migrate custom display name if one exists
-      if (customFolderNames[originalName]) {
-        const nextCustom = { ...customFolderNames };
-        nextCustom[newPath] = nextCustom[originalName];
-        delete nextCustom[originalName];
-        customFolderNames = nextCustom;
-        localStorage.setItem(getStoreKey("folder_custom_names"), JSON.stringify(customFolderNames));
-      }
-
-      // Migrate raw-name and delimiter maps to the new path
-      const nextRaw = { ...folderRawNames };
-      nextRaw[newPath] = rawNewPath;
-      delete nextRaw[originalName];
-      folderRawNames = nextRaw;
-
-      if (folderDelimiters[originalName]) {
-        const nextDelim = { ...folderDelimiters };
-        nextDelim[newPath] = nextDelim[originalName];
-        delete nextDelim[originalName];
-        folderDelimiters = nextDelim;
-      }
-
+      // Migrate custom display names
+      const nextCustom: Record<string, string> = {};
+      for (const [k, v] of Object.entries(customFolderNames)) nextCustom[unter(k) ? neuName(k) : k] = v;
+      customFolderNames = nextCustom;
+      localStorage.setItem(getStoreKey("folder_custom_names"), JSON.stringify(customFolderNames));
       // Persist updated folder order under the new path
       try {
         const saved = localStorage.getItem(getStoreKey("folder_order"));
         if (saved) {
-          const order = (JSON.parse(saved) as string[]).map((n) => n === originalName ? newPath : n);
+          const order = (JSON.parse(saved) as string[]).map((n) => unter(n) ? neuName(n) : n);
           localStorage.setItem(getStoreKey("folder_order"), JSON.stringify(order));
         }
       } catch { /* non-critical */ }
-
-      // The sidebar renders from the per-account folder store — refresh it so
-      // the rename is visible immediately (no manual reload required).
-      setAccountFolders(selectedAccountId, {
-        names: folderNames,
-        local: localFolderNames,
-        raw: folderRawNames,
-        delim: folderDelimiters,
-      });
+      await reloadFolders();
     } catch (e: unknown) {
-      mailbox.setError(translate("mail.renameFailed") + (e instanceof Error ? e.message : String(e)));
+      mailbox.setError(fehlerText + (e instanceof Error ? e.message : String(e)));
     }
   }
 
@@ -795,6 +773,53 @@ let sentFolderName = $state<string | null>(null);
   // deleting one only emptied Relay's copy (Kai, 9.10.2026).
   const istSystemOrdner = (name: string) =>
     name === "INBOX" || !!rolleVon(name, rollenByAccount[selectedAccountId], folderDelimiters[name] || ".");
+  const rolleDes = (name: string) => rolleVon(name, rollenByAccount[selectedAccountId], folderDelimiters[name] || ".");
+  // Archive mode keeps folders in Relay; mirror mode at the provider.
+  const archivKonto = $derived($accounts.accounts.find((a) => a.id === selectedAccountId)?.sync_mode === "archive");
+  // "Move to …" for a folder: its new parent (Kai, 9.10.2026).
+  let ordnerZielMenu = $state<{ x: number; y: number; ordner: string } | null>(null);
+  let leerenOrdner = $state<string | null>(null);
+
+  function ordnerZiele(ordner: string): string[] {
+    const delim = folderDelimiters[ordner] || ".";
+    const teile = ordner.split(delim);
+    const eltern = teile.slice(0, -1).join(delim);
+    return folderNames.filter((n) =>
+      n !== ordner && !n.startsWith(ordner + delim) && n !== eltern
+      && !istSystemOrdner(n) && !localFolderNames.has(n));
+  }
+
+  async function ordnerVerschieben(ordner: string, ziel: string | null) {
+    ordnerZielMenu = null;
+    const delim = folderDelimiters[ordner] || ".";
+    const blatt = ordner.split(delim).pop() || ordner;
+    const neu = ziel ? `${ziel}${folderDelimiters[ziel] || delim}${blatt}` : blatt;
+    await ordnerUmbenennen(ordner, neu, translate("mail.moveFolderFailed"));
+  }
+
+  async function ordnerLeeren() {
+    const name = leerenOrdner;
+    leerenOrdner = null;
+    if (!name || !selectedAccountId) return;
+    try {
+      await emptyFolder(selectedAccountId, name);
+      invalidateFolderCache(selectedAccountId, name);
+      if (selectedFolder === name) await loadFolder(true);
+    } catch (e) {
+      mailbox.setError(translate("mail.emptyFailed") + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  async function ordnerZumAnbieter(name: string) {
+    closeMenus();
+    if (!selectedAccountId) return;
+    try {
+      await folderToProvider(selectedAccountId, name);
+      await reloadFolders();
+    } catch (e) {
+      mailbox.setError(translate("mail.toProviderFailed") + (e instanceof Error ? e.message : String(e)));
+    }
+  }
   interface MoveTarget { name: string; label: string; accountId: number; depth?: number; full?: string; }
   interface MoveSection { header: string | null; items: MoveTarget[]; }
   let moveMenu = $state<{ x: number; y: number; sections: MoveSection[] } | null>(null);
@@ -823,6 +848,7 @@ let sentFolderName = $state<string | null>(null);
 
   function closeMenus() {
     folderCtxMenu = null;
+    ordnerZielMenu = null;
     moveMenu = null;
     linkMenu = null;
   }
@@ -3533,7 +3559,9 @@ let sentFolderName = $state<string | null>(null);
     <ConfirmationDialog
       open={showDeleteFolderConfirm}
       title={$t("mail.deleteFolderTitle")}
-      message={$t("mail.deleteFolderMsg", { name: pendingDeleteFolder ?? "" })}
+      message={pendingDeleteFolder && (localFolderNames.has(pendingDeleteFolder) || archivKonto)
+        ? $t("mail.deleteFolderMsgLokal", { name: pendingDeleteFolder ?? "" })
+        : $t("mail.deleteFolderMsg", { name: pendingDeleteFolder ?? "" })}
       confirmLabel={$t("mail.deleteFolderTitle")}
       cancelLabel={$t("common.cancel")}
       danger={true}
@@ -3556,8 +3584,8 @@ let sentFolderName = $state<string | null>(null);
 
   <PromptDialog
     open={showNewFolderDialog}
-    title={$t("mail.newFolderTitle")}
-    message={$t("mail.newFolderMsg")}
+    title={archivKonto ? $t("mail.newFolderTitleLokal") : $t("mail.newFolderTitle")}
+    message={archivKonto ? $t("mail.newFolderMsgLokal") : $t("mail.newFolderMsg")}
     placeholder={$t("mail.newFolderPlaceholder")}
     confirmLabel={$t("mail.create")}
     cancelLabel={$t("common.cancel")}
@@ -3580,6 +3608,16 @@ let sentFolderName = $state<string | null>(null);
       {#if customFolderNames[folderCtxMenu!.folderName]}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("resetName")}</span>{$t("mail.resetName")}</button>
       {/if}
+      {#if !istSystemOrdner(folderCtxMenu!.folderName) && !localFolderNames.has(folderCtxMenu!.folderName)}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { const m = folderCtxMenu!; folderCtxMenu = null; ordnerZielMenu = { x: m.x, y: m.y, ordner: m.folderName }; }}><span class="ctx-icon">{@html iconSVG("submenu")}</span>{$t("mail.folderMove")}</button>
+      {/if}
+      {#if localFolderNames.has(folderCtxMenu!.folderName) && !archivKonto && !istSystemOrdner(folderCtxMenu!.folderName)}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => ordnerZumAnbieter(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("newSubFolder")}</span>{$t("mail.toProvider")}</button>
+      {/if}
+      {#if rolleDes(folderCtxMenu!.folderName) === "papierkorb" || rolleDes(folderCtxMenu!.folderName) === "spam"}
+        <div class="ctx-menu-separator" role="separator"></div>
+        <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => { leerenOrdner = folderCtxMenu!.folderName; closeMenus(); }}><span class="ctx-icon">{@html iconSVG("delete")}</span>{rolleDes(folderCtxMenu!.folderName) === "spam" ? $t("mail.emptySpam") : $t("mail.emptyTrash")}</button>
+      {/if}
       {#if !istSystemOrdner(folderCtxMenu!.folderName)}
         <div class="ctx-menu-separator" role="separator"></div>
         <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
@@ -3592,6 +3630,32 @@ let sentFolderName = $state<string | null>(null);
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={folderCtxUnhideAll}><span class="ctx-icon">{@html iconSVG("show")}</span>{$t("mail.showAllHidden")}</button>
       {/if}
     </div>
+  {/if}
+
+  {#if ordnerZielMenu}
+    <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
+    <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${ordnerZielMenu.x}px; top: ${ordnerZielMenu.y}px;`} role="menu" aria-label={$t("mail.folderMoveTitle")}>
+      <div class="ctx-menu-header">{$t("mail.folderMoveTitle")}</div>
+      {#if (ordnerZielMenu.ordner.split(folderDelimiters[ordnerZielMenu.ordner] || ".").length > 1)}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => ordnerVerschieben(ordnerZielMenu!.ordner, null)}>{$t("mail.folderTopLevel")}</button>
+      {/if}
+      {#each ordnerZiele(ordnerZielMenu.ordner) as ziel (ziel)}
+        <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => ordnerVerschieben(ordnerZielMenu!.ordner, ziel)}>{customFolderNames[ziel] || ziel}</button>
+      {/each}
+    </div>
+  {/if}
+
+  {#if leerenOrdner}
+    <ConfirmationDialog
+      open={!!leerenOrdner}
+      title={rolleDes(leerenOrdner) === "spam" ? $t("mail.emptySpam") : $t("mail.emptyTrash")}
+      message={$t("mail.emptyMsg", { name: customFolderNames[leerenOrdner] || $t(translateFolder(leerenOrdner)) })}
+      confirmLabel={rolleDes(leerenOrdner) === "spam" ? $t("mail.emptySpam") : $t("mail.emptyTrash")}
+      cancelLabel={$t("common.cancel")}
+      danger={true}
+      onconfirm={ordnerLeeren}
+      oncancel={() => { leerenOrdner = null; }}
+    />
   {/if}
 
   {#if moveMenu}
