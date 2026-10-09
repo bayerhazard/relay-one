@@ -1011,7 +1011,7 @@ pub(crate) fn provider_ordner(folders: &[(String, String, String, String)], name
 }
 
 /// The provider's spam folder by name ("[Gmail]/Spam", "Junk", "Spam" …).
-fn ist_spam_ordner(name: &str) -> bool {
+pub(crate) fn ist_spam_ordner(name: &str) -> bool {
     let blatt = name.rsplit(['/', '.']).next().unwrap_or(name).to_lowercase();
     ["spam", "junk", "spamverdacht", "junk e-mail", "bulk"].contains(&blatt.as_str())
 }

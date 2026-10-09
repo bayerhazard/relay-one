@@ -1111,7 +1111,13 @@ impl ImapClient {
     pub async fn rename_folder(&self, old_name: &str, new_name: &str) -> Result<(), AppError> {
         let old_name = encode_imap_utf7(old_name);
         let new_name = encode_imap_utf7(new_name);
+        let tracker = self.tracker(Slot::User);
+        let sync_tracker = self.tracker(Slot::Sync);
         self.with_session_blocking("rename_folder", move |session| {
+            // The old name may be selected (here or on the sync connection):
+            // go to the inbox, and let the sync select anew.
+            ensure_selected(session, &tracker, "INBOX")?;
+            *sync_tracker.lock().unwrap() = None;
             session
                 .rename(&old_name, &new_name)
                 .map_err(|e| AppError::imap(format!("RENAME fehlgeschlagen: {}", e), "rename_folder"))?;
@@ -1120,11 +1126,81 @@ impl ImapClient {
         .await
     }
 
+    /// Every mail of `folder` into `ziel` (a folder deleted from Relay hands
+    /// its mails to the trash first: IMAP DELETE takes them with it on most
+    /// servers; Kai, 9.10.2026). Returns how many.
+    pub async fn alle_verschieben(&self, folder: &str, ziel: &str) -> Result<usize, AppError> {
+        let folder = folder.to_string();
+        let ziel = encode_imap_utf7(ziel);
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "alle_verschieben", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let uids: Vec<u32> = session
+                .uid_search("ALL")
+                .map_err(|e| AppError::imap(format!("UID SEARCH fehlgeschlagen: {}", e), "alle_verschieben"))?
+                .into_iter()
+                .collect();
+            if uids.is_empty() {
+                return Ok(0);
+            }
+            let menge = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+            let kann_move = session.capabilities().map(|c| c.has_str("MOVE")).unwrap_or(false);
+            if kann_move {
+                session
+                    .uid_mv(&menge, &ziel)
+                    .map_err(|e| AppError::imap(format!("UID MOVE nach '{}' fehlgeschlagen: {}", ziel, e), "alle_verschieben"))?;
+            } else {
+                session
+                    .uid_copy(&menge, &ziel)
+                    .map_err(|e| AppError::imap(format!("UID COPY nach '{}' fehlgeschlagen: {}", ziel, e), "alle_verschieben"))?;
+                session
+                    .uid_store(&menge, "+FLAGS (\\Deleted)")
+                    .map_err(|e| AppError::imap(format!("STORE fehlgeschlagen: {}", e), "alle_verschieben"))?;
+                session
+                    .expunge()
+                    .map_err(|e| AppError::imap(format!("EXPUNGE fehlgeschlagen: {}", e), "alle_verschieben"))?;
+            }
+            Ok(uids.len())
+        })
+        .await
+    }
+
+    /// Delete every mail of `folder` for good (\Deleted + EXPUNGE): the
+    /// trash or spam emptied. Returns how many.
+    pub async fn ordner_leeren(&self, folder: &str) -> Result<usize, AppError> {
+        let folder = folder.to_string();
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "ordner_leeren", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
+            let uids: Vec<u32> = session
+                .uid_search("ALL")
+                .map_err(|e| AppError::imap(format!("UID SEARCH fehlgeschlagen: {}", e), "ordner_leeren"))?
+                .into_iter()
+                .collect();
+            if uids.is_empty() {
+                return Ok(0);
+            }
+            let menge = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+            session
+                .uid_store(&menge, "+FLAGS (\\Deleted)")
+                .map_err(|e| AppError::imap(format!("STORE fehlgeschlagen: {}", e), "ordner_leeren"))?;
+            session
+                .expunge()
+                .map_err(|e| AppError::imap(format!("EXPUNGE fehlgeschlagen: {}", e), "ordner_leeren"))?;
+            Ok(uids.len())
+        })
+        .await
+    }
+
     /// Delete a folder on the provider (IMAP DELETE). Note: the provider may
     /// refuse if the mailbox contains messages or has inferior children.
     pub async fn delete_folder(&self, name: &str) -> Result<(), AppError> {
         let name = encode_imap_utf7(name);
+        let tracker = self.tracker(Slot::User);
         self.with_session_blocking("delete_folder", move |session| {
+            // Some servers refuse to delete the selected folder: select the
+            // inbox first; the tracker must not name a folder gone.
+            ensure_selected(session, &tracker, "INBOX")?;
             session
                 .delete(&name)
                 .map_err(|e| AppError::imap(format!("DELETE folder fehlgeschlagen: {}", e), "delete_folder"))?;

@@ -1459,3 +1459,80 @@ fn the_repair_mirrors_the_folders_a_bug_made_local_and_rescues_their_mails() {
     crate::sync::scheduler::ordner_reparieren_mit(&conn, account as u32, &gmail);
     assert!(ordner_lokal(&conn, account, "Archive"));
 }
+
+#[test]
+fn a_renamed_folder_takes_its_subfolders_cursor_and_waiting_ops_along() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "umbenennen");
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<p@x>", "P"), "Projekt").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(2, "<u@x>", "U"), "Projekt/Unter").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(3, "<n@x>", "N"), "Projektion").unwrap();
+    crate::cache::sync_state::set(&conn, account, "Projekt/Unter", 2, 0).unwrap();
+    crate::cache::provider_ops::enqueue_verschieben(&conn, account, 1, "INBOX", "Projekt/Unter", Some("<z@x>")).unwrap();
+
+    crate::cache::messages::ordner_umbenennen(&conn, account, "Projekt", "Projekte Ä", "/").unwrap();
+
+    let namen: Vec<String> = conn
+        .prepare("SELECT name FROM folders WHERE account_id = ?1 ORDER BY name")
+        .unwrap()
+        .query_map(params![account], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(namen.contains(&"Projekte Ä".to_string()));
+    assert!(namen.contains(&"Projekte Ä/Unter".to_string()));
+    // Only the folder and those below it: "Projektion" is another folder.
+    assert!(namen.contains(&"Projektion".to_string()));
+    assert!(!namen.iter().any(|n| n == "Projekt" || n == "Projekt/Unter"));
+    // The mails stay with their folder, the cursor and the op follow.
+    let u: String = conn
+        .query_row(
+            "SELECT f.name FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.message_id = '<u@x>'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(u, "Projekte Ä/Unter");
+    assert_eq!(crate::cache::sync_state::get(&conn, account, "Projekte Ä/Unter").unwrap().last_uid, 2);
+    let op = &crate::cache::provider_ops::take_pending_for_account(&conn, account, 10).unwrap()[0];
+    assert_eq!(op.target_folder.as_deref(), Some("Projekte Ä/Unter"));
+}
+
+#[test]
+fn a_deleted_folder_leaves_the_index_with_its_subfolders() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "austragen");
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<p@x>", "P"), "Alt").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(2, "<u@x>", "U"), "Alt.Unter").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(3, "<b@x>", "B"), "Alter Kram").unwrap();
+    crate::cache::sync_state::set(&conn, account, "Alt", 1, 0).unwrap();
+    let n = crate::cache::messages::ordner_austragen(&conn, account, "Alt", ".").unwrap();
+    assert_eq!(n, 2);
+    assert!(!crate::cache::messages::is_local_only_folder(&conn, account, "Alter Kram").unwrap());
+    let ordner: i64 = conn
+        .query_row("SELECT COUNT(*) FROM folders WHERE account_id = ?1 AND name LIKE 'Alt%'", params![account], |r| r.get(0))
+        .unwrap();
+    assert_eq!(ordner, 1, "nur „Alter Kram“ bleibt");
+    let cursor: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sync_state WHERE account_id = ?1", params![account], |r| r.get(0))
+        .unwrap();
+    assert_eq!(cursor, 0);
+}
+
+#[test]
+fn emptying_the_trash_removes_its_rows_and_eml_files() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "leeren");
+    let dir = std::env::temp_dir().join(format!("relay-leeren-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("weg.eml"), b"x").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<weg@x>", "W"), "Trash").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(1, "<bleibt@x>", "B"), "INBOX").unwrap();
+    conn.execute("UPDATE messages SET raw_path = 'weg.eml' WHERE message_id = '<weg@x>'", []).unwrap();
+    let n = crate::cache::messages::ordner_leeren(&conn, &dir, account, "Trash").unwrap();
+    assert_eq!(n, 1);
+    assert!(!dir.join("weg.eml").exists());
+    let rest: i64 = conn.query_row("SELECT COUNT(*) FROM messages WHERE account_id = ?1", params![account], |r| r.get(0)).unwrap();
+    assert_eq!(rest, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

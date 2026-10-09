@@ -74,6 +74,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/folders", get(messages::list_imap_folders).post(messages::create_folder))
         .route("/folders/rename", post(messages::rename_folder))
         .route("/folders/delete", post(messages::delete_folder))
+        .route("/folders/empty", post(messages::empty_folder))
+        .route("/folders/zum-anbieter", post(messages::folder_to_provider))
         // Unread INBOX counts per account (sidebar badges)
         .route("/unread-counts", get(messages::unread_counts))
         // Messages

@@ -1287,6 +1287,89 @@ pub fn rename_local_folder(
     Ok(())
 }
 
+/// SQL condition: `name` is the folder ?A or below it (?A ?D …). Compared
+/// by prefix, not LIKE: folder names may hold % and _.
+const ORDNER_ODER_DARUNTER: &str =
+    "(name = ?A OR (?D != '' AND substr(name, 1, length(?A) + length(?D)) = ?A || ?D))";
+
+/// Rename a folder and the folders below it in Relay's index (Kai,
+/// 9.10.2026): the folder rows (their mails stay with them), the sync
+/// cursor and the provider ops still waiting. Before, a rename on the
+/// provider left the index under the old name: the old folder stayed as a
+/// ghost and the renamed one was fetched again from the start.
+pub fn ordner_umbenennen(conn: &Connection, account_id: i64, alt: &str, neu: &str, delim: &str) -> Result<(), rusqlite::Error> {
+    let bedingung = |spalte: &str| ORDNER_ODER_DARUNTER.replace("name", spalte).replace("?A", "?2").replace("?D", "?4");
+    let neuer_name = |spalte: &str| format!("?3 || substr({spalte}, length(?2) + 1)");
+    conn.execute(
+        &format!("UPDATE folders SET name = {} WHERE account_id = ?1 AND {}", neuer_name("name"), bedingung("name")),
+        params![account_id, alt, neu, delim],
+    )?;
+    conn.execute(
+        &format!(
+            "UPDATE sync_state SET folder_name = {} WHERE account_id = ?1 AND {}",
+            neuer_name("folder_name"),
+            bedingung("folder_name")
+        ),
+        params![account_id, alt, neu, delim],
+    )?;
+    conn.execute(
+        &format!(
+            "UPDATE provider_ops SET folder = {} WHERE account_id = ?1 AND state IN ('pending', 'failed') AND {}",
+            neuer_name("folder"),
+            bedingung("folder")
+        ),
+        params![account_id, alt, neu, delim],
+    )?;
+    conn.execute(
+        &format!(
+            "UPDATE provider_ops SET target_folder = {} WHERE account_id = ?1 AND state IN ('pending', 'failed') AND target_folder IS NOT NULL AND {}",
+            neuer_name("target_folder"),
+            bedingung("target_folder")
+        ),
+        params![account_id, alt, neu, delim],
+    )?;
+    Ok(())
+}
+
+/// Take a folder deleted on the provider, and the folders below it, out of
+/// Relay's index: mail rows, cursor, folder rows. Its mails are where the
+/// provider put them (its trash; on Gmail "All Mail") and come back there
+/// at the next sync. Returns the number of mail rows removed.
+pub fn ordner_austragen(conn: &Connection, account_id: i64, name: &str, delim: &str) -> Result<usize, rusqlite::Error> {
+    let bedingung = ORDNER_ODER_DARUNTER.replace("?A", "?2").replace("?D", "?3");
+    let ids: Vec<i64> = conn
+        .prepare(&format!("SELECT id FROM folders WHERE account_id = ?1 AND {bedingung}"))?
+        .query_map(params![account_id, name, delim], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    let mut entfernt = 0;
+    for id in ids {
+        entfernt += conn.execute("DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2", params![account_id, id])?;
+        conn.execute("DELETE FROM sync_state WHERE folder_id = ?1", params![id])?;
+        conn.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
+    }
+    Ok(entfernt)
+}
+
+/// Empty a folder in Relay's index (Kai, 9.10.2026: "Papierkorb leeren"):
+/// its mail rows and their EML files. Returns how many.
+pub fn ordner_leeren(conn: &Connection, data_root: &std::path::Path, account_id: i64, name: &str) -> Result<usize, rusqlite::Error> {
+    let pfade: Vec<String> = conn
+        .prepare(
+            "SELECT m.raw_path FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.account_id = ?1 AND f.name = ?2 AND m.raw_path IS NOT NULL",
+        )?
+        .query_map(params![account_id, name], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for rel in &pfade {
+        let _ = std::fs::remove_file(data_root.join(rel));
+    }
+    conn.execute(
+        "DELETE FROM messages WHERE account_id = ?1
+         AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
+        params![account_id, name],
+    )
+}
+
 /// Delete a LOCAL-only folder and all its messages (index rows + EML files).
 /// Returns the number of removed message rows.
 pub fn delete_local_folder(

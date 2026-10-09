@@ -7,7 +7,10 @@ the server does not have, an empty folder) made that folder "only in
 Relay", and from the second move on the mail went off the server: on
 Gmail into its trash. This probe archives two mails, moves two into an
 empty folder of the server, stars a mail right after its move and drags
-one into the trash, and asks the mail server after each step.
+one into the trash, and asks the mail server after each step. Then the
+folders themselves (26.10.12): created on the server, renamed with an
+umlaut (no ghost of the old name in Relay), deleted with its subfolder
+(its mails go into the trash), and the trash emptied.
 Standard library only; exits 1 with the step that failed.
 
     python3 web/e2e/testserver/ordnerprobe.py --relay http://127.0.0.1:3800
@@ -88,6 +91,84 @@ def verschieben(relay, ordner, betreff, ziel):
                                           "target_folder": ziel, "raw_source_folder": "", "raw_target_folder": ""})
 
 
+def utf7_lesen(name):
+    """IMAP's modified UTF-7 (RFC 3501) to text."""
+    import base64
+    def teil(m):
+        inhalt = m.group(1)
+        if not inhalt:
+            return "&"
+        roh = inhalt.replace(",", "/")
+        roh += "=" * (-len(roh) % 4)
+        return base64.b64decode(roh).decode("utf-16-be")
+    return re.sub(r"&([^-]*)-", teil, name)
+
+
+def server_ordner():
+    def lesen(imap):
+        _, zeilen = imap.list()
+        namen = []
+        for z in zeilen:
+            m = re.match(rb'\((.*?)\) "(.*?)" (.*)$', z)
+            if m:
+                namen.append(utf7_lesen(m.group(3).decode().strip('"')))
+        return namen
+    return mit_imap(lesen)
+
+
+def relay_ordner(relay):
+    return [f["name"] for f in api(relay, "GET", f"/folders?account_id={KONTO}")]
+
+
+def ordner_selbst(relay, stempel):
+    trenner = next((f.get("delimiter") or "." for f in api(relay, "GET", f"/folders?account_id={KONTO}") if f["name"] == "INBOX"), ".")
+    projekt, unter = f"Projekt{stempel}", f"Projekt{stempel}{trenner}Unter"
+    api(relay, "POST", "/folders", {"account_id": KONTO, "name": projekt})
+    api(relay, "POST", "/folders", {"account_id": KONTO, "name": unter})
+    warten("Server: Ordner und Unterordner angelegt", lambda: {projekt, unter} <= set(server_ordner()), 30)
+
+    betreff = f"Ordnerprobe F {stempel}"
+    def ablegen(imap):
+        m = EmailMessage()
+        m["From"] = "Probe <probe@relay.test>"
+        m["To"] = "erika@relay.test"
+        m["Subject"] = betreff
+        m["Date"] = formatdate(localtime=True)
+        m["Message-ID"] = make_msgid(domain="relay.test")
+        m.set_content("Diese Mail liegt im Unterordner.")
+        imap.append(f'"{unter}"', "", imaplib.Time2Internaldate(time.time()), m.as_bytes())
+    mit_imap(ablegen)
+    warten("Relay kennt die Mail im Unterordner", lambda: zeile(relay, unter, betreff) is not None, 360)
+
+    neu = f"Projekte Ä{stempel}"
+    neu_unter = f"{neu}{trenner}Unter"
+    api(relay, "POST", "/folders/rename", {"account_id": KONTO, "old_name": projekt, "new_name": neu})
+    warten("Server: umbenannt, mit Umlaut und Unterordner",
+           lambda: {neu, neu_unter} <= set(server_ordner()) and projekt not in server_ordner(), 30)
+    if projekt in relay_ordner(relay) or unter in relay_ordner(relay):
+        sys.exit("Ordnerprobe: Relay zeigt den alten Namen noch (Geist)")
+    if zeile(relay, neu_unter, betreff) is None:
+        sys.exit("Ordnerprobe: die Mail fehlt nach dem Umbenennen im Unterordner")
+    print("  ✓ Relay: kein Geist, die Mail ist im umbenannten Unterordner")
+
+    # Moving a folder to another level is a RENAME too; GreenMail keeps the
+    # old parent on such a rename (Gmail and Dovecot do not), so the probe
+    # deletes the folder with its subfolder instead: deepest first, the
+    # mail into the trash.
+    api(relay, "POST", "/folders/delete", {"account_id": KONTO, "name": neu})
+    warten("Server: Ordner und Unterordner gelöscht", lambda: not ({neu, neu_unter} & set(server_ordner())), 30)
+    warten("Server: ihre Mail im Papierkorb", lambda: betreff in betreffe("Trash"), 30)
+    if neu in relay_ordner(relay) or neu_unter in relay_ordner(relay):
+        sys.exit("Ordnerprobe: Relay zeigt den gelöschten Ordner noch")
+
+    warten("Relay kennt die Mail im Papierkorb", lambda: zeile(relay, "Trash", betreff) is not None, 360)
+    api(relay, "POST", "/folders/empty", {"account_id": KONTO, "name": "Trash"})
+    warten("Server: Papierkorb leer", lambda: betreffe("Trash") == [], 30)
+    if zeile(relay, "Trash", betreff) is not None:
+        sys.exit("Ordnerprobe: Relays Papierkorb ist nicht leer")
+    print("  ✓ Relay: Papierkorb leer")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--relay", default="http://127.0.0.1:3800")
@@ -145,7 +226,8 @@ def main():
     warten("Relay kennt A im Archiv", lambda: zeile(relay, "Archive", namen["A"]) is not None, 60)
     verschieben(relay, "Archive", namen["A"], "INBOX")
     warten("Server: A wieder im Posteingang", lambda: namen["A"] in betreffe("INBOX"), 300)
-    print("Ordnerprobe bestanden: Verschieben behält die Mails auf dem Mailserver.")
+    ordner_selbst(relay, stempel)
+    print("Ordnerprobe bestanden: Verschieben und Ordner erreichen den Mailserver.")
 
 
 if __name__ == "__main__":
