@@ -195,6 +195,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/invitations/:uid/decline", post(invitations::decline_invitation))
 
         .route("/contacts", get(contacts::list_contacts).post(contacts::create_contact))
+        .route("/contacts/zahlen", get(contacts::contact_zahlen))
         .route("/contacts/:uid", put(contacts::update_contact).delete(contacts::delete_contact))
 
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
