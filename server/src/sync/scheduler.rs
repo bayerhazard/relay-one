@@ -148,12 +148,53 @@ const PROVIDER_TRASH_NAMES: &[&str] = &[
 ];
 
 /// Map a provider folder onto the local storage folder: every provider trash
-/// folder is stored inside the single local "Trash".
+/// folder is stored inside the single local "Trash", Gmail's "All Mail"
+/// (\All, read without the inbox) inside "Archive".
 fn storage_folder_name(folder_name: &str, tag: &str) -> String {
     if tag == "trash" || PROVIDER_TRASH_NAMES.iter().any(|t| folder_name.eq_ignore_ascii_case(t)) {
         "Trash".to_string()
+    } else if tag == "alle" {
+        "Archive".to_string()
     } else {
         folder_name.to_string()
+    }
+}
+
+/// Gmail's archive is no folder (Kai, 9.10.2026): an archived mail has
+/// left the inbox and stays in "All Mail". Relay's "Archive" on Gmail is
+/// "All Mail" read with this filter: not in the inbox, not sent or a draft,
+/// and without a label of its own (those show in their label's folder).
+pub(crate) const GMAIL_ARCHIV_FILTER: &str =
+    "X-GM-RAW \"-in:inbox -in:sent -in:drafts -in:chats has:nouserlabels\"";
+
+/// Gmail's "All Mail" (\All; "[Google Mail]/Alle Nachrichten"), where the
+/// account is Gmail and shows it over IMAP.
+pub(crate) fn gmail_archiv(folders: &[(String, String, String, String)]) -> Option<String> {
+    if !ist_gmail(folders) {
+        return None;
+    }
+    folders
+        .iter()
+        .find(|(_, _, _, tag)| tag == "alle")
+        .map(|(name, ..)| name.clone())
+}
+
+/// The fetch filter of a provider folder: Gmail's archive reads "All Mail"
+/// narrowed (see GMAIL_ARCHIV_FILTER), every other folder whole.
+fn abruf_filter(folders: &[(String, String, String, String)], folder_name: &str) -> Option<&'static str> {
+    match gmail_archiv(folders) {
+        Some(a) if a == folder_name => Some(GMAIL_ARCHIV_FILTER),
+        _ => None,
+    }
+}
+
+/// Folders Relay mirrors from the list: not the shells (\NoSelect), not
+/// Gmail's views; "All Mail" only on Gmail, as Relay's archive.
+fn wird_gespiegelt(folders: &[(String, String, String, String)], folder_name: &str, tag: &str) -> bool {
+    match tag {
+        "noselect" | "sammel" => false,
+        "alle" => abruf_filter(folders, folder_name).is_some(),
+        _ => true,
     }
 }
 
@@ -385,27 +426,22 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
         };
 
         for (folder_name, _raw_name, _, tag) in &folders {
-            if tag == "noselect" || tag == "sammel" {
+            if !wird_gespiegelt(&folders, folder_name, tag) {
                 continue;
             }
             // Provider trash folders are stored under the local "Trash".
             let storage_folder = storage_folder_name(folder_name, tag);
-            // NOTE: pass the DECODED name — select_folder() re-encodes to
-            // UTF-7 internally. Passing raw_name (already UTF-7) would
+            // NOTE: pass the DECODED name — the fetch re-encodes to UTF-7
+            // internally. Passing raw_name (already UTF-7) would
             // double-encode (& → &-) and fail with "unknown folder".
 
-            if let Err(e) = client.select_folder_sync(folder_name).await {
-                tracing::warn!(
-                    "flag_refresh: select_folder '{}' fuer account {} fehlgeschlagen: {}",
-                    folder_name, account_id, e
-                );
-                continue;
-            }
-
+            // Only numbers the server confirmed in this folder: a row moved
+            // here keeps its old folder's number until the server's row
+            // comes (Kai, 9.10.2026).
             let local_msgs = {
                 let db_guard = state.cache_db.lock();
                 let Some(conn) = db_guard.as_ref() else { continue; };
-                match crate::cache::messages::get_messages_with_uids_for_folder(
+                match crate::cache::messages::bestaetigte_uids(
                     conn, *account_id as i64, &storage_folder,
                 ) {
                     Ok(m) => m,
@@ -430,7 +466,7 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
             let mut batch_failed = false;
             for chunk in uid_list.chunks(500) {
                 let uid_set = chunk.join(",");
-                match client.fetch_flags_sync(&uid_set).await {
+                match client.fetch_flags_sync(folder_name, &uid_set).await {
                     Ok(f) => fetched.extend(f),
                     Err(e) => {
                         tracing::warn!(
@@ -459,14 +495,14 @@ async fn run_flag_refresh(state: &AppState) {    let clients: Vec<(u32, Arc<crat
                 };
                 for (uid, is_read, is_flagged) in &fetched {
                     if let Err(e) = crate::cache::messages::update_is_read_guarded(
-                        &tx, *account_id as i64, *uid as i64, *is_read,
+                        &tx, *account_id as i64, &storage_folder, *uid as i64, *is_read,
                     ) {
                         tracing::warn!("flag_refresh: update_is_read uid={} fehlgeschlagen: {}", uid, e);
                     } else {
                         count += 1;
                     }
                     if let Err(e) = crate::cache::messages::update_is_flagged(
-                        &tx, *account_id as i64, *uid as i64, *is_flagged,
+                        &tx, *account_id as i64, &storage_folder, *uid as i64, *is_flagged,
                     ) {
                         tracing::warn!("flag_refresh: update_is_flagged uid={} fehlgeschlagen: {}", uid, e);
                     }
@@ -551,7 +587,7 @@ fn run_trash_retention(state: &AppState) {
     }
 
     let mut removed_eml = 0usize;
-    for (_message_id, account_id, uid, raw_path) in &expired {
+    for (row_id, account_id, uid, raw_path) in &expired {
         // Remove the EML archive file if present (local source of truth gone
         // by user intent after the retention window — provider already deleted).
         if let Some(rel) = raw_path {
@@ -564,7 +600,10 @@ fn run_trash_retention(state: &AppState) {
         }
         let db_guard = state.cache_db.lock();
         if let Some(conn) = db_guard.as_ref() {
-            let _ = crate::cache::messages::delete_message(conn, *account_id, *uid);
+            // By the row (Kai, 9.10.2026): Relay's trash keeps the numbers of
+            // the folders its mails came from, and deleting by number took
+            // the mails with that number in every other folder along.
+            let _ = crate::cache::messages::delete_message_row(conn, *row_id);
         }
         tracing::info!(
             "Trash-Retention: lokale Kopie uid {} (Konto {}) nach Ablauf entfernt",
@@ -659,10 +698,14 @@ async fn run_delete_queue(state: &AppState) {
 
         let result = if ok {
             // Gmail only archives on \Deleted: there the mail goes into its trash.
-            let ordner = client.list_folders_sync().await.unwrap_or_default();
-            match entfernen_wie(&ordner, &row.folder) {
-                Entfernen::InPapierkorb(trash) => client.move_message_sync(row.uid as u32, &row.folder, &trash).await,
-                Entfernen::Markieren => client.hard_delete_message_sync(row.uid as u32, &row.folder).await,
+            // Without the list it is tried again: an empty list read as "not
+            // Gmail", and \Deleted there only archives (Kai, 9.10.2026).
+            match client.list_folders_sync().await {
+                Ok(ordner) => match entfernen_wie(&ordner, &row.folder) {
+                    Entfernen::InPapierkorb(trash) => client.move_message_sync(row.uid as u32, &row.folder, &trash).await,
+                    Entfernen::Markieren => client.hard_delete_message_sync(row.uid as u32, &row.folder).await,
+                },
+                Err(e) => Err(e),
             }
         } else {
             // Soft fallback: move into the PROVIDER trash folder (never the
@@ -749,8 +792,7 @@ async fn run_provider_ops(state: &AppState) {
         // would have counted as done without doing anything.
         let mut ordner: Option<Vec<(String, String, String, String)>> = None;
         for op in rows {
-            let braucht_liste = matches!(op.kind.as_str(), "delete" | "delete_mid" | "move_mid")
-                || op.target_folder.as_deref() == Some("Trash");
+            let braucht_liste = matches!(op.kind.as_str(), "delete" | "delete_mid" | "move_mid" | "move" | "flag_mid" | "zurueck_mid");
             if braucht_liste && ordner.is_none() {
                 // A connection gone quiet between cycles fails with a broken
                 // pipe: connect anew and try once more, instead of waiting a
@@ -775,12 +817,19 @@ async fn run_provider_ops(state: &AppState) {
                     None => Err(crate::error::AppError::imap("flag-Op ohne Flag", "provider_ops")),
                 },
                 "move" => match op.target_folder.as_deref() {
+                    // Gmail's archive by number: the mail leaves its folder
+                    // (label) and stays in "All Mail" (see verschieben_gmail).
+                    Some(target) if gmail_archiv(liste).is_some()
+                        && provider_ordner(liste, target) == gmail_archiv(liste) =>
+                    {
+                        client.delete_message(op.uid as u32, &op.folder).await
+                    }
                     Some(target) => {
                         // Relay's "Trash" is the provider's real trash where it
                         // has one; a folder "Trash" is only made where it has
                         // none (on Gmail that was a label, the mail stayed).
-                        let papierkorb = if target == "Trash" { papierkorb_waehlen(liste) } else { None };
-                        let target = papierkorb.as_deref().unwrap_or(target);
+                        let ziel = provider_ordner(liste, target);
+                        let target = ziel.as_deref().unwrap_or(target);
                         match client.move_message(op.uid as u32, &op.folder, target).await {
                             Ok(()) => Ok(()),
                             // The old sync path pre-created "Trash" before every
@@ -836,33 +885,47 @@ async fn run_provider_ops(state: &AppState) {
                 "move_mid" => match (provider_ordner(liste, &op.folder), op.flag.as_deref(), op.target_folder.as_deref()) {
                     (Some(quelle), Some(kopf), Some(ziel)) => {
                         // "Trash" as target: the provider's trash, or a folder
-                        // "Trash" made where it has none.
+                        // "Trash" made where it has none; "Archive" on Gmail
+                        // its "All Mail". A target the provider lacks is made
+                        // (an "Archive" where it has none, a folder Relay
+                        // knew before the provider did).
                         let ziel = match provider_ordner(liste, ziel) {
                             Some(z) => z,
-                            None => {
-                                let _ = client.create_folder(ziel).await;
-                                ziel.to_string()
-                            }
+                            None => ziel.to_string(),
                         };
-                        match client.uids_by_message_id(&quelle, kopf).await {
-                            Ok(uids) => {
-                                let mut ergebnis = Ok(());
-                                for u in &uids {
-                                    if let Err(e) = client.move_message(*u, &quelle, &ziel).await {
-                                        ergebnis = Err(e);
-                                        break;
-                                    }
-                                }
-                                tracing::info!("provider_ops {}: {} Mail(s) von '{}' nach '{}' (Message-ID)", op.id, uids.len(), quelle, ziel);
-                                if !uids.is_empty() && ergebnis.is_ok() {
-                                    expunge_vormerken(state, account_id, &quelle);
-                                }
-                                ergebnis
-                            }
-                            Err(e) => Err(e),
-                        }
+                        ordner_sicherstellen(&client, liste, &ziel).await;
+                        verschieben_mid(state, &client, account_id, liste, &quelle, &ziel, kopf)
+                            .await
+                            .map(|n| {
+                                tracing::info!("provider_ops {}: {} Mail(s) von '{}' nach '{}' (Message-ID)", op.id, n, quelle, ziel);
+                            })
                     }
                     _ => Ok(()),
+                },
+                // Star and "read" by Message-ID (Kai, 9.10.2026): a row moved
+                // locally keeps its old folder's number until the next sync.
+                "flag_mid" => match (provider_ordner(liste, &op.folder), op.kopf.as_deref(), op.flag.as_deref()) {
+                    (Some(ordner), Some(kopf), Some(flag)) => match client.uids_by_message_id(&ordner, kopf).await {
+                        Ok(uids) => {
+                            let mut ergebnis = Ok(());
+                            for u in &uids {
+                                if let Err(e) = client.mark_flag(*u, flag, op.set_flag, Some(ordner.clone())).await {
+                                    ergebnis = Err(e);
+                                    break;
+                                }
+                            }
+                            ergebnis
+                        }
+                        Err(e) => Err(e),
+                    },
+                    _ => Ok(()),
+                },
+                // A mail Relay shows in `folder` that a bug had taken off the
+                // provider (Kai, 9.10.2026): back from the provider's trash,
+                // else from the EML archive.
+                "zurueck_mid" => match op.kopf.as_deref() {
+                    Some(kopf) => retten_mid(state, &client, account_id, liste, &op.folder, kopf).await,
+                    None => Ok(()),
                 },
                 other => {
                     tracing::warn!("provider_ops {}: unbekannter Typ '{}'", op.id, other);
@@ -920,7 +983,7 @@ pub(crate) fn papierkorb_waehlen(folders: &[(String, String, String, String)]) -
         "deleted messages", "corbeille",
     ];
     for (name, _raw, _delim, tag) in folders {
-        if tag == "noselect" || tag == "sammel" {
+        if tag == "noselect" || tag == "sammel" || tag == "alle" {
             continue;
         }
         let lower = name.to_lowercase();
@@ -939,8 +1002,154 @@ pub(crate) fn papierkorb_waehlen(folders: &[(String, String, String, String)]) -
 pub(crate) fn provider_ordner(folders: &[(String, String, String, String)], name: &str) -> Option<String> {
     if name == "Trash" {
         papierkorb_waehlen(folders)
+    } else if name == "Archive" {
+        // Gmail: "All Mail" (Kai, 9.10.2026); elsewhere a folder "Archive".
+        Some(gmail_archiv(folders).unwrap_or_else(|| name.to_string()))
     } else {
         Some(name.to_string())
+    }
+}
+
+/// The provider's spam folder by name ("[Gmail]/Spam", "Junk", "Spam" …).
+fn ist_spam_ordner(name: &str) -> bool {
+    let blatt = name.rsplit(['/', '.']).next().unwrap_or(name).to_lowercase();
+    ["spam", "junk", "spamverdacht", "junk e-mail", "bulk"].contains(&blatt.as_str())
+}
+
+/// Make a target folder the provider lacks (best effort; the move after it
+/// fails and is tried again when it could not be made). Not Gmail's "All
+/// Mail" — it always exists.
+async fn ordner_sicherstellen(
+    client: &Arc<crate::imap::client::ImapClient>,
+    liste: &[(String, String, String, String)],
+    ziel: &str,
+) {
+    if liste.iter().any(|(name, ..)| name == ziel) || ziel.eq_ignore_ascii_case("INBOX") {
+        return;
+    }
+    match client.create_folder(ziel).await {
+        Ok(()) => tracing::info!("provider_ops: Ordner '{}' beim Anbieter angelegt", ziel),
+        // Made by an op before it in this cycle (the list is read once).
+        Err(e) if e.to_string().to_lowercase().contains("exists") => {}
+        Err(e) => tracing::warn!("provider_ops: Ordner '{}' nicht angelegt: {}", ziel, e),
+    }
+}
+
+/// Move the mails with this Message-ID from `quelle` to `ziel` (provider
+/// names). Returns how many were found.
+///
+/// On Gmail a folder is a label and "All Mail" holds every mail (Kai,
+/// 9.10.2026):
+/// - into the archive ("All Mail"): the mail only leaves its folder
+///   (\Deleted + EXPUNGE there takes that label off; it stays in "All
+///   Mail"). Out of trash or spam it goes to the inbox first, as there
+///   EXPUNGE would delete it for good.
+/// - out of the archive: a copy into the target adds that label; nothing
+///   is deleted in "All Mail" (that would delete the mail itself). Into
+///   trash or spam a MOVE.
+/// Everywhere else a MOVE (COPY + \Deleted where the server has no MOVE).
+async fn verschieben_mid(
+    state: &AppState,
+    client: &Arc<crate::imap::client::ImapClient>,
+    account_id: u32,
+    liste: &[(String, String, String, String)],
+    quelle: &str,
+    ziel: &str,
+    kopf: &str,
+) -> Result<usize, crate::error::AppError> {
+    let alle = gmail_archiv(liste);
+    let papierkorb = papierkorb_waehlen(liste);
+    let uids = client.uids_by_message_id(quelle, kopf).await?;
+    for u in &uids {
+        if alle.as_deref() == Some(ziel) {
+            let aus_papierkorb_oder_spam = papierkorb.as_deref() == Some(quelle) || ist_spam_ordner(quelle);
+            if aus_papierkorb_oder_spam {
+                client.move_message(*u, quelle, "INBOX").await?;
+                for v in client.uids_by_message_id("INBOX", kopf).await? {
+                    client.delete_message(v, "INBOX").await?;
+                }
+                expunge_vormerken(state, account_id, "INBOX");
+            } else {
+                client.delete_message(*u, quelle).await?;
+            }
+        } else if alle.as_deref() == Some(quelle) {
+            if papierkorb.as_deref() == Some(ziel) || ist_spam_ordner(ziel) {
+                client.move_message(*u, quelle, ziel).await?;
+            } else {
+                client.copy_message(*u, quelle, ziel).await?;
+            }
+        } else {
+            client.move_message(*u, quelle, ziel).await?;
+        }
+    }
+    if !uids.is_empty() && alle.as_deref() != Some(quelle) {
+        expunge_vormerken(state, account_id, quelle);
+    }
+    Ok(uids.len())
+}
+
+/// The rescue of one mail (Kai, 9.10.2026): Relay shows it in `ordner`, a
+/// bug had taken it off the provider there (an "Archive" Gmail does not
+/// have, a folder Relay had seen empty: the second move into it deleted).
+/// Found in the target: done (on Gmail's archive it also leaves the inbox,
+/// where the first archiving had left it). In the provider's trash: moved
+/// back. Else from the EML archive (APPEND). Else it stays as it is.
+async fn retten_mid(
+    state: &AppState,
+    client: &Arc<crate::imap::client::ImapClient>,
+    account_id: u32,
+    liste: &[(String, String, String, String)],
+    ordner: &str,
+    kopf: &str,
+) -> Result<(), crate::error::AppError> {
+    let ziel = provider_ordner(liste, ordner).unwrap_or_else(|| ordner.to_string());
+    let alle = gmail_archiv(liste);
+    ordner_sicherstellen(client, liste, &ziel).await;
+    if !client.uids_by_message_id(&ziel, kopf).await?.is_empty() {
+        if alle.as_deref() == Some(ziel.as_str()) {
+            let im_eingang = client.uids_by_message_id("INBOX", kopf).await?;
+            for v in &im_eingang {
+                client.delete_message(*v, "INBOX").await?;
+            }
+            if !im_eingang.is_empty() {
+                expunge_vormerken(state, account_id, "INBOX");
+            }
+        }
+        return Ok(());
+    }
+    if let Some(trash) = papierkorb_waehlen(liste) {
+        if trash != ziel {
+            let n = verschieben_mid(state, client, account_id, liste, &trash, &ziel, kopf).await?;
+            if n > 0 {
+                tracing::info!("Rettung: Mail {} aus '{}' nach '{}' zurück", kopf, trash, ziel);
+                return Ok(());
+            }
+        }
+    }
+    let eml: Option<(String, bool)> = {
+        let db_guard = state.cache_db.lock();
+        db_guard.as_ref().and_then(|conn| {
+            conn.query_row(
+                "SELECT m.raw_path, m.is_read FROM messages m JOIN folders f ON f.id = m.folder_id
+                 WHERE m.account_id = ?1 AND m.message_id = ?2 AND f.name = ?3 AND m.raw_path IS NOT NULL
+                 LIMIT 1",
+                rusqlite::params![account_id as i64, kopf, ordner],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0)),
+            )
+            .ok()
+        })
+    };
+    match eml.and_then(|(rel, gelesen)| std::fs::read(state.data_root.join(rel)).ok().map(|b| (b, gelesen))) {
+        Some((bytes, gelesen)) => {
+            let flags: &[&str] = if gelesen { &["\\Seen"] } else { &[] };
+            client.append_message(&ziel, &bytes, Some(flags)).await?;
+            tracing::info!("Rettung: Mail {} aus dem EML-Archiv nach '{}' hochgeladen", kopf, ziel);
+            Ok(())
+        }
+        None => {
+            tracing::warn!("Rettung: Mail {} weder beim Anbieter noch als EML — bleibt nur in Relay", kopf);
+            Ok(())
+        }
     }
 }
 
@@ -1014,24 +1223,20 @@ async fn run_removal_check(state: &AppState) {
         };
 
         for (folder_name, _raw_name, _, tag) in &folders {
-            if tag == "noselect" || tag == "sammel" {
+            if !wird_gespiegelt(&folders, folder_name, tag) {
                 continue;
             }
-            // Decoded name — select_folder() re-encodes to UTF-7 internally
-            // (raw_name would be double-encoded → "unknown folder").
-            if let Err(e) = client.select_folder_sync(folder_name).await {
-                tracing::warn!(
-                    "removal_check: select_folder '{}' fuer account {} fehlgeschlagen: {}",
-                    folder_name, account_id, e
-                );
+            let storage_folder = storage_folder_name(folder_name, tag);
+            // The provider's trash is never pruned: Relay's trash keeps
+            // deleted mails also where the provider copy is gone.
+            if storage_folder == "Trash" {
                 continue;
             }
-
             // Atomically SELECT the folder + fetch its UIDs. A plain
             // fetch_all_uids() would read whatever folder a parallel API
             // operation left selected on the shared session and prune the
-            // wrong mailbox.
-            let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
+            // wrong mailbox. Decoded name — re-encoded to UTF-7 inside.
+            let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name, abruf_filter(&folders, folder_name)).await {
                 Ok(uids) => uids,
                 Err(e) => {
                     tracing::warn!(
@@ -1050,14 +1255,14 @@ async fn run_removal_check(state: &AppState) {
                 let is_local_folder = crate::cache::messages::is_local_only_folder(
                     conn,
                     *account_id as i64,
-                    folder_name,
+                    &storage_folder,
                 )
                 .unwrap_or(false);
                 if is_local_folder {
                     continue;
                 }
                 match crate::cache::messages::delete_messages_not_in(
-                    conn, *account_id as i64, folder_name, &server_uids,
+                    conn, *account_id as i64, &storage_folder, &server_uids,
                 ) {
                     Ok(n) => n,
                     Err(e) => {
@@ -1304,6 +1509,156 @@ async fn do_sync_cycle(
     Ok(total_new)
 }
 
+/// Once per account (Kai, 9.10.2026): folders a bug had made "only in
+/// Relay" are mirrored again, and their mails are put back on the provider.
+///
+/// The bug: a move into a folder Relay knew no mail in (an empty spam
+/// folder or label, or "Archive" where the provider has none — every Gmail
+/// account) made that folder "only in Relay", and every later move into it
+/// took the mail off the provider: on Gmail into its trash, which empties
+/// itself after 30 days; elsewhere deleted, kept as EML in Relay.
+///
+/// Mirror accounts only. A folder counts as one of those when the provider
+/// has it (or, for "Archive", Gmail's "All Mail"), or by the names Relay
+/// used where it had none ("Archive", "Junk"). Folders made in Relay on
+/// purpose (and sent mail, drafts, the trash) stay as they are.
+fn ordner_reparieren(state: &AppState, account_id: u32, folders: &[(String, String, String, String)]) {
+    let db_guard = state.cache_db.lock();
+    let Some(conn) = db_guard.as_ref() else { return };
+    ordner_reparieren_mit(conn, account_id, folders);
+}
+
+pub(crate) fn ordner_reparieren_mit(conn: &rusqlite::Connection, account_id: u32, folders: &[(String, String, String, String)]) {
+    let schluessel = format!("reparatur_lokale_ordner_26_10_11:{account_id}");
+    if matches!(crate::cache::settings::get_setting(conn, &schluessel), Ok(Some(_))) {
+        return;
+    }
+    let spiegel: bool = conn
+        .query_row(
+            "SELECT sync_mode != 'archive' FROM accounts WHERE id = ?1",
+            rusqlite::params![account_id as i64],
+            |r| r.get(0),
+        )
+        .unwrap_or(false);
+    if spiegel {
+        let beim_anbieter: Vec<String> = folders
+            .iter()
+            .filter(|(name, _, _, tag)| wird_gespiegelt(folders, name, tag))
+            .map(|(name, _, _, tag)| storage_folder_name(name, tag))
+            .collect();
+        let kandidaten: Vec<String> = conn
+            .prepare(
+                "SELECT name FROM folders WHERE account_id = ?1 AND local_only = 1
+                 AND name NOT IN ('Trash', 'Gesendet', 'Sent', 'Gesendete Elemente', 'Entwürfe', 'Drafts')",
+            )
+            .and_then(|mut st| {
+                st.query_map(rusqlite::params![account_id as i64], |r| r.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .unwrap_or_default();
+        for name in kandidaten {
+            let betroffen = beim_anbieter.iter().any(|b| b == &name) || name == "Archive" || name == "Junk";
+            if !betroffen {
+                continue;
+            }
+            let _ = conn.execute(
+                "UPDATE folders SET local_only = 0 WHERE account_id = ?1 AND name = ?2",
+                rusqlite::params![account_id as i64, name],
+            );
+            let koepfe: Vec<String> = conn
+                .prepare(
+                    "SELECT DISTINCT m.message_id FROM messages m JOIN folders f ON f.id = m.folder_id
+                     WHERE m.account_id = ?1 AND f.name = ?2
+                       AND m.message_id IS NOT NULL AND TRIM(m.message_id) != ''",
+                )
+                .and_then(|mut st| {
+                    st.query_map(rusqlite::params![account_id as i64, name], |r| r.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap_or_default();
+            for kopf in &koepfe {
+                let _ = crate::cache::provider_ops::enqueue_retten(conn, account_id as i64, &name, kopf);
+            }
+            tracing::warn!(
+                "Reparatur: Ordner '{}' (Konto {}) wird wieder gespiegelt; {} Mail(s) werden beim Anbieter zurückgeholt",
+                name, account_id, koepfe.len()
+            );
+        }
+    }
+    let _ = crate::cache::settings::set_setting(conn, &schluessel, "1");
+}
+
+/// When the folder is due for a comparison with the server although
+/// nothing new came: the inbox every cycle (one UID SEARCH), the others
+/// every ten minutes. `immer` marks one done now.
+fn abgleich_faellig(account_id: u32, storage_folder: &str, immer: bool) -> bool {
+    use std::sync::{Mutex, OnceLock};
+    static ZULETZT: OnceLock<Mutex<HashMap<(u32, String), Instant>>> = OnceLock::new();
+    let mut map = ZULETZT.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+    let key = (account_id, storage_folder.to_string());
+    let faellig = immer
+        || map
+            .get(&key)
+            .map(|t| t.elapsed() >= REMOVAL_CHECK_INTERVAL)
+            .unwrap_or(true);
+    if faellig {
+        map.insert(key, Instant::now());
+    }
+    faellig
+}
+
+/// Remove the rows of mails no longer in the provider folder (deleted or
+/// moved elsewhere). Relay's trash and folders kept only in Relay are never
+/// compared; rows moved here locally wait for the server's (synced = 0).
+async fn ordner_abgleichen(
+    state: &AppState,
+    client: &Arc<crate::imap::client::ImapClient>,
+    account_id: u32,
+    folder_name: &str,
+    storage_folder: &str,
+    filter: Option<&str>,
+) -> Result<(), String> {
+    if storage_folder == "Trash" {
+        return Ok(());
+    }
+    let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name, filter).await {
+        Ok(uids) => uids,
+        Err(e) => {
+            tracing::warn!(
+                "FetchNew: fetch_all_uids '{}' (account {}): {}",
+                folder_name, account_id, e
+            );
+            return Err(e.to_string());
+        }
+    };
+    let db_guard = state.cache_db.lock();
+    let conn = db_guard.as_ref().ok_or("Datenbank nicht initialisiert")?;
+    // Local-only folders are NOT mirrors of an IMAP folder — never prune
+    // them against server UIDs (archive mode).
+    if crate::cache::messages::is_local_only_folder(conn, account_id as i64, storage_folder).unwrap_or(false) {
+        return Ok(());
+    }
+    match crate::cache::messages::delete_messages_not_in(conn, account_id as i64, storage_folder, &server_uids) {
+        Ok(deleted) => {
+            if deleted > 0 {
+                tracing::info!(
+                    "Account {}: {} gelöschte Nachrichten in '{}' bereinigt",
+                    account_id, deleted, storage_folder
+                );
+                // Notify frontend to refresh the message list
+                let _ = state.events.emit("messages-deleted", (account_id, storage_folder, deleted));
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "FetchNew: delete_messages_not_in '{}' (account {}): {}",
+                storage_folder, account_id, e
+            );
+        }
+    }
+    Ok(())
+}
+
 async fn process_sync_task(
     state: &AppState,
     task: &SyncTask,
@@ -1325,6 +1680,7 @@ async fn process_sync_task(
             }
 
             let folders = client.list_folders_sync().await.map_err(|e| e.to_string())?;
+            ordner_reparieren(state, task.account_id, &folders);
 
             let mut total_new: usize = 0;
             // Backfill fairness budget: bounds how many large batches one account
@@ -1335,9 +1691,11 @@ async fn process_sync_task(
             // flag the account as still-backfilling so the next cycle polls fast.
             let mut did_backfill = false;
             for (folder_name, _raw_name, _, tag) in &folders {
-                if tag == "noselect" || tag == "sammel" {
+                if !wird_gespiegelt(&folders, folder_name, tag) {
                     continue;
                 }
+                // Gmail's archive: "All Mail" narrowed (GMAIL_ARCHIV_FILTER).
+                let filter = abruf_filter(&folders, folder_name);
 
                 let is_spam = ["Spam", "Junk", "Spamverdacht", "Junk E-Mail"]
                     .iter().any(|s| folder_name.eq_ignore_ascii_case(s));
@@ -1360,7 +1718,7 @@ async fn process_sync_task(
                     let conn = db_guard
                         .as_ref()
                         .ok_or("Datenbank nicht initialisiert")?;
-                    crate::cache::messages::is_local_only_folder(conn, task.account_id as i64, folder_name)
+                    crate::cache::messages::is_local_only_folder(conn, task.account_id as i64, &storage_folder)
                         .unwrap_or(false)
                 };
                 if is_local_folder {
@@ -1408,7 +1766,7 @@ async fn process_sync_task(
                     let db_guard = state.cache_db.lock();
                     db_guard.as_ref().and_then(|conn| conn.query_row(
                         "SELECT id FROM folders WHERE account_id = ?1 AND name = ?2",
-                        rusqlite::params![task.account_id as i64, folder_name],
+                        rusqlite::params![task.account_id as i64, storage_folder],
                         |r| r.get(0),
                     ).ok())
                 };
@@ -1425,7 +1783,7 @@ async fn process_sync_task(
                         break;
                     }
 
-                    let messages = match client.fetch_recent_in_folder_sync(folder_name, max_uid_cur as u32, BACKFILL_BATCH_SIZE).await {
+                    let messages = match client.fetch_recent_in_folder_sync(folder_name, max_uid_cur as u32, BACKFILL_BATCH_SIZE, filter).await {
                         Ok(msgs) => msgs,
                         Err(e) => {
                             tracing::warn!(
@@ -1438,6 +1796,13 @@ async fn process_sync_task(
                         }
                     };
                     if messages.is_empty() {
+                        // Nothing new: still notice mails gone from the
+                        // folder elsewhere (archived or deleted in Gmail's
+                        // web view, on the phone). Before, that only
+                        // happened when new mail came in (Kai, 9.10.2026).
+                        if abgleich_faellig(task.account_id, &storage_folder, is_inbox) {
+                            let _ = ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter).await;
+                        }
                         break;
                     }
 
@@ -1573,63 +1938,9 @@ async fn process_sync_task(
                     // ── STEADY-STATE mode (caught up) ────────────────────────
                     // Cleanup: remove locally cached messages that no longer
                     // exist on the IMAP server (deleted from another client).
-                    let server_uids = match client.fetch_all_uids_in_folder_sync(folder_name).await {
-                        Ok(uids) => uids,
-                        Err(e) => {
-                            tracing::warn!(
-                                "FetchNew: fetch_all_uids '{}' (account {}): {}",
-                                folder_name, task.account_id, e
-                            );
-                            break;
-                        }
-                    };
-
-                    {
-                        let mut db_guard = state.cache_db.lock();
-                        let conn = db_guard
-                            .as_mut()
-                            .ok_or("Datenbank nicht initialisiert")?;
-
-                        // Local-only folders are NOT mirrors of an IMAP folder —
-                        // never prune them against server UIDs (archive mode).
-                        // Provider trash folders map onto the local Trash — also
-                        // never pruned: deleted mails must stay in the local
-                        // Trash even if the provider copy is gone.
-                        if storage_folder != "Trash" {
-                            let is_local_folder = crate::cache::messages::is_local_only_folder(
-                                conn,
-                                task.account_id as i64,
-                                folder_name,
-                            )
-                            .unwrap_or(false);
-                            if !is_local_folder {
-                                match crate::cache::messages::delete_messages_not_in(
-                                    conn,
-                                    task.account_id as i64,
-                                    folder_name,
-                                    &server_uids,
-                                ) {
-                                    Ok(deleted) => {
-                                        if deleted > 0 {
-                                            tracing::info!(
-                                                "Account {}: {} gelöschte Nachrichten in '{}' bereinigt",
-                                                task.account_id,
-                                                deleted,
-                                                folder_name
-                                            );
-                                            // Notify frontend to refresh the message list
-                                            let _ = state.events.emit("messages-deleted", (task.account_id, folder_name, deleted));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            "FetchNew: delete_messages_not_in '{}' (account {}): {}",
-                                            folder_name, task.account_id, e
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                    abgleich_faellig(task.account_id, &storage_folder, true);
+                    if ordner_abgleichen(state, &client, task.account_id, folder_name, &storage_folder, filter).await.is_err() {
+                        break;
                     }
 
                     // Hybrid Body-Fetch: only fetch body for INBOX to keep sync
@@ -2139,6 +2450,62 @@ mod loeschen_tests {
         assert_eq!(provider_ordner(&gmx, "Trash").as_deref(), Some("Gelöscht"));
         assert_eq!(provider_ordner(&gmx, "Archiv").as_deref(), Some("Archiv"));
         assert_eq!(provider_ordner(&[f("INBOX", "folder")], "Trash"), None);
+    }
+
+    fn gmail() -> Vec<(String, String, String, String)> {
+        vec![
+            f("INBOX", "folder"),
+            f("[Google Mail]", "noselect"),
+            f("[Google Mail]/Alle Nachrichten", "alle"),
+            f("[Google Mail]/Markiert", "sammel"),
+            f("[Google Mail]/Spam", "folder"),
+            f("[Google Mail]/Papierkorb", "trash"),
+            f("Vorstand", "folder"),
+        ]
+    }
+
+    #[test]
+    fn gmail_archives_into_all_mail() {
+        let g = gmail();
+        // Relay's "Archive" on Gmail is "All Mail" (Kai, 9.10.2026) ...
+        assert_eq!(gmail_archiv(&g).as_deref(), Some("[Google Mail]/Alle Nachrichten"));
+        assert_eq!(provider_ordner(&g, "Archive").as_deref(), Some("[Google Mail]/Alle Nachrichten"));
+        assert_eq!(storage_folder_name("[Google Mail]/Alle Nachrichten", "alle"), "Archive");
+        // ... read without the inbox, sent mail, drafts and labelled mail.
+        assert_eq!(abruf_filter(&g, "[Google Mail]/Alle Nachrichten"), Some(GMAIL_ARCHIV_FILTER));
+        assert!(GMAIL_ARCHIV_FILTER.contains("-in:inbox") && GMAIL_ARCHIV_FILTER.contains("has:nouserlabels"));
+        assert_eq!(abruf_filter(&g, "INBOX"), None);
+        assert!(wird_gespiegelt(&g, "[Google Mail]/Alle Nachrichten", "alle"));
+        assert!(!wird_gespiegelt(&g, "[Google Mail]/Markiert", "sammel"));
+        assert!(!wird_gespiegelt(&g, "[Google Mail]", "noselect"));
+        // Its trash is never "All Mail".
+        assert_eq!(papierkorb_waehlen(&g).as_deref(), Some("[Google Mail]/Papierkorb"));
+    }
+
+    #[test]
+    fn elsewhere_archive_is_a_folder_and_all_mail_is_not_read() {
+        let dovecot = vec![f("INBOX", "folder"), f("Alle", "alle"), f("Trash", "trash")];
+        assert_eq!(gmail_archiv(&dovecot), None);
+        assert_eq!(provider_ordner(&dovecot, "Archive").as_deref(), Some("Archive"));
+        assert!(!wird_gespiegelt(&dovecot, "Alle", "alle"));
+    }
+
+    #[test]
+    fn spam_folders_by_name() {
+        assert!(ist_spam_ordner("[Google Mail]/Spam"));
+        assert!(ist_spam_ordner("Spamverdacht"));
+        assert!(ist_spam_ordner("INBOX.Junk"));
+        assert!(!ist_spam_ordner("INBOX"));
+        assert!(!ist_spam_ordner("Spamfilter-Regeln/Kunden"));
+    }
+
+    #[test]
+    fn the_search_of_a_fetch() {
+        use crate::imap::client::suchanfrage;
+        assert_eq!(suchanfrage(0, None), "ALL");
+        assert_eq!(suchanfrage(41, None), "UID 42:*");
+        assert_eq!(suchanfrage(0, Some(GMAIL_ARCHIV_FILTER)), GMAIL_ARCHIV_FILTER);
+        assert_eq!(suchanfrage(41, Some("X-GM-RAW \"x\"")), "UID 42:* X-GM-RAW \"x\"");
     }
 }
 

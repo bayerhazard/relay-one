@@ -39,6 +39,8 @@ pub struct ProviderOpRow {
     pub set_flag: bool,
     pub state: String,
     pub attempts: i32,
+    /// The mail's Message-ID ("flag_mid", "zurueck_mid").
+    pub kopf: Option<String>,
 }
 
 /// Enqueue a flag mutation (UID STORE +/-FLAGS (flag)).
@@ -54,6 +56,44 @@ pub fn enqueue_flag(
         "INSERT INTO provider_ops (account_id, kind, uid, folder, flag, set_flag)
          VALUES (?1, 'flag', ?2, ?3, ?4, ?5)",
         params![account_id, uid, folder, flag, set as i64],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Enqueue a flag mutation for the row (account, folder, uid): by its
+/// Message-ID where it has one ("flag_mid"), else by number. A row moved
+/// locally keeps its old folder's number until the next sync, and a star
+/// or "read" in that window was stored on whatever mail had that number in
+/// the new folder (Kai, 9.10.2026).
+pub fn enqueue_markierung(
+    conn: &Connection,
+    account_id: i64,
+    uid: i64,
+    folder: &str,
+    flag: &str,
+    set: bool,
+) -> Result<i64, rusqlite::Error> {
+    match kopf_von(conn, account_id, uid, folder) {
+        Some(k) => {
+            conn.execute(
+                "INSERT INTO provider_ops (account_id, kind, uid, folder, flag, set_flag, kopf)
+                 VALUES (?1, 'flag_mid', ?2, ?3, ?4, ?5, ?6)",
+                params![account_id, uid, folder, flag, set as i64, k],
+            )?;
+            Ok(conn.last_insert_rowid())
+        }
+        None => enqueue_flag(conn, account_id, uid, folder, flag, set),
+    }
+}
+
+/// Enqueue the rescue of a mail Relay shows in `folder` but a bug had taken
+/// off the provider (Kai, 9.10.2026): the worker makes sure the provider has
+/// it there — from its trash, else from the EML archive.
+pub fn enqueue_retten(conn: &Connection, account_id: i64, folder: &str, kopf: &str) -> Result<i64, rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO provider_ops (account_id, kind, uid, folder, kopf)
+         VALUES (?1, 'zurueck_mid', 0, ?2, ?3)",
+        params![account_id, folder, kopf],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -159,7 +199,7 @@ pub fn take_pending_for_account(
     limit: i64,
 ) -> Result<Vec<ProviderOpRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, kind, uid, folder, target_folder, flag, set_flag, state, attempts
+        "SELECT id, account_id, kind, uid, folder, target_folder, flag, set_flag, state, attempts, kopf
          FROM provider_ops
          WHERE account_id = ?1 AND state IN ('pending', 'failed') AND attempts < 5
          ORDER BY id ASC LIMIT ?2",
@@ -184,6 +224,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<ProviderOpRow> {
         set_flag: row.get::<_, i64>(7)? != 0,
         state: row.get(8)?,
         attempts: row.get(9)?,
+        kopf: row.get(10)?,
     })
 }
 

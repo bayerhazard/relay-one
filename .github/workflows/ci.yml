@@ -148,6 +148,13 @@ jobs:
       - name: deleting reaches the mail server
         run: timeout 1800 python3 web/e2e/testserver/loeschprobe.py --relay http://127.0.0.1:3800
 
+      # Moving must keep the mail on the mail server (Kai, 9.10.2026): two
+      # mails archived where the server has no archive, two moved into a
+      # folder Relay knew empty, a star right after a move, one dragged
+      # into the trash, one back out of the archive.
+      - name: moving keeps the mail on the mail server
+        run: timeout 1800 python3 web/e2e/testserver/ordnerprobe.py --relay http://127.0.0.1:3800
+
       - name: upload report
         if: failure()
         uses: actions/upload-artifact@v4
