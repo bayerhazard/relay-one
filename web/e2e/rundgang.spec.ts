@@ -358,11 +358,40 @@ test("Aufräumen: Auswahl, Archiv und Rückgängig", async ({ page, context }, i
   const vorher = await zeilen.count();
   await zeilen.nth(1).click();
   await zeilen.nth(2).click({ modifiers: ["Control"] });
-  await page.locator(".selection-toolbar").getByRole("button", { name: "Archivieren", exact: true }).click();
+  await page.locator(".mail-kopf").getByRole("button", { name: "Archivieren", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("2 Mails ins Archiv verschoben");
   await expect(zeilen).toHaveCount(vorher - 2);
   await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
   await expect(zeilen).toHaveCount(vorher);
+});
+
+// Signs by place (Kai, 9.10.2026): the reading pane only for the content,
+// the list head for the marked mails, never more than five in a row.
+test("Mail: Symbole nach Ort, höchstens fünf", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "Lesebereich neben der Liste");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/");
+  const kopf = page.locator(".mail-kopf .btn-reihe");
+  const zeilen = page.locator(".message-item");
+  await zeilen.first().waitFor();
+  await expect(kopf.getByRole("button")).toHaveCount(3);
+  await expect(kopf.getByRole("button", { name: "Neue E-Mail" })).toBeVisible();
+
+  await zeilen.first().click();
+  const lese = page.locator(".werkzeugleiste");
+  await expect(lese.getByRole("button", { name: "Antworten", exact: true })).toBeVisible();
+  for (const weg of ["Archivieren", "Verschieben"]) {
+    await expect(lese.getByRole("button", { name: weg })).toHaveCount(0);
+  }
+  expect(await lese.getByRole("button").count()).toBeLessThanOrEqual(5);
+  await expect(kopf.getByRole("button")).toHaveCount(5);
+  await expect(kopf.getByRole("button", { name: "Archivieren", exact: true })).toBeVisible();
+  await kopf.getByRole("button", { name: "Mehr" }).click();
+  await expect(page.getByRole("menuitem", { name: /gelesen/ })).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 // "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails
@@ -394,7 +423,7 @@ test("Ähnliche E-Mails: Absender, Domain, Betreff", async ({ page, context }, i
   await expect(zeilen.filter({ hasText: "Vertrag Messe 2025" }), "nicht aus dem Archiv").toHaveCount(0);
 
   await page.getByRole("button", { name: "Alle auswählen" }).click();
-  await page.locator(".selection-toolbar").getByRole("button", { name: /Papierkorb/ }).click();
+  await page.locator(".mail-kopf").getByRole("button", { name: /Papierkorb/ }).click();
   await expect(zeilen).toHaveCount(0);
   await page.getByRole("status").getByRole("button", { name: "Rückgängig" }).click();
   await expect(zeilen).toHaveCount(2);
@@ -505,9 +534,9 @@ test("Shift und Pfeiltasten wählen mehrere Mails", async ({ page, context }, in
   await page.locator(".message-list").focus();
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+ArrowDown");
-  await expect(page.locator(".selection-count")).toHaveText("3 ausgewählt");
+  await expect(page.locator(".mail-kopf h1")).toHaveText("3 ausgewählt");
   await page.keyboard.press("Shift+ArrowUp");
-  await expect(page.locator(".selection-count")).toHaveText("2 ausgewählt");
+  await expect(page.locator(".mail-kopf h1")).toHaveText("2 ausgewählt");
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Backspace");
   await expect(page.getByRole("status")).toContainText("3 Mails in den Papierkorb verschoben");

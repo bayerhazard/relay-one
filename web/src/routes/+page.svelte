@@ -2201,21 +2201,6 @@ let sentFolderName = $state<string | null>(null);
     refreshUnreadCounts();
   }
 
-  // Mark all selected messages as read (toolbar action).
-  async function markSelectedRead() {
-    const uids = [...$mailbox.selectedUids];
-    if (uids.length === 0) return;
-    try {
-      await markBatchAsRead(selectedAccountId, uids, selectedFolder);
-      for (const uid of uids) {
-        mailbox.updateMessage(uid, $mailbox.folderId, { is_read: true });
-      }
-    } catch (e) {
-      console.warn("markSelectedRead fehlgeschlagen", e);
-    }
-    refreshUnreadCounts();
-  }
-
   // Move all selected messages to a folder chosen from a plain HTML menu.
   let movingSelection = $state(false);
 
@@ -2626,6 +2611,35 @@ let sentFolderName = $state<string | null>(null);
   let abmeldenFragen = $state(false);
   // "Mehr" in the reading pane's toolbar: what is rarer (reply to all).
   let mehrMenue = $state<{ x: number; y: number } | null>(null);
+  // "Mehr" in the list head: what is rarer for the marked mails, and the
+  // list's own signs while mails are marked (Kai, 9.10.2026).
+  let listenMehr = $state<{ x: number; y: number } | null>(null);
+  function listenMehrEintraege(): { label: string; action: () => void }[] {
+    const uids = gemeinteUids();
+    const erste = $mailbox.messages.find((m) => m.uid === uids[0]);
+    const mehrere = uids.length > 1 ? uids : undefined;
+    const eintraege: { label: string; action: () => void }[] = [];
+    if (erste) {
+      eintraege.push({
+        label: erste.is_read ? translate("mail.markUnread") : translate("mail.markRead"),
+        action: () => handleToggleRead(erste.uid, mehrere),
+      });
+      eintraege.push({
+        label: erste.is_flagged ? translate("mail.flagOff") : translate("mail.flagOn"),
+        action: () => handleToggleFlag(erste.uid, mehrere),
+      });
+    }
+    eintraege.push({ label: translate("mail.new"), action: handleNewMail });
+    eintraege.push({ label: translate("mail.refresh"), action: () => loadFolder(true) });
+    eintraege.push({
+      label: flaggedSearchActive ? translate("mail.flagHide") : translate("mail.flagOnly"),
+      action: toggleFlagFilter,
+    });
+    if ($mailbox.selectedUids.length > 1) {
+      eintraege.push({ label: translate("mail.auswahlAufheben"), action: () => mailbox.clearSelection() });
+    }
+    return eintraege;
+  }
   let abmeldenLaeuft = $state(false);
   let abmeldeMeldung = $state<string | null>(null);
   let abmeldeMeldungTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3075,7 +3089,6 @@ let sentFolderName = $state<string | null>(null);
     <!-- With several mails selected the pane shows the count (below), not
          one of them; selectedMessage itself stays, an effect relies on it. -->
     {@const msg = selectedMessage}
-    {@const imSpam = istSpamOrdner(selectedFolder)}
     <div class="preview-layout">
       <div class="preview-pane-header">
         <div class="preview-header-meta">
@@ -3092,41 +3105,15 @@ let sentFolderName = $state<string | null>(null);
             {/if}
           </span>
         </div>
-        <!-- One toolbar of signs (CI G4, Kai 07.10.2026): known, reversible,
-             named with tooltip and key. Words stay for what has no clear
-             sign or cannot be undone. -->
+        <!-- The reading pane's signs are about the mail's content only (Kai,
+             9.10.2026): reply, forward, and "Mehr" for what is rarer. What
+             acts on the mail as a whole (archive, trash, move, spam, read,
+             flag) stands in the list head, the rest in the context menu;
+             never more than five signs in a row. -->
         <div class="werkzeugleiste" role="toolbar" aria-label={$t("mail.aktionen")}>
           <div class="werkzeug-gruppe">
             {@render zeichen("antworten", $t("mail.reply"), () => handleReply(msg))}
             {@render zeichen("weiterleiten", $t("mail.forward"), () => handleForwardMessage(msg.uid))}
-          </div>
-          <div class="werkzeug-gruppe">
-            {@render zeichen("archiv", $t("mail.archive"), () => archivieren([msg.uid]), "E")}
-            {#if imSpam}
-              <button type="button" class="btn btn-still btn-klein" onclick={() => spamUmschalten([msg.uid])} title={$t("mail.notSpamTitle")}>
-                {$t("mail.notSpam")}
-              </button>
-            {:else}
-              {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten([msg.uid]), "!")}
-            {/if}
-            {#if deleteIsRecoverable()}
-              {@render zeichen("loeschen", $t("mail.inPapierkorb"), () => handleDeleteMessage(msg.uid), $t("mail.tasteEntf"))}
-            {:else}
-              <!-- Final: red, with its object; instead of a question five seconds of
-                   "Rückgängig" (Kai, 7.10.2026, CI exception RL). -->
-              <button type="button" class="btn btn-gefahr btn-klein" onclick={() => handleDeleteMessage(msg.uid)}>
-                {$t("mail.deleteFinal1")}
-              </button>
-            {/if}
-            {@render zeichen("verschieben", $t("mail.moveFolderTitle"), (e) => {
-              mailbox.selectSingle(msg.uid);
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              openMoveMenuAt(r.left, r.bottom + 4);
-            })}
-          </div>
-          <div class="werkzeug-gruppe">
-            {@render zeichen("gelesen", msg.is_read ? $t("mail.markUnread") : $t("mail.markRead"), () => handleToggleRead(msg.uid))}
-            {@render zeichen("markieren", msg.is_flagged ? $t("mail.flagOff") : $t("mail.flagOn"), () => handleToggleFlag(msg.uid), undefined, msg.is_flagged)}
             {#if hasSeveralRecipients(msg)}
               {@render zeichen("mehr", $t("common.more"), (e) => {
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -3374,41 +3361,26 @@ let sentFolderName = $state<string | null>(null);
            (Kai's mock-up, 9.10.2026). -->
       <div class="seitenkopf mail-kopf">
         <div class="seitenkopf-zeile">
-          <h1>{ordnerTitel}</h1>
+          <!-- With several mails marked their count takes the title's place;
+               the folder stays marked in the column. -->
+          <h1>{$mailbox.selectedUids.length > 1 ? $t("mail.selectedCount", { count: $mailbox.selectedUids.length }) : ordnerTitel}</h1>
         </div>
-        <div class="btn-reihe">
-          <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
-            <Symbol name="neu-laden" size={20} />
-          </button>
-          <button
-            type="button"
-            class="btn btn-still btn-symbol"
-            onclick={toggleFlagFilter}
-            title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
-            aria-label={$t("mail.flagOnly")}
-            aria-pressed={flaggedSearchActive}
-          >
-            <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
-          </button>
-          <button type="button" class="btn btn-symbol mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
-            <span class="brief-plus" aria-hidden="true">
-              <Symbol name="post" size={20} />
-              <span class="brief-plus-zeichen"><Symbol name="plus" size={16} /></span>
-            </span>
-          </button>
-        </div>
-      </div>
-      {#if $mailbox.error}
-        <ErrorBanner message={$mailbox.error} onretry={() => loadFolder(true)} />
-      {/if}
-      {#if $mailbox.selectedUids.length > 1}
-        <div class="selection-toolbar">
-          <span class="selection-count">{$t("mail.selectedCount", { count: $mailbox.selectedUids.length })}</span>
-          <div class="selection-actions">
-            <!-- Signs as above the mail (CI G4); the trash is not red,
-                 it comes back with "Rückgängig" (CI G2, Kai 07.10.2026). -->
-            {@render zeichen("gelesen", $t("mail.markReadTitle"), markSelectedRead)}
+        <!-- The list head's signs (Kai, 9.10.2026), at most five: with mails
+             marked (or one open) what acts on them — archive, trash, move,
+             spam, and "Mehr" for read, flag and the rest; with none, refresh,
+             "only flagged" and "Neue E-Mail". The selection bar is gone. -->
+        <div class="btn-reihe" role="toolbar" aria-label={$t("mail.listenAktionen")}>
+          {#if $mailbox.selectedUids.length > 0}
             {@render zeichen("archiv", $t("mail.archive"), () => archivieren(), "E")}
+            {#if deleteIsRecoverable()}
+              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, $t("mail.tasteEntf"))}
+            {:else}
+              <!-- Final: red, with its object; instead of a question five
+                   seconds of "Rückgängig" (Kai, 7.10.2026, CI exception RL). -->
+              <button type="button" class="btn btn-gefahr btn-klein" onclick={handleDeleteSelected}>
+                {$mailbox.selectedUids.length === 1 ? $t("mail.deleteFinal1") : $t("mail.deleteFinalN")}
+              </button>
+            {/if}
             {@render zeichen("verschieben", $t("mail.moveFolderTitle"), moveSelectedToFolder)}
             {#if istSpamOrdner(selectedFolder)}
               <button type="button" class="btn btn-still btn-klein" onclick={() => spamUmschalten()} title={$t("mail.notSpamTitle")}>
@@ -3417,16 +3389,35 @@ let sentFolderName = $state<string | null>(null);
             {:else}
               {@render zeichen("spam", $t("mail.alsSpam"), () => spamUmschalten(), "!")}
             {/if}
-            {#if deleteIsRecoverable()}
-              {@render zeichen("loeschen", $t("mail.inPapierkorb"), handleDeleteSelected, $t("mail.tasteEntf"))}
-            {:else}
-              <button type="button" class="btn btn-sekundaer btn-klein" onclick={handleDeleteSelected}>
-                {$t("mail.deleteFinalN")}
-              </button>
-            {/if}
-            {@render zeichen("schliessen", $t("mail.auswahlAufheben"), () => mailbox.clearSelection(), "Esc")}
-          </div>
+            {@render zeichen("mehr", $t("common.more"), (e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              listenMehr = { x: r.right - 220, y: r.bottom + 4 };
+            })}
+          {:else}
+            <button type="button" class="btn btn-still btn-symbol" onclick={() => loadFolder(true)} title={$t("mail.refresh")} aria-label={$t("mail.refresh")}>
+              <Symbol name="neu-laden" size={20} />
+            </button>
+            <button
+              type="button"
+              class="btn btn-still btn-symbol"
+              onclick={toggleFlagFilter}
+              title={flaggedSearchActive ? $t("mail.flagHide") : $t("mail.flagOnly")}
+              aria-label={$t("mail.flagOnly")}
+              aria-pressed={flaggedSearchActive}
+            >
+              <Symbol name="markieren" size={20} filled={flaggedSearchActive} />
+            </button>
+            <button type="button" class="btn btn-symbol mail-neu-kopf" onclick={handleNewMail} title={$t("mail.newMail")} aria-label={$t("mail.new")}>
+              <span class="brief-plus" aria-hidden="true">
+                <Symbol name="post" size={20} />
+                <span class="brief-plus-zeichen"><Symbol name="plus" size={16} /></span>
+              </span>
+            </button>
+          {/if}
         </div>
+      </div>
+      {#if $mailbox.error}
+        <ErrorBanner message={$mailbox.error} onretry={() => loadFolder(true)} />
       {/if}
       {#if loeschGescheitert > 0}
         <div class="hinweis loesch-hinweis" data-art="achtung" role="status">
@@ -3506,6 +3497,9 @@ let sentFolderName = $state<string | null>(null);
 
 
 
+  {#if listenMehr}
+    <ContextMenu menu={listenMehr} items={listenMehrEintraege()} onclose={() => (listenMehr = null)} />
+  {/if}
   {#if mehrMenue && selectedMessage}
     {@const msg = selectedMessage}
     <ContextMenu
@@ -3942,29 +3936,6 @@ let sentFolderName = $state<string | null>(null);
   }
   @media (max-width: 40rem) {
     .mail-kopf { padding: 0 var(--am-raum-4); }
-  }
-  .selection-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 16px;
-    background: var(--am-flaeche-2);
-    border-bottom: 1px solid var(--am-rand);
-    flex-shrink: 0;
-  }
-  .selection-count {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--am-handlung-ruhend);
-  }
-  .selection-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    align-items: center;
-    gap: var(--am-raum-2);
   }
   /* Deletes the provider did not take: over the list, with "Erneut versuchen". */
   .loesch-hinweis { margin: var(--am-raum-2) var(--am-raum-3); align-items: center; }

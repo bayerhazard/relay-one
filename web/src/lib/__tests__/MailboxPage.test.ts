@@ -494,9 +494,12 @@ describe("reply buttons at the mail", () => {
 
   it("offers Allen antworten under Mehr with several recipients", async () => {
     await renderPageWithAccount(true, 42, [{ ...testMessage, to: "Ich <test@example.com>, Anna <anna@example.com>", cc: "Ben <ben@example.com>" }]);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Mehr" })).toBeTruthy());
-    expect(screen.getByRole("button", { name: "Antworten" })).toBeTruthy();
-    await fireEvent.click(screen.getByRole("button", { name: "Mehr" }));
+    // The list head has its own "Mehr" for the marked mail; this is the
+    // reading pane's.
+    const leiste = () => within(document.querySelector(".werkzeugleiste") as HTMLElement);
+    await waitFor(() => expect(leiste().getByRole("button", { name: "Mehr" })).toBeTruthy());
+    expect(leiste().getByRole("button", { name: "Antworten" })).toBeTruthy();
+    await fireEvent.click(leiste().getByRole("button", { name: "Mehr" }));
     expect(screen.getByRole("menuitem", { name: "Allen antworten" })).toBeTruthy();
   });
 });
