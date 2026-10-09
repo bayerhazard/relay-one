@@ -528,15 +528,22 @@ pub fn update_is_read(conn: &Connection, account_id: i64, uid: i64, is_read: boo
 /// was NOT touched within the cooldown window. Otherwise a message the user
 /// just read locally would be flipped back by a stale server flag (the \Seen
 /// round-trip can lag). Upgrades (unread → read) are always applied.
-pub fn update_is_read_guarded(conn: &Connection, account_id: i64, uid: i64, is_read: bool) -> Result<(), rusqlite::Error> {
+///
+/// Scoped to one folder and to rows the server confirmed: a number is only
+/// unique per folder (on Gmail every label counts from 1), and the state of
+/// INBOX number 5 was written onto number 5 in every folder.
+pub fn update_is_read_guarded(conn: &Connection, account_id: i64, folder: &str, uid: i64, is_read: bool) -> Result<(), rusqlite::Error> {
     let sql = if is_read {
-        "UPDATE messages SET is_read = 1, updated_at = datetime('now') WHERE account_id = ?1 AND uid = ?2"
+        "UPDATE messages SET is_read = 1, updated_at = datetime('now')
+         WHERE account_id = ?1 AND uid = ?2 AND synced = 1 AND is_read = 0
+           AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?3)"
     } else {
         "UPDATE messages SET is_read = 0, updated_at = datetime('now')
-         WHERE account_id = ?1 AND uid = ?2
+         WHERE account_id = ?1 AND uid = ?2 AND synced = 1 AND is_read = 1
+           AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?3)
            AND (updated_at IS NULL OR updated_at <= datetime('now', '-30 seconds'))"
     };
-    conn.execute(sql, params![account_id, uid])?;
+    conn.execute(sql, params![account_id, uid, folder])?;
     Ok(())
 }
 
@@ -547,11 +554,12 @@ pub fn update_is_read_guarded(conn: &Connection, account_id: i64, uid: i64, is_r
 /// [`update_is_read_guarded`] (flag_refresh runs every 5 min for every
 /// message, so a perpetual bump would make the unread-direction guard fire
 /// forever and real server-side unread changes would never be applied).
-pub fn update_is_flagged(conn: &Connection, account_id: i64, uid: i64, is_flagged: bool) -> Result<(), rusqlite::Error> {
+pub fn update_is_flagged(conn: &Connection, account_id: i64, folder: &str, uid: i64, is_flagged: bool) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE messages SET is_flagged = ?1, updated_at = datetime('now')
-         WHERE account_id = ?2 AND uid = ?3 AND is_flagged != ?1",
-        params![is_flagged as i32, account_id, uid],
+         WHERE account_id = ?2 AND uid = ?3 AND is_flagged != ?1 AND synced = 1
+           AND folder_id = (SELECT id FROM folders WHERE account_id = ?2 AND name = ?4)",
+        params![is_flagged as i32, account_id, uid, folder],
     )?;
     Ok(())
 }
@@ -625,6 +633,29 @@ pub fn get_messages_with_uids_for_folder(
     let uids = stmt.query_map(params![account_id, folder_name], |row| row.get(0))
         .map(|r| r.collect::<Result<Vec<_>, _>>()).unwrap_or_else(|_| Ok(Vec::new()))?;
     Ok(uids)
+}
+
+/// The numbers the server confirmed in `folder` (synced = 1). A row moved
+/// here locally still has its old folder's number: asking the server for
+/// its flags under that number reads another mail.
+pub fn bestaetigte_uids(conn: &Connection, account_id: i64, folder_name: &str) -> Result<Vec<i64>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT m.uid FROM messages m
+         JOIN folders f ON m.folder_id = f.id
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.synced = 1",
+    )?;
+    let uids = stmt
+        .query_map(params![account_id, folder_name], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(uids)
+}
+
+/// Delete one row by its id (the trash retention: a number is only unique
+/// per folder, and Relay's trash keeps the numbers of the folders its mails
+/// came from — deleting by number took mails in other folders along).
+pub fn delete_message_row(conn: &Connection, row_id: i64) -> Result<(), rusqlite::Error> {
+    conn.execute("DELETE FROM messages WHERE id = ?1", params![row_id])?;
+    Ok(())
 }
 
 pub fn delete_message(conn: &Connection, account_id: i64, uid: i64) -> Result<(), rusqlite::Error> {
@@ -825,9 +856,13 @@ pub fn delete_messages_not_in(
         return Ok(0);
     };
 
+    // Only rows the server confirmed (synced = 1): a row moved here locally
+    // carries the old folder's number until the server's row replaces it;
+    // its number means nothing in this folder, and pruning it made the mail
+    // vanish until the next sync (or for good, where that never comes).
     if uids.is_empty() {
         let deleted = conn.execute(
-            "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2",
+            "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND synced = 1",
             params![account_id, folder_id],
         )?;
         return Ok(deleted);
@@ -835,7 +870,7 @@ pub fn delete_messages_not_in(
 
     let placeholders = uids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!(
-        "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND uid NOT IN ({placeholders})"
+        "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND synced = 1 AND uid NOT IN ({placeholders})"
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -1084,7 +1119,7 @@ pub fn update_folder_from(
     source_folder: &str,
     folder: &str,
 ) -> Result<(), rusqlite::Error> {
-    create_local_folder(conn, account_id, folder)?;
+    ziel_anlegen(conn, account_id, folder)?;
 
     let source_folder_id: i64 = conn
         .query_row(
@@ -1165,6 +1200,28 @@ pub fn update_folder_from(
             ));
         }
     }
+}
+
+/// The target of a move, where Relay does not know it yet (Kai, 9.10.2026).
+/// In mirror mode a folder is the provider's: one Relay had seen no mail in
+/// (an empty spam folder, a new label) or that the provider has yet to make
+/// ("Archive") was made "only in Relay" here, and every later move into it
+/// took the mail off the provider (on Gmail: into its trash). Only accounts
+/// in archive mode keep their folders in Relay. Existing rows stay as they
+/// are.
+pub fn ziel_anlegen(conn: &Connection, account_id: i64, name: &str) -> Result<(), rusqlite::Error> {
+    let archiv_modus: bool = conn
+        .query_row(
+            "SELECT sync_mode = 'archive' FROM accounts WHERE id = ?1",
+            params![account_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    conn.execute(
+        "INSERT OR IGNORE INTO folders (account_id, name, imap_id, local_only) VALUES (?1, ?2, NULL, ?3)",
+        params![account_id, name, archiv_modus as i32],
+    )?;
+    Ok(())
 }
 
 /// Create a local-only folder (no IMAP counterpart). Idempotent.

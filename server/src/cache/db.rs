@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 8;
+pub const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -588,6 +588,13 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
                 WHERE priority IS NOT NULL AND priority < 1;",
         )?;
         conn.pragma_update(None, "user_version", 8)?;
+    }
+    // v9: provider ops carry the mail's Message-ID of their own (flag ops by
+    // Message-ID and the rescue of mails a bug had taken off the provider;
+    // Kai, 9.10.2026). move_mid/delete_mid keep theirs in `flag`.
+    if user_version < 9 {
+        add_column_if_missing(conn, "provider_ops", "kopf", "TEXT")?;
+        conn.pragma_update(None, "user_version", 9)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

@@ -1307,3 +1307,155 @@ fn make_cached_message_mit_id(uid: u32, message_id: &str, body: &str) -> CachedM
     m.envelope.message_id = message_id.to_string();
     m
 }
+
+// ---------------------------------------------------------------------------
+// Gmail and empty folders (Kai, 9.10.2026)
+// ---------------------------------------------------------------------------
+
+fn ordner_lokal(conn: &Connection, account: i64, name: &str) -> bool {
+    crate::cache::messages::is_local_only_folder(conn, account, name).unwrap()
+}
+
+fn ist_gelesen(conn: &Connection, account: i64, folder: &str, uid: i64) -> (bool, bool) {
+    conn.query_row(
+        "SELECT m.is_read, m.is_flagged FROM messages m JOIN folders f ON f.id = m.folder_id
+         WHERE m.account_id = ?1 AND f.name = ?2 AND m.uid = ?3",
+        params![account, folder, uid],
+        |r| Ok((r.get::<_, i64>(0)? != 0, r.get::<_, i64>(1)? != 0)),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_move_into_a_folder_relay_does_not_know_keeps_it_on_the_provider() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "spiegel");
+    save_message(&conn, account, &make_cached_message_mit_id(5, "<a@x>", "A"), "INBOX").unwrap();
+    // "Archive" where Gmail has none, or an empty spam folder: before, it
+    // became "only in Relay" and the next move into it deleted on the provider.
+    crate::cache::messages::update_folder_from(&conn, account, 5, "INBOX", "Archive").unwrap();
+    assert!(!ordner_lokal(&conn, account, "Archive"));
+
+    // In archive mode the folders stay in Relay, as before.
+    let archiv = create_test_account(&conn, "archiv");
+    conn.execute("UPDATE accounts SET sync_mode = 'archive' WHERE id = ?1", params![archiv]).unwrap();
+    save_message(&conn, archiv, &make_cached_message_mit_id(5, "<b@x>", "B"), "INBOX").unwrap();
+    crate::cache::messages::update_folder_from(&conn, archiv, 5, "INBOX", "Archive").unwrap();
+    assert!(ordner_lokal(&conn, archiv, "Archive"));
+}
+
+#[test]
+fn the_comparison_with_the_server_keeps_rows_moved_here() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "abgleich");
+    save_message(&conn, account, &make_cached_message_mit_id(5, "<neu@x>", "verschoben"), "INBOX").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(700, "<alt@x>", "schon da"), "Archive").unwrap();
+    crate::cache::messages::update_folder_from(&conn, account, 5, "INBOX", "Archive").unwrap();
+    // The server knows neither number 5 (the row still has the inbox's
+    // number) nor 700 (gone elsewhere): only the confirmed row goes.
+    let n = delete_messages_not_in(&conn, account, "Archive", &[999]).unwrap();
+    assert_eq!(n, 1);
+    let rest: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND message_id = '<neu@x>'",
+            params![account],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(rest, 1);
+}
+
+#[test]
+fn the_flag_refresh_stays_in_its_folder() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "flags");
+    let mut ungelesen = make_cached_message_mit_id(3, "<label@x>", "im Label");
+    ungelesen.flags = vec![];
+    save_message(&conn, account, &make_cached_message_mit_id(3, "<inbox@x>", "im Eingang"), "INBOX").unwrap();
+    save_message(&conn, account, &ungelesen, "Vorstand").unwrap();
+    // Gmail numbers every label from 1: INBOX number 3 read and starred must
+    // not mark number 3 in "Vorstand".
+    crate::cache::messages::update_is_read_guarded(&conn, account, "INBOX", 3, true).unwrap();
+    crate::cache::messages::update_is_flagged(&conn, account, "INBOX", 3, true).unwrap();
+    assert_eq!(ist_gelesen(&conn, account, "INBOX", 3), (true, true));
+    assert_eq!(ist_gelesen(&conn, account, "Vorstand", 3), (false, false));
+}
+
+#[test]
+fn the_trash_retention_deletes_only_its_row() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "frist");
+    save_message(&conn, account, &make_cached_message_mit_id(8, "<eingang@x>", "bleibt"), "INBOX").unwrap();
+    save_message(&conn, account, &make_cached_message_mit_id(8, "<weg@x>", "abgelaufen"), "Trash").unwrap();
+    let row: i64 = conn
+        .query_row("SELECT id FROM messages WHERE message_id = '<weg@x>'", [], |r| r.get(0))
+        .unwrap();
+    crate::cache::messages::delete_message_row(&conn, row).unwrap();
+    let uebrig: Vec<String> = conn
+        .prepare("SELECT message_id FROM messages WHERE account_id = ?1")
+        .unwrap()
+        .query_map(params![account], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(uebrig, vec!["<eingang@x>".to_string()]);
+}
+
+#[test]
+fn star_and_read_go_to_the_provider_by_message_id() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "stern");
+    save_message(&conn, account, &make_cached_message_mit_id(4, "<stern@x>", "S"), "INBOX").unwrap();
+    crate::cache::provider_ops::enqueue_markierung(&conn, account, 4, "INBOX", "\\Flagged", true).unwrap();
+    // Without a Message-ID: by number, as before.
+    crate::cache::provider_ops::enqueue_markierung(&conn, account, 99, "INBOX", "\\Seen", true).unwrap();
+    let ops = crate::cache::provider_ops::take_pending_for_account(&conn, account, 10).unwrap();
+    assert_eq!(ops[0].kind, "flag_mid");
+    assert_eq!(ops[0].kopf.as_deref(), Some("<stern@x>"));
+    assert_eq!(ops[0].flag.as_deref(), Some("\\Flagged"));
+    assert_eq!(ops[1].kind, "flag");
+}
+
+#[test]
+fn the_repair_mirrors_the_folders_a_bug_made_local_and_rescues_their_mails() {
+    let conn = setup_db();
+    let account = create_test_account(&conn, "reparatur");
+    let f = |n: &str, t: &str| (n.to_string(), n.to_string(), "/".to_string(), t.to_string());
+    let gmail = vec![
+        f("INBOX", "folder"),
+        f("[Google Mail]", "noselect"),
+        f("[Google Mail]/Alle Nachrichten", "alle"),
+        f("[Google Mail]/Spam", "folder"),
+        f("[Google Mail]/Papierkorb", "trash"),
+    ];
+    for (name, mid) in [("Archive", "<arch@x>"), ("[Google Mail]/Spam", "<spam@x>"), ("Familie", "<fam@x>"), ("Trash", "<weg@x>")] {
+        crate::cache::messages::create_local_folder(&conn, account, name).unwrap();
+        save_message(&conn, account, &make_cached_message_mit_id(1, mid, "x"), name).unwrap();
+    }
+    crate::sync::scheduler::ordner_reparieren_mit(&conn, account as u32, &gmail);
+
+    assert!(!ordner_lokal(&conn, account, "Archive"));
+    assert!(!ordner_lokal(&conn, account, "[Google Mail]/Spam"));
+    // A folder made in Relay on purpose, and the trash, stay.
+    assert!(ordner_lokal(&conn, account, "Familie"));
+    assert!(ordner_lokal(&conn, account, "Trash"));
+    let ops = crate::cache::provider_ops::take_pending_for_account(&conn, account, 10).unwrap();
+    let mut gerettet: Vec<(String, String)> = ops
+        .iter()
+        .map(|o| (o.folder.clone(), o.kopf.clone().unwrap_or_default()))
+        .collect();
+    gerettet.sort();
+    assert!(ops.iter().all(|o| o.kind == "zurueck_mid"));
+    assert_eq!(
+        gerettet,
+        vec![
+            ("Archive".to_string(), "<arch@x>".to_string()),
+            ("[Google Mail]/Spam".to_string(), "<spam@x>".to_string()),
+        ]
+    );
+
+    // Once only.
+    conn.execute("UPDATE folders SET local_only = 1 WHERE name = 'Archive'", []).unwrap();
+    crate::sync::scheduler::ordner_reparieren_mit(&conn, account as u32, &gmail);
+    assert!(ordner_lokal(&conn, account, "Archive"));
+}

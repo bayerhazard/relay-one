@@ -243,7 +243,12 @@ async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_
     .unwrap_or(false);
 
     match client.list_folders_detailed().await {
-        Ok(folders) => folders
+        Ok(folders) => {
+            let gmail = folders.iter().any(|f| {
+                let l = f.name.to_lowercase();
+                l.starts_with("[gmail]") || l.starts_with("[google mail]")
+            });
+            folders
             .iter()
             .filter(|f| {
                 if !extended {
@@ -257,6 +262,15 @@ async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_
                         .any(|s| lower.contains(s))
             })
             .map(|f| {
+                // Gmail's "All Mail" is Relay's archive there (Kai, 9.10.2026):
+                // shown as "Archive", read without the inbox (the sync's
+                // GMAIL_ARCHIV_FILTER); the provider name stays inside.
+                if gmail && !extended && f.attributes.iter().any(|a| a == "All") {
+                    return serde_json::json!({
+                        "name": "Archive", "raw_name": "", "delimiter": "", "tag": "folder",
+                        "attributes": ["Archive"], "local_only": false, "rolle": "archiv",
+                    });
+                }
                 serde_json::json!({
                     "name": f.name, "raw_name": f.raw_name, "delimiter": f.delimiter, "tag": f.tag, "attributes": f.attributes,
                     "local_only": false,
@@ -265,7 +279,8 @@ async fn fetch_imap_folder_list(state: &AppState, account_id: u32) -> Vec<serde_
                     "rolle": crate::imap::types::rolle_aus_attributen(&f.attributes),
                 })
             })
-            .collect(),
+            .collect()
+        }
         Err(_) => Vec::new(),
     }
 }
@@ -606,7 +621,10 @@ pub async fn move_message(
     })
     .unwrap_or(false);
 
-    if target_is_local {
+    // Relay's "Trash" is kept locally but mirrors the provider's trash: a
+    // mail dragged there goes into the provider's trash like a delete, not
+    // off the provider (GMX deleted it for good; Kai, 9.10.2026).
+    if target_is_local && req.target_folder != "Trash" {
         return move_to_local_folder(&state, &req, uid, account_id_i64, uid_i64).await;
     }
 
@@ -686,34 +704,65 @@ async fn move_to_local_folder(
         .map_err(|e| e.to_string())
     })?;
 
-    // 2. Verify archive guarantee: raw EML exists + hash matches.
-    let verified = with_db(state, |conn| {
-        let raw_path: Option<String> = conn
-            .query_row(
-                "SELECT raw_path FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
+    // 2. Verify archive guarantee: raw EML exists + hash matches. The row
+    //    is the one just moved (target folder; by Message-ID where it has
+    //    one, its number may have been shifted on a collision).
+    let lese_eml = |state: &AppState| {
+        with_db(state, |conn| {
+            Ok::<_, String>(
+                conn.query_row(
+                    "SELECT m.raw_path, m.raw_sha256 FROM messages m JOIN folders f ON f.id = m.folder_id
+                     WHERE m.account_id = ?1 AND f.name = ?2
+                       AND (m.message_id = ?3 OR (?3 IS NULL AND m.uid = ?4))
+                     LIMIT 1",
+                    rusqlite::params![account_id_i64, req.target_folder, kopf, uid_i64],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+                )
+                .unwrap_or((None, None)),
             )
-            .ok();
-        let raw_sha: Option<String> = conn
-            .query_row(
-                "SELECT raw_sha256 FROM messages WHERE account_id = ?1 AND uid = ?2",
-                rusqlite::params![account_id_i64, uid_i64],
-                |row| row.get(0),
-            )
-            .ok();
-        Ok::<_, String>((raw_path, raw_sha))
-    })
-    .unwrap_or((None, None));
-
-    let eml_ok = verified
-        .0
-        .and_then(|rel| {
-            let abs = state.data_root.join(&rel);
-            let exists = crate::cache::archive::verify_eml(&abs, verified.1.as_deref(), None);
-            Some(exists)
         })
-        .unwrap_or(false);
+        .unwrap_or((None, None))
+    };
+    let eml_pruefen = |state: &AppState, v: (Option<String>, Option<String>)| {
+        v.0.map(|rel| crate::cache::archive::verify_eml(&state.data_root.join(&rel), v.1.as_deref(), None))
+            .unwrap_or(false)
+    };
+    let mut eml_ok = eml_pruefen(state, lese_eml(state));
+
+    // No EML yet (only inbox mail is archived on arrival): fetch it from the
+    // provider now, before the provider copy goes (Kai, 9.10.2026). Before,
+    // such a mail went into the provider's trash and was gone after 30 days
+    // while Relay held no copy of its own. Only with a Message-ID to check
+    // the fetched mail against: the number may already be another mail's.
+    if !eml_ok {
+        if let Some(k) = kopf.as_deref() {
+            let client = state.imap_clients.read().get(&req.account_id).cloned();
+            if let Some(client) = client {
+                if let Ok((_, _, bytes)) = client.fetch_body_with_raw_from_folder(uid, Some(req.source_folder.clone())).await {
+                    let text = String::from_utf8_lossy(&bytes);
+                    let kopfteil = text.split("\r\n\r\n").next().unwrap_or(&text);
+                    if !bytes.is_empty() && kopfteil.contains(k.trim()) {
+                        if let Ok(pfad) = crate::cache::archive::write_eml(&state.data_root, account_id_i64, uid, None, Some(k), &bytes) {
+                            let sha = crate::cache::archive::sha256_hex(&bytes);
+                            let pfad_text = pfad.to_string_lossy().to_string();
+                            let _ = with_db(state, |conn| {
+                                conn.execute(
+                                    "UPDATE messages SET raw_path = ?1, raw_sha256 = ?2
+                                     WHERE account_id = ?3 AND message_id = ?4
+                                       AND folder_id = (SELECT id FROM folders WHERE account_id = ?3 AND name = ?5)",
+                                    rusqlite::params![pfad_text, sha, account_id_i64, k, req.target_folder],
+                                )
+                                .map_err(|e| e.to_string())
+                            });
+                            eml_ok = eml_pruefen(state, lese_eml(state));
+                        }
+                    } else {
+                        tracing::warn!("move_to_local: uid {} in '{}' ist nicht die Mail {} — kein EML", uid, req.source_folder, k);
+                    }
+                }
+            }
+        }
+    }
 
     // 3. Provider copy: queue removal (hard delete with guarantee, else soft
     // move into provider Trash) — replayed by the provider-op worker.
@@ -1163,7 +1212,7 @@ fn defer_flag_op(
 ) {
     let folder = folder.unwrap_or("INBOX").to_string();
     let _ = with_db(state, |conn| {
-        cache::provider_ops::enqueue_flag(conn, account_id as i64, uid as i64, &folder, flag, set)
+        cache::provider_ops::enqueue_markierung(conn, account_id as i64, uid as i64, &folder, flag, set)
             .map(|_| ())
             .map_err(|e| e.to_string())
     });
@@ -1241,7 +1290,7 @@ async fn batch_set_read(state: &AppState, req: BatchReadRequest, read: bool) -> 
         let folder = folder_name.clone().unwrap_or_else(|| "INBOX".to_string());
         let _ = with_db(state, |conn| {
             for uid in &req.uids {
-                let _ = cache::provider_ops::enqueue_flag(
+                let _ = cache::provider_ops::enqueue_markierung(
                     conn, account_id as i64, *uid as i64, &folder, "\\Seen", read,
                 );
             }

@@ -203,13 +203,7 @@ impl ImapClient {
     }
 
     pub async fn select_inbox(&self) -> Result<(), AppError> {
-        self.with_session_blocking("select_inbox", |session| {
-            session
-                .select("INBOX")
-                .map_err(|e| AppError::imap(e.to_string(), "select_inbox"))?;
-            Ok(())
-        })
-        .await
+        self.select_folder_on(Slot::User, "INBOX").await
     }
 
     pub async fn list_folders(&self) -> Result<Vec<(String, String, String, String)>, AppError> {
@@ -250,6 +244,11 @@ impl ImapClient {
                     let attr_texte: Vec<String> = attrs.iter().map(|a| format!("{:?}", a)).collect();
                     let tag = if has_no_select {
                         "noselect"
+                    } else if attr_texte.iter().any(|a| a == "All") {
+                        // \All: every mail of the account. On Gmail Relay's
+                        // archive is read from it (All Mail without the
+                        // inbox); elsewhere it is not fetched, like the views.
+                        "alle"
                     } else if crate::imap::types::rolle_aus_attributen(&attr_texte) == Some("sammel")
                         || crate::imap::types::gmail_ohne_post(&name, &delim)
                     {
@@ -275,13 +274,14 @@ impl ImapClient {
         self.select_folder_on(Slot::Sync, folder).await
     }
 
+    /// SELECT through the slot's tracker: a SELECT past it left the tracker
+    /// naming another folder, and the next `ensure_selected` skipped its own
+    /// SELECT, so a STORE or COPY by number hit the wrong folder.
     async fn select_folder_on(&self, slot: Slot, folder: &str) -> Result<(), AppError> {
-        let folder = encode_imap_utf7(folder);
+        let folder = folder.to_string();
+        let tracker = self.tracker(slot);
         self.with_slot_blocking(slot, "select_folder", move |session| {
-            session
-                .select(&folder)
-                .map_err(|e| AppError::imap(e.to_string(), "select_folder"))?;
-            Ok(())
+            ensure_selected(session, &tracker, &folder)
         })
         .await
     }
@@ -291,7 +291,7 @@ impl ImapClient {
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        self.fetch_recent_impl(Slot::User, None, since_uid, limit).await
+        self.fetch_recent_impl(Slot::User, None, since_uid, limit, None).await
     }
 
     /// SELECT `folder` + fetch recent messages atomically under the session
@@ -305,7 +305,7 @@ impl ImapClient {
         since_uid: u32,
         limit: u32,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        self.fetch_recent_impl(Slot::User, Some(folder), since_uid, limit).await
+        self.fetch_recent_impl(Slot::User, Some(folder), since_uid, limit, None).await
     }
 
     /// Folder-scoped fetch on the sync connection (scheduler).
@@ -314,8 +314,9 @@ impl ImapClient {
         folder: &str,
         since_uid: u32,
         limit: u32,
+        filter: Option<&str>,
     ) -> Result<Vec<CachedMessage>, AppError> {
-        self.fetch_recent_impl(Slot::Sync, Some(folder), since_uid, limit).await
+        self.fetch_recent_impl(Slot::Sync, Some(folder), since_uid, limit, filter).await
     }
 
     async fn fetch_recent_impl(
@@ -324,8 +325,10 @@ impl ImapClient {
         folder: Option<&str>,
         since_uid: u32,
         limit: u32,
+        filter: Option<&str>,
     ) -> Result<Vec<CachedMessage>, AppError> {
         let folder = folder.map(|f| f.to_string());
+        let filter = filter.map(|f| f.to_string());
         let tracker = self.tracker(slot);
         self.with_slot_blocking(slot, "fetch_recent", move |session| {
         if let Some(f) = &folder {
@@ -334,15 +337,11 @@ impl ImapClient {
         // Server-side UID filtering: only fetch UIDs newer than since_uid.
         // "UID {N}:*" means UIDs from N to the highest UID on the server.
         // Initial sync (since_uid == 0) uses "ALL" to discover all messages.
-        let uid_set = if since_uid > 0 {
-            session
-                .uid_search(&format!("UID {}:*", since_uid + 1))
-                .map_err(|e| AppError::imap(format!("IMAP uid_search fehlgeschlagen: {}", e), "uid_search"))?
-        } else {
-            session
-                .uid_search("ALL")
-                .map_err(|e| AppError::imap(format!("IMAP uid_search fehlgeschlagen: {}", e), "uid_search"))?
-        };
+        // A filter (Gmail's archive: All Mail without the inbox) narrows it.
+        let anfrage = suchanfrage(since_uid, filter.as_deref());
+        let uid_set = session
+            .uid_search(&anfrage)
+            .map_err(|e| AppError::imap(format!("IMAP uid_search fehlgeschlagen: {}", e), "uid_search"))?;
 
         tracing::info!("IMAP: {} neue Nachrichten gefunden", uid_set.len());
 
@@ -501,21 +500,22 @@ impl ImapClient {
     /// lock). Avoids the race where another thread selects a different
     /// folder between our SELECT and UID SEARCH.
     pub async fn fetch_all_uids_in_folder(&self, folder: &str) -> Result<Vec<u32>, AppError> {
-        self.fetch_all_uids_in_folder_on(Slot::User, folder).await
+        self.fetch_all_uids_in_folder_on(Slot::User, folder, None).await
     }
 
     /// ALL-UIDs fetch on the sync connection (scheduler prune/removal check).
-    pub async fn fetch_all_uids_in_folder_sync(&self, folder: &str) -> Result<Vec<u32>, AppError> {
-        self.fetch_all_uids_in_folder_on(Slot::Sync, folder).await
+    pub async fn fetch_all_uids_in_folder_sync(&self, folder: &str, filter: Option<&str>) -> Result<Vec<u32>, AppError> {
+        self.fetch_all_uids_in_folder_on(Slot::Sync, folder, filter).await
     }
 
-    async fn fetch_all_uids_in_folder_on(&self, slot: Slot, folder: &str) -> Result<Vec<u32>, AppError> {
+    async fn fetch_all_uids_in_folder_on(&self, slot: Slot, folder: &str, filter: Option<&str>) -> Result<Vec<u32>, AppError> {
         let folder = folder.to_string();
+        let anfrage = suchanfrage(0, filter);
         let tracker = self.tracker(slot);
         self.with_slot_blocking(slot, "fetch_all_uids_in_folder", move |session| {
             ensure_selected(session, &tracker, &folder)?;
             let uid_set = session
-                .uid_search("ALL")
+                .uid_search(&anfrage)
                 .map_err(|e| AppError::imap(format!("IMAP uid_search ALL fehlgeschlagen: {}", e), "fetch_all_uids_in_folder"))?;
             let mut uids: Vec<u32> = uid_set.into_iter().collect();
             uids.sort_unstable();
@@ -665,12 +665,12 @@ impl ImapClient {
 
     /// Fetch raw message with optional folder selection.
     pub async fn fetch_raw_message_in_folder(&self, uid: u32, folder: Option<String>) -> Result<String, AppError> {
+        let tracker = self.tracker(Slot::User);
         self.with_session_blocking("fetch_raw_message", move |session| {
-            // Select the target folder if specified
+            // Select the target folder if specified (through the tracker, see
+            // select_folder_on).
             if let Some(ref f) = folder {
-                session
-                    .select(f)
-                    .map_err(|e| AppError::imap(format!("SELECT '{}' fehlgeschlagen: {}", f, e), "select_folder"))?;
+                ensure_selected(session, &tracker, f)?;
             }
 
             let msgs = session
@@ -750,19 +750,20 @@ impl ImapClient {
         self.mark_flag(uid, "\\Flagged", flagged, None).await
     }
 
-    /// Fetch FLAGS for a set of UIDs. Returns Vec<(uid, is_read, is_flagged)>.
-    pub async fn fetch_flags(&self, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
-        self.fetch_flags_on(Slot::User, uid_set).await
+    /// FLAGS of a set of UIDs in `folder` on the sync connection (scheduler
+    /// flag refresh). Returns Vec<(uid, is_read, is_flagged)>. The folder is
+    /// selected under the same lock: between a separate SELECT and this
+    /// FETCH another worker on the slot could switch the folder.
+    pub async fn fetch_flags_sync(&self, folder: &str, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
+        self.fetch_flags_on(Slot::Sync, folder, uid_set).await
     }
 
-    /// FLAGS fetch on the sync connection (scheduler flag refresh).
-    pub async fn fetch_flags_sync(&self, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
-        self.fetch_flags_on(Slot::Sync, uid_set).await
-    }
-
-    async fn fetch_flags_on(&self, slot: Slot, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
+    async fn fetch_flags_on(&self, slot: Slot, folder: &str, uid_set: &str) -> Result<Vec<(u32, bool, bool)>, AppError> {
         let uid_set = uid_set.to_string();
+        let folder = folder.to_string();
+        let tracker = self.tracker(slot);
         self.with_slot_blocking(slot, "fetch_flags", move |session| {
+            ensure_selected(session, &tracker, &folder)?;
             let messages = session
                 .uid_fetch(&uid_set, "(FLAGS)")
                 .map_err(|e| AppError::imap(format!("IMAP uid_fetch FLAGS fehlgeschlagen: {}", e), "fetch_flags"))?;
@@ -904,13 +905,29 @@ impl ImapClient {
         self.move_message_on(Slot::Sync, uid, source, target).await
     }
 
-    /// COPY + STORE \Deleted (no per-op EXPUNGE — batched by the scheduler).
+    /// UID MOVE where the server has it (RFC 6851), else COPY + STORE
+    /// \Deleted (no per-op EXPUNGE — batched by the scheduler).
+    ///
+    /// MOVE first: on Gmail a folder is a label and COPY + \Deleted +
+    /// EXPUNGE is two operations on one mail. Out of Gmail's trash the
+    /// EXPUNGE there deletes the mail for good, also the copy just made in
+    /// the inbox; MOVE is one change of label (Kai, 9.10.2026).
     async fn move_message_on(&self, slot: Slot, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
         let source = source.to_string();
         let target = encode_imap_utf7(target);
         let tracker = self.tracker(slot);
         self.with_slot_blocking(slot, "move_message", move |session| {
             ensure_selected(session, &tracker, &source)?;
+
+            let kann_move = session
+                .capabilities()
+                .map(|c| c.has_str("MOVE"))
+                .unwrap_or(false);
+            if kann_move {
+                return session
+                    .uid_mv(uid.to_string(), &target)
+                    .map_err(|e| AppError::imap(format!("UID MOVE nach '{}' fehlgeschlagen: {}", target, e), "uid_move"));
+            }
 
             // Try UID COPY first
             let copy_result = session.uid_copy(uid.to_string(), &target);
@@ -977,6 +994,23 @@ impl ImapClient {
                     )
                 })?;
             Ok(())
+        })
+        .await
+    }
+
+    /// UID COPY only, the source stays as it is: on Gmail out of "All Mail"
+    /// a copy into a folder adds that label (back to the inbox from the
+    /// archive) and nothing may be deleted in "All Mail" (that would delete
+    /// the mail itself).
+    pub async fn copy_message(&self, uid: u32, source: &str, target: &str) -> Result<(), AppError> {
+        let source = source.to_string();
+        let target = encode_imap_utf7(target);
+        let tracker = self.tracker(Slot::User);
+        self.with_slot_blocking(Slot::User, "copy_message", move |session| {
+            ensure_selected(session, &tracker, &source)?;
+            session
+                .uid_copy(uid.to_string(), &target)
+                .map_err(|e| AppError::imap(format!("UID COPY nach '{}' fehlgeschlagen: {}", target, e), "uid_copy"))
         })
         .await
     }
@@ -1386,6 +1420,18 @@ impl ImapClient {
 /// SELECT `folder` on the session unless the slot's tracker says it is
 /// already selected. Updates (or invalidates) the tracker around the SELECT.
 /// Folder names are UTF-7 encoded here; callers pass decoded names.
+/// The UID SEARCH for a fetch: above `since_uid` (everything at 0),
+/// narrowed by `filter` (search keys AND-ed, e.g. Gmail's X-GM-RAW).
+pub(crate) fn suchanfrage(since_uid: u32, filter: Option<&str>) -> String {
+    let filter = filter.map(str::trim).filter(|f| !f.is_empty());
+    match (since_uid, filter) {
+        (0, None) => "ALL".to_string(),
+        (0, Some(f)) => f.to_string(),
+        (n, None) => format!("UID {}:*", n + 1),
+        (n, Some(f)) => format!("UID {}:* {}", n + 1, f),
+    }
+}
+
 fn ensure_selected(
     session: &mut imap::Session<Connection>,
     tracker: &std::sync::Mutex<Option<String>>,

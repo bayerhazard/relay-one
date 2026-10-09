@@ -790,6 +790,11 @@ let sentFolderName = $state<string | null>(null);
 
   // ─── Plain HTML context menus (replaces the Tauri native menus) ────────
   let folderCtxMenu = $state<{ x: number; y: number; folderName: string } | null>(null);
+  // Inbox, archive, trash, sent, drafts and spam are the provider's own
+  // (Gmail's archive is its "All Mail"): not renamed or deleted from Relay,
+  // deleting one only emptied Relay's copy (Kai, 9.10.2026).
+  const istSystemOrdner = (name: string) =>
+    name === "INBOX" || !!rolleVon(name, rollenByAccount[selectedAccountId], folderDelimiters[name] || ".");
   interface MoveTarget { name: string; label: string; accountId: number; depth?: number; full?: string; }
   interface MoveSection { header: string | null; items: MoveTarget[]; }
   let moveMenu = $state<{ x: number; y: number; sections: MoveSection[] } | null>(null);
@@ -3569,13 +3574,13 @@ let sentFolderName = $state<string | null>(null);
     <div class="ctx-menu-scrim" class:sheet-scrim={isTouchDevice} role="presentation" onclick={closeMenus} oncontextmenu={(e) => e.preventDefault()}></div>
     <div class="ctx-menu" class:sheet={isTouchDevice} style={isTouchDevice ? "" : `left: ${folderCtxMenu!.x}px; top: ${folderCtxMenu!.y}px;`} role="menu">
       <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { folderCtxNewSubFolder(folderCtxMenu!.folderName); }}><span class="ctx-icon">{@html iconSVG("newSubFolder")}</span>{$t("mail.newSubFolder")}</button>
-      {#if folderCtxMenu!.folderName !== "INBOX"}
+      {#if !istSystemOrdner(folderCtxMenu!.folderName)}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => { openRenameDialog(folderCtxMenu!.folderName); closeMenus(); }}><span class="ctx-icon">{@html iconSVG("rename")}</span>{$t("mail.renameEllipsis")}</button>
       {/if}
       {#if customFolderNames[folderCtxMenu!.folderName]}
         <button type="button" class="ctx-menu-item" role="menuitem" onclick={() => folderCtxResetName(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("resetName")}</span>{$t("mail.resetName")}</button>
       {/if}
-      {#if folderCtxMenu!.folderName !== "INBOX"}
+      {#if !istSystemOrdner(folderCtxMenu!.folderName)}
         <div class="ctx-menu-separator" role="separator"></div>
         <button type="button" class="ctx-menu-item danger" role="menuitem" onclick={() => folderCtxDeleteFolder(folderCtxMenu!.folderName)}><span class="ctx-icon">{@html iconSVG("delete")}</span>{$t("mail.delete")}</button>
       {/if}
