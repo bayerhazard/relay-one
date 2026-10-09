@@ -115,12 +115,18 @@ pub fn get_refresh_candidates(
     conn: &Connection,
     limit: i64,
 ) -> Result<Vec<RefreshCandidate>, rusqlite::Error> {
+    // Only hints newer than the stored fingerprint count (#27): without
+    // this gate a recipient with three hints was synthesized again every
+    // sync cycle, an LLM request about every 44 s, forever.
     let mut stmt = conn.prepare(
-        "SELECT account_id, email_hash FROM learning_diffs
-         WHERE analyzed = 1 AND style_hint IS NOT NULL
-         GROUP BY account_id, email_hash
+        "SELECT ld.account_id, ld.email_hash FROM learning_diffs ld
+         LEFT JOIN style_fingerprints sf
+           ON sf.account_id = ld.account_id AND sf.email_hash = ld.email_hash
+         WHERE ld.analyzed = 1 AND ld.style_hint IS NOT NULL
+           AND (sf.last_updated IS NULL OR ld.created_at > sf.last_updated)
+         GROUP BY ld.account_id, ld.email_hash
          HAVING COUNT(*) >= 3
-         ORDER BY MAX(created_at) DESC
+         ORDER BY MAX(ld.created_at) DESC
          LIMIT ?",
     )?;
     let rows = stmt.query_map(rusqlite::params![limit], |row| {
@@ -340,6 +346,36 @@ mod tests {
         assert_eq!(by_hash.get("hash-a"), Some(&1));
         assert_eq!(by_hash.get("hash-b"), Some(&2));
         assert!(!by_hash.contains_key("hash-c"));
+    }
+
+    #[test]
+    fn test_get_refresh_candidates_freshness_gate() {
+        let conn = test_conn();
+        let hinweis = |tag: &str, i: i32| {
+            conn.execute(
+                &format!(
+                    "INSERT INTO learning_diffs (account_id, email_hash, ai_draft, user_final, edit_distance, style_hint, analyzed, created_at)
+                     VALUES (1, 'hash-a', 'AI', 'User', 0.5, 'hint{i}', 1, '{tag}')"
+                ),
+                [],
+            )
+            .unwrap();
+        };
+        for i in 0..3 { hinweis("2026-01-01 10:00:00", i); }
+        assert_eq!(get_refresh_candidates(&conn, 10).unwrap().len(), 1, "no fingerprint yet");
+
+        conn.execute(
+            "INSERT INTO style_fingerprints (account_id, email_hash, fingerprint, hint_count, last_updated)
+             VALUES (1, 'hash-a', 'fp', 3, '2026-02-01 10:00:00')",
+            [],
+        )
+        .unwrap();
+        assert!(get_refresh_candidates(&conn, 10).unwrap().is_empty(), "nothing new since the fingerprint");
+
+        for i in 0..2 { hinweis("2026-03-01 10:00:00", i); }
+        assert!(get_refresh_candidates(&conn, 10).unwrap().is_empty(), "two new hints are not enough");
+        hinweis("2026-03-01 10:00:00", 2);
+        assert_eq!(get_refresh_candidates(&conn, 10).unwrap().len(), 1, "three new hints");
     }
 
     #[test]
