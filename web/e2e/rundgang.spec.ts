@@ -460,6 +460,29 @@ test("Kontakte: drei Spalten, Herkunft und letzte Mails", async ({ page, context
   await expect(detail.getByRole("button", { name: "Ins Adressbuch übernehmen" })).toBeVisible();
 });
 
+// An account's calendar, tasks and contacts (Kai, 9.10.2026, 26.10.18): in
+// the settings each account has the three switches; a provider Relay does
+// not know asks for the addresses. Nothing is saved here — the probe
+// kontoprobe.py switches them against the test server.
+test("Einstellungen: Kalender, Aufgaben und Kontakte je Konto", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "einmal genügt");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/settings");
+  await page.locator("#relay-spalte").getByRole("button", { name: /^E-Mail-Konten( \d+)?$/ }).click();
+  const teil = page.locator(".account-dav").first();
+  await teil.locator("summary").click();
+  for (const name of ["Kalender", "Aufgaben", "Kontakte"]) {
+    await expect(teil.getByRole("switch", { name })).toBeVisible();
+  }
+  await expect(teil).toContainText("CalDAV- und CardDAV-Adresse");
+  await teil.getByRole("switch", { name: "Kalender" }).click();
+  await expect(teil.getByLabel("CalDAV-Adresse (Kalender und Aufgaben)")).toBeVisible();
+  await expect(teil.getByRole("button", { name: "Speichern" })).toBeVisible();
+});
+
 // "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails
 // of the same sender, the same domain or a similar subject in the open
 // folder, then all of them at once into the trash and back. Jonas Weber

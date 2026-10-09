@@ -60,6 +60,9 @@ pub async fn set_caldav_settings(
         password: Some(req.password),
         enabled: None,
         sync_interval_minutes: req.sync_interval_minutes,
+        kalender: None,
+        aufgaben: None,
+        mail_konto: None,
     };
     upsert_account(&state, account).await
 }
@@ -83,6 +86,17 @@ pub struct CalDavAccountInput {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub sync_interval_minutes: Option<u64>,
+    #[serde(default)]
+    pub kalender: Option<bool>,
+    #[serde(default)]
+    pub aufgaben: Option<bool>,
+    #[serde(default)]
+    pub mail_konto: Option<i64>,
+}
+
+/// For other modules (accounts' calendar switches).
+pub(crate) fn store_accounts_pub(state: &AppState, accounts: Vec<CalDavSettings>) -> Result<(), ApiError> {
+    store_accounts(state, accounts)
 }
 
 /// Persist the account list (passwords encrypted) + refresh live state.
@@ -115,6 +129,7 @@ pub async fn list_caldav_accounts(State(state): State<AppState>) -> ApiResult<Ve
                 "id": a.id, "name": a.name, "url": a.url, "username": a.username,
                 "enabled": a.enabled, "sync_interval_minutes": a.sync_interval_minutes,
                 "has_password": !a.password.is_empty(),
+                "kalender": a.kalender, "aufgaben": a.aufgaben, "mail_konto": a.mail_konto,
             })
         })
         .collect();
@@ -149,6 +164,15 @@ pub async fn upsert_account(
         if let Some(i) = req.sync_interval_minutes {
             a.sync_interval_minutes = i.max(1);
         }
+        if let Some(k) = req.kalender {
+            a.kalender = k;
+        }
+        if let Some(t) = req.aufgaben {
+            a.aufgaben = t;
+        }
+        if req.mail_konto.is_some() {
+            a.mail_konto = req.mail_konto;
+        }
     } else {
         accounts.push(CalDavSettings {
             id: req.id.unwrap_or_default(),
@@ -158,6 +182,9 @@ pub async fn upsert_account(
             username: req.username.clone(),
             password: password.unwrap_or_default(),
             sync_interval_minutes: req.sync_interval_minutes.unwrap_or(30).max(1),
+            kalender: req.kalender.unwrap_or(true),
+            aufgaben: req.aufgaben.unwrap_or(true),
+            mail_konto: req.mail_konto,
         });
     }
     store_accounts(state, accounts)?;
@@ -255,9 +282,16 @@ pub async fn do_caldav_sync_account(
     // first discovered calendar (single-token model), so multi-calendar setups
     // would silently miss updates on every other calendar. A full sync is the
     // only reliable way to keep all calendars current.
-    let (events, new_token) = client.fetch_all_events().await.map_err(ApiError)?;
+    // Only what the account is switched on for (26.10.18): events when
+    // "Kalender", tasks when "Aufgaben".
+    let (events, new_token) = if settings.kalender {
+        client.fetch_all_events().await.map_err(ApiError)?
+    } else {
+        (Vec::new(), String::new())
+    };
 
     // Persist calendars + events.
+    // Collections are found either way: tasks are filed under them too.
     let calendars = client.discover_calendars().await.unwrap_or_default();
     let mut saved = 0usize;
     if let Ok(mut guard) = get_db(state) {
@@ -285,7 +319,9 @@ pub async fn do_caldav_sync_account(
     // ticker. Each todo is filed under the calendar collection its object URL
     // belongs to (longest matching prefix wins); failures are logged, not
     // swallowed, so a broken todo endpoint is visible in the logs.
-    let todos_saved = match client.fetch_all_todos().await {
+    let todos_saved = if !settings.aufgaben {
+        0
+    } else { match client.fetch_all_todos().await {
         Ok(todos) => save_todos_to_db(state, &todos),
         Err(e) => {
             tracing::warn!(
@@ -295,7 +331,7 @@ pub async fn do_caldav_sync_account(
             );
             0
         }
-    };
+    } };
 
     tracing::info!(
         "CalDAV-Sync '{}': {} Events, {} Todos gespeichert",
@@ -770,6 +806,9 @@ mod tests {
             password: Some("pw1".into()),
             enabled: None,
             sync_interval_minutes: Some(15),
+            kalender: None,
+            aufgaben: None,
+            mail_konto: None,
         };
         upsert_account(&state, req).await.unwrap();
         let accounts = state.caldav_accounts.read();
@@ -798,6 +837,9 @@ mod tests {
             password: Some("pw1".into()),
             enabled: None,
             sync_interval_minutes: None,
+            kalender: None,
+            aufgaben: None,
+            mail_konto: None,
         };
         upsert_account(&state, req.clone()).await.unwrap();
         let id = state.caldav_accounts.read()[0].id.clone();
@@ -822,6 +864,9 @@ mod tests {
             password: Some("p".into()),
             enabled: None,
             sync_interval_minutes: None,
+            kalender: None,
+            aufgaben: None,
+            mail_konto: None,
         };
         upsert_account(&state, req).await.unwrap();
         // Seed a calendar + event for that account.

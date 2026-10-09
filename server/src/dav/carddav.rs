@@ -14,6 +14,9 @@ pub struct CardDavSettings {
     pub username: String,
     pub password: String,
     pub sync_interval_minutes: u64,
+    /// The mail account this address book was set up from, if any.
+    #[serde(default)]
+    pub mail_konto: Option<i64>,
 }
 
 impl Default for CardDavSettings {
@@ -23,6 +26,7 @@ impl Default for CardDavSettings {
             username: String::new(),
             password: String::new(),
             sync_interval_minutes: 30,
+            mail_konto: None,
         }
     }
 }
@@ -92,6 +96,13 @@ impl CardDavClient {
             .collect();
 
         Ok(books)
+    }
+
+    /// How many address books the configured address shows — the check
+    /// when an account's contacts are switched on (26.10.18).
+    pub async fn adressbuecher(&self) -> Result<usize, String> {
+        let base_url = self.settings.url.trim_end_matches('/').to_string();
+        self.discover_addressbooks(&base_url).await.map(|b| b.len())
     }
 
     /// Resolve the effective addressbook URL from the configured URL.
@@ -483,6 +494,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            mail_konto: None,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -511,6 +523,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            mail_konto: None,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -552,6 +565,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            mail_konto: None,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -587,6 +601,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            mail_konto: None,
         };
 
         let client = CardDavClient::new(settings);
@@ -618,6 +633,7 @@ mod tests {
             username: user,
             password: pass,
             sync_interval_minutes: 30,
+            mail_konto: None,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 

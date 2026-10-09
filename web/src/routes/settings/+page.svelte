@@ -1,5 +1,6 @@
 <script lang="ts">
   import Symbol from "$lib/components/Symbol.svelte";
+  import KontoDav from "$lib/components/KontoDav.svelte";
   import { onMount } from "svelte";
   import {
     getSettings, saveSettings,
@@ -30,6 +31,8 @@
 
   // ─── Active Tab State ────────────────────────
   let activeTab = $state("general"); // 'general' | 'accounts' | 'carddav' | 'caldav' | 'ai' | 'voice' | 'cache' | 'archive'
+  // The account just added: its calendar section stands open.
+  let neuesKonto = $state<number | null>(null);
 
   // The sections in the shell's column (HB-UNTERNAV, RL-G2); the settings
   // belong to no area, they are reached through the profile (HB-KONTO).
@@ -696,12 +699,14 @@ async function handleSaveCardDav() {
           cert: imapInsecure ? translate("settings.certInsecure") : translate("settings.certVerified"),
         });
       } else {
-        await connectAccount(
+        const neu = await connectAccount(
           acctName, imapHost, imapPort, imapSsl,
           smtpHost, smtpPort, smtpTls,
           acctUser, acctPass, smtpUser, smtpPass, senderName, senderMail,
           imapInsecure, useOlaresPassword,
         );
+        // Its calendar, tasks and contacts open right away (26.10.18).
+        neuesKonto = neu?.id ?? null;
         acctSuccess = translate("settings.accountConnected", { name: acctName });
       }
       
@@ -1125,6 +1130,11 @@ async function handleSaveCardDav() {
                           : $t("settings.syncModeMirrorHint")}
                       </span>
                     </div>
+                    <!-- Calendar, tasks and contacts of this account (26.10.18). -->
+                    <details class="account-dav" open={a.id === neuesKonto}>
+                      <summary>{$t("kontoDav.titel")}</summary>
+                      <KontoDav accountId={a.id} />
+                    </details>
                   </div>
                   <div class="account-actions">
                     <button type="button" class="btn btn-sekundaer" onclick={() => connectAndEditAccount(a)}>
@@ -2388,7 +2398,7 @@ async function handleSaveCardDav() {
 
   .account-card-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 16px;
     padding: 16px;
     /* The rows sit on a .karte (flaeche-1), so they take the page colour. */
@@ -2694,4 +2704,8 @@ async function handleSaveCardDav() {
     gap: var(--am-raum-2);
     flex-shrink: 0;
   }
+  /* ── Calendar, tasks and contacts per account [RL-KONTODAV] ──────── */
+  .account-dav { margin-top: var(--am-raum-3); }
+  .account-dav > summary { cursor: pointer; font-weight: 600; font-size: var(--fs-sm); color: var(--am-text-primaer); }
+  .account-dav[open] > summary { margin-bottom: var(--am-raum-3); }
 </style>
