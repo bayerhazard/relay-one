@@ -41,6 +41,9 @@ fn carddav_client(state: &AppState) -> Result<CardDavClient, ApiError> {
 pub struct ContactsQuery {
     #[serde(default)]
     pub search: Option<String>,
+    /// "adressbuch", "mail" or none (all).
+    #[serde(default)]
+    pub quelle: Option<String>,
 }
 
 pub async fn list_contacts(
@@ -48,8 +51,15 @@ pub async fn list_contacts(
     Query(q): Query<ContactsQuery>,
 ) -> ApiResult<Vec<ContactRow>> {
     let search = q.search.unwrap_or_default();
-    let rows = with_db(&state, |conn| cache::contacts::list_contacts(conn, &search))?;
+    let quelle = cache::contacts::Quelle::lesen(q.quelle.as_deref().unwrap_or(""));
+    let rows = with_db(&state, |conn| cache::contacts::list_contacts_aus(conn, &search, quelle))?;
     Ok(Json(rows))
+}
+
+/// `GET /api/v1/contacts/zahlen` — how many contacts each source holds.
+pub async fn contact_zahlen(State(state): State<AppState>) -> ApiResult<cache::contacts::Zahlen> {
+    let z = with_db(&state, cache::contacts::zahlen)?;
+    Ok(Json(z))
 }
 
 /// `POST /api/v1/contacts` — create a contact (CardDAV + local cache).

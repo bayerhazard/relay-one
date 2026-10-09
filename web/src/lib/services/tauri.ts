@@ -1467,9 +1467,25 @@ export interface ContactInput {
   organization: string;
 }
 
-export async function listContacts(search = ""): Promise<ContactInfo[]> {
-  const q = search ? `?search=${encodeURIComponent(search)}` : "";
-  return get<ContactInfo[]>(`/contacts${q}`, "Kontakte konnten nicht geladen werden.");
+/** Where contacts come from: the address book or collected from mail. */
+export type KontaktQuelle = "alle" | "adressbuch" | "mail";
+
+export async function listContacts(search = "", quelle: KontaktQuelle = "alle"): Promise<ContactInfo[]> {
+  const q = new URLSearchParams();
+  if (search) q.set("search", search);
+  if (quelle !== "alle") q.set("quelle", quelle);
+  const s = q.toString();
+  return get<ContactInfo[]>(`/contacts${s ? `?${s}` : ""}`, "Kontakte konnten nicht geladen werden.");
+}
+
+export interface KontaktZahlen {
+  alle: number;
+  adressbuch: number;
+  mail: number;
+}
+
+export async function contactZahlen(): Promise<KontaktZahlen> {
+  return get<KontaktZahlen>("/contacts/zahlen", "Kontakte konnten nicht gezählt werden.");
 }
 
 export async function createContact(input: ContactInput): Promise<ContactInfo> {

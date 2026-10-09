@@ -73,6 +73,18 @@ wenn die Kopie oder Relay abweicht.
 Ein Release ist ein PR, der die Version hebt. Nach dem Merge läuft alles
 von selbst:
 
+0. **Zuerst die offenen Issues** (Kai, 9.10.2026), bevor der PR entsteht —
+   nur dann kann eines noch mit hinein. Jedes offene Issue unter
+   `https://github.com/bayerhazard/relay-one/issues` wird eingeordnet:
+   - **mit rein** — klein, passt zum Release, geringes Risiko, oder ein
+     Fehler, der Nutzer jetzt trifft;
+   - **später** — Label `später` und ein Satz Begründung im Issue;
+   - **Kai fragen** — wenn es eine Entscheidung braucht.
+
+   Der PR-Text bekommt den Abschnitt `## Offene Issues geprüft` mit einer
+   Zeile je Issue (`- #27 mit rein`, `- #28 später: eigenes Feature`). Die
+   Action `issues.yml` wird rot, solange dort ein offenes Issue fehlt.
+
 1. **Version `YY.M.n`** (Monat ohne führende Null, Zähler je Monat) an vier
    Stellen: `chart/relay/Chart.yaml` (`version`, `appVersion`) und
    `chart/relay/OlaresManifest.yaml` (`metadata.version`,

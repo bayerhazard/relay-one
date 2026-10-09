@@ -3,9 +3,11 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import {
-    listContacts, createContact, updateContact, deleteContact, syncCardDav,
-    type ContactInfo, type ContactInput,
+    listContacts, contactZahlen, createContact, updateContact, deleteContact, syncCardDav,
+    listAccounts, searchMessages,
+    type ContactInfo, type ContactInput, type KontaktQuelle, type KontaktZahlen,
   } from "$lib/services/tauri";
+  import type { Message } from "$lib/stores/mailbox";
   import Huelle from "$lib/components/Huelle.svelte";
   import { tabTitel } from "$lib/tabTitel";
   import AssistantFab from "$lib/components/AssistantFab.svelte";
@@ -35,11 +37,31 @@
     email: "", phone: "", organization: "",
   });
 
+  // Three columns (Kai, 9.10.2026): the sources left, the list in the
+  // middle, the chosen contact right. The address book comes first; the
+  // senders Relay collects from mail stand apart.
+  let quelle = $state<KontaktQuelle>("adressbuch");
+  let zahlen = $state<KontaktZahlen | null>(null);
+  let spalteOffen = $state(false);
+  let gewaehltUid = $state<string | null>(null);
+  let gewaehlt = $derived(contacts.find((c) => c.vcard_uid === gewaehltUid) ?? null);
+
+  function waehleQuelle(q: KontaktQuelle) {
+    spalteOffen = false;
+    if (q === quelle) return;
+    quelle = q;
+    gewaehltUid = null;
+    void loadContacts();
+  }
+
   async function loadContacts() {
     loading = true;
     error = null;
     try {
-      contacts = await listContacts(search);
+      const [liste, z] = await Promise.all([listContacts(search, quelle), contactZahlen().catch(() => zahlen)]);
+      contacts = liste;
+      zahlen = z;
+      if (gewaehltUid && !liste.some((c) => c.vcard_uid === gewaehltUid)) gewaehltUid = null;
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -169,6 +191,45 @@
     return `tel:${phone.replace(/[^\d+]/g, "")}`;
   }
 
+  // The last mails from the chosen contact, from every account (newest
+  // first). Only read while a contact is shown.
+  let letzteMails = $state<Message[]>([]);
+  let mailsLaden = $state(false);
+  let kontenIds: number[] | null = null;
+  let mailsSeq = 0;
+  $effect(() => {
+    const email = gewaehlt?.email ?? null;
+    const seq = ++mailsSeq;
+    letzteMails = [];
+    if (!email) return;
+    mailsLaden = true;
+    void (async () => {
+      try {
+        if (!kontenIds) kontenIds = (await listAccounts()).map((a) => a.id);
+        const je = await Promise.all(
+          kontenIds.map((id) => searchMessages(id, `von:${email}`, 5).catch(() => [] as Message[])),
+        );
+        if (seq !== mailsSeq) return;
+        letzteMails = je.flat().sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")).slice(0, 5);
+      } finally {
+        if (seq === mailsSeq) mailsLaden = false;
+      }
+    })();
+  });
+
+  function datumKurz(d?: string): string {
+    if (!d) return "";
+    const t = new Date(d);
+    return Number.isNaN(t.getTime()) ? "" : t.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  // "Alle Mails" hands the search to the mail area, as the assistant does.
+  async function mailsVon(email: string | null) {
+    if (!email) return;
+    assistantAction.set({ type: "search", query: `von:${email}` });
+    await goto("/");
+  }
+
   // Klick auf eine Kontakt-Mailadresse öffnet das in-app-Compose im Mail-Modul
   // (statt dem externen Mailprogramm via mailto:). Gleicher Hand-off wie der
   // Assistent: Aktion setzen, dann ins Mail-Modul navigieren.
@@ -191,68 +252,160 @@
 
 <svelte:head><title>{tabTitel($t("contacts.title"))}</title></svelte:head>
 
-<Huelle bereich="contacts" bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
-  <main class="ct-main">
-    <!-- HB-SEITENKOPF: title 28 px with the count, the page's actions right. -->
-    <div class="seitenkopf">
-      <div class="seitenkopf-zeile">
-        <h1>{$t("contacts.title")}</h1>
-        <span class="seitenkopf-zahl">{contacts.length}</span>
-      </div>
-      <div class="btn-reihe">
-        <button type="button" class="btn btn-still" onclick={handleRefresh} disabled={syncing}>
-          {syncing ? $t("common.syncing") : $t("common.refresh")}
-        </button>
-        <button type="button" class="btn btn-primaer" onclick={openCreate}>
-          <Symbol name="plus" size={16} />
-          {$t("contacts.new")}
-        </button>
-      </div>
+<Huelle bereich="contacts" bind:spalteOffen bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
+  {#snippet spalte()}
+    <!-- The inside of the area (RL-G2): where the contacts come from. -->
+    <nav class="ct-quellen" aria-label={$t("contacts.quellen")}>
+      <button type="button" class="ct-quelle" class:active={quelle === "adressbuch"} aria-current={quelle === "adressbuch" ? "page" : undefined} onclick={() => waehleQuelle("adressbuch")}>
+        <Symbol name="team" size={20} />
+        <span class="ct-quelle-name">{$t("contacts.adressbuch")}</span>
+        {#if zahlen}<span class="ct-zahl">{zahlen.adressbuch}</span>{/if}
+      </button>
+      <button type="button" class="ct-quelle" class:active={quelle === "mail"} aria-current={quelle === "mail" ? "page" : undefined} onclick={() => waehleQuelle("mail")}>
+        <Symbol name="post" size={20} />
+        <span class="ct-quelle-name">{$t("contacts.ausMails")}</span>
+        {#if zahlen}<span class="ct-zahl">{zahlen.mail}</span>{/if}
+      </button>
+      <button type="button" class="ct-quelle" class:active={quelle === "alle"} aria-current={quelle === "alle" ? "page" : undefined} onclick={() => waehleQuelle("alle")}>
+        <Symbol name="liste" size={20} />
+        <span class="ct-quelle-name">{$t("contacts.alle")}</span>
+        {#if zahlen}<span class="ct-zahl">{zahlen.alle}</span>{/if}
+      </button>
+    </nav>
+    <div class="ct-spalte-fuss">
+      <button type="button" class="btn btn-primaer ct-neu" onclick={() => { spalteOffen = false; openCreate(); }}>
+        <Symbol name="plus" size={16} />
+        {$t("contacts.new")}
+      </button>
     </div>
-    <div class="ct-inhalt">
-    {#if loading}
-      <div class="ct-state">{$t("contacts.loading")}</div>
-    {:else if error}
-      <div class="ct-state">
-        <div class="hinweis" data-art="fehler" role="alert">
-          <Symbol name="achtung" size={16} />
-          <span>{error}</span>
+  {/snippet}
+
+  <main class="ct-main" class:ct-mit-auswahl={gewaehlt !== null}>
+    <section class="ct-liste-spalte" aria-label={$t("contacts.title")}>
+      <!-- HB-SEITENKOPF: the source as title with its count, refresh right. -->
+      <div class="seitenkopf ct-kopf">
+        <div class="seitenkopf-zeile">
+          <h1>{quelle === "adressbuch" ? $t("contacts.adressbuch") : quelle === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</h1>
+          <span class="seitenkopf-zahl">{contacts.length}</span>
         </div>
-        <button type="button" class="btn btn-sekundaer" onclick={loadContacts}>{$t("contacts.reload")}</button>
+        <div class="btn-reihe">
+          <button type="button" class="btn btn-still btn-symbol" onclick={handleRefresh} disabled={syncing}
+            title={syncing ? $t("common.syncing") : $t("common.refresh")} aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}>
+            <Symbol name="neu-laden" size={20} />
+          </button>
+        </div>
       </div>
-    {:else if contacts.length === 0}
-      {#if search}
-        <EmptyState icon="suche" title={$t("contacts.notFound")} />
+      <div class="ct-inhalt">
+      {#if loading && contacts.length === 0}
+        <div class="ct-state">{$t("contacts.loading")}</div>
+      {:else if error}
+        <div class="ct-state">
+          <div class="hinweis" data-art="fehler" role="alert">
+            <Symbol name="achtung" size={16} />
+            <span>{error}</span>
+          </div>
+          <button type="button" class="btn btn-sekundaer" onclick={loadContacts}>{$t("contacts.reload")}</button>
+        </div>
+      {:else if contacts.length === 0}
+        {#if search}
+          <EmptyState icon="suche" title={$t("contacts.notFound")} />
+        {:else}
+          <EmptyState icon="nutzer" title={$t("contacts.empty")} actionLabel={$t("contacts.create")} onaction={openCreate} />
+        {/if}
       {:else}
-        <EmptyState icon="nutzer" title={$t("contacts.empty")} actionLabel={$t("contacts.create")} onaction={openCreate} />
-      {/if}
-    {:else}
-      <ul class="ct-list">
-        {#each contacts as c (c.vcard_uid)}
-          <li
-            class="ct-item"
-            oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
-          >
-            <div class="ct-avatar">{initials(c)}</div>
-            <div class="ct-item-body">
-              <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
-              <span class="ct-item-sub">
-                {#if c.email}<button type="button" class="ct-link" onclick={() => composeTo(c.email)} title={$t("contacts.newMailTo", { email: c.email })}>{c.email}</button>{/if}
-                {#if c.email && c.phone}<span class="ct-sep">·</span>{/if}
-                {#if c.phone}<a class="ct-link" href={telHref(c.phone)} title={$t("contacts.call")}>{c.phone}</a>{/if}
-                {#if c.organization}<span class="ct-sep">·</span><span>{c.organization}</span>{/if}
-              </span>
-            </div>
-            <div class="ct-item-actions">
-              <button type="button" class="btn btn-still btn-symbol btn-klein" onclick={() => openEdit(c)} aria-label={$t("contacts.editBtn")} title={$t("contacts.editBtn")}>
-                <Symbol name="bearbeiten" size={16} />
+        <ul class="ct-list">
+          {#each contacts as c (c.vcard_uid)}
+            <li>
+              <button
+                type="button"
+                class="ct-item"
+                class:selected={gewaehltUid === c.vcard_uid}
+                aria-current={gewaehltUid === c.vcard_uid ? "true" : undefined}
+                onclick={() => (gewaehltUid = c.vcard_uid)}
+                oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
+              >
+                <span class="ct-avatar" aria-hidden="true">{initials(c)}</span>
+                <span class="ct-item-body">
+                  <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
+                  <span class="ct-item-sub">{c.organization || c.email || ""}</span>
+                </span>
               </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      </div>
+    </section>
+
+    <section class="ct-detail-spalte" aria-label={$t("contacts.detail")}>
+      {#if gewaehlt}
+        {@const c = gewaehlt}
+        <div class="ct-detail">
+          <button type="button" class="btn btn-still btn-klein ct-zurueck" onclick={() => (gewaehltUid = null)}>
+            <Symbol name="chevron-links" size={16} />
+            {$t("contacts.zurueck")}
+          </button>
+          <div class="ct-detail-kopf">
+            <span class="ct-avatar ct-avatar-gross" aria-hidden="true">{initials(c)}</span>
+            <div class="ct-detail-titel">
+              <h2>{c.display_name || c.email || $t("contacts.unnamed")}</h2>
+              {#if c.organization}<p class="ct-detail-firma">{c.organization}</p>{/if}
+              {#if c.source === "mail"}<p class="ct-herkunft">{$t("contacts.gesammeltHinweis")}</p>{/if}
             </div>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-    </div>
+          </div>
+          <div class="btn-reihe ct-detail-aktionen">
+            {#if c.email}
+              <button type="button" class="btn btn-primaer" onclick={() => composeTo(c.email)}>
+                <Symbol name="post" size={16} />
+                {$t("contacts.mailSchreiben")}
+              </button>
+            {/if}
+            <button type="button" class="btn btn-sekundaer" onclick={() => openEdit(c)}>
+              <Symbol name="bearbeiten" size={16} />
+              {c.source === "mail" ? $t("contacts.uebernehmen") : $t("contacts.editBtn")}
+            </button>
+          </div>
+          <dl class="ct-angaben">
+            {#if c.email}
+              <dt>{$t("contacts.email")}</dt>
+              <dd><button type="button" class="ct-link" onclick={() => composeTo(c.email)} title={$t("contacts.newMailTo", { email: c.email })}>{c.email}</button></dd>
+            {/if}
+            {#if c.phone}
+              <dt>{$t("contacts.phone")}</dt>
+              <dd><a class="ct-link" href={telHref(c.phone)} title={$t("contacts.call")}>{c.phone}</a></dd>
+            {/if}
+            {#if c.organization}
+              <dt>{$t("contacts.organization")}</dt>
+              <dd>{c.organization}</dd>
+            {/if}
+          </dl>
+          {#if c.email}
+            <div class="ct-mails">
+              <h3>{$t("contacts.letzteMails")}</h3>
+              {#if mailsLaden}
+                <p class="ct-leise">{$t("contacts.mailsLaden")}</p>
+              {:else if letzteMails.length === 0}
+                <p class="ct-leise">{$t("contacts.keineMails")}</p>
+              {:else}
+                <ul class="ct-mail-liste">
+                  {#each letzteMails as m (`${m.uid}-${m.date}`)}
+                    <li>
+                      <span class="ct-mail-betreff">{m.subject || $t("contacts.ohneBetreff")}</span>
+                      <span class="ct-mail-datum">{datumKurz(m.date)}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+              <button type="button" class="btn btn-still btn-klein" onclick={() => mailsVon(c.email)}>{$t("contacts.alleMails")}</button>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <div class="ct-leer">
+          <EmptyState icon="nutzer" title={$t("contacts.waehlen")} />
+        </div>
+      {/if}
+    </section>
   </main>
 
   {#if editorOpen}
@@ -341,9 +494,68 @@
   />
 
 <style>
-  /* ── Contacts page inside the shell [RL-KONTAKTE] ───────────────────── */
-  .ct-main { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
-  .ct-inhalt { flex: 1; padding: var(--am-raum-6) var(--am-raum-8); }
+  /* ── Contacts in three columns [RL-KONTAKTE] (Kai, 9.10.2026) ───────── */
+  /* The sources in the shell's column; the list and the chosen contact
+     side by side, as the mail list and its reading pane. */
+  .ct-main {
+    display: grid;
+    grid-template-columns: minmax(280px, 380px) 1fr;
+    min-height: 0;
+    height: 100%;
+  }
+  .ct-liste-spalte {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--am-rand);
+  }
+  .ct-kopf { padding-inline: var(--am-raum-4); flex-shrink: 0; }
+  .ct-inhalt { flex: 1; min-height: 0; overflow-y: auto; }
+  .ct-detail-spalte { min-height: 0; overflow-y: auto; }
+
+  /* ── The sources [RL-KONTAKTE] ────────────────────────────────────────── */
+  .ct-quellen { display: flex; flex-direction: column; gap: 2px; }
+  .ct-quelle {
+    display: flex;
+    align-items: center;
+    gap: var(--am-raum-3);
+    width: 100%;
+    min-height: var(--am-ziel-zeiger);
+    padding: var(--am-raum-2) var(--am-raum-3);
+    border: none;
+    background: none;
+    color: var(--am-text-sekundaer);
+    border-radius: var(--am-radius-mittel);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-family: inherit;
+    text-align: left;
+  }
+  .ct-quelle > :global(svg) { flex: none; }
+  .ct-quelle:hover { background: var(--am-flaeche-2); color: var(--am-text-primaer); }
+  .ct-quelle:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  .ct-quelle.active {
+    background: transparent;
+    color: var(--am-text-primaer);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--am-gold-auszeichnung);
+    border-radius: 0 var(--am-radius-mittel) var(--am-radius-mittel) 0;
+  }
+  .ct-quelle.active:hover { background: var(--am-flaeche-2); }
+  .ct-quelle.active > :global(svg) { color: var(--am-gold-beschriftung); }
+  .ct-quelle-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ct-zahl {
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    color: var(--am-text-gedaempft);
+    background: var(--am-flaeche-2);
+    border-radius: 999px;
+    padding: 0 7px;
+    min-width: 20px;
+    text-align: center;
+  }
+  .ct-spalte-fuss { margin-top: var(--am-raum-4); }
+  .ct-neu { width: 100%; justify-content: center; }
 
   /* ── Loading and error state [RL-KONTAKTE] ───────────────────────────── */
   .ct-state {
@@ -353,23 +565,31 @@
     justify-content: center;
     gap: 12px;
     height: 100%;
+    padding: var(--am-raum-6);
     color: var(--am-text-gedaempft);
     font-size: var(--fs-base);
   }
 
-  /* ── Contact list rows [RL-KONTAKTE] ─────────────────────────────────── */
-  /* List rows stay Relay's own; only the edit icon is a `.btn`. */
-  .ct-list { list-style: none; margin: 0; padding: 0 0 84px; display: flex; flex-direction: column; gap: 6px; }
+  /* ── List rows [RL-KONTAKTE] ─────────────────────────────────────────── */
+  /* As the mail list: lines between the rows, the chosen one light blue. */
+  .ct-list { list-style: none; margin: 0; padding: 0 0 84px; }
   .ct-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    background: var(--am-flaeche-1);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    border-bottom: 1px solid var(--am-rand);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
-  .ct-item:hover { border-color: var(--am-handlung-ruhend); }
+  .ct-item:hover { background: var(--am-flaeche-1); }
+  .ct-item.selected, .ct-item.selected:hover { background: var(--rl-zeile-auswahl); }
+  .ct-item:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: -2px; }
   .ct-avatar {
     width: 40px;
     height: 40px;
@@ -386,7 +606,27 @@
   .ct-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ct-item-name { font-weight: 600; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ct-item-sub { font-size: var(--fs-xs); color: var(--am-text-gedaempft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Mail address and phone number read as links inside the row. */
+
+  /* ── The chosen contact [RL-KONTAKTE] ────────────────────────────────── */
+  .ct-detail { padding: var(--am-raum-6) var(--am-raum-8); max-width: 720px; }
+  .ct-zurueck { display: none; margin-bottom: var(--am-raum-4); }
+  .ct-detail-kopf { display: flex; align-items: center; gap: var(--am-raum-4); }
+  .ct-avatar-gross { width: 64px; height: 64px; min-width: 64px; font-size: 1.25rem; }
+  .ct-detail-titel { min-width: 0; }
+  .ct-detail-titel h2 { margin: 0; font-size: 1.375rem; overflow-wrap: anywhere; }
+  .ct-detail-firma { margin: 2px 0 0; color: var(--am-text-sekundaer); }
+  .ct-herkunft { margin: var(--am-raum-1) 0 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
+  .ct-detail .ct-detail-aktionen { margin: var(--am-raum-4) 0 var(--am-raum-6); flex-wrap: wrap; }
+  .ct-angaben {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--am-raum-2) var(--am-raum-6);
+    margin: 0 0 var(--am-raum-6);
+    font-size: var(--fs-base);
+  }
+  .ct-angaben dt { color: var(--am-text-gedaempft); }
+  .ct-angaben dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  /* Mail address and phone number read as links. */
   .ct-link {
     color: var(--am-handlung-ruhend);
     text-decoration: none;
@@ -395,18 +635,37 @@
     padding: 0;
     font: inherit;
     cursor: pointer;
+    text-align: left;
   }
   .ct-link:hover { text-decoration: underline; }
-  .ct-sep { margin: 0 4px; opacity: 0.5; }
-
-  .ct-item-actions { display: flex; gap: 4px; }
+  .ct-mails h3 { margin: 0 0 var(--am-raum-2); font-size: var(--fs-base); }
+  .ct-mail-liste { list-style: none; margin: 0 0 var(--am-raum-3); padding: 0; }
+  .ct-mail-liste li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--am-raum-4);
+    padding: var(--am-raum-2) 0;
+    border-bottom: 1px solid var(--am-rand);
+    font-size: var(--fs-base);
+  }
+  .ct-mail-betreff { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ct-mail-datum { flex: none; color: var(--am-text-gedaempft); font-size: var(--fs-xs); }
+  .ct-leise { color: var(--am-text-gedaempft); font-size: var(--fs-base); margin: 0 0 var(--am-raum-3); }
+  .ct-leer { height: 100%; display: flex; align-items: center; justify-content: center; }
 
   /* ── Contact editor dialog [RL-KONTAKTE] ─────────────────────────────── */
   /* Destructive last in the footer, away from "Speichern" (CI R1/G2). */
   .ct-delete { margin-left: auto; }
 
   /* ── Narrow [RL-KONTAKTE] ────────────────────────────────────────────── */
-  @media (max-width: 40rem) {
-    .ct-inhalt { padding: var(--am-raum-4); }
+  /* The list alone; a chosen contact takes its place, "Zurück" leads back. */
+  @media (max-width: 52rem) {
+    .ct-main { grid-template-columns: 1fr; }
+    .ct-liste-spalte { border-right: none; }
+    .ct-detail-spalte { display: none; }
+    .ct-mit-auswahl .ct-liste-spalte { display: none; }
+    .ct-mit-auswahl .ct-detail-spalte { display: block; }
+    .ct-zurueck { display: inline-flex; }
+    .ct-detail { padding: var(--am-raum-4); }
   }
 </style>

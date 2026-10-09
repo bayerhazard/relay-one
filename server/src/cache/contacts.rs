@@ -35,18 +35,59 @@ fn row_to_contact_row(row: &rusqlite::Row) -> rusqlite::Result<ContactRow> {
 /// List contacts, optionally filtered by a case-insensitive search on
 /// display name, given name, family name or email.
 pub fn list_contacts(conn: &Connection, search: &str) -> Result<Vec<ContactRow>, String> {
+    list_contacts_aus(conn, search, Quelle::Alle)
+}
+
+/// Where a contact comes from (Kai, 9.10.2026, the contacts' left column):
+/// the address book (CardDAV, or made in Relay) or collected from mail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quelle {
+    Alle,
+    Adressbuch,
+    Mail,
+}
+
+impl Quelle {
+    pub fn lesen(s: &str) -> Self {
+        match s {
+            "adressbuch" => Quelle::Adressbuch,
+            "mail" => Quelle::Mail,
+            _ => Quelle::Alle,
+        }
+    }
+
+    /// The condition on `contacts`. A sender collected from mail whose
+    /// address is in the address book is the same person: it is left out.
+    fn bedingung(self) -> &'static str {
+        const GESAMMELT_EIGEN: &str = "(source = 'mail' AND NOT EXISTS (SELECT 1 FROM contacts b \
+            WHERE b.source != 'mail' AND b.email IS NOT NULL AND lower(b.email) = lower(contacts.email)))";
+        match self {
+            Quelle::Adressbuch => "source != 'mail'",
+            Quelle::Mail => GESAMMELT_EIGEN,
+            Quelle::Alle => "(source != 'mail' OR (source = 'mail' AND NOT EXISTS (SELECT 1 FROM contacts b \
+                WHERE b.source != 'mail' AND b.email IS NOT NULL AND lower(b.email) = lower(contacts.email))))",
+        }
+    }
+}
+
+/// The contacts of one source, searched as `list_contacts`.
+pub fn list_contacts_aus(conn: &Connection, search: &str, quelle: Quelle) -> Result<Vec<ContactRow>, String> {
     let like = format!("%{}%", search.to_lowercase());
-    let sql = r#"
+    let sql = format!(
+        r#"
         SELECT vcard_uid, given_name, family_name, display_name, email, phone,
                organization, source, synced_at
         FROM contacts
-        WHERE lower(display_name) LIKE ?1
+        WHERE (lower(display_name) LIKE ?1
            OR lower(coalesce(email,'')) LIKE ?1
            OR lower(coalesce(given_name,'')) LIKE ?1
-           OR lower(coalesce(family_name,'')) LIKE ?1
+           OR lower(coalesce(family_name,'')) LIKE ?1)
+          AND {}
         ORDER BY coalesce(display_name, given_name, email, '') COLLATE NOCASE
-    "#;
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    "#,
+        quelle.bedingung()
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(rusqlite::params![like], row_to_contact_row)
         .map_err(|e| e.to_string())?;
@@ -55,6 +96,22 @@ pub fn list_contacts(conn: &Connection, search: &str) -> Result<Vec<ContactRow>,
         out.push(r.map_err(|e| e.to_string())?);
     }
     Ok(out)
+}
+
+/// How many contacts each source holds, for the left column.
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct Zahlen {
+    pub alle: i64,
+    pub adressbuch: i64,
+    pub mail: i64,
+}
+
+pub fn zahlen(conn: &Connection) -> Result<Zahlen, String> {
+    let zaehle = |q: Quelle| -> Result<i64, String> {
+        conn.query_row(&format!("SELECT COUNT(*) FROM contacts WHERE {}", q.bedingung()), [], |r| r.get(0))
+            .map_err(|e| e.to_string())
+    };
+    Ok(Zahlen { alle: zaehle(Quelle::Alle)?, adressbuch: zaehle(Quelle::Adressbuch)?, mail: zaehle(Quelle::Mail)? })
 }
 
 /// Fetch a single contact by its vCard UID.
@@ -90,6 +147,7 @@ pub fn upsert_contact(conn: &Connection, c: &Contact) -> Result<(), String> {
             phone = excluded.phone,
             organization = excluded.organization,
             vcard_raw = excluded.vcard_raw,
+            source = 'carddav',
             synced_at = datetime('now')",
         rusqlite::params![
             c.vcard_uid,
@@ -312,6 +370,29 @@ mod tests {
         let _ = enrich_from_envelope(&conn, "\"Max\" <max@example.com>", "", "").unwrap();
         let all = list_contacts(&conn, "max").unwrap();
         assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn quellen_trennen_adressbuch_und_gesammelte() {
+        let conn = test_db();
+        upsert_contact(&conn, &test_contact("u1", "Max", "Max@example.com")).unwrap();
+        // Max also wrote a mail: the same person, not shown twice.
+        enrich_from_envelope(&conn, "\"Max\" <max@example.com>", "", "").unwrap();
+        enrich_from_envelope(&conn, "\"Shop\" <noreply@shop.example>", "", "").unwrap();
+
+        let uids = |q: Quelle| -> Vec<String> {
+            list_contacts_aus(&conn, "", q).unwrap().into_iter().map(|c| c.vcard_uid).collect()
+        };
+        assert_eq!(uids(Quelle::Adressbuch), vec!["u1"]);
+        assert_eq!(uids(Quelle::Mail), vec!["mail:noreply@shop.example"]);
+        assert_eq!(uids(Quelle::Alle), vec!["u1", "mail:noreply@shop.example"]);
+        assert_eq!(zahlen(&conn).unwrap(), Zahlen { alle: 2, adressbuch: 1, mail: 1 });
+        assert_eq!(Quelle::lesen("adressbuch"), Quelle::Adressbuch);
+        assert_eq!(Quelle::lesen("x"), Quelle::Alle);
+
+        // Saved in Relay, a collected sender goes into the address book.
+        upsert_contact(&conn, &test_contact("mail:noreply@shop.example", "Shop", "noreply@shop.example")).unwrap();
+        assert_eq!(zahlen(&conn).unwrap(), Zahlen { alle: 2, adressbuch: 2, mail: 0 });
     }
 
     #[test]

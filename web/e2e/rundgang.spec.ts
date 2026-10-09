@@ -34,7 +34,7 @@ interface Seite {
 
 const SEITEN: Seite[] = [
   { name: DATEN ? "Mail" : "Mail (Einrichtung)", pfad: "/", oeffnen: ".message-item", inhalt: "Angebot Messestand Frühjahr" },
-  { name: "Kontakte", pfad: "/contacts", inhalt: "Jonas Weber" },
+  { name: "Kontakte", pfad: "/contacts", inhalt: "Jonas Weber", oeffnen: '.ct-item:has-text("Jonas Weber")' },
   // The phone shows only the time in a month cell.
   { name: "Kalender", pfad: "/calendar", inhalt: "12:30" },
   { name: "Meetings", pfad: "/meetings" },
@@ -86,7 +86,8 @@ for (const { name, pfad, teil, inhalt, oeffnen } of SEITEN) {
       await page.locator(oeffnen).first().click();
       await page.waitForTimeout(800);
     }
-    if (DATEN && inhalt) await expect(page.getByText(inhalt).first(), "Beispieldaten sichtbar").toBeVisible();
+    // The first visible one: on the phone an opened entry hides its list.
+    if (DATEN && inhalt) await expect(page.getByText(inhalt).filter({ visible: true }).first(), "Beispieldaten sichtbar").toBeVisible();
 
     const lage = await page.evaluate(() => {
       const kopf = document.querySelector(".seitenkopf");
@@ -405,6 +406,12 @@ test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, 
   await context.addInitScript(() => {
     try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
   });
+  // Its own unread mails: the tests before may have opened them all.
+  const konto = (await (await page.request.get("/api/v1/accounts")).json())[0].id;
+  const liste = await (await page.request.get(`/api/v1/messages?account_id=${konto}&folder=INBOX&list_only=1`)).json();
+  const uids = (liste as { uid: number }[]).slice(-2).map((m) => m.uid);
+  const gesetzt = await page.request.post("/api/v1/messages/unread-batch", { data: { account_id: konto, uids, source_folder: "INBOX" } });
+  expect(gesetzt.ok(), "zwei Mails ungelesen").toBeTruthy();
   await page.goto("/");
   const zeilen = page.locator(".message-item");
   await zeilen.first().waitFor();
@@ -423,6 +430,34 @@ test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, 
   await zahl.click();
   await expect(titel).toHaveText("Posteingang");
   await expect(zeilen).toHaveCount(alle);
+});
+
+// Contacts in three columns (Kai, 9.10.2026): the address book first, the
+// senders collected from mail apart (one who is in the address book is not
+// shown twice), the chosen contact with his last mails.
+test("Kontakte: drei Spalten, Herkunft und letzte Mails", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "desktop", "drei Spalten nebeneinander");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/contacts");
+  const titel = page.locator(".ct-kopf h1");
+  await expect(titel).toHaveText("Mein Adressbuch");
+  const zeilen = page.locator(".ct-item");
+  await expect(zeilen).toHaveCount(8);
+
+  await zeilen.filter({ hasText: "Jonas Weber" }).click();
+  const detail = page.locator(".ct-detail");
+  await expect(detail.getByRole("heading", { level: 2 })).toHaveText("Jonas Weber");
+  await expect(detail.getByRole("button", { name: "E-Mail schreiben" })).toBeVisible();
+  await expect(detail.locator(".ct-mail-liste")).toContainText("Angebot Messestand Frühjahr");
+
+  await page.locator(".ct-quelle", { hasText: "Aus E-Mails gesammelt" }).click();
+  await expect(titel).toHaveText("Aus E-Mails gesammelt");
+  await expect(zeilen.filter({ hasText: "Jonas Weber" }), "nicht doppelt").toHaveCount(0);
+  await zeilen.first().click();
+  await expect(detail.getByRole("button", { name: "Ins Adressbuch übernehmen" })).toBeVisible();
 });
 
 // "Ähnliche E-Mails" (Kai, 7.10.2026): from the context menu to all mails
