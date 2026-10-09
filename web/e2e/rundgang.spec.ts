@@ -406,6 +406,12 @@ test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, 
   await context.addInitScript(() => {
     try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
   });
+  // Its own unread mails: the tests before may have opened them all.
+  const konto = (await (await page.request.get("/api/v1/accounts")).json())[0].id;
+  const liste = await (await page.request.get(`/api/v1/messages?account_id=${konto}&folder=INBOX&list_only=1`)).json();
+  const uids = (liste as { uid: number }[]).slice(-2).map((m) => m.uid);
+  const gesetzt = await page.request.post("/api/v1/messages/unread-batch", { data: { account_id: konto, uids, source_folder: "INBOX" } });
+  expect(gesetzt.ok(), "zwei Mails ungelesen").toBeTruthy();
   await page.goto("/");
   const zeilen = page.locator(".message-item");
   await zeilen.first().waitFor();
