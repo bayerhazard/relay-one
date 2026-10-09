@@ -226,11 +226,14 @@ describe("Mailbox Page - Nachricht loeschen (Bug 3, CI RL-R2)", () => {
   // final delete is a word, "Mail endgültig löschen" (CI G2/G4).
   const LOESCHEN = /^(In den Papierkorb|Mail endgültig löschen)$/;
 
+  // Deleting stands under "Mehr" in the list head (Kai, 9.10.2026).
   async function clickDeleteButton() {
+    const kopf = () => within(document.querySelector(".mail-kopf") as HTMLElement);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: LOESCHEN })).toBeTruthy();
+      expect(kopf().getByRole("button", { name: "Mehr" })).toBeTruthy();
     });
-    await fireEvent.click(screen.getByRole("button", { name: LOESCHEN }));
+    await fireEvent.click(kopf().getByRole("button", { name: "Mehr" }));
+    await fireEvent.click(screen.getByRole("menuitem", { name: LOESCHEN }));
   }
 
   function getDialog() {
