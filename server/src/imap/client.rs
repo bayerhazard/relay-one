@@ -1097,6 +1097,19 @@ impl ImapClient {
         .await
     }
 
+    /// The folder's UIDVALIDITY (STATUS, nothing selected) on the sync
+    /// connection.
+    pub async fn uidvalidity_sync(&self, folder: &str) -> Result<Option<u32>, AppError> {
+        let folder = encode_imap_utf7(folder);
+        self.with_slot_blocking(Slot::Sync, "uidvalidity", move |session| {
+            let mb = session
+                .status(&folder, "(UIDVALIDITY)")
+                .map_err(|e| AppError::imap(format!("STATUS fehlgeschlagen: {}", e), "uidvalidity"))?;
+            Ok(mb.uid_validity)
+        })
+        .await
+    }
+
     pub async fn create_folder(&self, name: &str) -> Result<(), AppError> {
         let name = encode_imap_utf7(name);
         self.with_session_blocking("create_folder", move |session| {

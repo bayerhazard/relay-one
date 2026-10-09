@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 9;
+pub const CURRENT_SCHEMA_VERSION: i64 = 10;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -595,6 +595,12 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     if user_version < 9 {
         add_column_if_missing(conn, "provider_ops", "kopf", "TEXT")?;
         conn.pragma_update(None, "user_version", 9)?;
+    }
+    // v10: the UIDVALIDITY Relay saw per folder (a folder numbered anew is
+    // fetched again; Kai, 9.10.2026).
+    if user_version < 10 {
+        add_column_if_missing(conn, "sync_state", "uidvalidity", "INTEGER")?;
+        conn.pragma_update(None, "user_version", 10)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

@@ -88,14 +88,20 @@ fn save_message_inner(conn: &Connection, account_id: i64, msg: &CachedMessage, f
     // re-insert it into another folder. Without this the sync would
     // "revive" deleted mails in INBOX while their row stays in Trash — and
     // the next delete would hit UNIQUE(account_id, folder_id, uid).
-    if !msg.envelope.message_id.is_empty() {
+    // Only while that delete is on its way (the trash row is provisional,
+    // synced = 0; Kai, 9.10.2026): a mail the provider has in its trash and
+    // that comes back in the inbox was restored there (in Gmail, on the
+    // phone) and returns; and the provider's trash itself replaces the
+    // provisional row with its own (before, the trash row kept the old
+    // folder's number for good).
+    if !msg.envelope.message_id.is_empty() && folder_name != "Trash" {
         let already_in_trash: bool = conn
             .query_row(
                 "SELECT EXISTS(
                     SELECT 1 FROM messages m
                     JOIN folders f ON f.id = m.folder_id
                     WHERE m.account_id = ?1 AND m.message_id = ?2
-                      AND f.local_only = 1 AND f.name = 'Trash'
+                      AND f.local_only = 1 AND f.name = 'Trash' AND m.synced = 0
                 )",
                 params![account_id, msg.envelope.message_id],
                 |row| row.get(0),
@@ -167,6 +173,20 @@ ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
         conn.execute(
             "DELETE FROM messages WHERE account_id = ?1 AND folder_id = ?2 AND message_id = ?3
              AND synced = 0 AND uid <> ?4",
+            params![account_id, folder_id, msg.envelope.message_id, msg.uid],
+        )?;
+        // One mail in several folders (Gmail: the inbox and a label, or the
+        // sent mail of a thread) is summarized once: a copy takes the AI's
+        // work from another copy instead of asking again (Kai, 9.10.2026).
+        conn.execute(
+            "UPDATE messages SET
+                ai_summary = o.ai_summary, ai_priority = o.ai_priority, ai_fraud_score = o.ai_fraud_score
+             FROM (SELECT ai_summary, ai_priority, ai_fraud_score FROM messages
+                   WHERE account_id = ?1 AND message_id = ?3 AND ai_summary IS NOT NULL
+                     AND NOT (folder_id = ?2 AND uid = ?4)
+                   LIMIT 1) AS o
+             WHERE messages.account_id = ?1 AND messages.folder_id = ?2 AND messages.uid = ?4
+               AND messages.ai_summary IS NULL",
             params![account_id, folder_id, msg.envelope.message_id, msg.uid],
         )?;
     }
@@ -1348,6 +1368,26 @@ pub fn ordner_austragen(conn: &Connection, account_id: i64, name: &str, delim: &
         conn.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
     }
     Ok(entfernt)
+}
+
+/// Folders Relay mirrored that the provider no longer lists (renamed or
+/// deleted in Gmail's web view or another client; Kai, 9.10.2026): before,
+/// they stayed in Relay as ghosts with their old mails. Only folders the
+/// sync had fetched (a cursor), not Relay's own ("only in Relay", the
+/// trash), and none a provider op still waits on (a target Relay is about
+/// to make there). `beim_anbieter` are the storage names of the list.
+pub fn verschwundene_ordner(conn: &Connection, account_id: i64, beim_anbieter: &[String]) -> Result<Vec<String>, rusqlite::Error> {
+    let kandidaten: Vec<String> = conn
+        .prepare(
+            "SELECT f.name FROM folders f JOIN sync_state s ON s.folder_id = f.id
+             WHERE f.account_id = ?1 AND f.local_only = 0 AND f.name NOT IN ('Trash', 'INBOX')
+               AND NOT EXISTS (SELECT 1 FROM provider_ops o
+                               WHERE o.account_id = ?1 AND o.state IN ('pending', 'failed') AND o.attempts < 5
+                                 AND (o.folder = f.name OR o.target_folder = f.name))",
+        )?
+        .query_map(params![account_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(kandidaten.into_iter().filter(|n| !beim_anbieter.iter().any(|b| b == n)).collect())
 }
 
 /// Empty a folder in Relay's index (Kai, 9.10.2026: "Papierkorb leeren"):

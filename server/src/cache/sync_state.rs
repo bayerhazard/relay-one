@@ -67,6 +67,47 @@ pub fn set(
     Ok(())
 }
 
+/// The UIDVALIDITY Relay last saw for the folder (None: not yet).
+pub fn uidvalidity(conn: &Connection, account_id: i64, folder_name: &str) -> Option<i64> {
+    conn.query_row(
+        "SELECT uidvalidity FROM sync_state WHERE account_id = ?1 AND folder_name = ?2",
+        params![account_id, folder_name],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .ok()
+    .flatten()
+}
+
+pub fn set_uidvalidity(conn: &Connection, account_id: i64, folder_name: &str, wert: i64) -> Result<(), rusqlite::Error> {
+    let n = conn.execute(
+        "UPDATE sync_state SET uidvalidity = ?3 WHERE account_id = ?1 AND folder_name = ?2",
+        params![account_id, folder_name, wert],
+    )?;
+    if n == 0 {
+        set(conn, account_id, folder_name, 0, 0)?;
+        conn.execute(
+            "UPDATE sync_state SET uidvalidity = ?3 WHERE account_id = ?1 AND folder_name = ?2",
+            params![account_id, folder_name, wert],
+        )?;
+    }
+    Ok(())
+}
+
+/// The provider numbered the folder anew (UIDVALIDITY changed: a label
+/// deleted and made again, a server moved; Kai, 9.10.2026): Relay's numbers
+/// for it mean nothing now. Its confirmed rows go and the folder is fetched
+/// again from the start; rows moved here locally wait for theirs.
+pub fn neu_nummeriert(conn: &Connection, account_id: i64, folder_name: &str, wert: i64) -> Result<usize, rusqlite::Error> {
+    let weg = conn.execute(
+        "DELETE FROM messages WHERE account_id = ?1 AND synced = 1
+         AND folder_id = (SELECT id FROM folders WHERE account_id = ?1 AND name = ?2)",
+        params![account_id, folder_name],
+    )?;
+    set(conn, account_id, folder_name, 0, 0)?;
+    set_uidvalidity(conn, account_id, folder_name, wert)?;
+    Ok(weg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

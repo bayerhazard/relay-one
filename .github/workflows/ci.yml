@@ -69,7 +69,7 @@ jobs:
   oberflaeche:
     name: Oberfläche (Rundgang)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -156,6 +156,33 @@ jobs:
       - name: moving keeps the mail on the mail server
         run: timeout 1800 python3 web/e2e/testserver/ordnerprobe.py --relay http://127.0.0.1:3800
 
+      # Relay follows the mail server (Kai, 9.10.2026): a mail restored from
+      # the server's trash by IMAP comes back, a folder renamed there leaves
+      # no ghost.
+      - name: Relay follows the mail server
+        run: timeout 2400 python3 web/e2e/testserver/folgeprobe.py --relay http://127.0.0.1:3800
+
+      # Against a real Gmail account (Kai, 9.10.2026): GreenMail has no
+      # labels and no "All Mail". Runs only where the repository has the
+      # secrets GMAIL_TEST_USER and GMAIL_TEST_PASSWORT (an app password of
+      # an account kept for tests); without them the probe skips itself.
+      - name: Gmail behaves as Gmail does
+        env:
+          GMAIL_TEST_USER: ${{ secrets.GMAIL_TEST_USER }}
+          GMAIL_TEST_PASSWORT: ${{ secrets.GMAIL_TEST_PASSWORT }}
+        run: |
+          if [ -z "$GMAIL_TEST_USER" ]; then
+            python3 web/e2e/testserver/gmailprobe.py
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/relay-gmail"
+          RELAY_DATA_DIR="$RUNNER_TEMP/relay-gmail" \
+          RELAY_WEB_DIR="$GITHUB_WORKSPACE/web/build" \
+          RELAY_BIND=127.0.0.1:3801 \
+            nohup target/debug/relay-server > "$RUNNER_TEMP/relay-gmail.log" 2>&1 &
+          sleep 5
+          timeout 3600 python3 web/e2e/testserver/gmailprobe.py --relay http://127.0.0.1:3801
+
       - name: upload report
         if: failure()
         uses: actions/upload-artifact@v4
@@ -166,5 +193,6 @@ jobs:
             web/test-results/
             ${{ runner.temp }}/relay-server.log
             ${{ runner.temp }}/relay-daten.log
+            ${{ runner.temp }}/relay-gmail.log
             web/e2e/testserver/.lauf/*.log
           retention-days: 7

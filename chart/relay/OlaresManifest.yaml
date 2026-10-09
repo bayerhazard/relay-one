@@ -7,7 +7,7 @@ metadata:
   title: Relay
   description: Relay — the intelligent, local email client
   icon: https://raw.githubusercontent.com/bayerhazard/relay-one/main/icon.png
-  version: 26.10.12
+  version: 26.10.13
   categories:
     - Applications
 entrances:
@@ -24,8 +24,9 @@ entrances:
     #   olares-cli settings apps domain set relay relay --third-level mail
     # → https://mail.aimighty.olares.de
 spec:
-  versionName: 26.10.12
+  versionName: 26.10.13
   upgradeDescription: |
+    v26.10.13: Relay follows what happens at your mail server, wherever it happened. A mail restored from the trash in Gmail or on the phone comes back in Relay; before, Relay kept it hidden for good. Relay's trash shows what the provider's trash holds, so mail restored or emptied there leaves it here too. Labels renamed or deleted in Gmail no longer stay behind in Relay, and a folder the server numbered anew is fetched again instead of mixing up its mails. A mail in two folders (the inbox and a label) gets its AI summary once.
     v26.10.12: Folders work at your mail server. A new folder is created there (on Gmail as a label); before, it existed only in Relay, and mail moved into it left the server. Renaming keeps the mails and folders below it and leaves no old copy behind in Relay, names with umlauts included; "Move to …" in a folder's menu moves it under another folder or to the top. Deleting a folder sends its mails to the trash (on Gmail only the label goes, the mails stay in the archive), and when the server refuses, Relay says so instead of clearing its copy. Trash and spam can be emptied from their menu, and a folder kept only in Relay can be created at the provider, with its mails.
     v26.10.11: Archiving, moving and starring keep your mail where it belongs on the mail server, on Gmail too. Archiving on Gmail takes a mail out of the inbox and leaves it in "All Mail", which Relay now shows as "Archive"; before, from the second archived mail on, Gmail put them in its trash. A folder Relay had seen empty (a spam folder, a new label) or that the server did not have yet no longer becomes "only in Relay": the server keeps the mail, and Relay makes the folder there if needed. After the update Relay brings mails this had taken off the server back, from its trash or from Relay's own copy. Star and "read" find the right mail right after a move and stay in their folder, and mail moved or archived elsewhere (in Gmail, on the phone) disappears from Relay at the next sync. Dragged into the trash, a mail goes into the provider's trash; archive, trash, sent, drafts and spam can no longer be renamed or deleted by mistake.
     v26.10.10: Deleting reaches your mail server reliably. Mail deleted in Relay goes into the provider's real trash (on Gmail into "Trash" instead of only being archived); deleting it for good from Relay's trash removes it there too, found by its Message-ID — before, it never reached the server. A delete still within its five seconds of "Undo" is sent when the tab closes, a restart no longer leaves mail marked for deletion on the server, and should the server refuse after five tries, the mail list says so and offers "Try again". The retry buttons for deletions in the settings work again.
