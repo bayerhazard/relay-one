@@ -4,47 +4,45 @@ use tokio::sync::mpsc;
 
 use crate::AppState;
 
+/// CardDAV background sync. It keeps running when nothing is configured
+/// yet, so an address book connected later is synced without a restart
+/// (before, the scheduler ended at boot and the contacts never came).
 pub async fn start_carddav_sync(state: Arc<AppState>, mut shutdown_rx: mpsc::Receiver<()>) {
-
-    // Check if CardDAV is configured
-    let settings = {
-        let guard = state.carddav_settings.read();
-        guard.clone()
-    };
-
-    let (interval_minutes, has_settings) = match settings {
-        Some(s) => (s.sync_interval_minutes, !s.url.is_empty()),
-        None => (30, false),
-    };
-
-    if !has_settings {
-        tracing::info!("CardDAV-Sync: nicht konfiguriert, Scheduler nicht gestartet");
-        return;
-    }
-
-    tracing::info!("CardDAV-Sync: gestartet (Interval: {} Min)", interval_minutes);
-
-    let interval = Duration::from_secs(interval_minutes * 60);
-    let mut interval = tokio::time::interval(interval);
-
-    // Initial sync after 5 seconds
+    tracing::info!("CardDAV-Sync: Ticker gestartet (Prüfung alle 60s)");
+    let mut letzter: Option<(tokio::time::Instant, String)> = None;
+    // Initial pass shortly after boot.
     tokio::time::sleep(Duration::from_secs(5)).await;
-    do_sync(&state).await;
 
     loop {
+        let settings = state.carddav_settings.read().clone();
+        if let Some(s) = settings.filter(|s| !s.url.is_empty()) {
+            let intervall = Duration::from_secs(s.sync_interval_minutes.max(1) * 60);
+            // Due after its interval, or at once when the address changed.
+            let faellig = match &letzter {
+                Some((t, url)) => url != &s.url || tokio::time::Instant::now().duration_since(*t) >= intervall,
+                None => true,
+            };
+            if faellig {
+                letzter = Some((tokio::time::Instant::now(), s.url.clone()));
+                if let Err(e) = do_sync(&state).await {
+                    tracing::warn!("CardDAV-Sync: fehlgeschlagen: {}", e);
+                }
+            }
+        }
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 tracing::info!("CardDAV-Sync: gestoppt");
                 break;
             }
-            _ = interval.tick() => {
-                do_sync(&state).await;
-            }
+            _ = tokio::time::sleep(Duration::from_secs(60)) => {}
         }
     }
 }
 
-async fn do_sync(state: &AppState) {
+/// One CardDAV sync: the changes since the last token (or everything), into
+/// the contacts table. Shared by the ticker and "Aktualisieren"; the manual
+/// sync used to fetch the contacts and store only the token.
+pub async fn do_sync(state: &AppState) -> Result<usize, String> {
     let settings = {
         let guard = state.carddav_settings.read();
         guard.clone()
@@ -52,7 +50,7 @@ async fn do_sync(state: &AppState) {
 
     let settings = match settings {
         Some(s) if !s.url.is_empty() => s,
-        _ => return,
+        _ => return Err("CardDAV nicht konfiguriert".into()),
     };
 
     let client = crate::dav::carddav::CardDavClient::new(settings);
@@ -73,10 +71,7 @@ async fn do_sync(state: &AppState) {
                         if let Some(conn) = db_guard.as_ref() {
                             let mut stmt = match conn.prepare("DELETE FROM contacts WHERE vcard_uid = ?1") {
                                 Ok(s) => s,
-                                Err(e) => {
-                                    tracing::warn!("CardDAV-Sync: DB-Prepare fehlgeschlagen: {}", e);
-                                    return;
-                                }
+                                Err(e) => return Err(format!("DB-Prepare fehlgeschlagen: {e}")),
                             };
                             for uid in &deleted {
                                 if let Err(e) = stmt.execute(&[uid]) {
@@ -103,7 +98,7 @@ async fn do_sync(state: &AppState) {
                 }
 
                 tracing::info!("CardDAV-Sync: {} Kontakte aktualisiert", added.len());
-                return;
+                return Ok(added.len());
             }
             Err(e) => {
                 tracing::warn!("CardDAV-Sync: inkrementell fehlgeschlagen, versuche Full-Sync: {}", e);
@@ -130,10 +125,9 @@ async fn do_sync(state: &AppState) {
             }
 
             tracing::info!("CardDAV-Sync: {} Kontakte synchronisiert", contacts.len());
+            Ok(contacts.len())
         }
-        Err(e) => {
-            tracing::warn!("CardDAV-Sync: fehlgeschlagen: {}", e);
-        }
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -199,6 +193,7 @@ fn save_contacts_to_db(
            phone = excluded.phone,
            organization = excluded.organization,
            vcard_raw = excluded.vcard_raw,
+           source = 'carddav',
            synced_at = datetime('now')"
     ).map_err(|e| e.to_string())?;
 

@@ -233,23 +233,18 @@ pub async fn set_carddav_settings(
 
 /// `POST /api/v1/carddav/sync` — trigger a manual CardDAV sync.
 pub async fn sync_carddav(State(state): State<AppState>) -> ApiResult<serde_json::Value> {
-    let settings = state.carddav_settings.read().clone();
-    let Some(settings) = settings else {
+    if state.carddav_settings.read().is_none() {
         return Err(ApiError("CardDAV nicht konfiguriert".into()));
-    };
-    let client = crate::dav::carddav::CardDavClient::new(settings);
-    let token = state.carddav_sync_token.read().clone();
-    match client.sync_incremental(&token).await {
-        Ok((contacts, _deleted, new_token)) => {
-            *state.carddav_sync_token.write() = new_token.clone();
-            with_db(&state, |conn| {
-                crate::cache::settings::set_setting(conn, "carddav_sync_token", &new_token)
-                    .map_err(|e| e.to_string())
-            })?;
-            Ok(Json(serde_json::json!({ "ok": true, "synced": contacts.len() })))
-        }
-        Err(e) => Err(ApiError(format!("CardDAV-Sync fehlgeschlagen: {e}"))),
     }
+    let n = crate::dav::scheduler::do_sync(&state)
+        .await
+        .map_err(|e| ApiError(format!("CardDAV-Sync fehlgeschlagen: {e}")))?;
+    // The token for the next start, as before.
+    let token = state.carddav_sync_token.read().clone();
+    with_db(&state, |conn| {
+        crate::cache::settings::set_setting(conn, "carddav_sync_token", &token).map_err(|e| e.to_string())
+    })?;
+    Ok(Json(serde_json::json!({ "ok": true, "synced": n })))
 }
 
 /// `POST /api/v1/carddav/search` — search the locally synced contacts by
