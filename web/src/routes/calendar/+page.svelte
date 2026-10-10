@@ -1624,7 +1624,7 @@
   .cal-mini { padding: 12px 14px; border-bottom: 1px solid var(--am-rand); }
   .cal-mini-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .cal-mini-label { font-size: var(--fs-sm); font-weight: 600; }
-  .cal-mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+  .cal-mini-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; }
   .cal-mini-day {
     background: none; border: none; color: var(--am-text-primaer);
     font-size: var(--fs-xs); padding: 4px 0; cursor: pointer; border-radius: var(--am-radius-klein);
@@ -1672,7 +1672,7 @@
   .cal-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     /* The weekday row is its own size; only the weeks share the height
        (it took a week's 96 px before). */
     grid-template-rows: auto;
@@ -1775,7 +1775,7 @@
 
   /* ── Week view [RL-KALENDER] ──────────────────────────────────────────── */
   .cal-week { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  .cal-week-head { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--am-rand); }
+  .cal-week-head { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--am-rand); }
   .cal-week-head-cell {
     display: flex; flex-direction: column; align-items: center; gap: 2px;
     padding: 8px 4px; border-right: 1px solid var(--am-rand);
@@ -1783,12 +1783,27 @@
   .cal-week-dow { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--am-text-gedaempft); font-weight: 600; }
   .cal-week-num { font-size: var(--fs-lg); font-weight: 600; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
   .cal-week-head-cell.is-today .cal-week-num { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
-  .cal-week-body { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); overflow-y: auto; }
+  .cal-week-body { flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow-y: auto; }
   .cal-week-col { border-right: 1px solid var(--am-rand); padding: 6px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; min-height: 120px; }
   .cal-week-col:last-child { border-right: none; }
   .cal-week-col:hover { background: var(--am-flaeche-2); }
   .cal-week-col.is-today { background: color-mix(in srgb, var(--am-handlung-ruhend) 5%, transparent); }
-  .cal-event-block { flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border-left: 3px solid var(--am-handlung-ruhend); background: var(--am-flaeche-1); }
+  .cal-event-block { flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border-left: 3px solid var(--am-handlung-ruhend); background: var(--am-flaeche-1); max-width: 100%; }
+  /* Phone: seven columns of about 50 px — the title wraps instead of
+     running into the next day (Kai, 10.10.2026). */
+  @media (max-width: 40rem) {
+    .cal-event-block { padding: 4px; }
+    .cal-event-block .cal-event-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      -webkit-box-orient: vertical;
+      font-size: 0.6875rem;
+    }
+    .cal-event-block .cal-event-time { font-size: 0.6875rem; }
+  }
 
   /* ── Day view and digest [RL-KALENDER] ────────────────────────────────── */
   .cal-dayview { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
