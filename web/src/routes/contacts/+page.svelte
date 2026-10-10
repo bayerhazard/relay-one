@@ -40,7 +40,18 @@
   // Three columns (Kai, 9.10.2026): the sources left, the list in the
   // middle, the chosen contact right. The address book comes first; the
   // senders Relay collects from mail stand apart.
-  let quelle = $state<KontaktQuelle>("adressbuch");
+  // Starts on "Alle", as Apple and Google do, then on the last choice
+  // (Kai, 10.10.2026: an empty address book opened an empty page).
+  const QUELLE_MERKEN = "relay_kontakte_quelle";
+  function gemerkteQuelle(): KontaktQuelle {
+    try {
+      const q = localStorage.getItem(QUELLE_MERKEN);
+      if (q === "adressbuch" || q === "mail" || q === "alle") return q;
+    } catch { /* no storage */ }
+    return "alle";
+  }
+  let quelle = $state<KontaktQuelle>(gemerkteQuelle());
+  const QUELLEN: KontaktQuelle[] = ["alle", "adressbuch", "mail"];
   let zahlen = $state<KontaktZahlen | null>(null);
   let spalteOffen = $state(false);
   let gewaehltUid = $state<string | null>(null);
@@ -50,6 +61,7 @@
     spalteOffen = false;
     if (q === quelle) return;
     quelle = q;
+    try { localStorage.setItem(QUELLE_MERKEN, q); } catch { /* no storage */ }
     gewaehltUid = null;
     void loadContacts();
   }
@@ -185,6 +197,51 @@
     return (first + last).toUpperCase() || "?";
   }
 
+  // A, B, C … as in Apple's and Google's contacts; umlauts under their
+  // letter, anything else under "#" at the end.
+  function name(c: ContactInfo): string {
+    return (c.display_name || c.email || "").trim();
+  }
+  function buchstabe(c: ContactInfo): string {
+    const b = name(c).normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toUpperCase();
+    return b >= "A" && b <= "Z" ? b : "#";
+  }
+  let gruppen = $derived.by(() => {
+    const sortiert = [...contacts].sort((a, b) => {
+      const ba = buchstabe(a), bb = buchstabe(b);
+      if (ba !== bb) return ba === "#" ? 1 : bb === "#" ? -1 : ba.localeCompare(bb);
+      return name(a).localeCompare(name(b), "de", { sensitivity: "base" });
+    });
+    const aus: { b: string; kontakte: ContactInfo[] }[] = [];
+    for (const c of sortiert) {
+      const b = buchstabe(c);
+      if (aus.at(-1)?.b !== b) aus.push({ b, kontakte: [] });
+      aus.at(-1)!.kontakte.push(c);
+    }
+    return aus;
+  });
+  const indexId = (b: string) => `ct-b-${b === "#" ? "anderes" : b}`;
+  function springe(b: string) {
+    document.getElementById(indexId(b))?.scrollIntoView({ block: "start" });
+  }
+  // The index follows the finger, as on the iPhone.
+  let ziehen = false;
+  function indexBei(e: PointerEvent) {
+    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const b = el?.dataset?.b;
+    if (b) springe(b);
+  }
+
+  let kopiert = $state(false);
+  async function kopieren(text: string | null) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      kopiert = true;
+      setTimeout(() => (kopiert = false), 1500);
+    } catch { /* no clipboard: the address stays selectable */ }
+  }
+
   // tel:-Link: nur Ziffern + eventuelles führendes Plus behalten (keine
   // Leerzeichen, Bindestriche, Klammern), damit der Anruf zuverlässig startet.
   function telHref(phone: string): string {
@@ -252,32 +309,24 @@
 
 <svelte:head><title>{tabTitel($t("contacts.title"))}</title></svelte:head>
 
-<Huelle bereich="contacts" bind:spalteOffen bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
+<Huelle bereich="contacts" bind:spalteOffen spalteMobil={false} bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
   {#snippet spalte()}
     <!-- The inside of the area (RL-G2): where the contacts come from. -->
-    <nav class="ct-quellen" aria-label={$t("contacts.quellen")}>
-      <button type="button" class="ct-quelle" class:active={quelle === "adressbuch"} aria-current={quelle === "adressbuch" ? "page" : undefined} onclick={() => waehleQuelle("adressbuch")}>
-        <Symbol name="team" size={20} />
-        <span class="ct-quelle-name">{$t("contacts.adressbuch")}</span>
-        {#if zahlen}<span class="ct-zahl">{zahlen.adressbuch}</span>{/if}
-      </button>
-      <button type="button" class="ct-quelle" class:active={quelle === "mail"} aria-current={quelle === "mail" ? "page" : undefined} onclick={() => waehleQuelle("mail")}>
-        <Symbol name="post" size={20} />
-        <span class="ct-quelle-name">{$t("contacts.ausMails")}</span>
-        {#if zahlen}<span class="ct-zahl">{zahlen.mail}</span>{/if}
-      </button>
-      <button type="button" class="ct-quelle" class:active={quelle === "alle"} aria-current={quelle === "alle" ? "page" : undefined} onclick={() => waehleQuelle("alle")}>
-        <Symbol name="liste" size={20} />
-        <span class="ct-quelle-name">{$t("contacts.alle")}</span>
-        {#if zahlen}<span class="ct-zahl">{zahlen.alle}</span>{/if}
-      </button>
-    </nav>
-    <div class="ct-spalte-fuss">
+    <div class="ct-spalte-kopf">
       <button type="button" class="btn btn-primaer ct-neu" onclick={() => { spalteOffen = false; openCreate(); }}>
         <Symbol name="plus" size={16} />
         {$t("contacts.new")}
       </button>
     </div>
+    <nav class="ct-quellen" aria-label={$t("contacts.quellen")}>
+      {#each QUELLEN as q (q)}
+        <button type="button" class="ct-quelle" class:active={quelle === q} aria-current={quelle === q ? "page" : undefined} onclick={() => waehleQuelle(q)}>
+          <Symbol name={q === "adressbuch" ? "team" : q === "mail" ? "post" : "liste"} size={20} />
+          <span class="ct-quelle-name">{q === "adressbuch" ? $t("contacts.adressbuch") : q === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</span>
+          {#if zahlen}<span class="ct-zahl">{q === "adressbuch" ? zahlen.adressbuch : q === "mail" ? zahlen.mail : zahlen.alle}</span>{/if}
+        </button>
+      {/each}
+    </nav>
   {/snippet}
 
   <main class="ct-main" class:ct-mit-auswahl={gewaehlt !== null}>
@@ -293,8 +342,25 @@
             title={syncing ? $t("common.syncing") : $t("common.refresh")} aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}>
             <Symbol name="neu-laden" size={20} />
           </button>
+          <!-- Phone: the one main action as a plus in the head (HB-SEITENKOPF). -->
+          <button type="button" class="btn btn-still btn-symbol ct-neu-plus" onclick={openCreate}
+            title={$t("contacts.new")} aria-label={$t("contacts.new")}>
+            <Symbol name="plus" size={20} />
+          </button>
         </div>
       </div>
+      <!-- Phone: where the contacts come from, as a switch above the list
+           instead of a sheet (Kai, 10.10.2026, after Apple and Google). -->
+      <div class="ct-umschalter" role="group" aria-label={$t("contacts.quellen")}>
+        {#each QUELLEN as q (q)}
+          <button type="button" class:active={quelle === q} aria-pressed={quelle === q} onclick={() => waehleQuelle(q)}>
+            {q === "adressbuch" ? $t("contacts.kurzAdressbuch") : q === "mail" ? $t("contacts.kurzWeitere") : $t("contacts.kurzAlle")}
+          </button>
+        {/each}
+      </div>
+      {#if quelle === "mail"}
+        <p class="ct-weitere-hinweis">{$t("contacts.weitereHinweis")}</p>
+      {/if}
       <div class="ct-inhalt">
       {#if loading && contacts.length === 0}
         <div class="ct-state">{$t("contacts.loading")}</div>
@@ -314,27 +380,45 @@
         {/if}
       {:else}
         <ul class="ct-list">
-          {#each contacts as c (c.vcard_uid)}
-            <li>
-              <button
-                type="button"
-                class="ct-item"
-                class:selected={gewaehltUid === c.vcard_uid}
-                aria-current={gewaehltUid === c.vcard_uid ? "true" : undefined}
-                onclick={() => (gewaehltUid = c.vcard_uid)}
-                oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
-              >
-                <span class="ct-avatar" aria-hidden="true">{initials(c)}</span>
-                <span class="ct-item-body">
-                  <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
-                  <span class="ct-item-sub">{c.organization || c.email || ""}</span>
-                </span>
-              </button>
-            </li>
+          {#each gruppen as g (g.b)}
+            <li class="ct-buchstabe" id={indexId(g.b)}>{g.b}</li>
+            {#each g.kontakte as c (c.vcard_uid)}
+              <li>
+                <button
+                  type="button"
+                  class="ct-item"
+                  class:selected={gewaehltUid === c.vcard_uid}
+                  aria-current={gewaehltUid === c.vcard_uid ? "true" : undefined}
+                  onclick={() => (gewaehltUid = c.vcard_uid)}
+                  oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
+                >
+                  <span class="ct-avatar" aria-hidden="true">{initials(c)}</span>
+                  <span class="ct-item-body">
+                    <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
+                    <span class="ct-item-sub">{c.organization || c.email || ""}</span>
+                  </span>
+                </button>
+              </li>
+            {/each}
           {/each}
         </ul>
       {/if}
       </div>
+      {#if gruppen.length > 1}
+        <!-- Jump to a letter: tap or slide the finger along (pointer only;
+             the list and the search serve the keyboard). -->
+        <div
+          class="ct-index"
+          aria-hidden="true"
+          title={$t("contacts.index")}
+          onpointerdown={(e) => { ziehen = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); indexBei(e); }}
+          onpointermove={(e) => { if (ziehen) indexBei(e); }}
+          onpointerup={() => (ziehen = false)}
+          onpointercancel={() => (ziehen = false)}
+        >
+          {#each gruppen as g (g.b)}<span data-b={g.b}>{g.b}</span>{/each}
+        </div>
+      {/if}
     </section>
 
     <section class="ct-detail-spalte" aria-label={$t("contacts.detail")}>
@@ -353,16 +437,30 @@
               {#if c.source === "mail"}<p class="ct-herkunft">{$t("contacts.gesammeltHinweis")}</p>{/if}
             </div>
           </div>
-          <div class="btn-reihe ct-detail-aktionen">
+          <!-- As on the iPhone: what one does with a contact, in one row. -->
+          <div class="ct-aktionen">
             {#if c.email}
-              <button type="button" class="btn btn-primaer" onclick={() => composeTo(c.email)}>
-                <Symbol name="post" size={16} />
-                {$t("contacts.mailSchreiben")}
+              <button type="button" class="ct-aktion" onclick={() => composeTo(c.email)}>
+                <Symbol name="post" size={20} />
+                <span>{$t("contacts.aktionMail")}</span>
               </button>
             {/if}
-            <button type="button" class="btn btn-sekundaer" onclick={() => openEdit(c)}>
-              <Symbol name="bearbeiten" size={16} />
-              {c.source === "mail" ? $t("contacts.uebernehmen") : $t("contacts.editBtn")}
+            {#if c.phone}
+              <a class="ct-aktion" href={telHref(c.phone)}>
+                <Symbol name="geraet-telefon" size={20} />
+                <span>{$t("contacts.aktionAnrufen")}</span>
+              </a>
+            {/if}
+            {#if c.email}
+              <button type="button" class="ct-aktion" onclick={() => kopieren(c.email)} title={$t("contacts.aktionKopierenTitel")}>
+                <Symbol name={kopiert ? "erfolg" : "kopieren"} size={20} />
+                <span>{kopiert ? $t("contacts.aktionKopiert") : $t("contacts.aktionKopieren")}</span>
+              </button>
+            {/if}
+            <button type="button" class="ct-aktion" onclick={() => openEdit(c)}
+              title={c.source === "mail" ? $t("contacts.uebernehmen") : $t("contacts.editBtn")}>
+              <Symbol name={c.source === "mail" ? "plus" : "bearbeiten"} size={20} />
+              <span>{c.source === "mail" ? $t("contacts.aktionUebernehmen") : $t("contacts.editBtn")}</span>
             </button>
           </div>
           <dl class="ct-angaben">
@@ -504,6 +602,7 @@
     height: 100%;
   }
   .ct-liste-spalte {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -554,8 +653,82 @@
     min-width: 20px;
     text-align: center;
   }
-  .ct-spalte-fuss { margin-top: var(--am-raum-4); }
+  .ct-spalte-kopf { margin: 0 var(--am-raum-3) var(--am-raum-4); }
   .ct-neu { width: 100%; justify-content: center; }
+
+  /* ── Switch and plus on the phone [RL-KONTAKTE] ──────────────────────── */
+  /* The column carries the sources on the desktop; below 1024 px the
+     switch above the list does, and "Neuer Kontakt" is the plus. */
+  .ct-umschalter, .ct-neu-plus { display: none; }
+  .ct-umschalter {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+    margin: 0 var(--am-raum-4) var(--am-raum-3);
+    padding: 2px;
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-flaeche-1);
+    flex-shrink: 0;
+  }
+  .ct-umschalter button {
+    min-height: 40px;
+    border: none;
+    border-radius: calc(var(--am-radius-mittel) - 2px);
+    background: transparent;
+    color: var(--am-text-sekundaer);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ct-umschalter button.active { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
+  .ct-umschalter button:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 1px; }
+  @media (max-width: 1023px) {
+    .ct-umschalter { display: grid; }
+    .ct-neu-plus { display: inline-flex; }
+  }
+  .ct-weitere-hinweis {
+    margin: 0 var(--am-raum-4) var(--am-raum-3);
+    font-size: var(--fs-xs);
+    color: var(--am-text-gedaempft);
+    flex-shrink: 0;
+  }
+
+  /* ── Letters and the index [RL-KONTAKTE] ─────────────────────────────── */
+  .ct-buchstabe {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--am-raum-1) var(--am-raum-4);
+    background: var(--am-flaeche-1);
+    border-bottom: 1px solid var(--am-rand);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--am-text-sekundaer);
+  }
+  .ct-index {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--am-raum-1) 2px;
+    touch-action: none;
+    user-select: none;
+    z-index: 2;
+    cursor: pointer;
+  }
+  .ct-index span {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--am-handlung-ruhend);
+    padding: 0 4px;
+  }
+  /* Room for the index next to the rows. */
+  .ct-list .ct-item, .ct-list .ct-buchstabe { padding-right: calc(var(--am-raum-4) + 14px); }
 
   /* ── Loading and error state [RL-KONTAKTE] ───────────────────────────── */
   .ct-state {
@@ -616,7 +789,34 @@
   .ct-detail-titel h2 { margin: 0; font-size: 1.375rem; overflow-wrap: anywhere; }
   .ct-detail-firma { margin: 2px 0 0; color: var(--am-text-sekundaer); }
   .ct-herkunft { margin: var(--am-raum-1) 0 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  .ct-detail .ct-detail-aktionen { margin: var(--am-raum-4) 0 var(--am-raum-6); flex-wrap: wrap; }
+  /* The actions as tiles in one row, as on the iPhone. */
+  .ct-aktionen {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
+    gap: var(--am-raum-2);
+    margin: var(--am-raum-4) 0 var(--am-raum-6);
+    max-width: 30rem;
+  }
+  .ct-aktion {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--am-raum-1);
+    min-height: 56px;
+    padding: var(--am-raum-2);
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-mittel);
+    background: var(--am-flaeche-1);
+    color: var(--am-handlung-ruhend);
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .ct-aktion:hover { background: var(--am-flaeche-2); }
+  .ct-aktion:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
   .ct-angaben {
     display: grid;
     grid-template-columns: max-content 1fr;

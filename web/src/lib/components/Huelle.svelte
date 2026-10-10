@@ -47,10 +47,13 @@
     /** Whether the column sheet is open on the phone; bind it to close the
      * sheet after a choice in the column (`spalteOffen = false`). */
     spalteOffen?: boolean;
+    /** False: the column is for the desktop only; the phone page carries
+     * its own choice (contacts: a switch above the list, 26.10.21). */
+    spalteMobil?: boolean;
     children: Snippet;
   }
 
-  let { bereich = null, suche = $bindable(""), suchePlatzhalter = "", spalte, spalteOffen = $bindable(false), children }: Props = $props();
+  let { bereich = null, suche = $bindable(""), suchePlatzhalter = "", spalte, spalteOffen = $bindable(false), spalteMobil = true, children }: Props = $props();
 
   // Translated here, literally, so the i18n guard sees the keys.
   const BEREICHE: { id: Bereich; href: string; text: string; zeichen: SymbolName }[] = $derived([
@@ -76,9 +79,9 @@
 
 <svelte:window onkeydown={taste} />
 
-<div class="huelle relay-huelle" class:spalte-offen={spalteOffen} class:ohne-spalte={!spalte}>
+<div class="huelle relay-huelle" class:spalte-offen={spalteOffen} class:ohne-spalte={!spalte} class:spalte-nur-desktop={!spalteMobil}>
   <header class="kopfleiste">
-    {#if spalte}
+    {#if spalte && spalteMobil}
       <button
         type="button"
         class="btn btn-still btn-symbol relay-spalte-knopf"
@@ -274,5 +277,12 @@
       background: var(--am-deckschicht);
       z-index: calc(var(--am-ebene-menue) - 1);
     }
+    /* The open sheet covers everything under the header: the bottom bar
+       steps back behind the scrim, the assistant's shield goes (Kai,
+       10.10.2026: "Aufgaben" and the shield showed through). */
+    .spalte-offen :global(.huelle-nav-mobil) { visibility: hidden; }
+    :global(body:has(.spalte-offen) .assistent-knopf) { display: none; }
+    .spalte-nur-desktop.spalte-offen .relay-spalte,
+    .spalte-nur-desktop .relay-spalte-deckschicht { display: none; }
   }
 </style>

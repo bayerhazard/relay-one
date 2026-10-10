@@ -442,22 +442,49 @@ test("Kontakte: drei Spalten, Herkunft und letzte Mails", async ({ page, context
     try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
   });
   await page.goto("/contacts");
+  // Starts on all contacts, as Apple and Google do (Kai, 10.10.2026).
   const titel = page.locator(".ct-kopf h1");
-  await expect(titel).toHaveText("Mein Adressbuch");
+  await expect(titel).toHaveText("Alle Kontakte");
   const zeilen = page.locator(".ct-item");
+  await page.locator(".ct-quelle", { hasText: "Mein Adressbuch" }).click();
+  await expect(titel).toHaveText("Mein Adressbuch");
   await expect(zeilen).toHaveCount(8);
+  // Grouped by letter.
+  await expect(page.locator(".ct-buchstabe").first()).toHaveText("A");
 
   await zeilen.filter({ hasText: "Jonas Weber" }).click();
   const detail = page.locator(".ct-detail");
   await expect(detail.getByRole("heading", { level: 2 })).toHaveText("Jonas Weber");
-  await expect(detail.getByRole("button", { name: "E-Mail schreiben" })).toBeVisible();
+  await expect(detail.getByRole("button", { name: "E-Mail", exact: true })).toBeVisible();
+  await expect(detail.getByRole("link", { name: "Anrufen" })).toBeVisible();
   await expect(detail.locator(".ct-mail-liste")).toContainText("Angebot Messestand Frühjahr");
 
-  await page.locator(".ct-quelle", { hasText: "Aus E-Mails gesammelt" }).click();
-  await expect(titel).toHaveText("Aus E-Mails gesammelt");
+  await page.locator(".ct-quelle", { hasText: "Weitere Kontakte" }).click();
+  await expect(titel).toHaveText("Weitere Kontakte");
   await expect(zeilen.filter({ hasText: "Jonas Weber" }), "nicht doppelt").toHaveCount(0);
   await zeilen.first().click();
-  await expect(detail.getByRole("button", { name: "Ins Adressbuch übernehmen" })).toBeVisible();
+  await expect(detail.getByRole("button", { name: "Übernehmen" })).toHaveAttribute("title", "Ins Adressbuch übernehmen");
+});
+
+// Phone (Kai, 10.10.2026): no sheet for the contacts; a switch above the
+// list, the plus in the head, the choice is remembered.
+test("Kontakte am Handy: Umschalter statt Blatt", async ({ page, context }, info) => {
+  test.skip(!DATEN, "braucht die Beispieldaten");
+  test.skip(info.project.name !== "handy", "nur am Handy");
+  await context.addInitScript(() => {
+    try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
+  });
+  await page.goto("/contacts");
+  await expect(page.getByRole("button", { name: "Spalte öffnen" })).toHaveCount(0);
+  const umschalter = page.locator(".ct-umschalter");
+  await expect(umschalter.getByRole("button", { name: "Alle" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
+  await umschalter.getByRole("button", { name: "Adressbuch" }).click();
+  await expect(page.locator(".ct-kopf h1")).toHaveText("Mein Adressbuch");
+  await page.reload();
+  await expect(page.locator(".ct-kopf h1"), "letzte Wahl gemerkt").toHaveText("Mein Adressbuch");
+  await page.locator(".ct-item", { hasText: "Jonas Weber" }).click();
+  await expect(page.locator(".ct-detail h2")).toHaveText("Jonas Weber");
 });
 
 // An account's calendar, tasks and contacts (Kai, 9.10.2026, 26.10.18): in
