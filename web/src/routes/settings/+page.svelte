@@ -879,7 +879,7 @@ async function handleSaveCardDav() {
       {#if activeTab === 'general'}
 
         <!-- Card: Sprache -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.language")}</h3>
             <p class="card-desc">{$t("settings.languageDesc")}</p>
@@ -893,7 +893,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Theme-Auswahl -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.appearance")}</h3>
             <p class="card-desc">{$t("settings.appearanceDesc")}</p>
@@ -966,7 +966,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Postfach Synchronisation -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.mailboxBehavior")}</h3>
             <p class="card-desc">{$t("settings.mailboxBehaviorDesc")}</p>
@@ -1094,7 +1094,7 @@ async function handleSaveCardDav() {
 
         <!-- Liste verbundener Konten -->
         {#if accountList.length > 0}
-          <section class="karte settings-card">
+          <section class="karte seitenkarte settings-card">
             <div class="card-header">
               <h3>{$t("settings.connectedAccounts", { count: accountList.length })}</h3>
               <p class="card-desc">{$t("settings.connectedAccountsDesc")}</p>
@@ -1159,7 +1159,7 @@ async function handleSaveCardDav() {
         {/if}
 
         <!-- Formular zum Hinzufügen / Bearbeiten -->
-        <section class="karte settings-card" id="account-form">
+        <section class="karte seitenkarte settings-card" id="account-form">
           <div class="card-header">
             <h3>{isEditing ? $t("settings.editAccountTitle") : $t("settings.newAccountTitle")}</h3>
             <p class="card-desc">{$t("settings.accountFormDesc")}</p>
@@ -1290,7 +1290,7 @@ async function handleSaveCardDav() {
       {#if activeTab === 'ai'}
 
         <!-- Card: Textgenerierungs-Optionen -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.assistantBehavior")}</h3>
             <p class="card-desc">{$t("settings.assistantBehaviorDesc")}</p>
@@ -1318,7 +1318,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Anbindung (Olares Router default / manual) -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sourceTitle")}</h3>
             <p class="card-desc">{$t("settings.sourceDesc")}</p>
@@ -1391,7 +1391,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-System-Status -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiStatus")}</h3>
             <p class="card-desc">{$t("settings.aiStatusDesc")}</p>
@@ -1411,7 +1411,7 @@ async function handleSaveCardDav() {
       {#if activeTab === 'carddav'}
 
         <!-- Card: CardDAV Settings -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.carddav")}</h3>
             <p class="card-desc">{$t("settings.carddavDesc")}</p>
@@ -1482,7 +1482,7 @@ async function handleSaveCardDav() {
       <!-- ================= TAB: CALDAV ================= -->
       {#if activeTab === 'caldav'}
 
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.caldav")}</h3>
             <p class="card-desc">{$t("settings.caldavDesc")}</p>
@@ -1581,7 +1581,7 @@ async function handleSaveCardDav() {
 
       <!-- ================= TAB: VOICE ================= -->
       {#if activeTab === 'voice'}
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.voice2mail")}</h3>
             <p class="card-desc">{$t("settings.voice2mailDesc")}</p>
@@ -1609,7 +1609,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Sprach-Anbindung (Olares Router default / manual) -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sourceTitle")}</h3>
             <p class="card-desc">{$t("settings.sourceDesc")}</p>
@@ -1638,7 +1638,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: STT Endpoint -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.sttEndpoint")}</h3>
             <p class="card-desc">{$t("settings.sttEndpointDesc")}</p>
@@ -1670,7 +1670,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: TTS (Phase D) -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.ttsEndpoint")}</h3>
             <p class="card-desc">{$t("settings.ttsEndpointDesc")}</p>
@@ -1754,7 +1754,7 @@ async function handleSaveCardDav() {
       {#if activeTab === 'archive'}
 
         <!-- Card: Delete Queue Review -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.deleteQueue", { count: deleteQueue.length })}</h3>
             <p class="card-desc">{$t("settings.deleteQueueDesc")}</p>
@@ -1784,7 +1784,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Export -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.exportTitle")}</h3>
             <p class="card-desc">{$t("settings.exportDesc")}</p>
@@ -1804,7 +1804,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Backup -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.backupTitle")}</h3>
             <p class="card-desc">{$t("settings.backupDesc")}</p>
@@ -1848,7 +1848,7 @@ async function handleSaveCardDav() {
       {#if activeTab === 'cache'}
 
         <!-- Card: Cache Statistics -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.cacheStats")}</h3>
             <p class="card-desc">{$t("settings.cacheStatsDesc")}</p>
@@ -1873,7 +1873,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: Cache Cleanup -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.cacheCleanup")}</h3>
             <p class="card-desc">{$t("settings.cacheCleanupDesc")}</p>
@@ -1906,7 +1906,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-Zusammenfassungen -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiSummaries")}</h3>
             <p class="card-desc">{$t("settings.aiSummariesDesc")}</p>
@@ -1929,7 +1929,7 @@ async function handleSaveCardDav() {
         </section>
 
         <!-- Card: KI-Aktionen -->
-        <section class="karte settings-card">
+        <section class="karte seitenkarte settings-card">
           <div class="card-header">
             <h3>{$t("settings.aiActions")}</h3>
             <p class="card-desc">{$t("settings.aiActionsDesc")}</p>
@@ -2041,7 +2041,6 @@ async function handleSaveCardDav() {
 
   @media (max-width: 40rem) {
     .settings-content { padding: var(--am-raum-4) var(--am-raum-4) var(--am-raum-16); }
-    .settings-card { padding: var(--am-raum-4); }
   }
 
   /* AM-KARTE draws the card; only the spacing between cards is ours. */
@@ -2462,13 +2461,13 @@ async function handleSaveCardDav() {
     border-radius: 20px;
     font-size: 0.6875rem;
     font-weight: 600;
-    background: color-mix(in srgb, var(--am-fehler) 8%, transparent);
+    background: color-mix(in srgb, var(--am-fehler) 8%, var(--am-seite));
     color: var(--am-fehler);
     border: 1px solid color-mix(in srgb, var(--am-fehler) 20%, transparent);
   }
 
   .status-indicator-badge.connected {
-    background: color-mix(in srgb, var(--am-erfolg) 8%, transparent);
+    background: color-mix(in srgb, var(--am-erfolg) 8%, var(--am-seite));
     color: var(--am-erfolg);
     border: 1px solid color-mix(in srgb, var(--am-erfolg) 20%, transparent);
   }
@@ -2718,6 +2717,38 @@ async function handleSaveCardDav() {
   .account-dav { flex: 0 0 calc(100% - 60px); min-width: 0; margin-left: 60px; }
   @media (max-width: 40rem) {
     .account-dav { flex-basis: 100%; margin-left: 0; }
+  }
+
+  /* ── Phone [RL-EINSTELLUNGEN] ─────────────────────────────────────────── */
+  /* The cards run edge to edge (AM-KARTE .seitenkarte, Kai 10.10.2026);
+     inside them nothing is boxed a second time, two fields side by side
+     only where both fit, buttons keep their words on one line. */
+  @media (max-width: 40rem) {
+    .settings-card { margin-bottom: var(--am-raum-3); }
+    .form-grid-2 { grid-template-columns: minmax(0, 1fr); }
+    /* Server alone, then port and the switches in one row. */
+    .form-grid-3 { grid-template-columns: minmax(0, 6rem) auto minmax(0, 1fr); }
+    .form-grid-3 > .feld:first-child { grid-column: 1 / -1; }
+    .form-grid-3 > .toggle-cell { justify-self: start; }
+    /* "Unsicher erlauben" gets a row of its own. */
+    .form-grid-3 > :nth-child(4) { grid-column: 1 / -1; }
+    .toggle-cell .schalter-text { white-space: nowrap; }
+    /* Accounts as rows with a line between, not cards in the card. */
+    .account-card-item {
+      border: 0;
+      border-top: 1px solid var(--am-rand);
+      border-radius: 0;
+      padding: var(--am-raum-4) 0;
+      background: transparent;
+    }
+    .account-card-item:first-child { border-top: 0; padding-top: 0; }
+    .caldav-row { flex-wrap: wrap; padding: var(--am-raum-3) var(--am-raum-4); }
+    .caldav-row-main { flex: 1 1 100%; }
+    .caldav-row-actions { flex: 1 1 100%; justify-content: flex-end; }
+    .form-actions-row { flex-wrap: wrap; }
+    .form-actions-row > .btn { flex: 1 1 auto; }
+    .settings-card .btn { white-space: nowrap; }
+    .export-account-name { flex-basis: 100%; }
   }
   .account-dav > summary { cursor: pointer; font-weight: 600; font-size: var(--fs-sm); color: var(--am-text-primaer); }
   .account-dav[open] > summary { margin-bottom: var(--am-raum-3); }

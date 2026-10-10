@@ -770,6 +770,19 @@ select,
     border-radius: var(--am-radius-mittel);
     padding: var(--am-raum-6);
   }
+  /* Am Handy reicht eine Karte im Seitenfluss von Kante zu Kante (Kai,
+     10.10.2026, „die gesamte Bildschirmbreite nutzen“): Strich oben und
+     unten, links und rechts keiner, keine Rundung, der Inhalt raum-4 vom
+     Bildschirmrand. Die Seite hat dort raum-4 Saum, den die Karte
+     überspannt. Nur mit `.seitenkarte` — ein Dialog bleibt eine Karte. */
+  @media (max-width: 40rem) {
+    .karte.seitenkarte {
+      margin-inline: calc(-1 * var(--am-raum-4));
+      border-inline: 0;
+      border-radius: 0;
+      padding: var(--am-raum-4);
+    }
+  }
 }
 
   /* ── Leerzustand [AM-LEER] ──────────────────────────────────────────────────── */
@@ -901,12 +914,19 @@ select,
     border-top: 1px solid var(--am-trennlinie);
     background: var(--am-flaeche-1);
   }
+  /* Am Handy brechen die Knöpfe um, statt über den Rand zu laufen
+     (Relay, 10.10.2026: „Aufgabe löschen“ war abgeschnitten). */
+  @media (max-width: 40rem) {
+    .dialog-fuss { flex-wrap: wrap; padding: var(--am-raum-4); }
+  }
 
   /* Zwei kurze Felder nebeneinander. Unter 30rem Fensterbreite gibt es
      dafür keinen Platz — dann untereinander. */
   .feld-paar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--am-raum-4); }
   @media (max-width: 30rem) {
     .feld-paar { grid-template-columns: minmax(0, 1fr); }
+    /* Untereinander braucht auch das zweite Feld seinen Abstand. */
+    .dialog-koerper .feld-paar > .feld:last-child { margin-bottom: var(--am-raum-4); }
   }
 
   .erfassung {
@@ -2242,4 +2262,18 @@ html.dunkel {
 .resize-handle:hover {
   background: var(--am-handlung-ruhend);
   opacity: 0.3;
+}
+
+/* ── Phone [RL-HANDY] ──────────────────────────────────────────────────
+   Kai, 10.10.2026 ("die mobile Ansicht optimieren"): the assistant's
+   shield sits above the bottom bar, so every list keeps room under its
+   last row; writing a mail or a dialog hides it — it covered "Senden". */
+@media (max-width: 40rem) {
+  .message-list,
+  .ct-inhalt,
+  .mt-list,
+  .tk-main {
+    padding-bottom: calc(3.25rem + var(--am-raum-6));
+  }
+  body:has(.compose-window, .dialog-schicht) .assistent-knopf { display: none; }
 }
