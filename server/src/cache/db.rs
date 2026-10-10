@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 /// Current schema version. Bump this and add a numbered forward-migration
 /// step in `init_db` when the schema changes. v1 is the baseline: the schema
 /// as of 26.9.142, applied as a tolerant catch-up for legacy DBs.
-pub const CURRENT_SCHEMA_VERSION: i64 = 11;
+pub const CURRENT_SCHEMA_VERSION: i64 = 12;
 
 pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let user_version: i64 = conn
@@ -130,6 +130,15 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_contacts_search ON contacts(display_name, email);
+
+        -- Lists of contacts from the address book (Apple's groups in iCloud,
+        -- vCard 4 KIND:group): members as a JSON array of contact UIDs.
+        CREATE TABLE IF NOT EXISTS kontakt_listen (
+            vcard_uid TEXT PRIMARY KEY,
+            name TEXT NOT NULL DEFAULT '',
+            mitglieder TEXT NOT NULL DEFAULT '[]',
+            vcard_raw TEXT NOT NULL DEFAULT ''
+        );
 
         CREATE TABLE IF NOT EXISTS mail_snippets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -608,6 +617,21 @@ pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         add_column_if_missing(conn, "messages", "abo", "INTEGER")?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_messages_abo_offen ON messages(account_id, folder_id) WHERE abo IS NULL;")?;
         conn.pragma_update(None, "user_version", 11)?;
+    }
+    // v12: "Weitere Kontakte" only from the people the user wrote to
+    // (Kai, 10.10.2026, after Google). Every sender collected before goes
+    // once; the recipients of the user's own stored mails come back.
+    if user_version < 12 {
+        // Lists that came in as contacts before (Kai's "Fußball" without an
+        // address) move to their own table.
+        if let Err(e) = crate::cache::contacts::listen_aus_kontakten_loesen(conn) {
+            tracing::warn!("Listen nicht aus den Kontakten gelöst: {}", e);
+        }
+        match crate::cache::contacts::weitere_neu_aufbauen(conn) {
+            Ok(n) => tracing::info!("Weitere Kontakte neu aufgebaut: {} aus eigenen Mails", n),
+            Err(e) => tracing::warn!("Weitere Kontakte nicht neu aufgebaut: {}", e),
+        }
+        conn.pragma_update(None, "user_version", 12)?;
     }
 
     // 4. Recurring startup work — idempotent + self-healing, runs every boot

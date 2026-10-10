@@ -41,7 +41,7 @@ fn carddav_client(state: &AppState) -> Result<CardDavClient, ApiError> {
 pub struct ContactsQuery {
     #[serde(default)]
     pub search: Option<String>,
-    /// "adressbuch", "mail" or none (all).
+    /// "adressbuch", "mail", "liste:<uid>" or none (all).
     #[serde(default)]
     pub quelle: Option<String>,
 }

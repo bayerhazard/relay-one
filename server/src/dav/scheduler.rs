@@ -77,6 +77,7 @@ pub async fn do_sync(state: &AppState) -> Result<usize, String> {
                                 if let Err(e) = stmt.execute(&[uid]) {
                                     tracing::warn!("CardDAV-Sync: Delete fehlgeschlagen: {}", e);
                                 }
+                                let _ = conn.execute("DELETE FROM kontakt_listen WHERE vcard_uid = ?1", [uid]);
                             }
                         }
                     }
@@ -198,6 +199,11 @@ fn save_contacts_to_db(
     ).map_err(|e| e.to_string())?;
 
     for contact in contacts {
+        // A list (Apple's group card) is no contact: its own table.
+        if let Some(g) = crate::dav::vcard::gruppe(&contact.vcard_raw) {
+            crate::cache::contacts::liste_speichern(&tx, &g, &contact.vcard_raw)?;
+            continue;
+        }
         let params: &[&dyn rusqlite::types::ToSql] = &[
             &contact.vcard_uid as &dyn rusqlite::types::ToSql,
             &contact.given_name,
