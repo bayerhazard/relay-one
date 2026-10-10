@@ -312,12 +312,6 @@
 <Huelle bereich="contacts" bind:spalteOffen spalteMobil={false} bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
   {#snippet spalte()}
     <!-- The inside of the area (RL-G2): where the contacts come from. -->
-    <div class="ct-spalte-kopf">
-      <button type="button" class="btn btn-primaer ct-neu" onclick={() => { spalteOffen = false; openCreate(); }}>
-        <Symbol name="plus" size={16} />
-        {$t("contacts.new")}
-      </button>
-    </div>
     <nav class="ct-quellen" aria-label={$t("contacts.quellen")}>
       {#each QUELLEN as q (q)}
         <button type="button" class="ct-quelle" class:active={quelle === q} aria-current={quelle === q ? "page" : undefined} onclick={() => waehleQuelle(q)}>
@@ -342,10 +336,14 @@
             title={syncing ? $t("common.syncing") : $t("common.refresh")} aria-label={syncing ? $t("common.syncing") : $t("common.refresh")}>
             <Symbol name="neu-laden" size={20} />
           </button>
-          <!-- Phone: the one main action as a plus in the head (HB-SEITENKOPF). -->
-          <button type="button" class="btn btn-still btn-symbol ct-neu-plus" onclick={openCreate}
+          <!-- "Neuer Kontakt" in the list's head on every size, as "Neue
+               E-Mail" in the mail (Kai, 10.10.2026): a person with a plus. -->
+          <button type="button" class="btn btn-symbol ct-neu-kopf" onclick={openCreate}
             title={$t("contacts.new")} aria-label={$t("contacts.new")}>
-            <Symbol name="plus" size={20} />
+            <span class="person-plus" aria-hidden="true">
+              <Symbol name="nutzer" size={20} />
+              <span class="person-plus-zeichen"><Symbol name="plus" size={16} /></span>
+            </span>
           </button>
         </div>
       </div>
@@ -653,13 +651,30 @@
     min-width: 20px;
     text-align: center;
   }
-  .ct-spalte-kopf { margin: 0 var(--am-raum-3) var(--am-raum-4); }
-  .ct-neu { width: 100%; justify-content: center; }
+  /* "Neuer Kontakt": a little clearer than the refresh beside it, the plus
+     on the person's corner — the same as the letter in the mail. */
+  .ct-neu-kopf {
+    margin-inline-start: var(--am-raum-1);
+    background: var(--am-flaeche-2);
+    color: var(--am-text-primaer);
+  }
+  .ct-neu-kopf:hover { background: var(--am-flaeche-3); }
+  .person-plus { position: relative; display: inline-flex; }
+  .person-plus-zeichen {
+    position: absolute;
+    right: -8px;
+    bottom: -7px;
+    display: inline-flex;
+    border-radius: 50%;
+    background: var(--am-flaeche-2);
+    padding: 1px;
+  }
+  .ct-neu-kopf:hover .person-plus-zeichen { background: var(--am-flaeche-3); }
 
   /* ── Switch and plus on the phone [RL-KONTAKTE] ──────────────────────── */
   /* The column carries the sources on the desktop; below 1024 px the
      switch above the list does, and "Neuer Kontakt" is the plus. */
-  .ct-umschalter, .ct-neu-plus { display: none; }
+  .ct-umschalter { display: none; }
   .ct-umschalter {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2px;
@@ -685,7 +700,6 @@
   .ct-umschalter button:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 1px; }
   @media (max-width: 1023px) {
     .ct-umschalter { display: grid; }
-    .ct-neu-plus { display: inline-flex; }
   }
   .ct-weitere-hinweis {
     margin: 0 var(--am-raum-4) var(--am-raum-3);
