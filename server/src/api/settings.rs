@@ -219,6 +219,7 @@ pub async fn set_carddav_settings(
         password: encrypted_pw,
         sync_interval_minutes: req.sync_interval_minutes.unwrap_or(30),
         mail_konto: None,
+        google: false,
     };
     let raw = serde_json::to_string(&settings).map_err(|e| ApiError(e.to_string()))?;
     with_db(&state, |conn| {

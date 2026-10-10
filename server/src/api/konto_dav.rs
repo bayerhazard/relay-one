@@ -7,14 +7,17 @@
 //! For providers that give CalDAV and CardDAV with the mail password (an app
 //! password) Relay knows the address and takes the account's own login; the
 //! password never goes to the page. Gmail needs Google's sign-in (OAuth) for
-//! both and has no CalDAV for tasks at all — that comes later.
+//! both and has no CalDAV for tasks at all: since Schritt 2 the account signs
+//! in with Google (`crate::google`), calendar and contacts run over CalDAV and
+//! CardDAV with its token, tasks over Google Tasks.
 //!
 //! One CalDAV account `mail-<id>` per mail account carries "Kalender" and
 //! "Aufgaben"; contacts are the one CardDAV address book, marked with the
 //! mail account it came from. Switching off removes Relay's copy, never
 //! anything on the server.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use axum::response::Html;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +26,7 @@ use super::{ApiError, ApiResult};
 use crate::dav::finden::{self, Art};
 use crate::dav::{CalDavClient, CalDavSettings, CardDavClient, CardDavSettings};
 use crate::db::with_db;
+use crate::google::{self, aufgaben};
 use crate::{cache, crypto, AppState};
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -30,7 +34,7 @@ pub struct Anbieter {
     pub name: &'static str,
     pub caldav: Option<&'static str>,
     pub carddav: Option<&'static str>,
-    /// Calendar and contacts only through Google's sign-in — not yet.
+    /// Calendar, contacts and tasks only through Google's sign-in.
     pub nur_google_anmeldung: bool,
 }
 
@@ -67,9 +71,20 @@ fn caldav_id(konto: i64) -> String {
     format!("mail-{konto}")
 }
 
+/// Google's sign-in of a Gmail account.
+#[derive(Serialize)]
+pub struct GoogleStand {
+    /// The box owner has entered the Google project's client.
+    pub eingerichtet: bool,
+    /// The Google account this mail account signed in with.
+    pub angemeldet: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct DavStand {
     pub anbieter: Option<Anbieter>,
+    /// Only for Gmail.
+    pub google: Option<GoogleStand>,
     pub caldav_url: String,
     pub carddav_url: String,
     pub kalender: bool,
@@ -109,6 +124,10 @@ pub async fn dav_stand(State(state): State<AppState>, Path(id): Path<i64>) -> Ap
         kalender: cal.as_ref().map(|c| c.enabled && c.kalender).unwrap_or(false),
         aufgaben: cal.as_ref().map(|c| c.enabled && c.aufgaben).unwrap_or(false),
         kontakte: card.is_some(),
+        google: anb.as_ref().filter(|a| a.nur_google_anmeldung).map(|_| GoogleStand {
+            eingerichtet: google::client_id().is_some(),
+            angemeldet: google::angemeldet(id),
+        }),
         anbieter: anb,
     }))
 }
@@ -135,6 +154,8 @@ pub struct DavErgebnis {
     /// Calendar collections found (tasks live in them too).
     pub kalender_gefunden: usize,
     pub adressbuecher_gefunden: usize,
+    /// Google Tasks lists (Gmail).
+    pub aufgabenlisten_gefunden: usize,
 }
 
 fn adresse(eigen: Option<String>, vorgabe: Option<&'static str>, was: &str) -> Result<String, ApiError> {
@@ -151,46 +172,79 @@ pub async fn dav_setzen(
     Path(id): Path<i64>,
     Json(wahl): Json<DavWahl>,
 ) -> ApiResult<DavErgebnis> {
+    schalten(&state, id, wahl).await.map(Json)
+}
+
+async fn schalten(state: &AppState, id: i64, wahl: DavWahl) -> Result<DavErgebnis, ApiError> {
+    let state = state.clone();
     let (rec, pw) = konto_mit_passwort(&state, id)?;
     let anb = anbieter(&rec.sender_email, &rec.imap_host).or_else(|| anbieter(&rec.username, &rec.imap_host));
-    if anb.as_ref().is_some_and(|a| a.nur_google_anmeldung) && (wahl.kalender || wahl.aufgaben || wahl.kontakte)
-        && wahl.caldav_url.as_deref().unwrap_or("").is_empty()
-        && wahl.carddav_url.as_deref().unwrap_or("").is_empty()
-    {
-        return Err(ApiError(
-            "Kalender und Kontakte von Google brauchen die Google-Anmeldung, die Relay noch nicht hat.".into(),
-        ));
-    }
-    if pw.is_empty() && (wahl.kalender || wahl.aufgaben || wahl.kontakte) {
+    let etwas = wahl.kalender || wahl.aufgaben || wahl.kontakte;
+    // Gmail signs in with Google unless an address of one's own is given.
+    let mit_google = anb.as_ref().is_some_and(|a| a.nur_google_anmeldung)
+        && wahl.caldav_url.as_deref().unwrap_or("").trim().is_empty()
+        && wahl.carddav_url.as_deref().unwrap_or("").trim().is_empty();
+    let google_konto = mit_google.then_some(id);
+    let mut google_email = String::new();
+    if mit_google && etwas {
+        google_email = google::angemeldet(id)
+            .ok_or_else(|| ApiError("Bitte melden Sie dieses Konto zuerst mit Google an.".into()))?;
+        if google_email.is_empty() {
+            google_email = rec.sender_email.clone();
+        }
+        google::zugang(id).await.map_err(ApiError)?;
+    } else if pw.is_empty() && etwas {
         return Err(ApiError("Für dieses Konto ist kein Passwort gespeichert.".into()));
     }
+    // With Google the token signs in, not the mail password.
+    let (nutzer, passwort) = if mit_google { (String::new(), String::new()) } else { (rec.username.clone(), pw.clone()) };
 
     // ── Calendar and tasks: one CalDAV account per mail account ──────────
     let cid = caldav_id(id);
     let vorher = state.caldav_accounts.read().iter().find(|a| a.id == cid).cloned();
     let mut kalender_gefunden = 0usize;
+    let mut aufgabenlisten_gefunden = 0usize;
     if wahl.kalender || wahl.aufgaben {
-        let basis = adresse(wahl.caldav_url.clone(), anb.as_ref().and_then(|a| a.caldav), "den Kalender")?;
-        let heim = finden::heimat(&basis, &rec.username, &pw, Art::Kalender)
-            .await
-            .map_err(|e| ApiError(format!("Kalender: {e}")))?;
+        let basis = if mit_google {
+            google::endpunkte().caldav(&google_email)
+        } else {
+            adresse(wahl.caldav_url.clone(), anb.as_ref().and_then(|a| a.caldav), "den Kalender")?
+        };
+        // Google's tasks need no CalDAV address.
+        let heim = if mit_google && !wahl.kalender {
+            basis
+        } else {
+            finden::heimat(&basis, &nutzer, &passwort, Art::Kalender, google_konto)
+                .await
+                .map_err(|e| ApiError(format!("Kalender: {e}")))?
+        };
         let probe = CalDavSettings {
             id: cid.clone(),
             url: heim.clone(),
-            username: rec.username.clone(),
-            password: pw.clone(),
+            username: nutzer.clone(),
+            password: passwort.clone(),
+            mail_konto: Some(id),
+            google: mit_google,
             ..Default::default()
         };
-        kalender_gefunden = CalDavClient::new(probe)
-            .discover_calendars()
-            .await
-            .map_err(|e| ApiError(format!("Kalender: {e}")))?
-            .len();
+        if wahl.kalender || !mit_google {
+            kalender_gefunden = CalDavClient::new(probe)
+                .discover_calendars()
+                .await
+                .map_err(|e| ApiError(format!("Kalender: {e}")))?
+                .len();
+        }
+        if mit_google && wahl.aufgaben {
+            aufgabenlisten_gefunden = aufgaben::listen(id).await.map_err(|e| ApiError(format!("Aufgaben: {e}")))?.len();
+        }
         // What is switched off leaves Relay's copy; the next sync brings
         // back what stays on.
         if let Some(v) = &vorher {
             let kalender_aus = v.kalender && !wahl.kalender;
             let aufgaben_aus = v.aufgaben && !wahl.aufgaben;
+            // Google's task lists are calendar rows of their own; with
+            // Google each part takes its rows along.
+            let listen = format!("{}/lists/%", google::endpunkte().aufgaben);
             let _ = with_db(&state, |conn| {
                 if kalender_aus {
                     conn.execute(
@@ -198,6 +252,13 @@ pub async fn dav_setzen(
                         [&cid],
                     )
                     .map_err(|e| e.to_string())?;
+                    if v.google {
+                        conn.execute(
+                            "DELETE FROM calendars WHERE caldav_account_id = ?1 AND url NOT LIKE ?2",
+                            rusqlite::params![&cid, &listen],
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                 }
                 if aufgaben_aus {
                     conn.execute(
@@ -205,6 +266,13 @@ pub async fn dav_setzen(
                         [&cid],
                     )
                     .map_err(|e| e.to_string())?;
+                    if v.google {
+                        conn.execute(
+                            "DELETE FROM calendars WHERE caldav_account_id = ?1 AND url LIKE ?2",
+                            rusqlite::params![&cid, &listen],
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
                 }
                 Ok::<_, String>(())
             });
@@ -215,13 +283,14 @@ pub async fn dav_setzen(
                 id: Some(cid.clone()),
                 name: Some(rec.name.clone()),
                 url: heim,
-                username: rec.username.clone(),
-                password: Some(pw.clone()),
+                username: nutzer.clone(),
+                password: Some(passwort.clone()),
                 enabled: Some(true),
                 sync_interval_minutes: None,
                 kalender: Some(wahl.kalender),
                 aufgaben: Some(wahl.aufgaben),
                 mail_konto: Some(id),
+                google: Some(mit_google),
             },
         )
         .await?;
@@ -244,16 +313,21 @@ pub async fn dav_setzen(
     let mut adressbuecher_gefunden = 0usize;
     let card_vorher = state.carddav_settings.read().clone();
     if wahl.kontakte {
-        let basis = adresse(wahl.carddav_url.clone(), anb.as_ref().and_then(|a| a.carddav), "die Kontakte")?;
-        let heim = finden::heimat(&basis, &rec.username, &pw, Art::Adressbuch)
+        let basis = if mit_google {
+            google::endpunkte().carddav(&google_email)
+        } else {
+            adresse(wahl.carddav_url.clone(), anb.as_ref().and_then(|a| a.carddav), "die Kontakte")?
+        };
+        let heim = finden::heimat(&basis, &nutzer, &passwort, Art::Adressbuch, google_konto)
             .await
             .map_err(|e| ApiError(format!("Kontakte: {e}")))?;
         let settings = CardDavSettings {
             url: heim,
-            username: rec.username.clone(),
-            password: pw.clone(),
+            username: nutzer.clone(),
+            password: passwort.clone(),
             sync_interval_minutes: 30,
             mail_konto: Some(id),
+            google: mit_google,
         };
         adressbuecher_gefunden = CardDavClient::new(settings.clone())
             .adressbuecher()
@@ -291,12 +365,172 @@ pub async fn dav_setzen(
         *state.carddav_sync_token.write() = String::new();
     }
 
-    Ok(Json(DavErgebnis { ok: true, kalender_gefunden, adressbuecher_gefunden }))
+    Ok(DavErgebnis { ok: true, kalender_gefunden, adressbuecher_gefunden, aufgabenlisten_gefunden })
+}
+
+// ── Google's sign-in (Schritt 2) ─────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct GoogleApp {
+    pub eingerichtet: bool,
+    pub client_id: Option<String>,
+    /// Path below the page's origin to register in the Google project.
+    pub rueckweg: &'static str,
+}
+
+/// `GET /api/v1/google/app` — whether the Google project is entered.
+pub async fn google_app(State(_): State<AppState>) -> ApiResult<GoogleApp> {
+    let client_id = google::client_id();
+    Ok(Json(GoogleApp { eingerichtet: client_id.is_some(), client_id, rueckweg: google::RUECKWEG }))
+}
+
+#[derive(Deserialize)]
+pub struct GoogleAppEingabe {
+    pub client_id: String,
+    /// Empty keeps the stored secret.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+}
+
+/// `POST /api/v1/google/app` — enter the Google project's client.
+pub async fn google_app_setzen(
+    State(state): State<AppState>,
+    Json(e): Json<GoogleAppEingabe>,
+) -> ApiResult<GoogleApp> {
+    google::app_setzen(&state, &e.client_id, e.client_secret.as_deref()).map_err(ApiError)?;
+    google_app(State(state)).await
+}
+
+#[derive(Deserialize)]
+pub struct GoogleStart {
+    /// The page's origin, e.g. `https://relay.kai.olares.de`.
+    pub origin: String,
+}
+
+/// Only an https origin, or http on this machine (development).
+fn rueckweg_fuer(origin: &str) -> Result<String, ApiError> {
+    let o = origin.trim().trim_end_matches('/');
+    let url = reqwest::Url::parse(o).map_err(|_| ApiError("Ungültige Adresse der Seite.".into()))?;
+    let lokal = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"));
+    if url.scheme() != "https" && !(url.scheme() == "http" && lokal) {
+        return Err(ApiError("Google erlaubt die Rückkehr nur über https.".into()));
+    }
+    if url.path() != "/" && !url.path().is_empty() {
+        return Err(ApiError("Ungültige Adresse der Seite.".into()));
+    }
+    Ok(format!("{o}{}", google::RUECKWEG))
+}
+
+/// `POST /api/v1/accounts/:id/google/start` — Google's sign-in page.
+pub async fn google_start(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(s): Json<GoogleStart>,
+) -> ApiResult<serde_json::Value> {
+    let (rec, _) = konto_mit_passwort(&state, id)?;
+    let rueckweg = rueckweg_fuer(&s.origin)?;
+    let url = google::start(id, &rueckweg, &rec.sender_email).map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "url": url })))
+}
+
+#[derive(Deserialize)]
+pub struct Rueckkehr {
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// The page Google sends the browser back to: hands the result to the
+/// window that opened it and closes, or returns to the settings.
+fn rueckkehr_seite(konto: Option<i64>, ok: bool, meldung: &str) -> Html<String> {
+    let daten = serde_json::json!({ "typ": "relay-google", "ok": ok, "konto": konto, "meldung": meldung })
+        .to_string()
+        .replace("</", "<\\/");
+    let ziel = format!(
+        "/settings?google={}{}",
+        if ok { "ok" } else { "fehler" },
+        konto.map(|k| format!("&konto={k}")).unwrap_or_default()
+    );
+    let text = meldung.replace('&', "&amp;").replace('<', "&lt;");
+    Html(format!(
+        "<!doctype html><html lang=\"de\"><meta charset=\"utf-8\"><title>Google · Relay</title>\
+         <body style=\"font-family:system-ui,sans-serif;padding:24px\"><p>{text}</p>\
+         <script>const d={daten};if(window.opener){{window.opener.postMessage(d,location.origin);window.close();}}\
+         else{{location.replace({ziel:?});}}</script></body></html>"
+    ))
+}
+
+/// `GET /api/v1/google/rueckweg` — Google's answer to the sign-in.
+pub async fn google_rueckweg(State(state): State<AppState>, Query(q): Query<Rueckkehr>) -> Html<String> {
+    if let Some(e) = q.error {
+        let m = if e == "access_denied" {
+            "Die Anmeldung bei Google wurde abgebrochen.".to_string()
+        } else {
+            format!("Google meldet: {e}")
+        };
+        return rueckkehr_seite(None, false, &m);
+    }
+    let (Some(code), Some(zustand)) = (q.code, q.state) else {
+        return rueckkehr_seite(None, false, "Google hat keine Anmeldung zurückgegeben.");
+    };
+    match google::rueckweg(&state, &code, &zustand).await {
+        Ok(konto) => rueckkehr_seite(Some(konto), true, "Mit Google angemeldet. Sie können dieses Fenster schließen."),
+        Err(e) => rueckkehr_seite(None, false, &e),
+    }
+}
+
+/// Before an account is deleted: calendar, tasks and contacts off, Google's
+/// sign-in revoked. Best effort; the deletion goes on either way.
+pub(crate) async fn alles_aus(state: &AppState, id: i64) {
+    let aus = DavWahl { kalender: false, aufgaben: false, kontakte: false, caldav_url: None, carddav_url: None };
+    if let Err(e) = schalten(state, id, aus).await {
+        tracing::warn!("Konto {id}: Kalender und Kontakte nicht abgeschaltet: {}", e.0);
+    }
+    if google::angemeldet(id).is_some() {
+        if let Err(e) = google::trennen(state, id).await {
+            tracing::warn!("Konto {id}: Google-Anmeldung nicht getrennt: {e}");
+        }
+    }
+}
+
+/// `POST /api/v1/accounts/:id/google/trennen` — switch everything off and
+/// forget Google's sign-in.
+pub async fn google_trennen(State(state): State<AppState>, Path(id): Path<i64>) -> ApiResult<serde_json::Value> {
+    schalten(
+        &state,
+        id,
+        DavWahl { kalender: false, aufgaben: false, kontakte: false, caldav_url: None, carddav_url: None },
+    )
+    .await?;
+    google::trennen(&state, id).await.map_err(ApiError)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rueckweg_nur_ueber_https() {
+        assert_eq!(
+            rueckweg_fuer("https://relay.kai.olares.de").unwrap(),
+            "https://relay.kai.olares.de/api/v1/google/rueckweg"
+        );
+        assert_eq!(rueckweg_fuer("http://127.0.0.1:3800/").unwrap(), "http://127.0.0.1:3800/api/v1/google/rueckweg");
+        assert!(rueckweg_fuer("http://relay.kai.olares.de").is_err());
+        assert!(rueckweg_fuer("https://relay.kai.olares.de/irgendwo").is_err());
+        assert!(rueckweg_fuer("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn rueckkehr_seite_ohne_ausbruch() {
+        let Html(h) = rueckkehr_seite(Some(3), false, "</script><b>x");
+        assert!(!h.contains("</script><b>"));
+        assert!(h.contains("window.opener.postMessage"));
+    }
 
     #[test]
     fn anbieter_nach_adresse_und_host() {

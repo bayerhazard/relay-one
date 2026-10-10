@@ -25,6 +25,7 @@ use relay_server::bootstrap;
 use relay_server::cache;
 use relay_server::dav;
 use relay_server::crypto;
+use relay_server::google;
 use relay_server::sync;
 use relay_server::AppState;
 
@@ -84,6 +85,9 @@ async fn main() {
     bootstrap::load_ai_settings(&state);
     load_carddav_settings(&state);
     load_caldav_settings(&state);
+    if let Some(conn) = state.cache_db.lock().as_ref() {
+        google::laden(conn);
+    }
 
     // Background: reconnect IMAP/SMTP clients, then start sync scheduler.
     let sync_state = state.clone();

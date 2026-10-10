@@ -63,6 +63,7 @@ pub async fn set_caldav_settings(
         kalender: None,
         aufgaben: None,
         mail_konto: None,
+        google: None,
     };
     upsert_account(&state, account).await
 }
@@ -92,6 +93,9 @@ pub struct CalDavAccountInput {
     pub aufgaben: Option<bool>,
     #[serde(default)]
     pub mail_konto: Option<i64>,
+    /// Google's sign-in instead of the password (Schritt 2).
+    #[serde(default)]
+    pub google: Option<bool>,
 }
 
 /// For other modules (accounts' calendar switches).
@@ -173,6 +177,9 @@ pub async fn upsert_account(
         if req.mail_konto.is_some() {
             a.mail_konto = req.mail_konto;
         }
+        if let Some(g) = req.google {
+            a.google = g;
+        }
     } else {
         accounts.push(CalDavSettings {
             id: req.id.unwrap_or_default(),
@@ -185,6 +192,7 @@ pub async fn upsert_account(
             kalender: req.kalender.unwrap_or(true),
             aufgaben: req.aufgaben.unwrap_or(true),
             mail_konto: req.mail_konto,
+            google: req.google.unwrap_or(false),
         });
     }
     store_accounts(state, accounts)?;
@@ -291,8 +299,13 @@ pub async fn do_caldav_sync_account(
     };
 
     // Persist calendars + events.
-    // Collections are found either way: tasks are filed under them too.
-    let calendars = client.discover_calendars().await.unwrap_or_default();
+    // Collections are found either way: tasks are filed under them too —
+    // except with Google, whose tasks are lists of their own.
+    let calendars = if settings.kalender || !settings.google {
+        client.discover_calendars().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut saved = 0usize;
     if let Ok(mut guard) = get_db(state) {
         if let Some(conn) = guard.as_mut() {
@@ -321,6 +334,18 @@ pub async fn do_caldav_sync_account(
     // swallowed, so a broken todo endpoint is visible in the logs.
     let todos_saved = if !settings.aufgaben {
         0
+    } else if settings.google {
+        // Gmail: Google Tasks, no VTODO over CalDAV (Schritt 2).
+        match settings.mail_konto {
+            Some(konto) => match crate::google::aufgaben::abgleichen(state, konto, &settings.id).await {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!("Google Tasks '{}': {}", settings.name, e);
+                    0
+                }
+            },
+            None => 0,
+        }
     } else { match client.fetch_all_todos().await {
         Ok(todos) => save_todos_to_db(state, &todos),
         Err(e) => {
@@ -809,6 +834,7 @@ mod tests {
             kalender: None,
             aufgaben: None,
             mail_konto: None,
+            google: None,
         };
         upsert_account(&state, req).await.unwrap();
         let accounts = state.caldav_accounts.read();
@@ -840,6 +866,7 @@ mod tests {
             kalender: None,
             aufgaben: None,
             mail_konto: None,
+            google: None,
         };
         upsert_account(&state, req.clone()).await.unwrap();
         let id = state.caldav_accounts.read()[0].id.clone();
@@ -867,6 +894,7 @@ mod tests {
             kalender: None,
             aufgaben: None,
             mail_konto: None,
+            google: None,
         };
         upsert_account(&state, req).await.unwrap();
         // Seed a calendar + event for that account.

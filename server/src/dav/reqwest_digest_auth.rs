@@ -5,11 +5,12 @@ pub struct ClientBuilder {
     inner: ReqwestClient,
     username: String,
     password: String,
+    google: Option<i64>,
 }
 
 impl ClientBuilder {
     pub fn new(inner: ReqwestClient) -> Self {
-        Self { inner, username: String::new(), password: String::new() }
+        Self { inner, username: String::new(), password: String::new(), google: None }
     }
 
     pub fn username(mut self, username: String) -> Self {
@@ -22,11 +23,19 @@ impl ClientBuilder {
         self
     }
 
+    /// Sign in with Google's token of this mail account instead of the
+    /// password (Gmail, Schritt 2).
+    pub fn google(mut self, konto: Option<i64>) -> Self {
+        self.google = konto;
+        self
+    }
+
     pub fn build(self) -> Client {
         Client {
             inner: self.inner,
             username: self.username,
             password: self.password,
+            google: self.google,
         }
     }
 }
@@ -35,6 +44,7 @@ pub struct Client {
     inner: ReqwestClient,
     username: String,
     password: String,
+    google: Option<i64>,
 }
 
 impl Client {
@@ -45,6 +55,7 @@ impl Client {
             url: url.to_string(),
             username: self.username.clone(),
             password: self.password.clone(),
+            google: self.google,
         }
     }
 
@@ -55,6 +66,7 @@ impl Client {
             url: url.to_string(),
             username: self.username.clone(),
             password: self.password.clone(),
+            google: self.google,
         }
     }
 }
@@ -66,6 +78,7 @@ pub struct RequestBuilder {
     url: String,
     username: String,
     password: String,
+    google: Option<i64>,
 }
 
 impl RequestBuilder {
@@ -80,6 +93,17 @@ impl RequestBuilder {
     }
 
     pub async fn send(self) -> Result<Response, reqwest::Error> {
+        if let Some(konto) = self.google {
+            // Google answers a missing token with 401, which the caller
+            // reports; the reason goes to the log.
+            return match crate::google::zugang(konto).await {
+                Ok(token) => self.inner.bearer_auth(token).send().await,
+                Err(e) => {
+                    tracing::warn!("Google-Anmeldung für Konto {konto}: {e}");
+                    self.inner.send().await
+                }
+            };
+        }
         // Clone the request so we can retry with digest auth if needed
         let cloned = match self.inner.try_clone() {
             Some(c) => c,

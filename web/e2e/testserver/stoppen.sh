@@ -4,7 +4,7 @@
 # start always gives the same empty servers for befuellen.py.
 set -u
 LAUF="${TESTSERVER_DIR:-$(cd "$(dirname "$0")" && pwd)/.lauf}"
-for name in greenmail radicale; do
+for name in greenmail radicale google; do
   [ -f "$LAUF/$name.pid" ] && kill "$(cat "$LAUF/$name.pid")" 2>/dev/null
   rm -f "$LAUF/$name.pid"
 done

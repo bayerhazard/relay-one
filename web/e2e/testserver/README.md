@@ -24,6 +24,12 @@ füllt das Skript nur die Testserver.
 | IMAP | `127.0.0.1:3143`, ohne TLS | `erika` / `geheim` |
 | SMTP | `127.0.0.1:3025`, ohne TLS | `erika` / `geheim` |
 | CalDAV/CardDAV | `http://127.0.0.1:5232/erika/` | `erika` / `geheim` |
+| Google (Ersatz) | `http://127.0.0.1:5299/` | Client `relay-test.apps.googleusercontent.com` / `geheim-test` |
+
+Der Ersatz für Google (`google.py`) spielt Anmeldung, Google Tasks und
+Kalender und Kontakte (weitergereicht an Radicale) nach. Relay spricht ihn
+an, wenn es mit `RELAY_GOOGLE_TEST_BASIS=http://127.0.0.1:5299` startet;
+`googleprobe.py` prüft damit die Google-Anmeldung eines Gmail-Kontos.
 
 ## Was drin ist
 

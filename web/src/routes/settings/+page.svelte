@@ -244,6 +244,13 @@
       aufraeumen = await getAufraeumen().catch(() => false);
     } catch (e) { console.warn("move_to_trash load failed, using default", e); }
     await loadAccountList();
+    // Back from Google's sign-in without a pop-up: open that account.
+    const zurueck = new URLSearchParams(location.search);
+    if (zurueck.has("google")) {
+      activeTab = "accounts";
+      neuesKonto = Number(zurueck.get("konto")) || null;
+      history.replaceState(history.state, "", location.pathname);
+    }
 
     // Load CardDAV settings
     try {
@@ -1130,11 +1137,6 @@ async function handleSaveCardDav() {
                           : $t("settings.syncModeMirrorHint")}
                       </span>
                     </div>
-                    <!-- Calendar, tasks and contacts of this account (26.10.18). -->
-                    <details class="account-dav" open={a.id === neuesKonto}>
-                      <summary>{$t("kontoDav.titel")}</summary>
-                      <KontoDav accountId={a.id} />
-                    </details>
                   </div>
                   <div class="account-actions">
                     <button type="button" class="btn btn-sekundaer" onclick={() => connectAndEditAccount(a)}>
@@ -1144,6 +1146,12 @@ async function handleSaveCardDav() {
                       {$t("settings.remove")}
                     </button>
                   </div>
+                  <!-- Calendar, tasks and contacts of this account (26.10.18),
+                       below the buttons over the card's full width. -->
+                  <details class="account-dav" open={a.id === neuesKonto}>
+                    <summary>{$t("kontoDav.titel")}</summary>
+                    <KontoDav accountId={a.id} />
+                  </details>
                 </div>
               {/each}
             </div>
@@ -2705,7 +2713,12 @@ async function handleSaveCardDav() {
     flex-shrink: 0;
   }
   /* ── Calendar, tasks and contacts per account [RL-KONTODAV] ──────── */
-  .account-dav { margin-top: var(--am-raum-3); }
+  /* Its own row under name and buttons, lined up with the name. */
+  .account-card-item { flex-wrap: wrap; }
+  .account-dav { flex: 0 0 calc(100% - 60px); min-width: 0; margin-left: 60px; }
+  @media (max-width: 40rem) {
+    .account-dav { flex-basis: 100%; margin-left: 0; }
+  }
   .account-dav > summary { cursor: pointer; font-weight: 600; font-size: var(--fs-sm); color: var(--am-text-primaer); }
   .account-dav[open] > summary { margin-bottom: var(--am-raum-3); }
 </style>

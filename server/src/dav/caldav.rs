@@ -39,6 +39,10 @@ pub struct CalDavSettings {
     /// The mail account this one was set up from, if any.
     #[serde(default)]
     pub mail_konto: Option<i64>,
+    /// Signed in with Google's token of `mail_konto` instead of a password
+    /// (Gmail, Schritt 2). Tasks then come from Google Tasks, not CalDAV.
+    #[serde(default)]
+    pub google: bool,
 }
 
 fn default_enabled() -> bool {
@@ -58,6 +62,7 @@ impl Default for CalDavSettings {
             kalender: true,
             aufgaben: true,
             mail_konto: None,
+            google: false,
         }
     }
 }
@@ -87,6 +92,7 @@ impl CalDavClient {
         let http = reqwest_digest_auth::ClientBuilder::new(http)
             .username(settings.username.clone())
             .password(settings.password.clone())
+            .google(if settings.google { settings.mail_konto } else { None })
             .build();
 
         Self { settings, http }

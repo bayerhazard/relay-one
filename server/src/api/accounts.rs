@@ -304,6 +304,9 @@ pub async fn delete_account(
     Json(req): Json<DeleteAccountRequest>,
 ) -> ApiResult<()> {
     let account_id = req.account_id;
+    // Its calendar, tasks and contacts leave with it, and a Google sign-in
+    // is revoked — a later account could get the same id.
+    super::konto_dav::alles_aus(&state, account_id as i64).await;
     with_db(&state, |conn| {
         cache::accounts::delete_account(conn, account_id as i64).map_err(|e| e.to_string())
     })?;

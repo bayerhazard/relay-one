@@ -14,6 +14,7 @@ pub mod dav;
 pub mod db;
 pub mod error;
 pub mod events;
+pub mod google;
 pub mod imap;
 #[cfg(test)]
 pub mod ics_spike;

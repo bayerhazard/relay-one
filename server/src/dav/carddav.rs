@@ -17,6 +17,9 @@ pub struct CardDavSettings {
     /// The mail account this address book was set up from, if any.
     #[serde(default)]
     pub mail_konto: Option<i64>,
+    /// Signed in with Google's token of `mail_konto` (Gmail, Schritt 2).
+    #[serde(default)]
+    pub google: bool,
 }
 
 impl Default for CardDavSettings {
@@ -27,6 +30,7 @@ impl Default for CardDavSettings {
             password: String::new(),
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         }
     }
 }
@@ -53,6 +57,7 @@ impl CardDavClient {
         let http = reqwest_digest_auth::ClientBuilder::new(http)
             .username(settings.username.clone())
             .password(settings.password.clone())
+            .google(if settings.google { settings.mail_konto } else { None })
             .build();
 
         Self { settings, http }
@@ -495,6 +500,7 @@ mod tests {
             password: pass,
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -524,6 +530,7 @@ mod tests {
             password: pass,
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -566,6 +573,7 @@ mod tests {
             password: pass,
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 
@@ -602,6 +610,7 @@ mod tests {
             password: pass,
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         };
 
         let client = CardDavClient::new(settings);
@@ -634,6 +643,7 @@ mod tests {
             password: pass,
             sync_interval_minutes: 30,
             mail_konto: None,
+            google: false,
         };
         let base_url = settings.url.trim_end_matches('/').to_string();
 

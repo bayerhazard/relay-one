@@ -174,6 +174,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/voice/speak", post(profile::speak_voice))
         // CardDAV
         .route("/accounts/:id/dav", get(konto_dav::dav_stand).post(konto_dav::dav_setzen))
+        .route("/accounts/:id/google/start", post(konto_dav::google_start))
+        .route("/accounts/:id/google/trennen", post(konto_dav::google_trennen))
+        .route("/google/app", get(konto_dav::google_app).post(konto_dav::google_app_setzen))
+        .route("/google/rueckweg", get(konto_dav::google_rueckweg))
         .route("/carddav/settings", get(settings::get_carddav_settings).post(settings::set_carddav_settings))
         .route("/carddav/sync", post(settings::sync_carddav))
         .route("/carddav/search", post(settings::search_carddav))
