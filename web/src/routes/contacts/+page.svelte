@@ -37,21 +37,20 @@
     email: "", phone: "", organization: "",
   });
 
-  // Three columns (Kai, 9.10.2026): the sources left, the list in the
-  // middle, the chosen contact right. The address book comes first; the
-  // senders Relay collects from mail stand apart.
-  // Starts on "Alle", as Apple and Google do, then on the last choice
-  // (Kai, 10.10.2026: an empty address book opened an empty page).
+  // As the iPhone's contacts (Kai, 10.10.2026, with his screenshots):
+  // "Listen" lead — "Alle Kontakte" is the address book, the senders Relay
+  // collects from mail stand apart below as "Weitere Kontakte". On the
+  // desktop the lists are the left column; on the phone a page of their
+  // own, reached with "‹ Listen" above the list. The last choice is kept.
   const QUELLE_MERKEN = "relay_kontakte_quelle";
   function gemerkteQuelle(): KontaktQuelle {
     try {
-      const q = localStorage.getItem(QUELLE_MERKEN);
-      if (q === "adressbuch" || q === "mail" || q === "alle") return q;
+      if (localStorage.getItem(QUELLE_MERKEN) === "mail") return "mail";
     } catch { /* no storage */ }
     return "alle";
   }
   let quelle = $state<KontaktQuelle>(gemerkteQuelle());
-  const QUELLEN: KontaktQuelle[] = ["alle", "adressbuch", "mail"];
+  let listenOffen = $state(false);
   let zahlen = $state<KontaktZahlen | null>(null);
   let spalteOffen = $state(false);
   let gewaehltUid = $state<string | null>(null);
@@ -59,6 +58,7 @@
 
   function waehleQuelle(q: KontaktQuelle) {
     spalteOffen = false;
+    listenOffen = false;
     if (q === quelle) return;
     quelle = q;
     try { localStorage.setItem(QUELLE_MERKEN, q); } catch { /* no storage */ }
@@ -188,6 +188,21 @@
     }
   }
 
+  // A company has no person's name: a building instead of a letter, as on
+  // the iPhone (Walsroder Zeitung).
+  function istFirma(c: ContactInfo): boolean {
+    return !(c.given_name ?? "").trim() && !(c.family_name ?? "").trim() && !!(c.organization ?? "").trim();
+  }
+
+  // The family name in bold, as the iPhone marks what the list is sorted
+  // by; a name without one is bold as a whole.
+  function namensTeile(c: ContactInfo): [string, string, string] {
+    const voll = c.display_name || c.email || translate("contacts.unnamed");
+    const f = (c.family_name ?? "").trim();
+    const i = f ? voll.indexOf(f) : -1;
+    return i < 0 ? ["", voll, ""] : [voll.slice(0, i), f, voll.slice(i + f.length)];
+  }
+
   function initials(c: ContactInfo): string {
     const g = (c.given_name ?? "").trim();
     const f = (c.family_name ?? "").trim();
@@ -221,8 +236,13 @@
     return aus;
   });
   const indexId = (b: string) => `ct-b-${b === "#" ? "anderes" : b}`;
+  // The whole alphabet at the edge, as on the iPhone; a letter without
+  // contacts leads to the next one that has some.
+  const ALPHABET = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"];
   function springe(b: string) {
-    document.getElementById(indexId(b))?.scrollIntoView({ block: "start" });
+    const da = gruppen.map((g) => g.b);
+    const ziel = da.find((x) => ALPHABET.indexOf(x) >= ALPHABET.indexOf(b)) ?? da.at(-1);
+    if (ziel) document.getElementById(indexId(ziel))?.scrollIntoView({ block: "start" });
   }
   // The index follows the finger, as on the iPhone.
   let ziehen = false;
@@ -309,26 +329,57 @@
 
 <svelte:head><title>{tabTitel($t("contacts.title"))}</title></svelte:head>
 
+{#snippet listen()}
+  <!-- The lists (iPhone "Listen"): the address book first, the senders
+       collected from mail apart below with a line saying what they are. -->
+  <nav class="ct-listen" aria-label={$t("contacts.listen")}>
+    <div class="ct-listen-gruppe">
+      <button type="button" class="ct-quelle" class:active={quelle === "alle"} aria-current={quelle === "alle" ? "page" : undefined} onclick={() => waehleQuelle("alle")}>
+        <Symbol name="team" size={20} />
+        <span class="ct-quelle-name">{$t("contacts.alle")}</span>
+        {#if zahlen}<span class="ct-zahl">{zahlen.alle}</span>{/if}
+        <span class="ct-quelle-pfeil"><Symbol name="chevron-rechts" size={16} /></span>
+      </button>
+    </div>
+    <div class="ct-listen-gruppe">
+      <button type="button" class="ct-quelle" class:active={quelle === "mail"} aria-current={quelle === "mail" ? "page" : undefined} onclick={() => waehleQuelle("mail")}>
+        <Symbol name="post" size={20} />
+        <span class="ct-quelle-name">{$t("contacts.ausMails")}</span>
+        {#if zahlen}<span class="ct-zahl">{zahlen.mail}</span>{/if}
+        <span class="ct-quelle-pfeil"><Symbol name="chevron-rechts" size={16} /></span>
+      </button>
+    </div>
+    <p class="ct-listen-hinweis">{$t("contacts.weitereHinweis")}</p>
+  </nav>
+{/snippet}
+
 <Huelle bereich="contacts" bind:spalteOffen spalteMobil={false} bind:suche={search} suchePlatzhalter={$t("contacts.searchPlaceholder")}>
   {#snippet spalte()}
-    <!-- The inside of the area (RL-G2): where the contacts come from. -->
-    <nav class="ct-quellen" aria-label={$t("contacts.quellen")}>
-      {#each QUELLEN as q (q)}
-        <button type="button" class="ct-quelle" class:active={quelle === q} aria-current={quelle === q ? "page" : undefined} onclick={() => waehleQuelle(q)}>
-          <Symbol name={q === "adressbuch" ? "team" : q === "mail" ? "post" : "liste"} size={20} />
-          <span class="ct-quelle-name">{q === "adressbuch" ? $t("contacts.adressbuch") : q === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</span>
-          {#if zahlen}<span class="ct-zahl">{q === "adressbuch" ? zahlen.adressbuch : q === "mail" ? zahlen.mail : zahlen.alle}</span>{/if}
-        </button>
-      {/each}
-    </nav>
+    {@render listen()}
   {/snippet}
 
-  <main class="ct-main" class:ct-mit-auswahl={gewaehlt !== null}>
+  <main class="ct-main" class:ct-mit-auswahl={gewaehlt !== null} class:ct-mit-listen={listenOffen}>
+    {#if listenOffen}
+      <!-- Phone: the lists as a page of their own (iPhone "Listen"). -->
+      <section class="ct-listen-seite" aria-labelledby="ct-listen-titel">
+        <div class="seitenkopf ct-kopf">
+          <div class="seitenkopf-zeile"><h1 id="ct-listen-titel">{$t("contacts.listen")}</h1></div>
+        </div>
+        {@render listen()}
+      </section>
+    {/if}
     <section class="ct-liste-spalte" aria-label={$t("contacts.title")}>
-      <!-- HB-SEITENKOPF: the source as title with its count, refresh right. -->
+      <!-- HB-SEITENKOPF: the list as title with its count; refresh and
+           "Neuer Kontakt" right. On the phone "‹ Listen" above it. -->
       <div class="seitenkopf ct-kopf">
+        <div class="ct-kopf-oben">
+          <button type="button" class="btn btn-still btn-klein ct-zu-listen" onclick={() => (listenOffen = true)}>
+            <Symbol name="chevron-links" size={16} />
+            {$t("contacts.listen")}
+          </button>
+        </div>
         <div class="seitenkopf-zeile">
-          <h1>{quelle === "adressbuch" ? $t("contacts.adressbuch") : quelle === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</h1>
+          <h1>{quelle === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</h1>
           <span class="seitenkopf-zahl">{contacts.length}</span>
         </div>
         <div class="btn-reihe">
@@ -347,18 +398,10 @@
           </button>
         </div>
       </div>
-      <!-- Phone: where the contacts come from, as a switch above the list
-           instead of a sheet (Kai, 10.10.2026, after Apple and Google). -->
-      <div class="ct-umschalter" role="group" aria-label={$t("contacts.quellen")}>
-        {#each QUELLEN as q (q)}
-          <button type="button" class:active={quelle === q} aria-pressed={quelle === q} onclick={() => waehleQuelle(q)}>
-            {q === "adressbuch" ? $t("contacts.kurzAdressbuch") : q === "mail" ? $t("contacts.kurzWeitere") : $t("contacts.kurzAlle")}
-          </button>
-        {/each}
-      </div>
       {#if quelle === "mail"}
         <p class="ct-weitere-hinweis">{$t("contacts.weitereHinweis")}</p>
       {/if}
+      <div class="ct-koerper">
       <div class="ct-inhalt">
       {#if loading && contacts.length === 0}
         <div class="ct-state">{$t("contacts.loading")}</div>
@@ -373,14 +416,22 @@
       {:else if contacts.length === 0}
         {#if search}
           <EmptyState icon="suche" title={$t("contacts.notFound")} />
+        {:else if quelle === "alle"}
+          <!-- An empty address book points to the collected ones (the page
+               used to stay empty, Kai 10.10.2026). -->
+          <EmptyState icon="nutzer" title={$t("contacts.adressbuchLeer")} actionLabel={$t("contacts.create")} onaction={openCreate} />
+          {#if zahlen && zahlen.mail > 0}
+            <div class="ct-state"><button type="button" class="btn btn-sekundaer" onclick={() => waehleQuelle("mail")}>{$t("contacts.weitereAnsehen", { n: zahlen.mail })}</button></div>
+          {/if}
         {:else}
-          <EmptyState icon="nutzer" title={$t("contacts.empty")} actionLabel={$t("contacts.create")} onaction={openCreate} />
+          <EmptyState icon="nutzer" title={$t("contacts.empty")} />
         {/if}
       {:else}
         <ul class="ct-list">
           {#each gruppen as g (g.b)}
             <li class="ct-buchstabe" id={indexId(g.b)}>{g.b}</li>
             {#each g.kontakte as c (c.vcard_uid)}
+              {@const [vor, fett, nach] = namensTeile(c)}
               <li>
                 <button
                   type="button"
@@ -390,11 +441,10 @@
                   onclick={() => (gewaehltUid = c.vcard_uid)}
                   oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, contact: c }; }}
                 >
-                  <span class="ct-avatar" aria-hidden="true">{initials(c)}</span>
-                  <span class="ct-item-body">
-                    <span class="ct-item-name">{c.display_name || c.email || $t("contacts.unnamed")}</span>
-                    <span class="ct-item-sub">{c.organization || c.email || ""}</span>
+                  <span class="ct-avatar" class:ct-avatar-firma={istFirma(c)} aria-hidden="true">
+                    {#if istFirma(c)}<Symbol name="firma" size={20} />{:else}{initials(c)}{/if}
                   </span>
+                  <span class="ct-item-name">{vor}<strong>{fett}</strong>{nach}</span>
                 </button>
               </li>
             {/each}
@@ -414,69 +464,89 @@
           onpointerup={() => (ziehen = false)}
           onpointercancel={() => (ziehen = false)}
         >
-          {#each gruppen as g (g.b)}<span data-b={g.b}>{g.b}</span>{/each}
+          {#each ALPHABET as b (b)}<span data-b={b}>{b}</span>{/each}
         </div>
       {/if}
+      </div>
     </section>
 
     <section class="ct-detail-spalte" aria-label={$t("contacts.detail")}>
       {#if gewaehlt}
         {@const c = gewaehlt}
         <div class="ct-detail">
-          <button type="button" class="btn btn-still btn-klein ct-zurueck" onclick={() => (gewaehltUid = null)}>
-            <Symbol name="chevron-links" size={16} />
-            {$t("contacts.zurueck")}
-          </button>
-          <div class="ct-detail-kopf">
-            <span class="ct-avatar ct-avatar-gross" aria-hidden="true">{initials(c)}</span>
-            <div class="ct-detail-titel">
-              <h2>{c.display_name || c.email || $t("contacts.unnamed")}</h2>
-              {#if c.organization}<p class="ct-detail-firma">{c.organization}</p>{/if}
-              {#if c.source === "mail"}<p class="ct-herkunft">{$t("contacts.gesammeltHinweis")}</p>{/if}
-            </div>
-          </div>
-          <!-- As on the iPhone: what one does with a contact, in one row. -->
-          <div class="ct-aktionen">
-            {#if c.email}
-              <button type="button" class="ct-aktion" onclick={() => composeTo(c.email)}>
-                <Symbol name="post" size={20} />
-                <span>{$t("contacts.aktionMail")}</span>
-              </button>
-            {/if}
-            {#if c.phone}
-              <a class="ct-aktion" href={telHref(c.phone)}>
-                <Symbol name="geraet-telefon" size={20} />
-                <span>{$t("contacts.aktionAnrufen")}</span>
-              </a>
-            {/if}
-            {#if c.email}
-              <button type="button" class="ct-aktion" onclick={() => kopieren(c.email)} title={$t("contacts.aktionKopierenTitel")}>
-                <Symbol name={kopiert ? "erfolg" : "kopieren"} size={20} />
-                <span>{kopiert ? $t("contacts.aktionKopiert") : $t("contacts.aktionKopieren")}</span>
-              </button>
-            {/if}
-            <button type="button" class="ct-aktion" onclick={() => openEdit(c)}
-              title={c.source === "mail" ? $t("contacts.uebernehmen") : $t("contacts.editBtn")}>
-              <Symbol name={c.source === "mail" ? "plus" : "bearbeiten"} size={20} />
-              <span>{c.source === "mail" ? $t("contacts.aktionUebernehmen") : $t("contacts.editBtn")}</span>
+          <!-- As on the iPhone: back left, edit right. -->
+          <div class="ct-detail-leiste">
+            <button type="button" class="btn btn-still btn-klein ct-zurueck" onclick={() => (gewaehltUid = null)}>
+              <Symbol name="chevron-links" size={16} />
+              {$t("contacts.zurueck")}
+            </button>
+            <button type="button" class="btn btn-sekundaer btn-klein ct-bearbeiten" onclick={() => openEdit(c)}
+              title={c.source === "mail" ? $t("contacts.uebernehmen") : $t("contacts.edit")}>
+              {c.source === "mail" ? $t("contacts.aktionUebernehmen") : $t("contacts.editBtn")}
             </button>
           </div>
-          <dl class="ct-angaben">
-            {#if c.email}
-              <dt>{$t("contacts.email")}</dt>
-              <dd><button type="button" class="ct-link" onclick={() => composeTo(c.email)} title={$t("contacts.newMailTo", { email: c.email })}>{c.email}</button></dd>
-            {/if}
+          <div class="ct-detail-kopf">
+            <span class="ct-avatar ct-avatar-gross" class:ct-avatar-firma={istFirma(c)} aria-hidden="true">
+              {#if istFirma(c)}<Symbol name="firma" size={40} />{:else}{initials(c)}{/if}
+            </span>
+            <h2>{c.display_name || c.email || $t("contacts.unnamed")}</h2>
+            {#if c.organization && !istFirma(c)}<p class="ct-detail-firma">{c.organization}</p>{/if}
+            {#if c.source === "mail"}<p class="ct-herkunft">{$t("contacts.gesammeltHinweis")}</p>{/if}
+          </div>
+          <!-- Four round buttons that always stand in the same place; what
+               a contact lacks stays grey (iPhone: mail without an address). -->
+          <div class="ct-aktionen">
+            <button type="button" class="ct-aktion" onclick={() => composeTo(c.email)} disabled={!c.email}
+              title={c.email ? $t("contacts.newMailTo", { email: c.email }) : $t("contacts.ohneMail")}>
+              <span class="ct-aktion-kreis"><Symbol name="post" size={20} /></span>
+              <span>{$t("contacts.aktionMail")}</span>
+            </button>
             {#if c.phone}
-              <dt>{$t("contacts.phone")}</dt>
-              <dd><a class="ct-link" href={telHref(c.phone)} title={$t("contacts.call")}>{c.phone}</a></dd>
+              <a class="ct-aktion" href={telHref(c.phone)} title={$t("contacts.call")}>
+                <span class="ct-aktion-kreis"><Symbol name="geraet-telefon" size={20} /></span>
+                <span>{$t("contacts.aktionAnrufen")}</span>
+              </a>
+            {:else}
+              <button type="button" class="ct-aktion" disabled title={$t("contacts.ohneTelefon")}>
+                <span class="ct-aktion-kreis"><Symbol name="geraet-telefon" size={20} /></span>
+                <span>{$t("contacts.aktionAnrufen")}</span>
+              </button>
             {/if}
-            {#if c.organization}
-              <dt>{$t("contacts.organization")}</dt>
-              <dd>{c.organization}</dd>
-            {/if}
-          </dl>
+            <button type="button" class="ct-aktion" onclick={() => kopieren(c.email)} disabled={!c.email}
+              title={c.email ? $t("contacts.aktionKopierenTitel") : $t("contacts.ohneMail")}>
+              <span class="ct-aktion-kreis"><Symbol name={kopiert ? "erfolg" : "kopieren"} size={20} /></span>
+              <span>{kopiert ? $t("contacts.aktionKopiert") : $t("contacts.aktionKopieren")}</span>
+            </button>
+            <button type="button" class="ct-aktion" onclick={() => mailsVon(c.email)} disabled={!c.email}
+              title={c.email ? $t("contacts.alleMails") : $t("contacts.ohneMail")}>
+              <span class="ct-aktion-kreis"><Symbol name="suche" size={20} /></span>
+              <span>{$t("contacts.aktionVerlauf")}</span>
+            </button>
+          </div>
+          {#if c.email || c.phone || c.organization}
+            <dl class="karte ct-angaben">
+              {#if c.email}
+                <div class="ct-angabe">
+                  <dt>{$t("contacts.email")}</dt>
+                  <dd><button type="button" class="ct-link" onclick={() => composeTo(c.email)} title={$t("contacts.newMailTo", { email: c.email })}>{c.email}</button></dd>
+                </div>
+              {/if}
+              {#if c.phone}
+                <div class="ct-angabe">
+                  <dt>{$t("contacts.phone")}</dt>
+                  <dd><a class="ct-link" href={telHref(c.phone)} title={$t("contacts.call")}>{c.phone}</a></dd>
+                </div>
+              {/if}
+              {#if c.organization}
+                <div class="ct-angabe">
+                  <dt>{$t("contacts.organization")}</dt>
+                  <dd>{c.organization}</dd>
+                </div>
+              {/if}
+            </dl>
+          {/if}
           {#if c.email}
-            <div class="ct-mails">
+            <div class="karte ct-mails">
               <h3>{$t("contacts.letzteMails")}</h3>
               {#if mailsLaden}
                 <p class="ct-leise">{$t("contacts.mailsLaden")}</p>
@@ -608,11 +678,18 @@
     border-right: 1px solid var(--am-rand);
   }
   .ct-kopf { padding-inline: var(--am-raum-4); flex-shrink: 0; }
+  /* The list and its index share one box below the head, so the index
+     never reaches under the title. */
+  .ct-koerper { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .ct-inhalt { flex: 1; min-height: 0; overflow-y: auto; }
   .ct-detail-spalte { min-width: 0; min-height: 0; overflow-y: auto; }
 
-  /* ── The sources [RL-KONTAKTE] ────────────────────────────────────────── */
-  .ct-quellen { display: flex; flex-direction: column; gap: 2px; }
+  /* ── The lists [RL-KONTAKTE] ──────────────────────────────────────────── */
+  /* iPhone "Listen" (Kai, 10.10.2026): each list in its own group, the
+     count right; "Weitere Kontakte" set apart below with its line. */
+  .ct-listen { display: flex; flex-direction: column; gap: var(--am-raum-3); }
+  .ct-listen-gruppe { display: flex; flex-direction: column; gap: 2px; }
+  .ct-listen-hinweis { margin: calc(-1 * var(--am-raum-2)) var(--am-raum-3) 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
   .ct-quelle {
     display: flex;
     align-items: center;
@@ -642,16 +719,30 @@
   .ct-quelle.active:hover { background: var(--am-flaeche-2); }
   .ct-quelle.active > :global(svg) { color: var(--am-gold-beschriftung); }
   .ct-quelle-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ct-zahl {
-    font-size: var(--fs-xs);
-    font-weight: 400;
-    color: var(--am-text-gedaempft);
-    background: var(--am-flaeche-2);
-    border-radius: 999px;
-    padding: 0 7px;
-    min-width: 20px;
-    text-align: center;
+  .ct-quelle-pfeil { display: none; color: var(--am-text-gedaempft); }
+  .ct-zahl { font-size: var(--fs-xs); font-weight: 400; color: var(--am-text-gedaempft); }
+  /* The lists as a page of their own on the phone: rows as large as a
+     finger, in a card, as the iPhone's groups. */
+  .ct-listen-seite { display: none; min-width: 0; overflow-y: auto; }
+  .ct-listen-seite .ct-listen { padding: var(--am-raum-4) var(--am-raum-4) var(--am-raum-6); }
+  .ct-listen-seite .ct-listen-gruppe {
+    border: 1px solid var(--am-rand);
+    border-radius: var(--am-radius-gross);
+    background: var(--am-flaeche-1);
+    overflow: hidden;
   }
+  .ct-listen-seite .ct-quelle {
+    min-height: var(--am-ziel-beruehrung);
+    padding: var(--am-raum-3) var(--am-raum-4);
+    font-size: var(--fs-base);
+    color: var(--am-text-primaer);
+    border-radius: 0;
+  }
+  .ct-listen-seite .ct-quelle.active { box-shadow: none; border-radius: 0; font-weight: 600; }
+  .ct-listen-seite .ct-zahl { font-size: var(--fs-base); }
+  .ct-listen-seite .ct-quelle-pfeil { display: inline-flex; }
+  .ct-listen-seite .ct-listen-hinweis { margin-inline: var(--am-raum-4); }
+
   /* "Neuer Kontakt": a little clearer than the refresh beside it, the plus
      on the person's corner — the same as the letter in the mail. */
   .ct-neu-kopf {
@@ -672,35 +763,13 @@
   }
   .ct-neu-kopf:hover .person-plus-zeichen { background: var(--am-flaeche-3); }
 
-  /* ── Switch and plus on the phone [RL-KONTAKTE] ──────────────────────── */
-  /* The column carries the sources on the desktop; below 1024 px the
-     switch above the list does, and "Neuer Kontakt" is the plus. */
-  .ct-umschalter { display: none; }
-  .ct-umschalter {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 2px;
-    margin: 0 var(--am-raum-4) var(--am-raum-3);
-    padding: 2px;
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
-    flex-shrink: 0;
-  }
-  .ct-umschalter button {
-    min-height: 40px;
-    border: none;
-    border-radius: calc(var(--am-radius-mittel) - 2px);
-    background: transparent;
-    color: var(--am-text-sekundaer);
-    font: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .ct-umschalter button.active { background: var(--am-handlung-ruhend); color: var(--am-handlung-text); }
-  .ct-umschalter button:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 1px; }
+  /* "‹ Listen" above the title where the column is not shown. */
+  .ct-kopf { flex-wrap: wrap; }
+  .ct-kopf-oben { display: none; flex-basis: 100%; }
   @media (max-width: 1023px) {
-    .ct-umschalter { display: grid; }
+    .ct-kopf-oben { display: block; }
+    .ct-mit-listen .ct-listen-seite { display: block; grid-column: 1 / -1; }
+    .ct-mit-listen .ct-liste-spalte, .ct-mit-listen .ct-detail-spalte { display: none !important; }
   }
   .ct-weitere-hinweis {
     margin: 0 var(--am-raum-4) var(--am-raum-3);
@@ -710,26 +779,28 @@
   }
 
   /* ── Letters and the index [RL-KONTAKTE] ─────────────────────────────── */
+  /* Plain grey letters above a line, no band (iPhone). */
   .ct-buchstabe {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: var(--am-raum-1) var(--am-raum-4);
-    background: var(--am-flaeche-1);
+    padding: var(--am-raum-3) var(--am-raum-4) var(--am-raum-1);
+    background: var(--am-seite);
     border-bottom: 1px solid var(--am-rand);
     font-size: var(--fs-xs);
     font-weight: 600;
-    color: var(--am-text-sekundaer);
+    color: var(--am-text-gedaempft);
   }
   .ct-index {
     position: absolute;
     right: 2px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: var(--am-raum-2);
+    bottom: var(--am-raum-2);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: var(--am-raum-1) 2px;
+    justify-content: center;
+    padding: 0 2px;
     touch-action: none;
     user-select: none;
     z-index: 2;
@@ -738,7 +809,10 @@
   .ct-index span {
     font-size: 0.6875rem;
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.3;
+    min-height: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
     color: var(--am-handlung-ruhend);
     padding: 0 4px;
   }
@@ -752,29 +826,31 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    height: 100%;
     padding: var(--am-raum-6);
     color: var(--am-text-gedaempft);
     font-size: var(--fs-base);
   }
 
   /* ── List rows [RL-KONTAKTE] ─────────────────────────────────────────── */
-  /* As the mail list: lines between the rows, the chosen one light blue. */
+  /* One line per contact, only the name, the family name bold (iPhone);
+     the line under a row starts at the name. */
   .ct-list { list-style: none; margin: 0; padding: 0 0 84px; }
+  .ct-list li { position: relative; }
   .ct-item {
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 10px 16px;
+    min-height: var(--am-ziel-beruehrung);
+    padding: 6px 16px;
     border: none;
-    border-bottom: 1px solid var(--am-rand);
     background: none;
     color: inherit;
     font: inherit;
     text-align: left;
     cursor: pointer;
   }
+  .ct-list li:not(.ct-buchstabe) + li:not(.ct-buchstabe) .ct-item { box-shadow: inset 0 1px 0 var(--am-rand); }
   .ct-item:hover { background: var(--am-flaeche-1); }
   .ct-item.selected, .ct-item.selected:hover { background: var(--rl-zeile-auswahl); }
   .ct-item:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: -2px; }
@@ -789,40 +865,41 @@
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    font-size: var(--fs-base);
+    font-size: 0.875rem;
   }
-  .ct-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .ct-item-name { font-weight: 600; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ct-item-sub { font-size: var(--fs-xs); color: var(--am-text-gedaempft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A company: a building in a rounded square, as on the iPhone. */
+  .ct-avatar-firma { border-radius: var(--am-radius-mittel); color: var(--am-text-sekundaer); }
+  .ct-item-name { flex: 1; min-width: 0; font-size: var(--fs-base); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ct-item-name strong { font-weight: 600; }
 
   /* ── The chosen contact [RL-KONTAKTE] ────────────────────────────────── */
-  .ct-detail { padding: var(--am-raum-6) var(--am-raum-8); max-width: 720px; }
-  .ct-zurueck { display: none; margin-bottom: var(--am-raum-4); }
-  .ct-detail-kopf { display: flex; align-items: center; gap: var(--am-raum-4); }
-  .ct-avatar-gross { width: 64px; height: 64px; min-width: 64px; font-size: 1.25rem; }
-  .ct-detail-titel { min-width: 0; }
-  .ct-detail-titel h2 { margin: 0; font-size: 1.375rem; overflow-wrap: anywhere; }
-  .ct-detail-firma { margin: 2px 0 0; color: var(--am-text-sekundaer); }
-  .ct-herkunft { margin: var(--am-raum-1) 0 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
-  /* The actions as tiles in one row, as on the iPhone. */
+  /* As on the iPhone: back left and edit right, the monogram and the name
+     in the middle, four round buttons, then the details in cards. Flat:
+     no poster, no gradient, no glass (CI). */
+  .ct-detail { padding: var(--am-raum-4) var(--am-raum-8) var(--am-raum-8); max-width: 640px; margin-inline: auto; }
+  .ct-detail-leiste { display: flex; align-items: center; justify-content: flex-end; gap: var(--am-raum-2); min-height: 40px; }
+  .ct-zurueck { display: none; margin-inline-end: auto; }
+  .ct-detail-kopf { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--am-raum-2); margin-top: var(--am-raum-2); }
+  .ct-avatar-gross { width: 96px; height: 96px; min-width: 96px; font-size: 2.25rem; font-weight: 600; }
+  .ct-avatar-gross.ct-avatar-firma { border-radius: var(--am-radius-gross); }
+  .ct-detail-kopf h2 { margin: var(--am-raum-2) 0 0; font-size: 1.75rem; line-height: 1.2; overflow-wrap: anywhere; }
+  .ct-detail-firma { margin: 0; color: var(--am-text-sekundaer); }
+  .ct-herkunft { margin: 0; font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
   .ct-aktionen {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
-    gap: var(--am-raum-2);
-    margin: var(--am-raum-4) 0 var(--am-raum-6);
-    max-width: 30rem;
+    display: flex;
+    justify-content: center;
+    gap: var(--am-raum-4);
+    margin: var(--am-raum-6) 0 var(--am-raum-6);
   }
   .ct-aktion {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: var(--am-raum-1);
-    min-height: 56px;
-    padding: var(--am-raum-2);
-    border: 1px solid var(--am-rand);
-    border-radius: var(--am-radius-mittel);
-    background: var(--am-flaeche-1);
+    width: 4.5rem;
+    padding: 0;
+    border: none;
+    background: none;
     color: var(--am-handlung-ruhend);
     font: inherit;
     font-size: var(--fs-xs);
@@ -830,17 +907,27 @@
     text-decoration: none;
     cursor: pointer;
   }
-  .ct-aktion:hover { background: var(--am-flaeche-2); }
-  .ct-aktion:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
-  .ct-angaben {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: var(--am-raum-2) var(--am-raum-6);
-    margin: 0 0 var(--am-raum-6);
-    font-size: var(--fs-base);
+  .ct-aktion-kreis {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid var(--am-rand);
+    background: var(--am-flaeche-1);
   }
-  .ct-angaben dt { color: var(--am-text-gedaempft); }
-  .ct-angaben dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .ct-aktion:hover .ct-aktion-kreis { background: var(--am-flaeche-2); }
+  .ct-aktion:focus-visible { outline: none; }
+  .ct-aktion:focus-visible .ct-aktion-kreis { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
+  .ct-aktion:disabled { color: var(--am-text-gedaempft); cursor: default; }
+  .ct-aktion:disabled .ct-aktion-kreis { background: transparent; }
+  .ct-aktion:disabled:hover .ct-aktion-kreis { background: transparent; }
+  .ct-angaben { display: grid; margin: 0 0 var(--am-raum-4); padding: 0 var(--am-raum-4); }
+  .ct-angabe { padding: var(--am-raum-3) 0; }
+  .ct-angabe + .ct-angabe { border-top: 1px solid var(--am-rand); }
+  .ct-angaben dt { font-size: var(--fs-xs); color: var(--am-text-gedaempft); }
+  .ct-angaben dd { margin: 2px 0 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-base); }
   /* Mail address and phone number read as links. */
   .ct-link {
     color: var(--am-handlung-ruhend);
@@ -853,6 +940,7 @@
     text-align: left;
   }
   .ct-link:hover { text-decoration: underline; }
+  .ct-mails { padding: var(--am-raum-4); }
   .ct-mails h3 { margin: 0 0 var(--am-raum-2); font-size: var(--fs-base); }
   .ct-mail-liste { list-style: none; margin: 0 0 var(--am-raum-3); padding: 0; }
   .ct-mail-liste li {
@@ -881,6 +969,6 @@
     .ct-mit-auswahl .ct-liste-spalte { display: none; }
     .ct-mit-auswahl .ct-detail-spalte { display: block; }
     .ct-zurueck { display: inline-flex; }
-    .ct-detail { padding: var(--am-raum-4); }
+    .ct-detail { padding: var(--am-raum-2) var(--am-raum-4) var(--am-raum-8); }
   }
 </style>

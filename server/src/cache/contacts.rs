@@ -56,19 +56,20 @@ impl Quelle {
         }
     }
 
-    /// The condition on `contacts`. A sender collected from mail whose
-    /// address is in the address book is the same person: it is left out.
+    /// The condition on `contacts`. "Alle" is the address book, as "Alle
+    /// Kontakte" on the iPhone (Kai, 10.10.2026): senders collected from mail
+    /// stand apart under "Weitere Kontakte". A collected sender whose address
+    /// is in the address book is the same person: it is left out.
     fn bedingung(self) -> &'static str {
-        const GESAMMELT_EIGEN: &str = "(source = 'mail' AND NOT EXISTS (SELECT 1 FROM contacts b \
-            WHERE b.source != 'mail' AND b.email IS NOT NULL AND lower(b.email) = lower(contacts.email)))";
         match self {
-            Quelle::Adressbuch => "source != 'mail'",
+            Quelle::Alle | Quelle::Adressbuch => "source != 'mail'",
             Quelle::Mail => GESAMMELT_EIGEN,
-            Quelle::Alle => "(source != 'mail' OR (source = 'mail' AND NOT EXISTS (SELECT 1 FROM contacts b \
-                WHERE b.source != 'mail' AND b.email IS NOT NULL AND lower(b.email) = lower(contacts.email))))",
         }
     }
 }
+
+const GESAMMELT_EIGEN: &str = "(source = 'mail' AND NOT EXISTS (SELECT 1 FROM contacts b \
+    WHERE b.source != 'mail' AND b.email IS NOT NULL AND lower(b.email) = lower(contacts.email)))";
 
 /// The contacts of one source, searched as `list_contacts`.
 pub fn list_contacts_aus(conn: &Connection, search: &str, quelle: Quelle) -> Result<Vec<ContactRow>, String> {
@@ -85,7 +86,13 @@ pub fn list_contacts_aus(conn: &Connection, search: &str, quelle: Quelle) -> Res
           AND {}
         ORDER BY coalesce(display_name, given_name, email, '') COLLATE NOCASE
     "#,
-        quelle.bedingung()
+        // Searching all contacts finds the collected ones too, as the
+        // iPhone's search shows suggestions from mail below the address book.
+        if quelle == Quelle::Alle && !search.trim().is_empty() {
+            format!("(source != 'mail' OR {})", GESAMMELT_EIGEN)
+        } else {
+            quelle.bedingung().to_string()
+        }
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt
@@ -385,8 +392,12 @@ mod tests {
         };
         assert_eq!(uids(Quelle::Adressbuch), vec!["u1"]);
         assert_eq!(uids(Quelle::Mail), vec!["mail:noreply@shop.example"]);
-        assert_eq!(uids(Quelle::Alle), vec!["u1", "mail:noreply@shop.example"]);
-        assert_eq!(zahlen(&conn).unwrap(), Zahlen { alle: 2, adressbuch: 1, mail: 1 });
+        // "Alle Kontakte" is the address book; a search finds the others too.
+        assert_eq!(uids(Quelle::Alle), vec!["u1"]);
+        let gefunden: Vec<String> = list_contacts_aus(&conn, "example", Quelle::Alle).unwrap()
+            .into_iter().map(|c| c.vcard_uid).collect();
+        assert_eq!(gefunden, vec!["u1", "mail:noreply@shop.example"]);
+        assert_eq!(zahlen(&conn).unwrap(), Zahlen { alle: 1, adressbuch: 1, mail: 1 });
         assert_eq!(Quelle::lesen("adressbuch"), Quelle::Adressbuch);
         assert_eq!(Quelle::lesen("x"), Quelle::Alle);
 

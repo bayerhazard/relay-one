@@ -435,43 +435,46 @@ test("Mail: Klick auf die Zahl zeigt nur ungelesene", async ({ page, context }, 
 // Contacts in three columns (Kai, 9.10.2026): the address book first, the
 // senders collected from mail apart (one who is in the address book is not
 // shown twice), the chosen contact with his last mails.
-test("Kontakte: drei Spalten, Herkunft und letzte Mails", async ({ page, context }, info) => {
+test("Kontakte: Listen, Adressbuch und letzte Mails", async ({ page, context }, info) => {
   test.skip(!DATEN, "braucht die Beispieldaten");
   test.skip(info.project.name !== "desktop", "drei Spalten nebeneinander");
   await context.addInitScript(() => {
     try { localStorage.setItem("relay_onboarding_done", "1"); } catch { /* sandboxed frame */ }
   });
   await page.goto("/contacts");
-  // Starts on all contacts, as Apple and Google do (Kai, 10.10.2026).
+  // "Alle Kontakte" is the address book, as on the iPhone (Kai, 10.10.2026):
+  // the senders collected from mail are not in it.
   const titel = page.locator(".ct-kopf h1");
   await expect(titel).toHaveText("Alle Kontakte");
   // "Neuer Kontakt" sits in the list's head, not in the column (26.10.22).
   await expect(page.locator(".ct-kopf").getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
   await expect(page.locator("#relay-spalte").getByRole("button", { name: "Neuer Kontakt" })).toHaveCount(0);
   const zeilen = page.locator(".ct-item");
-  await page.locator(".ct-quelle", { hasText: "Mein Adressbuch" }).click();
-  await expect(titel).toHaveText("Mein Adressbuch");
   await expect(zeilen).toHaveCount(8);
-  // Grouped by letter.
+  // Grouped by letter, one line per contact, the family name bold.
   await expect(page.locator(".ct-buchstabe").first()).toHaveText("A");
+  await expect(zeilen.filter({ hasText: "Jonas Weber" }).locator("strong")).toHaveText("Weber");
 
   await zeilen.filter({ hasText: "Jonas Weber" }).click();
   const detail = page.locator(".ct-detail");
   await expect(detail.getByRole("heading", { level: 2 })).toHaveText("Jonas Weber");
-  await expect(detail.getByRole("button", { name: "E-Mail", exact: true })).toBeVisible();
+  await expect(detail.getByRole("button", { name: "E-Mail", exact: true })).toBeEnabled();
   await expect(detail.getByRole("link", { name: "Anrufen" })).toBeVisible();
+  await expect(detail.getByRole("button", { name: "Bearbeiten" })).toBeVisible();
   await expect(detail.locator(".ct-mail-liste")).toContainText("Angebot Messestand Frühjahr");
 
-  await page.locator(".ct-quelle", { hasText: "Weitere Kontakte" }).click();
+  await page.locator("#relay-spalte .ct-quelle", { hasText: "Weitere Kontakte" }).click();
   await expect(titel).toHaveText("Weitere Kontakte");
   await expect(zeilen.filter({ hasText: "Jonas Weber" }), "nicht doppelt").toHaveCount(0);
   await zeilen.first().click();
   await expect(detail.getByRole("button", { name: "Übernehmen" })).toHaveAttribute("title", "Ins Adressbuch übernehmen");
+  // What a contact lacks stays in its place, grey (iPhone).
+  await expect(detail.getByRole("button", { name: "Anrufen" })).toBeDisabled();
 });
 
-// Phone (Kai, 10.10.2026): no sheet for the contacts; a switch above the
-// list, the plus in the head, the choice is remembered.
-test("Kontakte am Handy: Umschalter statt Blatt", async ({ page, context }, info) => {
+// Phone (Kai, 10.10.2026, after the iPhone): "‹ Listen" above the list leads
+// to the lists, the plus is in the head, the choice is remembered.
+test("Kontakte am Handy: Listen wie am iPhone", async ({ page, context }, info) => {
   test.skip(!DATEN, "braucht die Beispieldaten");
   test.skip(info.project.name !== "handy", "nur am Handy");
   await context.addInitScript(() => {
@@ -479,22 +482,26 @@ test("Kontakte am Handy: Umschalter statt Blatt", async ({ page, context }, info
   });
   await page.goto("/contacts");
   await expect(page.getByRole("button", { name: "Spalte öffnen" })).toHaveCount(0);
-  const umschalter = page.locator(".ct-umschalter");
-  await expect(umschalter.getByRole("button", { name: "Alle" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".ct-kopf h1")).toHaveText("Alle Kontakte");
   await expect(page.getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
   // One long address without a break once pushed the whole column past the
-  // phone (Kai, 10.10.2026): the head's buttons, the switch and the index
-  // ran off to the right. It ends in "…" now; the page keeps its width.
-  await page.locator(".ct-item-sub").first().evaluate((e) => {
+  // phone (Kai, 10.10.2026). The page keeps its width.
+  await page.locator(".ct-item-name").first().evaluate((e) => {
     e.textContent = "bounce-mc.us12_123456789.987654321@mail.eine-sehr-lange-domain-ohne-umbruch.example.com";
   });
   expect(await page.locator(".ct-main").evaluate((e) => e.scrollWidth), "Liste bleibt in der Breite")
     .toBeLessThanOrEqual(page.viewportSize()!.width);
   await expect(page.getByRole("button", { name: "Neuer Kontakt" })).toBeInViewport({ ratio: 1 });
-  await umschalter.getByRole("button", { name: "Adressbuch" }).click();
-  await expect(page.locator(".ct-kopf h1")).toHaveText("Mein Adressbuch");
+
+  await page.getByRole("button", { name: "Listen" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Listen");
+  const listen = page.locator(".ct-listen-seite");
+  await listen.locator(".ct-quelle", { hasText: "Weitere Kontakte" }).click();
+  await expect(page.locator(".ct-kopf h1")).toHaveText("Weitere Kontakte");
   await page.reload();
-  await expect(page.locator(".ct-kopf h1"), "letzte Wahl gemerkt").toHaveText("Mein Adressbuch");
+  await expect(page.locator(".ct-kopf h1"), "letzte Wahl gemerkt").toHaveText("Weitere Kontakte");
+  await page.getByRole("button", { name: "Listen" }).click();
+  await listen.locator(".ct-quelle", { hasText: "Alle Kontakte" }).click();
   await page.locator(".ct-item", { hasText: "Jonas Weber" }).click();
   await expect(page.locator(".ct-detail h2")).toHaveText("Jonas Weber");
 });
