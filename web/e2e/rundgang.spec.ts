@@ -445,6 +445,9 @@ test("Kontakte: drei Spalten, Herkunft und letzte Mails", async ({ page, context
   // Starts on all contacts, as Apple and Google do (Kai, 10.10.2026).
   const titel = page.locator(".ct-kopf h1");
   await expect(titel).toHaveText("Alle Kontakte");
+  // "Neuer Kontakt" sits in the list's head, not in the column (26.10.22).
+  await expect(page.locator(".ct-kopf").getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
+  await expect(page.locator("#relay-spalte").getByRole("button", { name: "Neuer Kontakt" })).toHaveCount(0);
   const zeilen = page.locator(".ct-item");
   await page.locator(".ct-quelle", { hasText: "Mein Adressbuch" }).click();
   await expect(titel).toHaveText("Mein Adressbuch");
