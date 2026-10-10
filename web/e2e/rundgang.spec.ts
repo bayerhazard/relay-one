@@ -450,10 +450,19 @@ test("Kontakte: Listen, Adressbuch und letzte Mails", async ({ page, context }, 
   await expect(page.locator(".ct-kopf").getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
   await expect(page.locator("#relay-spalte").getByRole("button", { name: "Neuer Kontakt" })).toHaveCount(0);
   const zeilen = page.locator(".ct-item");
-  await expect(zeilen).toHaveCount(8);
-  // Grouped by letter, one line per contact, the family name bold.
+  await expect(zeilen).toHaveCount(9);
+  // Grouped by letter, one line per contact, the family name bold; a
+  // company carries a building instead of letters.
   await expect(page.locator(".ct-buchstabe").first()).toHaveText("A");
   await expect(zeilen.filter({ hasText: "Jonas Weber" }).locator("strong")).toHaveText("Weber");
+  await expect(zeilen.filter({ hasText: "Messe Nord GmbH" }).locator(".ct-avatar-firma")).toHaveCount(1);
+
+  // A list of the address book, as Apple keeps it in iCloud (26.10.25).
+  const spalte = page.locator("#relay-spalte");
+  await spalte.locator(".ct-quelle-liste", { hasText: "Messe" }).click();
+  await expect(titel).toHaveText("Messe");
+  await expect(zeilen).toHaveCount(2);
+  await spalte.locator(".ct-quelle", { hasText: "Alle Kontakte" }).click();
 
   await zeilen.filter({ hasText: "Jonas Weber" }).click();
   const detail = page.locator(".ct-detail");
@@ -465,7 +474,9 @@ test("Kontakte: Listen, Adressbuch und letzte Mails", async ({ page, context }, 
 
   await page.locator("#relay-spalte .ct-quelle", { hasText: "Weitere Kontakte" }).click();
   await expect(titel).toHaveText("Weitere Kontakte");
-  await expect(zeilen.filter({ hasText: "Jonas Weber" }), "nicht doppelt").toHaveCount(0);
+  // Only whom Erika wrote to (26.10.25): not the senders who only wrote to her.
+  await expect(zeilen).toHaveCount(1);
+  await expect(zeilen.first()).toContainText("Max Kühn");
   await zeilen.first().click();
   await expect(detail.getByRole("button", { name: "Übernehmen" })).toHaveAttribute("title", "Ins Adressbuch übernehmen");
   // What a contact lacks stays in its place, grey (iPhone).

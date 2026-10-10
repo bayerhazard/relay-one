@@ -110,13 +110,9 @@ impl CardDavClient {
         self.discover_addressbooks(&base_url).await.map(|b| b.len())
     }
 
-    /// Resolve the effective addressbook URL from the configured URL.
-    ///
-    /// 1. Discover addressbooks via PROPFIND on the configured URL.
-    /// 2. If exactly one addressbook is found: return its absolute URL.
-    /// 3. If multiple are found: warn and return the first.
-    /// 4. If none are found: fall back to the configured URL (legacy).
-    async fn resolve_addressbook_url(&self) -> Result<String, String> {
+    /// Every address book the configured address shows (26.10.25; before,
+    /// only the first was read). None found: the configured address itself.
+    async fn resolve_addressbook_urls(&self) -> Result<Vec<String>, String> {
         let base_url = self.settings.url.trim_end_matches('/').to_string();
         let books = self.discover_addressbooks(&base_url).await?;
 
@@ -125,26 +121,30 @@ impl CardDavClient {
                 "CardDAV: keine Adressbücher auf {} gefunden – verwende Basis-URL",
                 base_url
             );
-            return Ok(base_url);
+            return Ok(vec![base_url]);
         }
-
-        let book = &books[0];
-        if books.len() > 1 {
-            tracing::warn!(
-                "CardDAV: {} Adressbücher gefunden, verwende erstes ({})",
-                books.len(),
-                book.display_name.as_deref().unwrap_or(&book.href),
+        let mut urls = Vec::new();
+        for book in &books {
+            let abs_url = resolve_href(&base_url, &book.href)
+                .ok_or_else(|| format!("CardDAV: href '{}' konnte nicht sicher aufgelöst werden", book.href))?;
+            tracing::info!(
+                "CardDAV: Adressbuch '{}' auf {} gefunden",
+                book.display_name.as_deref().unwrap_or("(unbenannt)"),
+                abs_url,
             );
+            urls.push(abs_url);
         }
+        Ok(urls)
+    }
 
-        let abs_url = resolve_href(&base_url, &book.href)
-            .ok_or_else(|| format!("CardDAV: href '{}' konnte nicht sicher aufgelöst werden", book.href))?;
-        tracing::info!(
-            "CardDAV: Adressbuch '{}' auf {} gefunden",
-            book.display_name.as_deref().unwrap_or("(unbenannt)"),
-            abs_url,
-        );
-        Ok(abs_url)
+    /// The one address book for an incremental sync. With several there is
+    /// no single token: the caller fetches everything instead.
+    async fn resolve_addressbook_url(&self) -> Result<String, String> {
+        let mut urls = self.resolve_addressbook_urls().await?;
+        if urls.len() > 1 {
+            return Err(format!("CardDAV: {} Adressbücher – vollständiger Abgleich", urls.len()));
+        }
+        Ok(urls.remove(0))
     }
 
     /// Fetch all contacts from the CardDAV server.
@@ -155,12 +155,23 @@ impl CardDavClient {
             return Err("CardDAV-Server-URL nicht konfiguriert".into());
         }
 
-        let ab_url = self.resolve_addressbook_url().await?;
+        let urls = self.resolve_addressbook_urls().await?;
 
-        // Step 1: List contact URLs from the addressbook
-        let contact_urls = self.list_contacts(&ab_url).await?;
+        let mut contacts = Vec::new();
+        for ab_url in &urls {
+            // Step 1: List contact URLs from the addressbook
+            let contact_urls = self.list_contacts(ab_url).await?;
+            // Step 2: Fetch each vCard
+            for url in &contact_urls {
+                match self.fetch_vcard(url).await {
+                    Ok(vcard) => contacts.push(vcard::parse_vcard(&vcard)),
+                    Err(e) => tracing::warn!("Failed to fetch vCard from {}: {}", url, e),
+                }
+            }
+            tracing::info!("CardDAV: {} Einträge von {}", contact_urls.len(), ab_url);
+        }
 
-        if contact_urls.is_empty() {
+        if contacts.is_empty() {
             let hint = format!(
                 "CardDAV-Fehler: Keine Kontakte auf dem Server gefunden.\n\n\
                  URL: {}\n\n\
@@ -176,28 +187,13 @@ impl CardDavClient {
             return Err(hint);
         }
 
-        // Step 2: Fetch each vCard
-        let mut contacts = Vec::new();
-        for url in &contact_urls {
-            match self.fetch_vcard(url).await {
-                Ok(vcard) => {
-                    let contact = vcard::parse_vcard(&vcard);
-                    contacts.push(contact);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to fetch vCard from {}: {}", url, e);
-                }
-            }
-        }
-
-        // Step 3: Get sync token for incremental updates
-        let sync_token = self.get_sync_token(&ab_url).await.unwrap_or_default();
-
-        tracing::info!(
-            "CardDAV: {} Kontakte von {} synchronisiert",
-            contacts.len(),
-            ab_url,
-        );
+        // Step 3: a token for incremental updates — only with one address
+        // book; with several the next sync fetches everything again.
+        let sync_token = if urls.len() == 1 {
+            self.get_sync_token(&urls[0]).await.unwrap_or_default()
+        } else {
+            String::new()
+        };
         Ok((contacts, sync_token))
     }
 

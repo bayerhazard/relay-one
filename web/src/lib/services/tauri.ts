@@ -1524,8 +1524,9 @@ export interface ContactInput {
   organization: string;
 }
 
-/** Where contacts come from: the address book or collected from mail. */
-export type KontaktQuelle = "alle" | "adressbuch" | "mail";
+/** Where contacts come from: the address book, one of its lists
+ *  ("liste:<uid>"), or collected from mail. */
+export type KontaktQuelle = "alle" | "adressbuch" | "mail" | `liste:${string}`;
 
 export async function listContacts(search = "", quelle: KontaktQuelle = "alle"): Promise<ContactInfo[]> {
   const q = new URLSearchParams();
@@ -1535,10 +1536,18 @@ export async function listContacts(search = "", quelle: KontaktQuelle = "alle"):
   return get<ContactInfo[]>(`/contacts${s ? `?${s}` : ""}`, "Kontakte konnten nicht geladen werden.");
 }
 
+export interface KontaktListe {
+  uid: string;
+  name: string;
+  zahl: number;
+}
+
 export interface KontaktZahlen {
   alle: number;
   adressbuch: number;
   mail: number;
+  /** The address book's lists (Apple's groups in iCloud). */
+  listen?: KontaktListe[];
 }
 
 export async function contactZahlen(): Promise<KontaktZahlen> {

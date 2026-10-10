@@ -82,6 +82,9 @@ MAILS = [
     ("Sent", ICH, "Unterlagen für Dienstag",
      "Hallo Tobias,\n\nanbei die Unterlagen für Dienstag.\n\nErika",
      22, ["\\Seen"], ("unterlagen.txt", "text/plain")),
+    ("Sent", ICH, "Anfrage Standbau",
+     "Guten Tag Herr Kühn,\n\nkönnen Sie uns bis Ende des Monats ein Angebot schicken?\n\nErika Muster",
+     30, ["\\Seen"], None),
     ("Drafts", ICH, "Rückmeldung Broschüre",
      "Hallo Lena,\n\nmir gefällt Variante",
      4, ["\\Seen", "\\Draft"], None),
@@ -107,6 +110,9 @@ ABMELDEN = {
 EMPFAENGER = {
     "Re: Angebot Messestand Frühjahr": ("Jonas Weber", "jonas.weber@beispiel.de"),
     "Unterlagen für Dienstag": ("Tobias Krüger", "t.krueger@beispiel.org"),
+    # Not in the address book: Erika wrote to him, so he is a "weiterer
+    # Kontakt" (26.10.25) — the senders who only wrote to her are not.
+    "Anfrage Standbau": ("Max Kühn", "m.kuehn@standbau.example"),
     "Rückmeldung Broschüre": ("Lena Hoffmann", "lena@hoffmann-design.example"),
 }
 
@@ -201,7 +207,16 @@ def kontakte_einlegen():
             zeilen.append(f"ORG:{firma}")
         zeilen.append("END:VCARD")
         dav("PUT", f"/{USER}/kontakte/{uid}.vcf", "\r\n".join(zeilen) + "\r\n", "text/vcard; charset=utf-8")
-    print(f"Kontakte: {len(KONTAKTE)}")
+    # A company without a person's name (a building in the list) and a list
+    # as Apple keeps it in iCloud: a vCard of its own naming its members.
+    firma = ["BEGIN:VCARD", "VERSION:3.0", "UID:firma-messebau", "N:;;;;", "FN:Messe Nord GmbH",
+             "ORG:Messe Nord GmbH", "X-ABShowAs:COMPANY", "TEL;TYPE=WORK:+49 511 8900", "END:VCARD"]
+    dav("PUT", f"/{USER}/kontakte/firma-messebau.vcf", "\r\n".join(firma) + "\r\n", "text/vcard; charset=utf-8")
+    mitglieder = [str(uuid.uuid5(uuid.NAMESPACE_URL, m)) for m in ("jonas.weber@beispiel.de", "lena@hoffmann-design.example")]
+    liste = ["BEGIN:VCARD", "VERSION:3.0", "UID:liste-messe", "N:Messe", "FN:Messe",
+             "X-ADDRESSBOOKSERVER-KIND:group"] + [f"X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:{u}" for u in mitglieder] + ["END:VCARD"]
+    dav("PUT", f"/{USER}/kontakte/liste-messe.vcf", "\r\n".join(liste) + "\r\n", "text/vcard; charset=utf-8")
+    print(f"Kontakte: {len(KONTAKTE)} und eine Firma, eine Liste")
 
 
 def tag(versatz):
@@ -321,6 +336,11 @@ def relay_verbinden(basis):
         time.sleep(1)
     else:
         raise SystemExit(f"Relay hat nach 3 min erst {len(da)} von {erwartet} Mails im Posteingang.")
+    # "Weitere Kontakte" come from the sent mails, which sync after the inbox.
+    for _ in range(90):
+        if relay(basis, "GET", "/contacts/zahlen")["mail"] >= 1:
+            break
+        time.sleep(1)
     print(f"Relay: Konto {konto} verbunden, {len(da)} Mails im Posteingang, Kontakte, Kalender und Aufgaben abgeglichen")
 
 

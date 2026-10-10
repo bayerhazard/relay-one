@@ -318,6 +318,12 @@ pub async fn send_message(
         });
     }
 
+    // The people written to become "Weitere Kontakte" (26.10.25): the sent
+    // copy is a local folder the sync does not read again.
+    if !all_recipients.is_empty() {
+        let _ = with_db(&state, |conn| crate::cache::contacts::nach_dem_senden(conn, &all_recipients));
+    }
+
     // Queue diff for learning loop (AI draft vs user's final text)
     if let Some(ref draft) = req.ai_draft {
         if !draft.is_empty() && req.to.len() == 1 {

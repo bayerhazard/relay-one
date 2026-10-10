@@ -96,6 +96,56 @@ pub fn parse_vcard(raw: &str) -> Contact {
     contact
 }
 
+/// A list of contacts kept as a vCard of its own: Apple's groups in iCloud
+/// (`X-ADDRESSBOOKSERVER-KIND:group`) and vCard 4 (`KIND:group`). Kai's
+/// lists Arbeit, Firmen, Fußball and Politik are such cards (10.10.2026);
+/// before, Relay showed them as contacts without an address.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gruppe {
+    pub uid: String,
+    pub name: String,
+    pub mitglieder: Vec<String>,
+}
+
+pub fn gruppe(raw: &str) -> Option<Gruppe> {
+    let mut ist_gruppe = false;
+    let mut uid = String::new();
+    let mut name = String::new();
+    let mut mitglieder = Vec::new();
+    let mut zeilen: Vec<String> = Vec::new();
+    for line in raw.lines() {
+        if (line.starts_with(' ') || line.starts_with('\t')) && !zeilen.is_empty() {
+            zeilen.last_mut().unwrap().push_str(line.trim_start());
+        } else {
+            zeilen.push(line.trim_end_matches('\r').to_string());
+        }
+    }
+    for line in &zeilen {
+        let Some(idx) = line.find(':') else { continue };
+        let (prop, value) = (&line[..idx], line[idx + 1..].trim());
+        // Apple writes "item1.X-ADDRESSBOOKSERVER-…" at times.
+        let basis = prop.split(';').next().unwrap_or(prop);
+        let basis = basis.rsplit('.').next().unwrap_or(basis).to_ascii_uppercase();
+        match basis.as_str() {
+            "X-ADDRESSBOOKSERVER-KIND" | "KIND" => ist_gruppe |= value.eq_ignore_ascii_case("group"),
+            "X-ADDRESSBOOKSERVER-MEMBER" | "MEMBER" => {
+                let m = value
+                    .strip_prefix("urn:uuid:")
+                    .or_else(|| value.strip_prefix("URN:UUID:"))
+                    .unwrap_or(value);
+                if !m.is_empty() {
+                    mitglieder.push(m.to_string());
+                }
+            }
+            "FN" => name = value.to_string(),
+            "N" if name.is_empty() => name = value.split(';').next().unwrap_or("").to_string(),
+            "UID" => uid = value.to_string(),
+            _ => {}
+        }
+    }
+    (ist_gruppe && !uid.is_empty()).then_some(Gruppe { uid, name, mitglieder })
+}
+
 /// Build a minimal vCard 3.0 from the given fields (for creating a contact).
 pub fn build_vcard(
     uid: &str,
@@ -213,5 +263,17 @@ END:VCARD";
         assert!(vcard.contains("UID:uid-2"));
         assert!(!vcard.contains("EMAIL"));
         assert!(!vcard.contains("TEL"));
+    }
+
+    #[test]
+    fn apples_liste_ist_kein_kontakt() {
+        let raw = "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Fußball\r\nFN:Fußball\r\nX-ADDRESSBOOKSERVER-KIND:group\r\nX-ADDRESSBOOKSERVER-MEMBER:urn:uuid:A-1\r\nX-ADDRESSBOOKSERVER-MEMBER:urn:uuid:B-\r\n 2\r\nUID:G-1\r\nEND:VCARD\r\n";
+        let g = gruppe(raw).unwrap();
+        assert_eq!(g.name, "Fußball");
+        assert_eq!(g.uid, "G-1");
+        assert_eq!(g.mitglieder, vec!["A-1", "B-2"]);
+        let v4 = "BEGIN:VCARD\nVERSION:4.0\nKIND:group\nFN:Arbeit\nMEMBER:urn:uuid:C-3\nUID:G-2\nEND:VCARD";
+        assert_eq!(gruppe(v4).unwrap().mitglieder, vec!["C-3"]);
+        assert!(gruppe("BEGIN:VCARD\nFN:Max\nUID:x\nEND:VCARD").is_none());
     }
 }

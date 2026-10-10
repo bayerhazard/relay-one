@@ -45,12 +45,27 @@
   const QUELLE_MERKEN = "relay_kontakte_quelle";
   function gemerkteQuelle(): KontaktQuelle {
     try {
-      if (localStorage.getItem(QUELLE_MERKEN) === "mail") return "mail";
+      const q = localStorage.getItem(QUELLE_MERKEN);
+      if (q === "mail" || q?.startsWith("liste:")) return q as KontaktQuelle;
     } catch { /* no storage */ }
     return "alle";
   }
   let quelle = $state<KontaktQuelle>(gemerkteQuelle());
   let listenOffen = $state(false);
+  // The title of the chosen list; a list gone from the address book falls
+  // back to all contacts.
+  let quellenTitel = $derived.by(() => {
+    if (quelle === "mail") return translate("contacts.ausMails");
+    if (quelle.startsWith("liste:")) {
+      return zahlen?.listen?.find((l) => `liste:${l.uid}` === quelle)?.name || translate("contacts.liste");
+    }
+    return translate("contacts.alle");
+  });
+  $effect(() => {
+    if (zahlen && quelle.startsWith("liste:") && !zahlen.listen?.some((l) => `liste:${l.uid}` === quelle)) {
+      waehleQuelle("alle");
+    }
+  });
   let zahlen = $state<KontaktZahlen | null>(null);
   let spalteOffen = $state(false);
   let gewaehltUid = $state<string | null>(null);
@@ -340,6 +355,16 @@
         {#if zahlen}<span class="ct-zahl">{zahlen.alle}</span>{/if}
         <span class="ct-quelle-pfeil"><Symbol name="chevron-rechts" size={16} /></span>
       </button>
+      <!-- The address book's own lists (iCloud: Arbeit, Fußball …). -->
+      {#each zahlen?.listen ?? [] as l (l.uid)}
+        {@const q = `liste:${l.uid}` as KontaktQuelle}
+        <button type="button" class="ct-quelle ct-quelle-liste" class:active={quelle === q} aria-current={quelle === q ? "page" : undefined} onclick={() => waehleQuelle(q)}>
+          <Symbol name="liste" size={20} />
+          <span class="ct-quelle-name">{l.name || $t("contacts.liste")}</span>
+          <span class="ct-zahl">{l.zahl}</span>
+          <span class="ct-quelle-pfeil"><Symbol name="chevron-rechts" size={16} /></span>
+        </button>
+      {/each}
     </div>
     <div class="ct-listen-gruppe">
       <button type="button" class="ct-quelle" class:active={quelle === "mail"} aria-current={quelle === "mail" ? "page" : undefined} onclick={() => waehleQuelle("mail")}>
@@ -379,7 +404,7 @@
           </button>
         </div>
         <div class="seitenkopf-zeile">
-          <h1>{quelle === "mail" ? $t("contacts.ausMails") : $t("contacts.alle")}</h1>
+          <h1>{quellenTitel}</h1>
           <span class="seitenkopf-zahl">{contacts.length}</span>
         </div>
         <div class="btn-reihe">
@@ -523,7 +548,7 @@
               <span>{$t("contacts.aktionVerlauf")}</span>
             </button>
           </div>
-          {#if c.email || c.phone || c.organization}
+          {#if c.email || c.phone || (c.organization && !istFirma(c))}
             <dl class="karte ct-angaben">
               {#if c.email}
                 <div class="ct-angabe">
@@ -537,7 +562,7 @@
                   <dd><a class="ct-link" href={telHref(c.phone)} title={$t("contacts.call")}>{c.phone}</a></dd>
                 </div>
               {/if}
-              {#if c.organization}
+              {#if c.organization && !istFirma(c)}
                 <div class="ct-angabe">
                   <dt>{$t("contacts.organization")}</dt>
                   <dd>{c.organization}</dd>
@@ -720,6 +745,9 @@
   .ct-quelle.active > :global(svg) { color: var(--am-gold-beschriftung); }
   .ct-quelle-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ct-quelle-pfeil { display: none; color: var(--am-text-gedaempft); }
+  /* A list stands under "Alle Kontakte", one step in. */
+  .ct-quelle-liste { padding-inline-start: var(--am-raum-6); }
+  .ct-listen-seite .ct-quelle + .ct-quelle { border-top: 1px solid var(--am-rand); }
   .ct-zahl { font-size: var(--fs-xs); font-weight: 400; color: var(--am-text-gedaempft); }
   /* The lists as a page of their own on the phone: rows as large as a
      finger, in a card, as the iPhone's groups. */
