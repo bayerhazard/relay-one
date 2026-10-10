@@ -766,7 +766,6 @@
   /* "‹ Listen" above the title where the column is not shown. */
   .ct-kopf { flex-wrap: wrap; }
   .ct-kopf-oben { display: none; flex-basis: 100%; }
-  .ct-zu-listen { margin-inline-start: calc(-1 * var(--am-raum-2)); }
   @media (max-width: 1023px) {
     .ct-kopf-oben { display: block; }
     .ct-mit-listen .ct-listen-seite { display: block; grid-column: 1 / -1; }
@@ -879,7 +878,7 @@
      no poster, no gradient, no glass (CI). */
   .ct-detail { padding: var(--am-raum-4) var(--am-raum-8) var(--am-raum-8); max-width: 640px; margin-inline: auto; }
   .ct-detail-leiste { display: flex; align-items: center; justify-content: flex-end; gap: var(--am-raum-2); min-height: 40px; }
-  .ct-zurueck { display: none; margin-inline-end: auto; margin-inline-start: calc(-1 * var(--am-raum-2)); }
+  .ct-zurueck { display: none; margin-inline-end: auto; }
   .ct-detail-kopf { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--am-raum-2); margin-top: var(--am-raum-2); }
   .ct-avatar-gross { width: 96px; height: 96px; min-width: 96px; font-size: 2.25rem; font-weight: 600; }
   .ct-avatar-gross.ct-avatar-firma { border-radius: var(--am-radius-gross); }
