@@ -595,7 +595,7 @@
      side by side, as the mail list and its reading pane. */
   .ct-main {
     display: grid;
-    grid-template-columns: minmax(280px, 380px) 1fr;
+    grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
     min-height: 0;
     height: 100%;
   }
@@ -604,11 +604,12 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
     border-right: 1px solid var(--am-rand);
   }
   .ct-kopf { padding-inline: var(--am-raum-4); flex-shrink: 0; }
   .ct-inhalt { flex: 1; min-height: 0; overflow-y: auto; }
-  .ct-detail-spalte { min-height: 0; overflow-y: auto; }
+  .ct-detail-spalte { min-width: 0; min-height: 0; overflow-y: auto; }
 
   /* ── The sources [RL-KONTAKTE] ────────────────────────────────────────── */
   .ct-quellen { display: flex; flex-direction: column; gap: 2px; }
@@ -833,7 +834,7 @@
   .ct-aktion:focus-visible { outline: 2px solid var(--am-fokus-ring); outline-offset: 2px; }
   .ct-angaben {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: var(--am-raum-2) var(--am-raum-6);
     margin: 0 0 var(--am-raum-6);
     font-size: var(--fs-base);
@@ -874,7 +875,7 @@
   /* ── Narrow [RL-KONTAKTE] ────────────────────────────────────────────── */
   /* The list alone; a chosen contact takes its place, "Zurück" leads back. */
   @media (max-width: 52rem) {
-    .ct-main { grid-template-columns: 1fr; }
+    .ct-main { grid-template-columns: minmax(0, 1fr); }
     .ct-liste-spalte { border-right: none; }
     .ct-detail-spalte { display: none; }
     .ct-mit-auswahl .ct-liste-spalte { display: none; }

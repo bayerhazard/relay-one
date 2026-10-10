@@ -482,6 +482,15 @@ test("Kontakte am Handy: Umschalter statt Blatt", async ({ page, context }, info
   const umschalter = page.locator(".ct-umschalter");
   await expect(umschalter.getByRole("button", { name: "Alle" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Neuer Kontakt" })).toBeVisible();
+  // One long address without a break once pushed the whole column past the
+  // phone (Kai, 10.10.2026): the head's buttons, the switch and the index
+  // ran off to the right. It ends in "…" now; the page keeps its width.
+  await page.locator(".ct-item-sub").first().evaluate((e) => {
+    e.textContent = "bounce-mc.us12_123456789.987654321@mail.eine-sehr-lange-domain-ohne-umbruch.example.com";
+  });
+  expect(await page.locator(".ct-main").evaluate((e) => e.scrollWidth), "Liste bleibt in der Breite")
+    .toBeLessThanOrEqual(page.viewportSize()!.width);
+  await expect(page.getByRole("button", { name: "Neuer Kontakt" })).toBeInViewport({ ratio: 1 });
   await umschalter.getByRole("button", { name: "Adressbuch" }).click();
   await expect(page.locator(".ct-kopf h1")).toHaveText("Mein Adressbuch");
   await page.reload();
