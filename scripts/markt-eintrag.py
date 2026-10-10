@@ -314,10 +314,19 @@ def main() -> None:
     if roh[:2] != b"\x1f\x8b":
         raise SystemExit("Chart ist kein gzip")
     b64 = base64.b64encode(roh).decode()
-    schluessel = list(re.finditer(r'\n\s*"relay-[0-9.]+\.tgz": "[A-Za-z0-9+/=]+",?', lib))
-    if len(schluessel) != 1:
-        raise SystemExit(f"_lib.ts: {len(schluessel)} Relay-Schlüssel statt einem")
-    k = schluessel[0]
+    muster = r'\n\s*"relay-[0-9.]+\.tgz": "[A-Za-z0-9+/=]+",?'
+    schluessel = list(re.finditer(muster, lib))
+    if not schluessel:
+        raise SystemExit("_lib.ts: kein Relay-Schlüssel")
+    # Marc's tooling merges the market from two lineages and can bring an
+    # old chart key back (10.10.2026: relay-26.10.2 beside 26.10.24). The
+    # market serves one Relay chart; the surplus old keys go, from the end
+    # so the earlier positions stay valid.
+    for alt_k in reversed(schluessel[1:]):
+        name = re.search(r'"(relay-[0-9.]+\.tgz)"', alt_k.group(0)).group(1)
+        print(f"_lib.ts: überzähliger Relay-Schlüssel {name} entfernt", file=sys.stderr)
+        lib = lib[: alt_k.start()] + lib[alt_k.end():]
+    k = re.search(muster, lib)
     komma = "," if k.group(0).endswith(",") else ""
     einrueck = re.match(r"\n(\s*)", k.group(0)).group(1)
     lib = lib[: k.start()] + f'\n{einrueck}"relay-{v}.tgz": "{b64}"{komma}' + lib[k.end():]
